@@ -2,7 +2,8 @@
 namespace App\API\Includes;
 
 require_once __DIR__ . '/../../vendor/autoload.php';
-require_once __DIR__ . '/../../config/config.php';
+use App\Config\Config;
+Config::init();
 require_once __DIR__ . '/helpers.php';
 
 use App\Database\Database;
@@ -320,10 +321,11 @@ class BaseAPI
 
     protected function getPaginationParams()
     {
-        $page = isset($_GET['page']) ? (int) $_GET['page'] : 1;
-        $limit = isset($_GET['limit']) ?
-            min((int) $_GET['limit'], MAX_PAGE_SIZE) :
-            DEFAULT_PAGE_SIZE;
+        $maxPageSize     = defined('MAX_PAGE_SIZE')     ? \MAX_PAGE_SIZE     : 100;
+        $defaultPageSize = defined('DEFAULT_PAGE_SIZE') ? \DEFAULT_PAGE_SIZE : 10;
+
+        $page   = isset($_GET['page'])  ? (int) $_GET['page']  : 1;
+        $limit  = isset($_GET['limit']) ? min((int) $_GET['limit'], $maxPageSize) : $defaultPageSize;
         $offset = ($page - 1) * $limit;
         return [$page, $limit, $offset];
     }
