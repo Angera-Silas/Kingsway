@@ -127,11 +127,9 @@ const PayrollManagerController = {
   loadStaffList: async function () {
     try {
       const response = await API.finance.getStaffForPayroll();
-
-      if (response.success) {
-        this.staff = response.data || [];
-        this.populateStaffSelect();
-      }
+      // apiCall unwraps the response — response IS the data array
+      this.staff = Array.isArray(response) ? response : (response?.data || []);
+      this.populateStaffSelect();
     } catch (error) {
       console.error("Error loading staff:", error);
     }

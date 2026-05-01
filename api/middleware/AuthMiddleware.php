@@ -29,6 +29,7 @@ class AuthMiddleware
         $publicEndpoints = [
             'auth/login',
             'auth/register',
+            'auth/forgot-password',
             'auth/reset-password',
             'auth/complete-reset',
             'auth/verify-reset-token',

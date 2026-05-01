@@ -1159,9 +1159,9 @@ window.API = {
       }
     },
     forgotPassword: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }),
+      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
     resetPassword: async (token, password) =>
-      apiCall("/auth/reset-password", "POST", { token, password }),
+      apiCall("/auth/reset-password", "POST", { token, password }, {}, { checkPermission: false }),
     refreshToken: async () => {
       const refreshToken = localStorage.getItem("refresh_token");
       const response = await apiCall(
@@ -2925,10 +2925,13 @@ window.API = {
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
     assignSubject: async (data) =>
       apiCall("/staff/assign-subject", "POST", data),
-    getAssignments: async (id = null) =>
-      id
-        ? apiCall(`/staff/assignments-get/${id}`, "GET")
-        : apiCall("/staff/assignments-get", "GET"),
+    getAssignments: async (idOrParams = null) => {
+      if (idOrParams && typeof idOrParams === "object")
+        return apiCall("/staff/assignments-get", "GET", idOrParams);
+      return idOrParams
+        ? apiCall(`/staff/assignments-get/${idOrParams}`, "GET")
+        : apiCall("/staff/assignments-get", "GET");
+    },
     getCurrentAssignments: async (staffId) =>
       apiCall(`/staff/assignments-current?staff_id=${staffId}`, "GET"),
     getWorkload: async (id = null) =>
@@ -3894,14 +3897,20 @@ window.API = {
 
   resetPassword: {
     request: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }),
+      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
     verify: async (token) =>
-      apiCall("/auth/reset-password", "GET", null, { token }),
+      apiCall("/auth/reset-password", "GET", null, { token }, { checkPermission: false }),
     complete: async (token, newPassword) =>
-      apiCall("/auth/reset-password", "POST", {
-        token,
-        new_password: newPassword,
-      }),
+      apiCall(
+        "/auth/reset-password",
+        "POST",
+        {
+          token,
+          new_password: newPassword,
+        },
+        {},
+        { checkPermission: false }
+      ),
   },
 
   // Dashboard Statistics endpoints

@@ -1251,7 +1251,7 @@ class FinanceController extends BaseController
         if ($id) {
             $row = $this->db->query(
                 "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                        u.full_name AS recorded_by_name, a.full_name AS approved_by_name
+                        CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
                  FROM expenses e
                  LEFT JOIN expense_categories ec ON ec.id = e.category_id
                  LEFT JOIN users u ON u.id = e.created_by
@@ -1275,7 +1275,7 @@ class FinanceController extends BaseController
             $params = array_merge($params, [$s, $s, $s]);
         }
         $sql = "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                       u.full_name AS recorded_by_name, a.full_name AS approved_by_name
+                       CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
                 FROM expenses e
                 LEFT JOIN expense_categories ec ON ec.id = e.category_id
                 LEFT JOIN users u ON u.id = e.created_by
@@ -1395,7 +1395,7 @@ class FinanceController extends BaseController
         if (!empty($data['date_to']))   { $where[] = 'transaction_date<=?';   $params[] = $data['date_to']; }
         if (!empty($data['category_id'])){ $where[] = 'category_id=?';       $params[] = $data['category_id']; }
         $txns = $this->db->query(
-            "SELECT t.*, ec.name AS category_name, u.full_name AS recorded_by_name
+            "SELECT t.*, ec.name AS category_name, CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name
              FROM petty_cash_transactions t
              LEFT JOIN expense_categories ec ON ec.id = t.category_id
              LEFT JOIN users u ON u.id = t.recorded_by
@@ -1452,7 +1452,7 @@ class FinanceController extends BaseController
     {
         if (!empty($data['date'])) {
             $session = $this->db->query(
-                "SELECT s.*, u.full_name AS cashier_name, a.full_name AS approved_by_name
+                "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
                  FROM cash_reconciliation_sessions s
                  LEFT JOIN users u ON u.id = s.cashier_id
                  LEFT JOIN users a ON a.id = s.approved_by
@@ -1462,7 +1462,7 @@ class FinanceController extends BaseController
             return $this->success($session ?: null);
         }
         $rows = $this->db->query(
-            "SELECT s.*, u.full_name AS cashier_name
+            "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name
              FROM cash_reconciliation_sessions s
              LEFT JOIN users u ON u.id = s.cashier_id
              ORDER BY s.reconciliation_date DESC LIMIT 60"
@@ -1510,7 +1510,7 @@ class FinanceController extends BaseController
         if (!empty($data['student_id'])) { $where[] = 'fa.student_id=?';   $params[] = $data['student_id']; }
         $rows = $this->db->query(
             "SELECT fa.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    u.full_name AS requested_by_name, a.full_name AS approved_by_name
+                    CONCAT(u.first_name, ' ', u.last_name) AS requested_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
              FROM financial_adjustments fa
              LEFT JOIN students s ON s.id = fa.student_id
              LEFT JOIN users u ON u.id = fa.requested_by
@@ -1587,7 +1587,7 @@ class FinanceController extends BaseController
         if (!empty($data['status']))   { $where[] = 'status=?';   $params[] = $data['status']; }
         if (!empty($data['severity'])) { $where[] = 'severity=?'; $params[] = $data['severity']; }
         $rows = $this->db->query(
-            "SELECT fe.*, u.full_name AS resolved_by_name
+            "SELECT fe.*, CONCAT(u.first_name, ' ', u.last_name) AS resolved_by_name
              FROM finance_exceptions fe
              LEFT JOIN users u ON u.id = fe.resolved_by
              WHERE " . implode(' AND ', $where) . " ORDER BY FIELD(severity,'critical','high','medium','low'), created_at DESC LIMIT 200",
@@ -1634,7 +1634,7 @@ class FinanceController extends BaseController
             return $this->success(['budget' => $budget, 'line_items' => $lines]);
         }
         $rows = $this->db->query(
-            "SELECT b.*, u.full_name AS created_by_name,
+            "SELECT b.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
                     COALESCE(SUM(bl.spent_amount),0) AS total_spent,
                     COALESCE(SUM(bl.allocated_amount),0) AS total_allocated
              FROM budgets b
@@ -1710,7 +1710,7 @@ class FinanceController extends BaseController
         $rows = $this->db->query(
             "SELECT fdw.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
                     s.admission_number, c.name AS class_name,
-                    u.full_name AS approved_by_name
+                    CONCAT(u.first_name, ' ', u.last_name) AS approved_by_name
              FROM fee_discounts_waivers fdw
              JOIN students s ON s.id = fdw.student_id
              LEFT JOIN classes c ON c.id = s.class_id
@@ -1980,5 +1980,72 @@ class FinanceController extends BaseController
         }
 
         return $this->error('Unknown action');
+    }
+
+    /**
+     * GET /api/finance/unmatched-payments
+     * List payments that have not been matched to student fee obligations.
+     */
+    public function getUnmatchedPayments($id = null, $data = [], $segments = [])
+    {
+        try {
+            $page  = max(1, (int) ($_GET['page']  ?? $data['page']  ?? 1));
+            $limit = max(1, min(200, (int) ($_GET['limit'] ?? $data['limit'] ?? 50)));
+            $offset = ($page - 1) * $limit;
+
+            $sql = "SELECT
+                        p.id, p.receipt_number, p.reference_number,
+                        p.amount, p.payment_date, p.payment_method,
+                        p.status, p.notes,
+                        CONCAT(u.first_name, ' ', u.last_name) AS payer_name,
+                        u.email AS payer_email
+                    FROM payments p
+                    LEFT JOIN users u ON u.id = p.user_id
+                    WHERE p.status IN ('unmatched', 'pending')
+                      AND p.deleted_at IS NULL
+                    ORDER BY p.payment_date DESC
+                    LIMIT ? OFFSET ?";
+
+            $rows = $this->db->query($sql, [$limit, $offset])->fetchAll();
+
+            $total = (int) $this->db->query(
+                "SELECT COUNT(*) FROM payments WHERE status IN ('unmatched','pending') AND deleted_at IS NULL"
+            )->fetchColumn();
+
+            return $this->success([
+                'data'       => $rows,
+                'total'      => $total,
+                'page'       => $page,
+                'per_page'   => $limit,
+                'total_pages'=> (int) ceil($total / $limit),
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to fetch unmatched payments: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/finance/unmatched-payments/match
+     * Manually match an unmatched payment to a student obligation.
+     */
+    public function postUnmatchedPaymentsMatch($id = null, $data = [], $segments = [])
+    {
+        $paymentId  = $data['payment_id']  ?? null;
+        $studentId  = $data['student_id']  ?? null;
+        $obligationId = $data['obligation_id'] ?? null;
+
+        if (!$paymentId) {
+            return $this->badRequest('payment_id is required');
+        }
+
+        try {
+            $this->db->query(
+                "UPDATE payments SET status = 'matched', student_id = ?, obligation_id = ?, updated_at = NOW() WHERE id = ?",
+                [$studentId, $obligationId, $paymentId]
+            );
+            return $this->success(null, 'Payment matched successfully');
+        } catch (\Exception $e) {
+            return $this->error('Failed to match payment: ' . $e->getMessage());
+        }
     }
 }

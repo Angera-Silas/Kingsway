@@ -575,7 +575,7 @@ class StaffPayrollManager extends BaseAPI
                 'payroll_year' => $payslip['payroll_year']
             ]);
 
-            if ($result['success']) {
+            if (($result['status'] ?? '') === 'success') {
                 $this->logAction('download', $payslipId, "Staff ID $staffId downloaded payslip ID $payslipId");
                 $result['message'] = 'Payslip ready for download';
             }
@@ -595,7 +595,7 @@ class StaffPayrollManager extends BaseAPI
         try {
             $result = $this->getPayrollHistory($staffId, ['year' => $year]);
 
-            if (!$result['success']) {
+            if (($result['status'] ?? '') !== 'success') {
                 return $result;
             }
 
@@ -1076,7 +1076,7 @@ class StaffPayrollManager extends BaseAPI
             $childFeesDeduction = 0;
             $childFeesBreakdown = [];
 
-            if ($childFeesResult['success'] && !empty($childFeesResult['data']['children_breakdown'])) {
+            if (($childFeesResult['status'] ?? '') === 'success' && !empty($childFeesResult['data']['children_breakdown'])) {
                 $childFeesDeduction = $childFeesResult['data']['total_child_fee_deduction'];
                 $childFeesBreakdown = $childFeesResult['data']['children_breakdown'];
             }

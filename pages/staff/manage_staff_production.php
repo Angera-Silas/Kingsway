@@ -1301,25 +1301,9 @@
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
-<!-- Load Core Staff Controller -->
-<script src="<?= $appBase ?>/js/pages/staff.js"></script>
-
-<!-- Production-Level UI Enhancements Script -->
-<script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>
+<!-- staff.js and staff_production_ui.js are loaded by manage_staff.php to avoid duplicates -->
 
 <script>
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Staff Management Production] Initializing advanced UI...');
-        
-        // Initialize staff management controller
-        if (typeof staffManagementController !== 'undefined') {
-            staffManagementController.init();
-        }
-        
-        // Initialize production UI enhancements
-        if (typeof StaffProductionUI !== 'undefined') {
-            StaffProductionUI.init();
-        }
-    });
+    // Initialization is handled by manage_staff.php after staff_production_ui.js loads
+    console.log('[Staff Management Production] Template loaded');
 </script>
