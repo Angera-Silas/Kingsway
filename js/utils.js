@@ -78,13 +78,17 @@ const KWUtils = (() => {
      */
     function showToast(message, type) {
         type = type || "success";
-        const el = document.createElement("div");
-        const bsType = type === "error" ? "danger" : type;
+        var bsType = type === "error" ? "danger" : type;
+        var el = document.createElement("div");
         el.className = "alert alert-" + bsType +
             " alert-dismissible position-fixed top-0 end-0 m-3";
         el.style.zIndex = "9999";
-        el.innerHTML = escapeHtml(message) +
-            '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+        el.textContent = message;
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-close";
+        btn.setAttribute("data-bs-dismiss", "alert");
+        el.appendChild(btn);
         document.body.appendChild(el);
         setTimeout(function () { el.remove(); }, 4000);
     }
