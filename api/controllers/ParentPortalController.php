@@ -213,7 +213,9 @@ class ParentPortalController extends BaseController
                 Database::getInstance()
                     ->prepare("UPDATE parent_portal_sessions SET status = 'revoked' WHERE id = :id")
                     ->execute([':id' => $auth['session_id']]);
-            } catch (Exception $e) {}
+            } catch (Exception $e) {
+                error_log('ParentPortalController::postLogout failed to revoke session: ' . $e->getMessage());
+            }
         }
         return $this->success(['message' => 'Logged out successfully']);
     }
@@ -405,7 +407,9 @@ class ParentPortalController extends BaseController
                     ':sid' => $id,
                     ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
                 ]);
-            } catch (Exception $e) {}
+            } catch (Exception $e) {
+                error_log('ParentPortalController: failed to log statement download: ' . $e->getMessage());
+            }
 
             return $this->success([
                 'student'      => $student,

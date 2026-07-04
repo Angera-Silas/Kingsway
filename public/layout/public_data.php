@@ -17,7 +17,10 @@ function kw_db(): ?PDO {
             \App\Config\Config::get('DB_PASS',''),
             [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
         );
-    } catch (\Throwable $e) { $pdo = null; }
+    } catch (\Throwable $e) {
+        error_log('public_data.php: DB connection failed, falling back to demo data: ' . $e->getMessage());
+        $pdo = null;
+    }
     return $pdo;
 }
 
@@ -76,7 +79,9 @@ function kw_increment_news_views(int $id): void {
     $db = kw_db();
     if (!$db) return;
     try { $db->prepare("UPDATE news_articles SET views = views + 1 WHERE id = ?")->execute([$id]); }
-    catch (\Throwable $e) {}
+    catch (\Throwable $e) {
+        error_log('public_data.php: kw_increment_news_views failed for id ' . $id . ': ' . $e->getMessage());
+    }
 }
 
 /* ── Events ────────────────────────────────────────────────────────────────── */

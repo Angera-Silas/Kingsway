@@ -148,19 +148,25 @@ class CounselingController extends BaseController
                 "SELECT COUNT(*) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
             );
             $stats['sessions_this_week'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CounselingController::getStats sessions_this_week query failed: ' . $e->getMessage());
+        }
         try {
             $stmt = $db->query(
                 "SELECT COUNT(DISTINCT student_id) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
             );
             $stats['students_seen'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CounselingController::getStats students_seen query failed: ' . $e->getMessage());
+        }
         try {
             $stmt = $db->query(
                 "SELECT COUNT(*) FROM counseling_referrals WHERE status = 'pending'"
             );
             $stats['pending_referrals'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CounselingController::getStats pending_referrals query failed: ' . $e->getMessage());
+        }
         return $this->success($stats);
     }
 
@@ -184,6 +190,7 @@ class CounselingController extends BaseController
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->success($rows ?: []);
         } catch (\Exception $e) {
+            error_log('CounselingController::getSessions query failed: ' . $e->getMessage());
             return $this->success([]);
         }
     }

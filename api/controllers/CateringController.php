@@ -31,22 +31,30 @@ class CateringController extends BaseController
         try {
             $stmt = $db->query("SELECT COUNT(*) FROM meal_records WHERE DATE(served_at) = CURDATE()");
             $stats['meals_today'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CateringController::getStats meals_today query failed: ' . $e->getMessage());
+        }
 
         try {
             $stmt = $db->query("SELECT COUNT(*) FROM food_store");
             $stats['food_items'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CateringController::getStats food_items query failed: ' . $e->getMessage());
+        }
 
         try {
             $stmt = $db->query("SELECT COUNT(*) FROM food_store WHERE quantity <= reorder_level");
             $stats['low_stock'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CateringController::getStats low_stock query failed: ' . $e->getMessage());
+        }
 
         try {
             $stmt = $db->query("SELECT COALESCE(SUM(total_cost),0) FROM meal_records WHERE DATE(served_at) = CURDATE()");
             $stats['daily_cost'] = (float)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('CateringController::getStats daily_cost query failed: ' . $e->getMessage());
+        }
 
         return $this->success($stats);
     }
@@ -66,6 +74,7 @@ class CateringController extends BaseController
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->success($rows ?: []);
         } catch (\Exception $e) {
+            error_log('CateringController::getMenu query failed: ' . $e->getMessage());
             return $this->success([]);
         }
     }
@@ -88,6 +97,7 @@ class CateringController extends BaseController
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             return $this->success($rows ?: []);
         } catch (\Exception $e) {
+            error_log('CateringController::getFoodStock query failed: ' . $e->getMessage());
             return $this->success([]);
         }
     }

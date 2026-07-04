@@ -175,6 +175,7 @@ class DirectorAnalyticsService
             $this->db->query("SELECT 1");
             return 'Healthy';
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getSystemHealthStatus DB check failed: ' . $e->getMessage());
             return 'Unhealthy';
         }
     }
@@ -281,6 +282,7 @@ class DirectorAnalyticsService
                     $outstanding = max(0, $estimatedTotal - $result['fees_collected_ytd']);
                 }
             } catch (\Exception $e) {
+                error_log('DirectorAnalyticsService::getSummaryKPIs fees_outstanding estimate failed: ' . $e->getMessage());
                 $outstanding = 0;
             }
         }
@@ -335,6 +337,7 @@ class DirectorAnalyticsService
             $stmt = $this->db->query($query);
             $result['system_alerts'] = $stmt->fetch()['total'] ?? 0;
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: system_alerts query failed: ' . $e->getMessage());
             $result['system_alerts'] = 0;
         }
 
@@ -346,6 +349,7 @@ class DirectorAnalyticsService
                 return ['source' => ucfirst($r['gender'] ?? 'Unknown'), 'amount' => (int) $r['cnt']];
             }, $genderRows);
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: students_by_gender query failed: ' . $e->getMessage());
             $result['students_by_gender'] = [];
         }
 
@@ -357,6 +361,7 @@ class DirectorAnalyticsService
                 return ['source' => $r['role'] ?? 'Unknown', 'amount' => (int) $r['cnt']];
             }, $rows);
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: staff_by_role query failed: ' . $e->getMessage());
             $result['staff_by_role'] = [];
         }
 
@@ -386,6 +391,7 @@ class DirectorAnalyticsService
                 ];
             }, $rows);
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: staff_by_department query failed: ' . $e->getMessage());
             $result['staff_by_department'] = [];
         }
 
@@ -446,6 +452,7 @@ class DirectorAnalyticsService
                 ]
             ];
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: age_distribution query failed: ' . $e->getMessage());
             $result['age_distribution'] = [];
             $result['staff_age_distribution'] = [];
             $result['combined_age_summary'] = ['students' => ['total' => 0, 'distribution' => []], 'staff' => ['total' => 0, 'distribution' => []]];
@@ -482,6 +489,7 @@ class DirectorAnalyticsService
                 ];
             }, $rows);
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getFinancialTrends query failed: ' . $e->getMessage());
             return [];
         }
     }
@@ -513,6 +521,7 @@ class DirectorAnalyticsService
                 ];
             }, $rows);
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getRevenueSources query failed: ' . $e->getMessage());
             return [];
         }
     }
@@ -538,12 +547,16 @@ class DirectorAnalyticsService
         try {
             $row = $this->db->query("SELECT COUNT(*) as cnt FROM classes WHERE status = 'active'")->fetch();
             $result['active_classes'] = (int) ($row['cnt'] ?? 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getAcademicKPIs active_classes query failed: ' . $e->getMessage());
+        }
 
         try {
             $row = $this->db->query("SELECT COUNT(*) as cnt FROM students WHERE status = 'active'")->fetch();
             $result['total_students'] = (int) ($row['cnt'] ?? 0);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getAcademicKPIs total_students query failed: ' . $e->getMessage());
+        }
 
         // Merge avg and pass-rate into one scan of assessment_results JOIN assessments
         try {
@@ -569,14 +582,18 @@ class DirectorAnalyticsService
             $rate   = $total > 0 ? round($passed / $total * 100, 1) : 0.0;
             $result['pass_rate_percent'] = $rate;
             $result['pass_rate']         = $rate;
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getAcademicKPIs pass_rate query failed: ' . $e->getMessage());
+        }
 
         try {
             $row = $this->db->query(
                 "SELECT (SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)) * 100 as dropout_rate FROM students"
             )->fetch();
             $result['dropout_rate'] = round((float) ($row['dropout_rate'] ?? 0), 1);
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getAcademicKPIs dropout_rate query failed: ' . $e->getMessage());
+        }
 
         return $result;
     }
@@ -614,6 +631,7 @@ class DirectorAnalyticsService
                 return $rows;
             }
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getPerformanceMatrix primary query failed, using class-only fallback: ' . $e->getMessage());
             // fall through to class-only fallback
         }
 
@@ -634,6 +652,7 @@ class DirectorAnalyticsService
             $stmt = $this->db->query($fallbackQuery);
             return $stmt->fetchAll();
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService::getPerformanceMatrix fallback query failed: ' . $e->getMessage());
             return [];
         }
     }
@@ -903,7 +922,9 @@ class DirectorAnalyticsService
                 GROUP BY wd.name
             ");
             $result['pending_approvals'] = $stmt->fetchAll();
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: pending_approvals query failed: ' . $e->getMessage());
+        }
 
         // Audit logs (recent)
         try {
@@ -922,7 +943,9 @@ class DirectorAnalyticsService
                 LIMIT 20
             ");
             $result['audit_logs'] = $stmt->fetchAll();
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: audit_logs query failed: ' . $e->getMessage());
+        }
 
         // Pending admissions and discipline cases
         try {
@@ -934,6 +957,7 @@ class DirectorAnalyticsService
             $disciplineCases = $ht->getDisciplineCases();
             $result['discipline_cases'] = $disciplineCases['data'] ?? [];
         } catch (\Exception $e) {
+            error_log('DirectorAnalyticsService: admissions/discipline queue load failed: ' . $e->getMessage());
             $result['admissions_queue'] = [];
             $result['discipline_cases'] = [];
         }
