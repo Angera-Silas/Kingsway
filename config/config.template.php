@@ -76,7 +76,9 @@ define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_CHARSET', 'utf8mb4');
 
 // JWT Configuration
-define('JWT_SECRET', '51c47afc73a6f2cf1a052309d1f8a8bb4839d7bc7aaddb32cd8f26b2898aed23');
+// Generate a unique 64+ char secret per environment, e.g. `openssl rand -hex 32`,
+// and provide it via the environment (.env). Do NOT commit a real secret here.
+define('JWT_SECRET', getenv('JWT_SECRET') ?: 'CHANGE_ME_generate_a_unique_64_char_secret');
 define('JWT_EXPIRY', 3600); // Token expiry in seconds (1 hour)
 define('JWT_ISSUER', 'kingsway-prep-school');
 define('JWT_AUDIENCE', 'kingsway-staff');

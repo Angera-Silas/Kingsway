@@ -366,9 +366,15 @@ class BaseAPI
     protected function getSearchParams()
     {
         $search = isset($_GET['search']) ? $this->sanitizeInput($_GET['search']) : '';
-        $sort = isset($_GET['sort']) ? $this->sanitizeInput($_GET['sort']) : 'id';
-        $order = isset($_GET['order']) ? strtoupper($this->sanitizeInput($_GET['order'])) : 'ASC';
-        $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
+        // $sort is interpolated into ORDER BY clauses, so it must be restricted
+        // to identifier-safe characters to prevent SQL injection. htmlspecialchars
+        // (sanitizeInput) does not neutralize SQL, so strip anything non-identifier.
+        $sort = isset($_GET['sort']) ? preg_replace('/[^A-Za-z0-9_]/', '', (string) $_GET['sort']) : 'id';
+        if ($sort === '') {
+            $sort = 'id';
+        }
+        $order = isset($_GET['order']) ? strtoupper(trim((string) $_GET['order'])) : 'ASC';
+        $order = in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
 
         return [$search, $sort, $order];
     }

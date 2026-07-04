@@ -5,8 +5,11 @@
 // Authentication is handled via JWT tokens (no PHP sessions)
 // Compatible with load balancing and horizontal scaling
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+// Only surface errors to the browser in debug/development; never leak stack
+// traces or paths to end users in production.
+$__debug = defined('DEBUG') ? (bool) DEBUG : false;
+error_reporting($__debug ? E_ALL : 0);
+ini_set('display_errors', $__debug ? '1' : '0');
 
 // Load DashboardRouter for role-to-dashboard mapping
 require_once __DIR__ . '/../config/DashboardRouter.php';

@@ -68,7 +68,15 @@ define('DB_PORT', $_ENV['DB_PORT'] ?? 3306);
 define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 
 // JWT Configuration - Production (MUST use secure secret from .env)
-define('JWT_SECRET', $_ENV['JWT_SECRET'] ?? '51c47afc73a6f2cf1a052309d1f8a8bb4839d7bc7aaddb32cd8f26b2898aed23');
+// Never fall back to a committed/known secret in production: doing so would let
+// anyone forge valid tokens. Fail closed if the secret is not configured.
+$__jwtSecret = $_ENV['JWT_SECRET'] ?? getenv('JWT_SECRET') ?: '';
+if ($__jwtSecret === '') {
+    error_log('FATAL: JWT_SECRET is not configured for the production environment.');
+    http_response_code(500);
+    throw new \RuntimeException('JWT_SECRET is not configured. Set it in the environment (.env) before running in production.');
+}
+define('JWT_SECRET', $__jwtSecret);
 define('JWT_EXPIRY', $_ENV['JWT_EXPIRY'] ?? 3600);
 define('JWT_ISSUER', $_ENV['JWT_ISSUER'] ?? 'kingsway-prep-school');
 define('JWT_AUDIENCE', $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff');// Email Configuration - Production (load from .env)

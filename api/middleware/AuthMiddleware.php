@@ -16,7 +16,12 @@ class AuthMiddleware
      */
     public static function handle()
     {
-        $path = strtolower($_SERVER['REQUEST_URI']);
+        // Match only against the URI path, never the query string. Using the raw
+        // REQUEST_URI would let an attacker bypass auth on a protected endpoint by
+        // appending e.g. `?x=auth/login`, since the public-endpoint check below is a
+        // substring match.
+        $rawUri = $_SERVER['REQUEST_URI'] ?? '';
+        $path = strtolower((string) parse_url($rawUri, PHP_URL_PATH));
 
         // Public endpoints that don't require JWT
         $publicEndpoints = [
@@ -50,9 +55,16 @@ class AuthMiddleware
             'api/dashboard?action=sidebars',
         ];
 
-        // Check if current request is to a public endpoint
+        // Full lowercased request URI (path + query) used only for the few public
+        // endpoints that are keyed on query parameters (e.g. dashboard config).
+        $fullUri = strtolower($rawUri);
+
+        // Check if current request is to a public endpoint. Endpoints that include a
+        // query string ('?') are matched against the full URI; all others are matched
+        // against the path only, so query parameters can never trigger a bypass.
         foreach ($publicEndpoints as $endpoint) {
-            if (strpos($path, $endpoint) !== false) {
+            $haystack = strpos($endpoint, '?') !== false ? $fullUri : $path;
+            if (strpos($haystack, $endpoint) !== false) {
                 return;
             }
         }
