@@ -287,13 +287,7 @@ const enterResultsController = (() => {
     }
   }
 
-  function esc(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
+  var esc = KWUtils.esc;
   function notify(msg, type) {
     const m = document.getElementById("notificationModal");
     if (m) {

@@ -1536,49 +1536,6 @@ class StudentsController extends BaseController
         return array_map('intval', array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), 'id'));
     }
 
-    private function handleResponse($result)
-    {
-        if (!is_array($result)) {
-            return $this->success($result);
-        }
-
-        // Preferred module format: ['status' => 'success|error', 'code' => int, 'message' => ..., 'data' => ...]
-        if (isset($result['status'])) {
-            $status = strtolower((string) $result['status']);
-            $code = (int) ($result['code'] ?? 0);
-            $message = $result['message'] ?? ($status === 'success' ? 'Success' : 'Operation failed');
-            $data = $result['data'] ?? null;
-
-            if ($status === 'success') {
-                return $this->success($data, $message);
-            }
-
-            if ($code === 401) {
-                return $this->unauthorized($message);
-            }
-            if ($code === 403) {
-                return $this->forbidden($message);
-            }
-            if ($code === 404) {
-                return $this->notFound($message);
-            }
-            if ($code >= 500) {
-                return $this->serverError($message, $data);
-            }
-
-            return $this->badRequest($message, is_array($data) ? $data : null);
-        }
-
-        // Legacy format: ['success' => bool, 'message' => ..., 'data' => ...]
-        if (isset($result['success'])) {
-            return $result['success']
-                ? $this->success($result['data'] ?? null, $result['message'] ?? 'Success')
-                : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? null);
-        }
-
-        return $this->success($result);
-    }
-
     /* =====================================================
      * NESTED ROUTING HELPERS
      * ===================================================== */
@@ -1727,11 +1684,4 @@ class StudentsController extends BaseController
         }
     }
 
-    /**
-     * Convert kebab-case to camelCase
-     */
-    private function toCamelCase($string)
-    {
-        return lcfirst(str_replace('-', '', ucwords($string, '-')));
-    }
 }

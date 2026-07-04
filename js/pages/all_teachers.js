@@ -7,14 +7,10 @@
 (function () {
     "use strict";
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    function esc(str) {
-        if (!str) return "";
-        return String(str).replace(/[&<>"']/g, function (m) {
-            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
-        });
-    }
+    // ── Helpers (delegated to shared KWUtils) ──────────────────────────────
+    var esc = KWUtils.esc;
+    var showToast = KWUtils.showToast;
+    var formatDate = KWUtils.formatDate;
 
     function extractList(response) {
         if (!response) return [];
@@ -25,25 +21,6 @@
         if (Array.isArray(response.data?.staff)) return response.data.staff;
         if (Array.isArray(response.data)) return response.data;
         return [];
-    }
-
-    function showToast(msg, type) {
-        type = type || "success";
-        var el = document.createElement("div");
-        el.className = "alert alert-" + (type === "error" ? "danger" : type) + " alert-dismissible position-fixed top-0 end-0 m-3";
-        el.style.zIndex = "9999";
-        el.innerHTML = esc(msg) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(function () { el.remove(); }, 4000);
-    }
-
-    function formatDate(dateStr) {
-        if (!dateStr) return "—";
-        try {
-            return new Date(dateStr).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "numeric" });
-        } catch (e) {
-            return dateStr;
-        }
     }
 
     // ── Controller ─────────────────────────────────────────────────────────────

@@ -601,7 +601,7 @@ const reportCardsCtrl = (() => {
     }
 
     /* ─── Helpers ─────────────────────────────────────────────── */
-    function esc(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    var esc = KWUtils.esc;
     function gradeBadge(g) { const u = (g||'').toUpperCase(); return ['EE','ME','AE','BE'].includes(u) ? `<span class="grade-${u}">${u}</span>` : `<span class="badge bg-secondary">${u||'—'}</span>`; }
     function cardStatusPill(s) {
         const m = { generated:'rc-generated', pending:'rc-pending', approved:'rc-approved', distributed:'rc-distributed', downloaded:'rc-approved', not_generated:'rc-pending' };

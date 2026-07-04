@@ -170,26 +170,4 @@ class LibraryController extends BaseController
         return $this->success(['message' => 'Library API is running']);
     }
 
-    // ----------------------------------------------------------------
-    // HELPER — normalise module response to controller response
-    // ----------------------------------------------------------------
-
-    private function handleResponse(array $result)
-    {
-        $status = $result['status'] ?? 'error';
-        $data   = $result['data']   ?? null;
-        $msg    = $result['message'] ?? ($status === 'success' ? 'OK' : 'Error');
-        $code   = $result['status_code'] ?? ($status === 'success' ? 200 : 500);
-
-        if ($status === 'success') {
-            if ($code === 201) return $this->created($data, $msg);
-            return $this->success($data, $msg);
-        }
-        if ($code === 400) return $this->badRequest($msg);
-        if ($code === 404) return $this->notFound($msg);
-        if ($code === 409) return $this->conflict($msg);
-        return $this->serverError($msg);
-    }
-
-    // ---- extra response helpers ----
 }

@@ -1,35 +1,13 @@
 (function () {
     "use strict";
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-    function esc(s) {
-        return String(s == null ? "" : s)
-            .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    }
-    function currency(val) {
-        return "KES " + Number(val || 0).toLocaleString("en-KE", { minimumFractionDigits: 2 });
-    }
-    function showToast(message, type = "success") {
-        const el = document.createElement("div");
-        el.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible position-fixed top-0 end-0 m-3`;
-        el.style.zIndex = "9999";
-        el.innerHTML = esc(message) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
-    }
-    function setText(id, val) {
-        const el = document.getElementById(id);
-        if (el) el.textContent = val;
-    }
-    function getVal(id) {
-        const el = document.getElementById(id);
-        return el ? el.value.trim() : "";
-    }
-    function setVal(id, val) {
-        const el = document.getElementById(id);
-        if (el) el.value = val;
-    }
+    // ── helpers (delegated to shared KWUtils) ─────────────────────────────
+    const esc = KWUtils.esc;
+    const currency = KWUtils.currency;
+    const showToast = KWUtils.showToast;
+    const setText = KWUtils.setText;
+    const getVal = KWUtils.getVal;
+    const setVal = KWUtils.setVal;
     function todayStr() {
         return new Date().toISOString().split("T")[0];
     }

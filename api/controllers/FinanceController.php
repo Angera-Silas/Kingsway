@@ -1199,61 +1199,6 @@ class FinanceController extends BaseController
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    /**
-     * Convert kebab-case to camelCase
-     */
-    private function toCamelCase($string)
-    {
-        return lcfirst(str_replace('-', '', ucwords($string, '-')));
-    }
-
-    /**
-     * Handle API response and format appropriately
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            // Check if result is from formatResponse (has 'code' and 'status' keys)
-            if (isset($result['code']) && isset($result['status'])) {
-                $code = $result['code'];
-                $message = $result['message'] ?? 'Operation completed';
-                $data = $result['data'] ?? null;
-
-                // Route based on HTTP status code
-                if ($code >= 200 && $code < 300) {
-                    return $this->success($data, $message);
-                } elseif ($code === 404) {
-                    return $this->notFound($message);
-                } elseif ($code === 401) {
-                    return $this->unauthorized($message);
-                } elseif ($code === 403) {
-                    return $this->forbidden($message);
-                } elseif ($code >= 500) {
-                    return $this->serverError($message);
-                } else {
-                    return $this->badRequest($message);
-                }
-            }
-
-            // Legacy format with 'success' key
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    $message = $result['error'] ?? $result['message'] ?? 'Operation failed';
-                    if (stripos($message, 'not found') !== false) {
-                        return $this->notFound($message);
-                    }
-                    return $this->badRequest($message);
-                }
-            }
-            
-            return $this->success($result);
-        }
-
-        return $this->success($result);
-    }
-
     // ========================================
     // SECTION 8: Fee Bundle Workflow
     // ========================================

@@ -6,22 +6,9 @@
 (function () {
     "use strict";
 
-    function showToast(message, type = 'success') {
-        const el = document.createElement('div');
-        el.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible position-fixed top-0 end-0 m-3`;
-        el.style.zIndex = '9999';
-        el.innerHTML = message + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
-    }
-
-    function kes(v) {
-        return 'KES ' + Number(v || 0).toLocaleString('en-KE', { minimumFractionDigits: 2 });
-    }
-
-    function esc(str) {
-        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    const showToast = KWUtils.showToast;
+    const kes = KWUtils.currency;
+    const esc = KWUtils.esc;
 
     function fmtDate(d) {
         if (!d) return '--';

@@ -207,30 +207,6 @@ class PaymentsController extends BaseController
     }
 
     /**
-     * Standard API response handler
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                return $result['success']
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
-                    : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? []);
-            }
-
-            if (isset($result['status'])) {
-                return $result['status'] === 'success'
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
-                    : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? []);
-            }
-
-            return $this->success($result);
-        }
-
-        return $this->success(['result' => $result]);
-    }
-
-    /**
      * POST /api/payments/mpesa-b2c-callback
      */
     public function postMpesaB2cCallback($id = null, $data = [], $segments = [])

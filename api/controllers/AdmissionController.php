@@ -1080,26 +1080,6 @@ class AdmissionController extends BaseController
         }
     }
 
-    // Helper for consistent API response
-    private function handleResponse($result)
-    {
-        $response = null;
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    $response = $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    $response = $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            } else {
-                $response = $this->success($result);
-            }
-        } else {
-            $response = $this->success($result);
-        }
-        return $response;
-    }
-
     private function hasAnyAdmissionPermission(string $group): bool
     {
         $permissionCodes = self::PERMISSIONS[$group] ?? [];

@@ -7,24 +7,9 @@
 (function () {
     "use strict";
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    function esc(str) {
-        if (!str) return "";
-        return String(str).replace(/[&<>"']/g, function (m) {
-            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
-        });
-    }
-
-    function showToast(msg, type) {
-        type = type || "success";
-        var el = document.createElement("div");
-        el.className = "alert alert-" + (type === "error" ? "danger" : type) + " alert-dismissible position-fixed top-0 end-0 m-3";
-        el.style.zIndex = "9999";
-        el.innerHTML = esc(msg) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(function () { el.remove(); }, 4000);
-    }
+    // ── Helpers (delegated to shared KWUtils) ──────────────────────────────
+    var esc = KWUtils.esc;
+    var showToast = KWUtils.showToast;
 
     function extractList(response) {
         if (!response) return [];

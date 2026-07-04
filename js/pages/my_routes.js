@@ -6,18 +6,8 @@
 (function () {
     "use strict";
 
-    function showToast(message, type = 'success') {
-        const el = document.createElement('div');
-        el.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible position-fixed top-0 end-0 m-3`;
-        el.style.zIndex = '9999';
-        el.innerHTML = message + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
-    }
-
-    function esc(str) {
-        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    const showToast = KWUtils.showToast;
+    const esc = KWUtils.esc;
 
     function formatTime(ts) {
         if (!ts) return '--';

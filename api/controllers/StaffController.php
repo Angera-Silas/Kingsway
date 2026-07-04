@@ -763,40 +763,6 @@ class StaffController extends BaseController
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    private function toCamelCase($string)
-    {
-        return lcfirst(str_replace('-', '', ucwords($string, '-')));
-    }
-
-    private function handleResponse($result)
-    {
-        // Fix double-nesting: StaffAPI already returns {status, data, status_code}
-        // Don't wrap it again with $this->success()
-        if (is_array($result)) {
-            // If StaffAPI returns {status: 'success', data: ...}
-            if (isset($result['status'])) {
-                if ($result['status'] === 'success') {
-                    // Extract just the data portion, avoid double wrapping
-                    return $this->success($result['data'] ?? null, 'Success');
-                } else {
-                    // Error from StaffAPI
-                    return $this->badRequest($result['message'] ?? 'Operation failed');
-                }
-            }
-            // Legacy format: {success: true, data: ...}
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            return $this->success($result);
-        }
-
-        return $this->success($result);
-    }
-
     // ========================================================================
     // STAFF PROMOTIONS
     // ========================================================================

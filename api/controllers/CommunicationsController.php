@@ -698,21 +698,4 @@ class CommunicationsController extends BaseController
         }
         return $this->badRequest('Action required (approve, escalate, complete)');
     }
-    /**
-     * Handle API response and format appropriately (copied from FinanceController)
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            return $this->success($result);
-        }
-        return $this->success($result);
-    }
 }

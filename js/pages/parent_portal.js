@@ -420,9 +420,7 @@
   function setText(id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; }
   function on(id, ev, fn) { var el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
   function set(id, visible) { var el = document.getElementById(id); if (el) el.style.display = visible ? 'block' : 'none'; }
-  function esc(s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
+  var esc = KWUtils.esc;
 
   // Expose for inline onclick handlers
   window.__pp = { openStudent: openStudent };

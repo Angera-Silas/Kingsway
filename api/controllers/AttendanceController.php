@@ -2687,33 +2687,6 @@ class AttendanceController extends BaseController
         return $summary;
     }
 
-    /**
-     * Unified API response handler (matches other controllers)
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            // Handle successResponse/errorResponse format: {status, message, type, code, data}
-            if (isset($result['status'])) {
-                if ($result['status'] === 'success') {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['message'] ?? 'Operation failed');
-                }
-            }
-            // Handle legacy {success: true/false, data, message} format
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            return $this->success($result);
-        }
-        return $this->success($result);
-    }
-
     // ========================================================================
     // REGISTER CONTEXT — calendar + session awareness for a given date
     // ========================================================================

@@ -91,7 +91,7 @@
     setTimeout(() => el.remove(), 3000);
   }
 
-  function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}) : '—'; }
+  var fmtDate = KWUtils.formatDate;
   function badgeStatus(s, map) {
     const colors = {published:'success',draft:'secondary',archived:'dark',
                     open:'success',closed:'danger',filled:'primary',
@@ -102,7 +102,7 @@
     const c = colors[s] || 'secondary';
     return `<span class="badge bg-${c}">${(map&&map[s])||s||'—'}</span>`;
   }
-  function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  var esc = KWUtils.esc;
 
   /* ════════════════════════════════════════════════════════════════════════════
      STATS

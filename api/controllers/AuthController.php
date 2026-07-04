@@ -69,26 +69,4 @@ class AuthController extends BaseController
         $result = $this->api->revokeRefreshToken($data);
         return $this->handleResponse($result);
     }
-    // Helper for consistent API response
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            // If result already has proper API response structure with status and data, return as-is
-            if (isset($result['status']) && isset($result['data'])) {
-                return $result;
-            }
-            // Handle legacy format with 'success' key
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            // Default: wrap in success response
-            return $this->success($result);
-        }
-        // Non-array results
-        return $this->success($result);
-    }
 }

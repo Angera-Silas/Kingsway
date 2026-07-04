@@ -16,27 +16,9 @@ const financeReportsController = (() => {
     return Number.isFinite(n) ? n : 0;
   }
 
-  function esc(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function formatCurrency(value) {
-    return `KES ${toNumber(value).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  }
-
-  function formatDate(value) {
-    if (!value) return "—";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return esc(value);
-    return d.toLocaleDateString();
-  }
+  var esc = KWUtils.esc;
+  var formatCurrency = KWUtils.currency;
+  var formatDate = KWUtils.formatDate;
 
   function formatStatus(status) {
     const s = String(status || "unknown").toLowerCase();

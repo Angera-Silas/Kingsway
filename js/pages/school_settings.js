@@ -8,17 +8,8 @@
 (function () {
     "use strict";
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    function showToast(msg, type) {
-        type = type || "success";
-        var el = document.createElement("div");
-        el.className = "alert alert-" + (type === "error" ? "danger" : type) + " alert-dismissible position-fixed top-0 end-0 m-3";
-        el.style.zIndex = "9999";
-        el.innerHTML = String(msg) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(function () { el.remove(); }, 4000);
-    }
+    // ── Helpers (delegated to shared KWUtils) ──────────────────────────────
+    var showToast = KWUtils.showToast;
 
     function setVal(id, value) {
         var el = document.getElementById(id);

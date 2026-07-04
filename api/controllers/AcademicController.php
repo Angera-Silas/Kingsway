@@ -262,61 +262,6 @@ class AcademicController extends BaseController
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    /**
-     * Convert kebab-case or snake_case to camelCase
-     * Examples: 'start-workflow' -> 'startWorkflow', 'user_profile' -> 'userProfile'
-     */
-    private function toCamelCase($string)
-    {
-        // Replace both - and _ with spaces, then ucwords, then remove spaces
-        $string = str_replace(['-', '_'], ' ', $string);
-        $string = ucwords($string);
-        $string = str_replace(' ', '', $string);
-        return lcfirst($string);
-    }
-
-    /**
-     * Handle API response and format appropriately
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                return $result['success']
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
-                    : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? []);
-            }
-
-            if (isset($result['status'])) {
-                if ($result['status'] === 'success') {
-                    return $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful');
-                }
-
-                $message = $result['message'] ?? 'Operation failed';
-                $data = $result['data'] ?? [];
-                $code = (int) ($result['code'] ?? 400);
-
-                if ($code === 401) {
-                    return $this->unauthorized($message);
-                }
-                if ($code === 403) {
-                    return $this->forbidden($message);
-                }
-                if ($code === 404) {
-                    return $this->notFound($message);
-                }
-                if ($code >= 500) {
-                    return $this->serverError($message, $data);
-                }
-
-                return $this->badRequest($message, is_array($data) ? $data : []);
-            }
-
-            return $this->success($result);
-        }
-
-        return $this->success(['result' => $result]);
-    }
     private function requireAcademicWorkflowAccess(array $permissions = ['academic_manage', 'academic_approve'])
     {
         if (!$this->userHasAny($permissions, [1, 3, 4, 5], ['system admin', 'director', 'principal', 'headteacher'])) {

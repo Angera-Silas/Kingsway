@@ -1002,33 +1002,6 @@ class ActivitiesController extends BaseController
     }
 
     /**
-     * Convert kebab-case to camelCase
-     */
-    private function toCamelCase($string)
-    {
-        return lcfirst(str_replace('-', '', ucwords($string, '-')));
-    }
-
-    /**
-     * Handle API response and format appropriately
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            return $this->success($result);
-        }
-        
-        return $this->success($result);
-    }
-
-    /**
      * GET /api/activities/stats
      * Returns activity statistics summary
      */

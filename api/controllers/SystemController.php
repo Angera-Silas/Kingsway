@@ -779,24 +779,6 @@ class SystemController extends BaseController
         }
     }
 
-    /**
-     * Unified API response handler (matches StudentsController)
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
-            return $this->success($result);
-        }
-        return $this->success($result);
-    }
-
     private function ensureSystemAdminAccess()
     {
         if (!$this->user) {

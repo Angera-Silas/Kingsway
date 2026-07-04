@@ -188,26 +188,4 @@ class CounselingController extends BaseController
         }
     }
 
-    /**
-     * Handle API response and convert to controller response format
-     */
-    private function handleResponse($result)
-    {
-        if (is_array($result)) {
-            if (isset($result['status'])) {
-                $status = $result['status'];
-                $code = $result['status_code'] ?? ($status === 'success' ? 200 : 400);
-                $message = $result['message'] ?? ($status === 'success' ? 'Success' : 'Error');
-                $data = $result['data'] ?? null;
-
-                if ($status === 'success') {
-                    return $this->success($data, $message);
-                } else {
-                    return $this->badRequest($message, $data);
-                }
-            }
-            return $this->success($result);
-        }
-        return $this->success($result);
-    }
 }

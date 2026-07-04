@@ -5,14 +5,7 @@
 (function () {
     "use strict";
 
-    function showToast(msg, type = "success") {
-        const el = document.createElement("div");
-        el.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible position-fixed top-0 end-0 m-3`;
-        el.style.zIndex = "9999";
-        el.innerHTML = msg + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
-    }
+    const showToast = KWUtils.showToast;
 
     // Config key → element ID mappings
     const FIELD_MAP = {

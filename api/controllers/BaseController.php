@@ -734,6 +734,94 @@ abstract class BaseController
         return lcfirst(str_replace('-', '', ucwords($kebab, '-')));
     }
 
+    /**
+     * Convert kebab-case and/or snake_case to camelCase
+     * exam-schedules → examSchedules, user_profile → userProfile
+     * 
+     * @param string $string Input string (kebab-case or snake_case)
+     * @return string camelCase string
+     */
+    protected function toCamelCase($string)
+    {
+        $string = str_replace(['-', '_'], ' ', $string);
+        $string = ucwords($string);
+        $string = str_replace(' ', '', $string);
+        return lcfirst($string);
+    }
+
+    // ========================================================================
+    // MODULE RESPONSE HANDLING
+    // ========================================================================
+
+    /**
+     * Normalize a module/API response into a BaseController response.
+     *
+     * Module APIs return results in two formats:
+     *   1. Preferred: ['status' => 'success|error', 'code' => int, 'message' => ..., 'data' => ...]
+     *   2. Legacy:    ['success' => bool, 'message' => ..., 'data' => ..., 'error' => ...]
+     *
+     * This method handles both, plus raw arrays/scalars, and routes to the
+     * correct BaseController response method (success, badRequest, notFound, etc.).
+     *
+     * @param mixed $result Raw result from a module API call
+     * @return array Formatted BaseController response
+     */
+    protected function handleResponse($result)
+    {
+        if (!is_array($result)) {
+            return $this->success($result);
+        }
+
+        // Format 1: ['status' => ..., 'code'|'status_code' => ...]
+        if (isset($result['status'])) {
+            $status  = strtolower((string) $result['status']);
+            $code    = (int) ($result['code'] ?? $result['status_code'] ?? ($status === 'success' ? 200 : 400));
+            $message = $result['message'] ?? ($status === 'success' ? 'Success' : 'Operation failed');
+            $data    = $result['data'] ?? null;
+
+            if ($status === 'success') {
+                if ($code === 201) {
+                    return $this->created($data, $message);
+                }
+                return $this->success($data, $message);
+            }
+
+            if ($code === 401) {
+                return $this->unauthorized($message);
+            }
+            if ($code === 403) {
+                return $this->forbidden($message);
+            }
+            if ($code === 404) {
+                return $this->notFound($message);
+            }
+            if ($code === 409) {
+                return $this->conflict($message, $data);
+            }
+            if ($code === 422) {
+                return $this->unprocessable($message, $data);
+            }
+            if ($code >= 500) {
+                return $this->serverError($message, $data);
+            }
+
+            return $this->badRequest($message, is_array($data) ? $data : null);
+        }
+
+        // Format 2: ['success' => bool, ...]
+        if (isset($result['success'])) {
+            if ($result['success']) {
+                return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+            }
+            $errorMsg = $result['error'] ?? $result['message'] ?? 'Operation failed';
+            $errorData = $result['errors'] ?? $result['data'] ?? null;
+            return $this->badRequest($errorMsg, is_array($errorData) ? $errorData : null);
+        }
+
+        // Raw array without status indicators — treat as success data
+        return $this->success($result);
+    }
+
     // ========================================================================
     // DEFAULT CRUD METHODS - Override in subclasses
     // ========================================================================
