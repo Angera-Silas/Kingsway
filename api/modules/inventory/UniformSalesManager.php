@@ -45,7 +45,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY ii.name ASC
             ";
 
-            $result = $this->db->query($sql, []);
+            $result = $this->dbQuery($sql, []);
             $items = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             return $this->formatSuccess([
@@ -67,7 +67,7 @@ class UniformSalesManager extends BaseAPI
         try {
             // Get item details
             $itemSql = "SELECT * FROM inventory_items WHERE id = ? AND category_id = 10";
-            $itemStmt = $this->db->query($itemSql, [$item_id]);
+            $itemStmt = $this->dbQuery($itemSql, [$item_id]);
             $item = $itemStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$item) {
@@ -89,7 +89,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY FIELD(size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
             ";
 
-            $sizesStmt = $this->db->query($sizesSql, [$item_id]);
+            $sizesStmt = $this->dbQuery($sizesSql, [$item_id]);
             $sizes = $sizesStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             return $this->formatSuccess([
@@ -123,7 +123,7 @@ class UniformSalesManager extends BaseAPI
 
             // Check student exists
             $studentSql = "SELECT id FROM students WHERE id = ?";
-            $studentStmt = $this->db->query($studentSql, [$student_id]);
+            $studentStmt = $this->dbQuery($studentSql, [$student_id]);
             if (!$studentStmt->fetch()) {
                 return $this->formatError('Student not found', 404);
             }
@@ -131,7 +131,7 @@ class UniformSalesManager extends BaseAPI
             // Check uniform item exists and size available
             $sizeSql = "SELECT quantity_available, unit_price FROM uniform_sizes 
                        WHERE item_id = ? AND size = ?";
-            $sizeStmt = $this->db->query($sizeSql, [$item_id, $size]);
+            $sizeStmt = $this->dbQuery($sizeSql, [$item_id, $size]);
             $sizeData = $sizeStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$sizeData || $sizeData['quantity_available'] < $quantity) {
@@ -144,7 +144,7 @@ class UniformSalesManager extends BaseAPI
             try {
                 // Call stored procedure
                 $procSql = "CALL sp_register_uniform_sale(?, ?, ?, ?, ?, ?, ?)";
-                $procStmt = $this->db->query(
+                $procStmt = $this->dbQuery(
                     $procSql,
                     [$student_id, $item_id, $size, $quantity, $unit_price, $sold_by, $notes]
                 );
@@ -194,7 +194,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY us.sale_date DESC
             ";
 
-            $result = $this->db->query($sql, [$student_id]);
+            $result = $this->dbQuery($sql, [$student_id]);
             $sales = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             // Calculate totals
@@ -240,7 +240,7 @@ class UniformSalesManager extends BaseAPI
             }
 
             $sql = "CALL sp_mark_uniform_sale_paid(?, ?)";
-            $this->db->query($sql, [$sale_id, $payment_status]);
+            $this->dbQuery($sql, [$sale_id, $payment_status]);
 
             return $this->formatSuccess([
                 'sale_id' => $sale_id,
@@ -270,7 +270,7 @@ class UniformSalesManager extends BaseAPI
                 AND YEAR(sale_date) = YEAR(CURDATE())
             ";
 
-            $monthlyStmt = $this->db->query($monthlySql, []);
+            $monthlyStmt = $this->dbQuery($monthlySql, []);
             $monthlyData = $monthlyStmt->fetch(PDO::FETCH_ASSOC);
 
             // Top selling uniform items
@@ -290,7 +290,7 @@ class UniformSalesManager extends BaseAPI
                 LIMIT 10
             ";
 
-            $topItemsStmt = $this->db->query($topItemsSql, []);
+            $topItemsStmt = $this->dbQuery($topItemsSql, []);
             $topItems = $topItemsStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             // Inventory stock status
@@ -304,7 +304,7 @@ class UniformSalesManager extends BaseAPI
                 WHERE category_id = 10
             ";
 
-            $stockStmt = $this->db->query($stockSql, []);
+            $stockStmt = $this->dbQuery($stockSql, []);
             $stockStatus = $stockStmt->fetch(PDO::FETCH_ASSOC);
 
             return $this->formatSuccess([
@@ -334,7 +334,7 @@ class UniformSalesManager extends BaseAPI
                 GROUP BY payment_status
             ";
 
-            $result = $this->db->query($sql, []);
+            $result = $this->dbQuery($sql, []);
             $summary = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             return $this->formatSuccess([
@@ -367,7 +367,7 @@ class UniformSalesManager extends BaseAPI
                     last_updated = NOW()
             ";
 
-            $this->db->query($sql, [
+            $this->dbQuery($sql, [
                 $student_id,
                 $sizes['uniform_size'] ?? null,
                 $sizes['shirt_size'] ?? null,
@@ -394,7 +394,7 @@ class UniformSalesManager extends BaseAPI
     {
         try {
             $sql = "SELECT * FROM student_uniforms WHERE student_id = ?";
-            $result = $this->db->query($sql, [$student_id]);
+            $result = $this->dbQuery($sql, [$student_id]);
             $profile = $result->fetch(PDO::FETCH_ASSOC);
 
             if (!$profile) {
@@ -452,7 +452,7 @@ class UniformSalesManager extends BaseAPI
 
             // Get total count
             $countSql = "SELECT COUNT(*) as total FROM uniform_sales us WHERE {$whereClause}";
-            $countStmt = $this->db->query($countSql, $bindings);
+            $countStmt = $this->dbQuery($countSql, $bindings);
             $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
 
             // Get sales with pagination
@@ -483,7 +483,7 @@ class UniformSalesManager extends BaseAPI
                 LIMIT {$limit} OFFSET {$offset}
             ";
 
-            $result = $this->db->query($sql, $bindings);
+            $result = $this->dbQuery($sql, $bindings);
             $sales = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             return $this->formatSuccess([
@@ -538,7 +538,7 @@ class UniformSalesManager extends BaseAPI
                 $params[] = $item_id;
                 $params[] = $size;
 
-                $this->db->query($updateSql, $params);
+                $this->dbQuery($updateSql, $params);
 
                 // Update main inventory item quantity
                 $updateItemSql = "
@@ -547,7 +547,7 @@ class UniformSalesManager extends BaseAPI
                         updated_at = NOW()
                     WHERE id = ?
                 ";
-                $this->db->query($updateItemSql, [$quantity, $item_id]);
+                $this->dbQuery($updateItemSql, [$quantity, $item_id]);
 
                 // Record inventory transaction
                 $transactionSql = "
@@ -557,7 +557,7 @@ class UniformSalesManager extends BaseAPI
                     VALUES (?, 'in', ?, CURDATE(), NOW(), 'restock', ?, ?, ?)
                 ";
                 $totalCost = $quantity * ($unit_price ?? 0);
-                $this->db->query($transactionSql, [$item_id, $quantity, $notes, $unit_price ?? 0, $totalCost]);
+                $this->dbQuery($transactionSql, [$item_id, $quantity, $notes, $unit_price ?? 0, $totalCost]);
 
                 $this->db->commit();
 
@@ -606,7 +606,7 @@ class UniformSalesManager extends BaseAPI
                          FIELD(us.size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
             ";
 
-            $result = $this->db->query($sql, []);
+            $result = $this->dbQuery($sql, []);
             $items = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             $summary = [
@@ -660,7 +660,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY total_amount DESC
             ";
 
-            $byItemStmt = $this->db->query($byItemSql, [$date_from, $date_to]);
+            $byItemStmt = $this->dbQuery($byItemSql, [$date_from, $date_to]);
             $byItem = $byItemStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             // Sales by date
@@ -676,7 +676,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY us.sale_date DESC
             ";
 
-            $byDateStmt = $this->db->query($byDateSql, [$date_from, $date_to]);
+            $byDateStmt = $this->dbQuery($byDateSql, [$date_from, $date_to]);
             $byDate = $byDateStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             // Sales by size
@@ -692,7 +692,7 @@ class UniformSalesManager extends BaseAPI
                 ORDER BY FIELD(us.size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
             ";
 
-            $bySizeStmt = $this->db->query($bySizeSql, [$date_from, $date_to]);
+            $bySizeStmt = $this->dbQuery($bySizeSql, [$date_from, $date_to]);
             $bySize = $bySizeStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
 
             // Overall summary
@@ -709,7 +709,7 @@ class UniformSalesManager extends BaseAPI
                 WHERE sale_date BETWEEN ? AND ?
             ";
 
-            $summaryStmt = $this->db->query($summarySql, [$date_from, $date_to]);
+            $summaryStmt = $this->dbQuery($summarySql, [$date_from, $date_to]);
             $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
             return $this->formatSuccess([
@@ -737,7 +737,7 @@ class UniformSalesManager extends BaseAPI
         try {
             // Get sale details first
             $saleSql = "SELECT * FROM uniform_sales WHERE id = ?";
-            $saleStmt = $this->db->query($saleSql, [$sale_id]);
+            $saleStmt = $this->dbQuery($saleSql, [$sale_id]);
             $sale = $saleStmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$sale) {
@@ -755,7 +755,7 @@ class UniformSalesManager extends BaseAPI
                         updated_at = NOW()
                     WHERE item_id = ? AND size = ?
                 ";
-                $this->db->query($restoreSql, [$sale['quantity'], $sale['quantity'], $sale['item_id'], $sale['size']]);
+                $this->dbQuery($restoreSql, [$sale['quantity'], $sale['quantity'], $sale['item_id'], $sale['size']]);
 
                 // Update main inventory
                 $updateItemSql = "
@@ -764,11 +764,11 @@ class UniformSalesManager extends BaseAPI
                         updated_at = NOW()
                     WHERE id = ?
                 ";
-                $this->db->query($updateItemSql, [$sale['quantity'], $sale['item_id']]);
+                $this->dbQuery($updateItemSql, [$sale['quantity'], $sale['item_id']]);
 
                 // Delete the sale
                 $deleteSql = "DELETE FROM uniform_sales WHERE id = ?";
-                $this->db->query($deleteSql, [$sale_id]);
+                $this->dbQuery($deleteSql, [$sale_id]);
 
                 $this->db->commit();
 
@@ -782,6 +782,283 @@ class UniformSalesManager extends BaseAPI
             }
         } catch (Exception $e) {
             return $this->formatError('Failed to delete uniform sale: ' . $e->getMessage(), 500);
+        }
+    }
+
+    // =========================================================================
+    // PURCHASE / RECEIVE FROM SUPPLIER
+    // =========================================================================
+
+    /**
+     * Record receiving uniform stock from a supplier.
+     * Creates a purchase record + updates uniform_sizes + inventory_items.
+     */
+    public function recordPurchase(array $data, int $userId = 0): array
+    {
+        try {
+            $items        = $data['items'] ?? [];
+            $supplierId   = $data['supplier_id'] ?? null;
+            $supplierName = $data['supplier_name'] ?? '';
+            $invoiceNo    = $data['invoice_number'] ?? null;
+            $deliveryNote = $data['delivery_note'] ?? null;
+            $purchaseDate = $data['purchase_date'] ?? date('Y-m-d');
+            $notes        = $data['notes'] ?? '';
+
+            if (empty($items)) {
+                return $this->formatError('At least one item line is required', 400);
+            }
+
+            $totalCost = 0;
+            foreach ($items as $line) {
+                $totalCost += ($line['quantity'] ?? 0) * ($line['unit_cost'] ?? 0);
+            }
+
+            $this->db->beginTransaction();
+            try {
+                // Create purchase header
+                $this->dbQuery(
+                    "INSERT INTO uniform_purchases
+                       (purchase_date, supplier_id, supplier_name, invoice_number, delivery_note,
+                        total_cost, received_by, notes, status, created_by, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, NOW())",
+                    [$purchaseDate, $supplierId, $supplierName, $invoiceNo, $deliveryNote,
+                     $totalCost, $userId, $notes, $userId]
+                );
+                $purchaseId = $this->db->lastInsertId();
+
+                foreach ($items as $line) {
+                    $itemId   = (int)($line['item_id'] ?? 0);
+                    $size     = trim($line['size'] ?? '');
+                    $qty      = (int)($line['quantity'] ?? 0);
+                    $unitCost = (float)($line['unit_cost'] ?? 0);
+
+                    if (!$itemId || !$size || $qty <= 0) continue;
+
+                    // Purchase line
+                    $this->dbQuery(
+                        "INSERT INTO uniform_purchase_items
+                           (purchase_id, item_id, size, quantity, unit_cost) VALUES (?, ?, ?, ?, ?)",
+                        [$purchaseId, $itemId, $size, $qty, $unitCost]
+                    );
+
+                    // Upsert uniform_sizes row
+                    $this->dbQuery(
+                        "INSERT INTO uniform_sizes (item_id, size, unit_price, quantity_available, last_restocked)
+                         VALUES (?, ?, ?, ?, NOW())
+                         ON DUPLICATE KEY UPDATE
+                           quantity_available = quantity_available + VALUES(quantity_available),
+                           unit_price = IF(VALUES(unit_price) > 0, VALUES(unit_price), unit_price),
+                           last_restocked = NOW()",
+                        [$itemId, $size, $unitCost, $qty]
+                    );
+
+                    // Update inventory_items current_quantity
+                    $this->dbQuery(
+                        "UPDATE inventory_items SET current_quantity = current_quantity + ?, updated_at = NOW()
+                         WHERE id = ?",
+                        [$qty, $itemId]
+                    );
+
+                    // Inventory transaction log
+                    $this->dbQuery(
+                        "INSERT INTO inventory_transactions
+                           (item_id, transaction_type, quantity, unit_cost, total_cost,
+                            transaction_date, reference_type, notes, created_at)
+                         VALUES (?, 'in', ?, ?, ?, ?, 'purchase', ?, NOW())",
+                        [$itemId, $qty, $unitCost, $qty * $unitCost, $purchaseDate,
+                         'Invoice ' . ($invoiceNo ?: $purchaseId)]
+                    );
+                }
+
+                $this->db->commit();
+                return $this->formatSuccess(
+                    ['purchase_id' => $purchaseId, 'total_cost' => $totalCost, 'lines' => count($items)],
+                    'Stock received successfully'
+                );
+            } catch (\Exception $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to record purchase: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * List purchase history with line items.
+     */
+    public function listPurchases(array $params = []): array
+    {
+        try {
+            $limit  = min((int)($params['limit'] ?? 20), 100);
+            $page   = max((int)($params['page'] ?? 1), 1);
+            $offset = ($page - 1) * $limit;
+
+            $rows = $this->dbQuery(
+                "SELECT up.id, up.purchase_date, up.supplier_name, up.invoice_number,
+                        up.delivery_note, up.total_cost, up.payment_status, up.amount_paid,
+                        up.status, up.notes,
+                        CONCAT(s.first_name,' ',s.last_name) AS received_by_name,
+                        (SELECT COUNT(*) FROM uniform_purchase_items WHERE purchase_id = up.id) AS line_count
+                 FROM uniform_purchases up
+                 LEFT JOIN staff s ON s.id = up.received_by
+                 ORDER BY up.purchase_date DESC, up.id DESC
+                 LIMIT $limit OFFSET $offset"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $total = (int)$this->dbQuery("SELECT COUNT(*) FROM uniform_purchases")->fetchColumn();
+
+            return $this->formatSuccess([
+                'purchases'  => $rows,
+                'pagination' => ['total' => $total, 'page' => $page, 'limit' => $limit,
+                                 'total_pages' => (int)ceil($total / $limit)],
+            ], 'Purchases retrieved');
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve purchases: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get purchase with its line items.
+     */
+    public function getPurchase(int $id): array
+    {
+        try {
+            $header = $this->dbQuery(
+                "SELECT up.*, CONCAT(s.first_name,' ',s.last_name) AS received_by_name
+                 FROM uniform_purchases up LEFT JOIN staff s ON s.id = up.received_by
+                 WHERE up.id = ?",
+                [$id]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$header) return $this->formatError('Purchase not found', 404);
+
+            $lines = $this->dbQuery(
+                "SELECT upi.*, ii.name AS item_name, ii.code AS item_code
+                 FROM uniform_purchase_items upi
+                 JOIN inventory_items ii ON ii.id = upi.item_id
+                 WHERE upi.purchase_id = ?",
+                [$id]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess(['purchase' => $header, 'items' => $lines]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve purchase: ' . $e->getMessage(), 500);
+        }
+    }
+
+    // =========================================================================
+    // PAYMENT RECORDING (partial / full with history)
+    // =========================================================================
+
+    /**
+     * Record a payment against a uniform sale using the stored procedure.
+     */
+    public function recordSalePayment(int $saleId, array $data, int $userId = 0): array
+    {
+        try {
+            $amount    = (float)($data['amount_paid'] ?? 0);
+            $method    = $data['payment_method'] ?? 'cash';
+            $reference = $data['reference_no'] ?? null;
+            $notes     = $data['notes'] ?? null;
+
+            if ($amount <= 0) return $this->formatError('Amount must be positive', 400);
+
+            $stmt = $this->dbQuery(
+                "CALL sp_record_uniform_payment(?, ?, ?, ?, ?, ?)",
+                [$saleId, $amount, $method, $reference, $userId, $notes]
+            );
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess($result ?? [], 'Payment recorded');
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to record payment: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get payment history for a sale.
+     */
+    public function getSalePaymentHistory(int $saleId): array
+    {
+        try {
+            $sale = $this->dbQuery(
+                "SELECT us.*, ii.name AS item_name,
+                        CONCAT(st.first_name,' ',st.last_name) AS student_name,
+                        st.admission_number
+                 FROM uniform_sales us
+                 JOIN students st ON st.id = us.student_id
+                 JOIN inventory_items ii ON ii.id = us.item_id
+                 WHERE us.id = ?",
+                [$saleId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$sale) return $this->formatError('Sale not found', 404);
+
+            $payments = $this->dbQuery(
+                "SELECT upr.*, CONCAT(s.first_name,' ',s.last_name) AS recorded_by_name
+                 FROM uniform_payment_records upr
+                 LEFT JOIN staff s ON s.id = upr.recorded_by
+                 WHERE upr.sale_id = ?
+                 ORDER BY upr.payment_date, upr.id",
+                [$saleId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess(['sale' => $sale, 'payments' => $payments]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve payment history: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get all students with outstanding uniform balances.
+     */
+    public function getOutstandingBalances(array $params = []): array
+    {
+        try {
+            $search = $params['search'] ?? '';
+            $limit  = min((int)($params['limit'] ?? 50), 200);
+            $page   = max((int)($params['page'] ?? 1), 1);
+            $offset = ($page - 1) * $limit;
+
+            $where = $search
+                ? "AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_number LIKE ?)"
+                : '';
+            $bind = $search
+                ? ["%$search%", "%$search%", "%$search%"]
+                : [];
+
+            $rows = $this->dbQuery(
+                "SELECT s.id AS student_id, CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                        s.admission_number,
+                        COUNT(us.id) AS total_sales,
+                        SUM(us.total_amount) AS total_billed,
+                        SUM(us.amount_paid) AS total_paid,
+                        SUM(us.balance_due) AS total_balance,
+                        MAX(us.sale_date) AS last_purchase
+                 FROM students s
+                 JOIN uniform_sales us ON us.student_id = s.id
+                 WHERE us.balance_due > 0 $where
+                 GROUP BY s.id
+                 ORDER BY total_balance DESC
+                 LIMIT $limit OFFSET $offset",
+                $bind
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $total = (int)$this->dbQuery(
+                "SELECT COUNT(DISTINCT us.student_id) FROM uniform_sales us
+                 JOIN students s ON s.id = us.student_id
+                 WHERE us.balance_due > 0 $where",
+                $bind
+            )->fetchColumn();
+
+            return $this->formatSuccess([
+                'students'   => $rows,
+                'pagination' => ['total' => $total, 'page' => $page, 'limit' => $limit,
+                                 'total_pages' => (int)ceil($total / $limit)],
+            ]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to get balances: ' . $e->getMessage(), 500);
         }
     }
 

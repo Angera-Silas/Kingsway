@@ -4,6 +4,8 @@ const StaffAttendanceController = {
   todayStaff: [],
   reportData: null,
   attendanceMarked: {},
+  _registerContext: null,    // from getStaffRegisterContext
+  _currentShift: 'full_day', // shift being marked
   charts: {
     trend: null,
     pie: null,
@@ -52,7 +54,7 @@ const StaffAttendanceController = {
 
     bind("generateBtn", "click", () => this.generateReport());
     bind("exportBtn", "click", () => this.exportData());
-    bind("printBtn", "click", () => window.print());
+    bind("printBtn", "click", () => this.printReport());
     bind("loadStaffForMarkingBtn", "click", () => this.loadStaffForMarking());
     bind("markAllPresentBtn", "click", () => this.markAllStaff("present"));
     bind("markAllAbsentBtn", "click", () => this.markAllStaff("absent"));
@@ -61,7 +63,11 @@ const StaffAttendanceController = {
 
   async loadDepartments() {
     try {
-      const response = await window.API.apiCall("/staff/departments/get", "GET");
+      // Reference data: cache 7d (rarely changes) to skip DB re-query.
+      const response = await DataStore.fetchPage('departments', {
+        endpoint: '/staff/departments/get', storeName: 'reference_departments',
+        ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+      });
       this.departments = Array.isArray(response) ? response : [];
       this.renderDepartmentDropdowns();
     } catch (error) {
@@ -485,15 +491,50 @@ const StaffAttendanceController = {
   },
 
   async loadStaffForMarking() {
-    const date = document.getElementById("markDate")?.value;
+    const date         = document.getElementById("markDate")?.value;
     const departmentId = document.getElementById("markDepartment")?.value;
+    const shift        = document.getElementById("markShift")?.value || 'full_day';
+    this._currentShift = shift;
 
     try {
-      const response = await window.API.attendance.getStaffToday({
-        date: date,
-        department_id: departmentId || undefined,
-      });
-      this.renderMarkStaffTable(Array.isArray(response?.staff) ? response.staff : []);
+      // Use the new register context endpoint — returns pre-computed effective status per staff
+      const qs = `/attendance/staff-register-context?date=${date}&shift=${shift}${departmentId ? '&department_id='+departmentId : ''}`;
+      const r  = await window.API.apiCall(qs, 'GET');
+      this._registerContext = r;
+
+      const staff = Array.isArray(r?.staff) ? r.staff : [];
+
+      // Show day type banner
+      const banner = document.getElementById('markDayBanner');
+      if (banner) {
+        if (r?.day_type && r.day_type !== 'school_day') {
+          banner.className = 'alert alert-' + (r.day_type === 'public_holiday' ? 'danger' : 'warning') + ' mb-3';
+          banner.innerHTML = `<i class="bi bi-calendar-x me-2"></i><strong>${r.day_name}:</strong> ${r.event_name}` +
+            (r.only_roster ? ' — Only staff on duty roster should be marked.' : '');
+          banner.style.display = '';
+        } else {
+          banner.style.display = 'none';
+        }
+      }
+
+      // Populate shift selector based on context
+      const shiftSel = document.getElementById('markShift');
+      if (shiftSel && r?.available_shifts) {
+        const cur = shiftSel.value;
+        shiftSel.innerHTML = Object.entries(r.available_shifts)
+          .map(([k,v]) => `<option value="${k}" ${k===cur?'selected':''}>${v}</option>`).join('');
+      }
+
+      // Update summary badges
+      const sum = r?.summary || {};
+      const setBadge = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      setBadge('ctxTotal',    sum.total    || 0);
+      setBadge('ctxMarked',   (sum.present||0)+(sum.absent||0)+(sum.late||0));
+      setBadge('ctxOnLeave',  sum.on_leave || 0);
+      setBadge('ctxOffDay',   sum.off_day  || 0);
+      setBadge('ctxOnDuty',   sum.on_duty  || 0);
+
+      this.renderMarkStaffTable(staff);
     } catch (error) {
       this.notify(error.message || "Failed to load staff for marking", "error");
       this.renderMarkStaffTable([]);
@@ -516,39 +557,79 @@ const StaffAttendanceController = {
 
     tbody.innerHTML = staffRows
       .map((staff) => {
-        const existingStatus =
-          ["present", "absent", "late"].includes(staff.attendance_status)
-            ? staff.attendance_status
-            : "";
-        const disabled = Number(staff.is_on_leave || 0) === 1 || Number(staff.is_off_day || 0) === 1;
+        // Context endpoint provides effective_status and can_mark
+        const existingStatus = ['present','absent','late'].includes(staff.marked_status)
+          ? staff.marked_status
+          : (staff.effective_status === 'not_marked' ? '' : '');
+        const canMark  = Number(staff.can_mark ?? 1) === 1;
+        const effSt    = staff.effective_status || 'not_marked';
         this.attendanceMarked[staff.staff_id] = existingStatus;
+
+        // Late threshold indicator
+        const lateMin  = staff.late_threshold_minutes || 15;
+        const expTime  = staff.work_start_time ? staff.work_start_time.slice(0,5) : '08:00';
+        const lateTime = this._addMinutes(expTime, lateMin);
+
+        // Check-in input (shown when marking present/late so HR can record actual time)
+        const checkInInput = canMark ? `
+          <input type="time" class="form-control form-control-sm mt-1"
+                 id="checkin_${staff.staff_id}"
+                 value="${staff.check_in_time ? staff.check_in_time.slice(0,5) : ''}"
+                 placeholder="${expTime}"
+                 title="Expected: ${expTime} | Late after: ${lateTime}">
+        ` : '';
+
+        // Duty badge
+        const dutyBadge = staff.duty_code && !['OFF','WEEKEND_OFF'].includes(staff.duty_code)
+          ? `<span class="badge bg-info text-dark ms-1" title="${this.escapeAttribute(staff.duty_location||'')}">${this.escapeHtml(staff.duty_code)}</span>`
+          : '';
+
+        // Reason selector for absent
+        const reasonSel = canMark ? `
+          <select class="form-select form-select-sm mt-1" id="reason_${staff.staff_id}" style="display:none">
+            <option value="unauthorized">Unauthorized</option>
+            <option value="sick">Sick / Medical</option>
+            <option value="other">Other</option>
+          </select>` : '';
 
         return `
           <tr data-staff-id="${staff.staff_id}">
             <td>
-              <strong>${this.escapeHtml(`${staff.first_name || ""} ${staff.last_name || ""}`.trim())}</strong>
-              <br><small class="text-muted">${this.escapeHtml(staff.staff_no || "-")}</small>
+              <strong>${this.escapeHtml(staff.staff_name || `${staff.first_name||''} ${staff.last_name||''}`.trim())}</strong>
+              <br><small class="text-muted">${this.escapeHtml(staff.staff_no || '-')}</small>
+              ${dutyBadge}
             </td>
-            <td>${this.escapeHtml(staff.department_name || "N/A")}</td>
-            <td><span class="badge bg-secondary">${this.escapeHtml(staff.duty_type || staff.position || "General")}</span></td>
-            <td>${this.renderCurrentStaffStatus(staff)}</td>
+            <td>${this.escapeHtml(staff.department_name || 'N/A')}</td>
             <td>
-              ${
-                disabled
-                  ? '<span class="text-muted small">Attendance not required today</span>'
-                  : `
-                    <div class="btn-group btn-group-sm" role="group">
-                      ${this.renderStaffMarkOption(staff.staff_id, "present", "P", "success", existingStatus)}
-                      ${this.renderStaffMarkOption(staff.staff_id, "absent", "A", "danger", existingStatus)}
-                      ${this.renderStaffMarkOption(staff.staff_id, "late", "L", "warning", existingStatus)}
-                    </div>
-                  `
+              <small class="text-muted d-block"><i class="bi bi-clock me-1"></i>In: ${expTime} | Late: ${lateTime}</small>
+              ${checkInInput}
+              ${reasonSel}
+            </td>
+            <td>${this._renderEffectiveStatus(staff)}</td>
+            <td>
+              ${!canMark
+                ? `<span class="badge bg-${effSt==='on_leave'?'info':'secondary'} text-${effSt==='on_leave'?'dark':'white'}">${effSt==='on_leave'?'On Leave':'Off Day'}</span>`
+                : `<div class="btn-group btn-group-sm" role="group">
+                    ${this.renderStaffMarkOption(staff.staff_id, 'present', 'P', 'success', existingStatus)}
+                    ${this.renderStaffMarkOption(staff.staff_id, 'absent',  'A', 'danger',  existingStatus)}
+                    ${this.renderStaffMarkOption(staff.staff_id, 'late',    'L', 'warning', existingStatus)}
+                  </div>`
               }
             </td>
           </tr>
         `;
       })
       .join("");
+
+    // Show/hide reason selector when absent is clicked
+    tbody.querySelectorAll('input[type="radio"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const sid    = e.target.dataset.staffId;
+        const reason = document.getElementById(`reason_${sid}`);
+        if (reason) reason.style.display = e.target.value === 'absent' ? '' : 'none';
+        this.attendanceMarked[sid] = e.target.value;
+      });
+    });
 
     tbody.querySelectorAll('input[type="radio"]').forEach((radio) => {
       radio.addEventListener("change", (event) => {
@@ -603,12 +684,16 @@ const StaffAttendanceController = {
   },
 
   async submitStaffAttendance() {
-    const date = document.getElementById("markDate")?.value;
+    const date  = document.getElementById("markDate")?.value;
+    const shift = this._currentShift || 'full_day';
+
     const attendance = Object.entries(this.attendanceMarked)
       .filter(([, status]) => ["present", "absent", "late"].includes(status))
       .map(([staffId, status]) => ({
-        staff_id: Number(staffId),
-        status: status,
+        staff_id:        Number(staffId),
+        status:          status,
+        check_in_time:   document.getElementById(`checkin_${staffId}`)?.value  || null,
+        absence_reason:  document.getElementById(`reason_${staffId}`)?.value   || null,
       }));
 
     if (!attendance.length) {
@@ -618,7 +703,7 @@ const StaffAttendanceController = {
 
     try {
       await window.API.attendance.markStaff({
-        date: date,
+        date: date, shift: shift,
         attendance: attendance,
       });
 
@@ -733,50 +818,107 @@ const StaffAttendanceController = {
       return;
     }
 
-    const header = [
-      "Staff Name",
-      "Staff No",
-      "Department",
-      "Duty Type",
-      "Present",
-      "Absent",
-      "Late",
-      "On Leave",
-      "Off Days",
-      "Attendance Rate",
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'department_name', label: 'Department' },
+      { key: 'duty_type', label: 'Duty Type' },
+      { key: 'present', label: 'Present' },
+      { key: 'absent', label: 'Absent' },
+      { key: 'late', label: 'Late' },
+      { key: 'on_leave', label: 'On Leave' },
+      { key: 'off_days', label: 'Off Days' },
+      { key: 'attendance_rate', label: 'Attendance Rate' }
     ];
 
-    const csvRows = [header.join(",")];
-    rows.forEach((staff) => {
+    const processedRows = rows.map(staff => {
       const workDays = Number(staff.present || 0) + Number(staff.absent || 0) + Number(staff.late || 0);
       const attendanceRate = workDays > 0
         ? (((Number(staff.present || 0) + Number(staff.late || 0)) / workDays) * 100).toFixed(1)
         : "0.0";
-      const values = [
-        `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
-        staff.staff_no || "",
-        staff.department_name || "",
-        staff.duty_type || "",
-        staff.present || 0,
-        staff.absent || 0,
-        staff.late || 0,
-        staff.on_leave || 0,
-        staff.off_days || 0,
-        `${attendanceRate}%`,
-      ].map((value) => `"${String(value).replace(/"/g, '""')}"`);
-
-      csvRows.push(values.join(","));
+      return {
+        ...staff,
+        staff_name: `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
+        attendance_rate: `${attendanceRate}%`
+      };
     });
 
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `staff_attendance_report_${this.toDateInputValue(new Date())}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: processedRows,
+      filename: 'staff_attendance_report'
+    });
+  },
+
+  printReport: function () {
+    const rows = this.reportData?.staff || [];
+    if (!rows.length) {
+      this.notify("There is no report data to print.", "warning");
+      return;
+    }
+
+    const department = document.getElementById("department")?.options[document.getElementById("department").selectedIndex]?.text || 'All';
+    const dutyType = document.getElementById("dutyType")?.options[document.getElementById("dutyType").selectedIndex]?.text || 'All';
+    const startDate = document.getElementById("startDate")?.value || '';
+    const endDate = document.getElementById("endDate")?.value || '';
+
+    const filters = {
+      'Department': department,
+      'Duty Type': dutyType,
+      'Date Range': `${startDate} to ${endDate}`
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key] || filters[key] === ' to ') {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'department_name', label: 'Department' },
+      { key: 'duty_type', label: 'Duty Type' },
+      { key: 'present', label: 'Present' },
+      { key: 'absent', label: 'Absent' },
+      { key: 'late', label: 'Late' },
+      { key: 'on_leave', label: 'On Leave' },
+      { key: 'off_days', label: 'Off Days' },
+      { key: 'attendance_rate', label: 'Attendance Rate' }
+    ];
+
+    const processedRows = rows.map(staff => {
+      const workDays = Number(staff.present || 0) + Number(staff.absent || 0) + Number(staff.late || 0);
+      const attendanceRate = workDays > 0
+        ? (((Number(staff.present || 0) + Number(staff.late || 0)) / workDays) * 100).toFixed(1)
+        : "0.0";
+      return {
+        ...staff,
+        staff_name: `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
+        attendance_rate: `${attendanceRate}%`
+      };
+    });
+
+    window.PrintManager.printTable({
+      title: 'Staff Attendance Report',
+      subtitle: 'Attendance Summary',
+      columns: columns,
+      rows: processedRows,
+      summary: {
+        'Total Staff': rows.length,
+        'Report Period': `${startDate} to ${endDate}`,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'STA-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'HR Manager' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   renderStatusBadge: function (status) {
@@ -865,6 +1007,33 @@ const StaffAttendanceController = {
 
   escapeAttribute: function (value) {
     return this.escapeHtml(value).replace(/`/g, "&#96;");
+  },
+
+  // Add minutes to a HH:MM string
+  _addMinutes: function (timeStr, minutes) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const total  = h * 60 + m + minutes;
+    return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+  },
+
+  // Render effective status using context data (richer than old renderCurrentStaffStatus)
+  _renderEffectiveStatus: function (staff) {
+    const st    = staff.effective_status || 'not_marked';
+    const extra = [];
+    if (staff.leave_type)  extra.push(`Leave: ${staff.leave_type}`);
+    if (staff.duty_name && !['Off','Weekend Off'].includes(staff.duty_name)) extra.push(`Duty: ${staff.duty_name}`);
+    if (staff.is_late)     extra.push(`Late ${Math.round(staff.minutes_late||0)}min`);
+    if (staff.relief_staff_name) extra.push(`Relief: ${staff.relief_staff_name}`);
+
+    const map = {
+      present: 'bg-success', absent: 'bg-danger', late: 'bg-warning text-dark',
+      on_leave: 'bg-info text-dark', off_day: 'bg-secondary', not_marked: 'bg-light text-dark border'
+    };
+    const label = {
+      present:'Present', absent:'Absent', late:'Late', on_leave:'On Leave',
+      off_day:'Off Day', not_marked:'Not Marked'
+    };
+    return `<span class="badge ${map[st]||map.not_marked}" title="${this.escapeAttribute(extra.join(' | '))}">${label[st]||st}</span>`;
   },
 };
 

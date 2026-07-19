@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\staff\StaffAPI;
 use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Modules\staff\StaffIDCardGenerator;
 use RuntimeException;
 use Exception;
 
@@ -17,12 +18,14 @@ class StaffController extends BaseController
 {
     private $api;
     private $payroll;
+    private $idCardGenerator;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new StaffAPI();
         $this->payroll = new StaffPayrollManager();
+        $this->idCardGenerator = new StaffIDCardGenerator();
     }
 
     public function index()
@@ -155,6 +158,80 @@ class StaffController extends BaseController
     public function postStaff($id = null, $data = [], $segments = [])
     {
         return $this->post($id, $data, $segments);
+    }
+
+    /**
+     * POST /api/staff/upload-photo/{id}
+     * Uploads a staff profile photo.
+     * Expects multipart/form-data with a "file" field.
+     * Stored under uploads/staff/profile_pictures/{staff_no}/ and the
+     * resulting URL is written to staff.profile_pic_url.
+     *
+     * POST /api/staff/upload-document/{id}
+     * Uploads a staff document (CV, certificate, etc.).
+     * Stored under uploads/staff/documents/{staff_no}/
+     */
+    public function postUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'photo');
+    }
+
+    public function postUploadDocument($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'document');
+    }
+
+    private function handleStaffUpload($id = null, $data = [], $segments = [], $forcedType = 'document')
+    {
+        $staffId = (int) ($id ?: ($data['staff_id'] ?? 0));
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required for upload');
+        }
+        if (empty($_FILES['file'])) {
+            return $this->badRequest('No file provided (expected field "file")');
+        }
+
+        // RBAC: require an authenticated user with a staff-management role.
+        if (empty($this->user)) {
+            return $this->unauthorized('Authentication required to upload staff files');
+        }
+        $allowedRoles = ['admin', 'school_admin', 'headteacher', 'director', 'human_resources'];
+        if (!$this->userHasAny([], [], $allowedRoles)) {
+            return $this->forbidden('Insufficient permission to upload staff files');
+        }
+
+        $type = $forcedType;
+        $description = $data['description'] ?? ($_POST['description'] ?? '');
+        $tags = $data['tags'] ?? ($_POST['tags'] ?? '');
+        $uploaderId = $this->user['id'] ?? null;
+
+        try {
+            $mediaId = $this->api->uploadStaffMedia($staffId, $_FILES['file'], $type, $uploaderId, $description, $tags);
+        } catch (\Exception $e) {
+            return $this->serverError('Upload failed: ' . $e->getMessage());
+        }
+
+        if (!$mediaId) {
+            return $this->serverError('Upload failed: media service returned no identifier');
+        }
+
+        // Reflect the new photo URL on the staff record when uploading a photo.
+        if ($type === 'photo') {
+            try {
+                $url = $this->api->getMediaFileUrl($mediaId);
+                if ($url) {
+                    $this->api->setProfilePicUrl($staffId, $url);
+                }
+            } catch (\Exception $e) {
+                // Non-fatal: photo uploaded but record update failed; client can re-fetch.
+            }
+        }
+
+        return $this->json([
+            'success' => true,
+            'media_id' => $mediaId,
+            'type' => $type
+        ]);
     }
 
     /**
@@ -1166,5 +1243,522 @@ class StaffController extends BaseController
                 return $this->success([]);
             }
         }
+    }
+
+    // =========================================================================
+    // ONBOARDING
+    // =========================================================================
+
+    /**
+     * GET /api/staff/onboarding        — list all onboardings
+     * GET /api/staff/onboarding/{id}   — single onboarding + tasks + documents
+     */
+    public function getOnboarding($id = null, $data = [], $segments = [])
+    {
+        $db = \App\Database\Database::getInstance();
+        try {
+            if ($id) {
+                $row = $db->query(
+                    "SELECT * FROM vw_onboarding_dashboard WHERE onboarding_id = ?", [$id]
+                )->fetch(\PDO::FETCH_ASSOC);
+                if (!$row) return $this->error('Not found', 404);
+
+                $tasks = $db->query(
+                    "SELECT ot.*, u.name AS assigned_to_name, cb.name AS completed_by_name
+                     FROM onboarding_tasks ot
+                     LEFT JOIN users u  ON u.id  = ot.assigned_to
+                     LEFT JOIN users cb ON cb.id = ot.completed_by
+                     WHERE ot.onboarding_id = ?
+                     ORDER BY ot.sequence ASC, ot.due_date ASC",
+                    [$id]
+                )->fetchAll(\PDO::FETCH_ASSOC);
+
+                $docs = $db->query(
+                    "SELECT * FROM onboarding_documents WHERE onboarding_id = ?", [$id]
+                )->fetchAll(\PDO::FETCH_ASSOC);
+
+                $reviews = $db->query(
+                    "SELECT pr.*, CONCAT(r.first_name,' ',r.last_name) AS reviewer_name
+                     FROM staff_probation_reviews pr
+                     LEFT JOIN staff r ON r.id = pr.reviewer_id
+                     WHERE pr.onboarding_id = ? ORDER BY pr.review_month ASC",
+                    [$id]
+                )->fetchAll(\PDO::FETCH_ASSOC);
+
+                return $this->success([
+                    'onboarding' => $row,
+                    'tasks'      => $tasks,
+                    'documents'  => $docs,
+                    'reviews'    => $reviews,
+                ]);
+            }
+
+            // List view
+            $status     = $_GET['status']      ?? null;
+            $staffId    = $_GET['staff_id']    ?? null;
+            $deptId     = $_GET['department_id'] ?? null;
+            $where = ['1=1']; $params = [];
+            if ($status)  { $where[] = 'status = ?';      $params[] = $status; }
+            if ($staffId) { $where[] = 'staff_id = ?';    $params[] = $staffId; }
+            if ($deptId)  {
+                // Join through staff table — use subquery
+                $where[] = 'staff_id IN (SELECT id FROM staff WHERE department_id = ?)';
+                $params[] = $deptId;
+            }
+
+            $rows = $db->query(
+                "SELECT * FROM vw_onboarding_dashboard WHERE " . implode(' AND ', $where) .
+                " ORDER BY start_date DESC LIMIT 200",
+                $params
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $stats = [
+                'total'       => count($rows),
+                'in_progress' => count(array_filter($rows, fn($r) => $r['status'] === 'in_progress')),
+                'completed'   => count(array_filter($rows, fn($r) => $r['status'] === 'completed')),
+                'overdue'     => count(array_filter($rows, fn($r) => ($r['overdue_tasks'] ?? 0) > 0)),
+                'pending'     => count(array_filter($rows, fn($r) => $r['status'] === 'pending')),
+            ];
+
+            return $this->success(['onboardings' => $rows, 'stats' => $stats]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/onboarding
+     * Initiate onboarding for a staff member. Auto-generates tasks from templates.
+     */
+    public function postOnboarding($id = null, $data = [], $segments = [])
+    {
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) return $this->error('staff_id required');
+
+        $db = \App\Database\Database::getInstance();
+        try {
+            // Check staff exists and get their type
+            $staff = $db->query(
+                "SELECT s.*, sc.id AS staff_category_id, st.id AS staff_type_id
+                 FROM staff s
+                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
+                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                 WHERE s.id = ?",
+                [$staffId]
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$staff) return $this->error('Staff not found', 404);
+
+            // Check no active onboarding already running
+            $existing = $db->query(
+                "SELECT id FROM staff_onboarding WHERE staff_id = ? AND status IN ('pending','in_progress')",
+                [$staffId]
+            )->fetch();
+            if ($existing) return $this->error('Staff already has an active onboarding record', 409);
+
+            $startDate  = $data['start_date']   ?? date('Y-m-d');
+            $probMonths = (int)($data['probation_months'] ?? 3);
+            $target     = date('Y-m-d', strtotime($startDate . " +$probMonths months"));
+            $mentorId   = $data['mentor_id']    ?? null;
+            $contractType = $data['contract_type'] ?? 'probation';
+
+            // Create onboarding record
+            $db->query(
+                "INSERT INTO staff_onboarding
+                 (staff_id, mentor_id, contract_type, probation_months, start_date,
+                  target_completion, expected_end_date, status, progress_percent,
+                  initiated_by, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)",
+                [
+                    $staffId, $mentorId, $contractType, $probMonths,
+                    $startDate, $target, $target,
+                    $this->user['id'] ?? null,
+                    $data['notes'] ?? null,
+                ]
+            );
+            $onboardingId = $db->lastInsertId();
+
+            // Auto-generate tasks from templates
+            $staffTypeId  = (int)($staff['staff_type_id'] ?? 0);
+            $templates = $db->query(
+                "SELECT * FROM onboarding_task_templates WHERE status = 'active' ORDER BY display_order"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $tasksCreated = 0;
+            foreach ($templates as $t) {
+                // Check if this template applies to this staff type
+                $appliesToTypes = json_decode($t['applies_to_type_ids'] ?? 'null', true);
+                if ($appliesToTypes !== null && $staffTypeId && !in_array($staffTypeId, $appliesToTypes)) {
+                    continue; // Skip — not applicable to this staff type
+                }
+
+                $dueDate = date('Y-m-d', strtotime($startDate . " +" . $t['days_from_start'] . " days"));
+
+                $db->query(
+                    "INSERT INTO onboarding_tasks
+                     (onboarding_id, task_name, description, category,
+                      due_date, priority, sequence, status)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
+                    [
+                        $onboardingId,
+                        $t['task_name'],
+                        $t['description'],
+                        $t['category'],
+                        $dueDate,
+                        $t['priority'],
+                        $t['display_order'],
+                    ]
+                );
+                $tasksCreated++;
+            }
+
+            // Update status to in_progress
+            $db->query("UPDATE staff_onboarding SET status = 'in_progress' WHERE id = ?", [$onboardingId]);
+
+            // Also auto-create contract record
+            $db->query(
+                "INSERT INTO staff_contracts (staff_id, contract_type, start_date, end_date, salary, status, created_by)
+                 VALUES (?, ?, ?, ?, ?, 'active', ?)",
+                [
+                    $staffId, $contractType, $startDate, $target,
+                    $staff['salary'] ?? 0,
+                    $this->user['id'] ?? null,
+                ]
+            );
+
+            return $this->success([
+                'onboarding_id' => (int)$onboardingId,
+                'tasks_created' => $tasksCreated,
+                'start_date'    => $startDate,
+                'target_date'   => $target,
+            ], 201);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/staff/onboarding/{id}
+     * Update onboarding status or overall notes.
+     */
+    public function putOnboarding($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->error('onboarding id required');
+        $db = \App\Database\Database::getInstance();
+        try {
+            $allowed = ['status','mentor_id','target_completion','probation_outcome','notes'];
+            $set = []; $params = [];
+            foreach ($allowed as $f) {
+                if (array_key_exists($f, $data)) {
+                    $set[] = "$f = ?"; $params[] = $data[$f];
+                }
+            }
+            // If completing, record completion date
+            if (($data['status'] ?? '') === 'completed') {
+                $set[] = 'actual_completion = ?'; $params[] = date('Y-m-d');
+                $set[] = 'completion_date = ?';   $params[] = date('Y-m-d');
+                $set[] = 'progress_percent = ?';  $params[] = 100;
+            }
+            if (empty($set)) return $this->error('Nothing to update');
+            $params[] = $id;
+            $db->query("UPDATE staff_onboarding SET " . implode(', ', $set) . " WHERE id = ?", $params);
+            return $this->success(['updated' => true]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/staff/onboarding-task/{id}
+     * Mark a task complete, in_progress, blocked, or skipped.
+     */
+    public function putOnboardingTask($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->error('task id required');
+        $db = \App\Database\Database::getInstance();
+        try {
+            $newStatus = $data['status'] ?? 'completed';
+            $notes     = $data['notes'] ?? null;
+            $userId    = $this->user['id'] ?? null;
+
+            $set = "status = ?, notes = ?, updated_at = NOW()";
+            $params = [$newStatus, $notes];
+
+            if ($newStatus === 'completed') {
+                $set .= ", completed_date = NOW(), completed_by = ?";
+                $params[] = $userId;
+            }
+            $params[] = $id;
+            $db->query("UPDATE onboarding_tasks SET $set WHERE id = ?", $params);
+
+            // Recalculate onboarding progress %
+            $task = $db->query("SELECT onboarding_id FROM onboarding_tasks WHERE id = ?", [$id])->fetch();
+            if ($task) {
+                $this->_recalcOnboardingProgress((int)$task['onboarding_id'], $db);
+            }
+
+            return $this->success(['updated' => true]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/onboarding-document
+     * Record that a document has been collected.
+     */
+    public function postOnboardingDocument($id = null, $data = [], $segments = [])
+    {
+        $onboardingId = $data['onboarding_id'] ?? null;
+        $staffId      = $data['staff_id']      ?? null;
+        $docType      = $data['document_type'] ?? null;
+        if (!$onboardingId || !$staffId || !$docType) return $this->error('onboarding_id, staff_id, document_type required');
+
+        $db = \App\Database\Database::getInstance();
+        try {
+            $db->query(
+                "INSERT INTO onboarding_documents
+                 (onboarding_id, staff_id, document_type, document_name,
+                  is_original_seen, is_copy_filed, verified_by, verified_at, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
+                [
+                    $onboardingId, $staffId, $docType,
+                    $data['document_name'] ?? null,
+                    $data['is_original_seen'] ?? 0,
+                    $data['is_copy_filed']    ?? 0,
+                    $this->user['id'] ?? null,
+                    $data['notes']    ?? null,
+                ]
+            );
+            // Auto-complete the matching documentation task
+            $db->query(
+                "UPDATE onboarding_tasks
+                 SET status = 'completed', completed_date = NOW()
+                 WHERE onboarding_id = ?
+                   AND category = 'documentation'
+                   AND LOWER(task_name) LIKE ?
+                   AND status != 'completed'
+                 LIMIT 1",
+                [$onboardingId, '%' . strtolower(str_replace('_', ' ', $docType)) . '%']
+            );
+            $task = $db->query("SELECT id FROM onboarding_tasks WHERE onboarding_id = ? LIMIT 1", [$onboardingId])->fetch();
+            if ($task) $this->_recalcOnboardingProgress((int)$onboardingId, $db);
+            return $this->success(['id' => (int)$db->lastInsertId()], 201);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/probation-review
+     * Record a probation review outcome.
+     */
+    public function postProbationReview($id = null, $data = [], $segments = [])
+    {
+        $onboardingId = $data['onboarding_id'] ?? null;
+        $staffId      = $data['staff_id']      ?? null;
+        if (!$onboardingId || !$staffId) return $this->error('onboarding_id and staff_id required');
+
+        $db = \App\Database\Database::getInstance();
+        try {
+            $db->query(
+                "INSERT INTO staff_probation_reviews
+                 (onboarding_id, staff_id, review_month, review_date, reviewer_id,
+                  overall_rating, attendance_score, performance_score, conduct_score,
+                  strengths, areas_to_improve, outcome, outcome_notes, next_review_date)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    $onboardingId, $staffId,
+                    $data['review_month']       ?? 1,
+                    $data['review_date']        ?? date('Y-m-d'),
+                    $this->user['id']           ?? null,
+                    $data['overall_rating']     ?? 'satisfactory',
+                    $data['attendance_score']   ?? null,
+                    $data['performance_score']  ?? null,
+                    $data['conduct_score']      ?? null,
+                    $data['strengths']          ?? null,
+                    $data['areas_to_improve']   ?? null,
+                    $data['outcome']            ?? 'continue',
+                    $data['outcome_notes']      ?? null,
+                    $data['next_review_date']   ?? null,
+                ]
+            );
+
+            // Handle outcome
+            if (($data['outcome'] ?? '') === 'confirm_permanent') {
+                $db->query(
+                    "UPDATE staff_onboarding SET probation_outcome='confirmed', status='completed', actual_completion=? WHERE id=?",
+                    [date('Y-m-d'), $onboardingId]
+                );
+                // Update staff contract to permanent
+                $db->query(
+                    "UPDATE staff_contracts SET contract_type='permanent', status='active', end_date=NULL WHERE staff_id=? AND status='active'",
+                    [$staffId]
+                );
+            } elseif (($data['outcome'] ?? '') === 'extend_probation') {
+                $extendMonths = (int)($data['extend_months'] ?? 3);
+                $newTarget = date('Y-m-d', strtotime(date('Y-m-d') . " +$extendMonths months"));
+                $db->query(
+                    "UPDATE staff_onboarding SET probation_outcome='extended', target_completion=?, expected_end_date=? WHERE id=?",
+                    [$newTarget, $newTarget, $onboardingId]
+                );
+            } elseif (($data['outcome'] ?? '') === 'terminate') {
+                $db->query(
+                    "UPDATE staff_onboarding SET probation_outcome='terminated', status='terminated' WHERE id=?",
+                    [$onboardingId]
+                );
+                $db->query("UPDATE staff SET status='inactive' WHERE id=?", [$staffId]);
+            }
+
+            return $this->success(['id' => (int)$db->lastInsertId()]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/onboarding-templates
+     * List all task templates (for HR to customise before generating).
+     */
+    public function getOnboardingTemplates($id = null, $data = [], $segments = [])
+    {
+        $db = \App\Database\Database::getInstance();
+        try {
+            $rows = $db->query(
+                "SELECT * FROM onboarding_task_templates WHERE status='active' ORDER BY display_order"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/onboarding-pending
+     * All overdue or pending tasks across all active onboardings — HR dashboard feed.
+     */
+    public function getOnboardingPending($id = null, $data = [], $segments = [])
+    {
+        $db = \App\Database\Database::getInstance();
+        try {
+            $rows = $db->query(
+                "SELECT * FROM vw_onboarding_pending_by_role ORDER BY is_overdue DESC, due_date ASC LIMIT 100"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    private function _recalcOnboardingProgress(int $onboardingId, $db): void
+    {
+        $counts = $db->query(
+            "SELECT COUNT(*) AS total,
+                    SUM(status='completed') AS done,
+                    SUM(status='skipped')   AS skipped
+             FROM onboarding_tasks WHERE onboarding_id = ?",
+            [$onboardingId]
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        $active = (int)$counts['total'] - (int)$counts['skipped'];
+        $pct    = $active > 0 ? round((int)$counts['done'] * 100 / $active) : 0;
+
+        $db->query(
+            "UPDATE staff_onboarding SET progress_percent = ? WHERE id = ?",
+            [$pct, $onboardingId]
+        );
+    }
+
+    // ========================================================================
+    // STAFF ID CARD ENDPOINTS
+    // ========================================================================
+
+    /**
+     * POST /api/staff/id-card/generate
+     * Generate staff ID card
+     */
+    public function postIdCardGenerate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $format = $data['format'] ?? 'html';
+        $side = $data['side'] ?? 'both';
+
+        $result = $this->idCardGenerator->generateIDCard((int) $staffId, $format, $side);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/generate-bulk-pdf
+     * Generate bulk PDF for selected staff with A4 layout
+     */
+    public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffIds = $data['staff_ids'] ?? [];
+        if (empty($staffIds) || !is_array($staffIds)) {
+            return $this->badRequest('Staff IDs array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $includeFront = $data['include_front'] ?? true;
+        $includeBack = $data['include_back'] ?? true;
+
+        $result = $this->idCardGenerator->generateBulkIDCardsPDF($staffIds, $printMode, $includeFront, $includeBack);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/print-single
+     * Generate print-ready single card HTML for browser/system printing.
+     */
+    public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? ($segments[0] ?? null);
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
+        $result = $this->idCardGenerator->generatePrintableSingle((int) $staffId, $side, $printMode);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/upload-photo
+     * Upload staff photo for ID card
+     */
+    public function postIdCardUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        if (!isset($_FILES['photo'])) {
+            return $this->badRequest('Photo file is required');
+        }
+
+        $result = $this->idCardGenerator->uploadStaffPhoto((int) $staffId, $_FILES['photo']);
+        return $this->handleResponse($result);
     }
 }

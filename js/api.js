@@ -27,51 +27,126 @@ const NOTIFICATION_ICONS = {
   info: "bi-info-circle",
 };
 
-// Show notification using Bootstrap modal
+// Show notification as a non-blocking toast
 function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
-  const modal = document.getElementById("notificationModal");
-  const modalContent = modal.querySelector(".modal-content");
-  const icon = modal.querySelector(".notification-icon i");
-  const messageDiv = modal.querySelector(".notification-message");
+  const legacyModal = document.getElementById("notificationModal");
+  if (legacyModal && typeof bootstrap !== "undefined") {
+    const existingModal = bootstrap.Modal.getInstance(legacyModal);
+    if (existingModal) {
+      existingModal.hide();
+    }
+    legacyModal.classList.remove("show");
+    legacyModal.style.display = "none";
+    document.body.classList.remove("modal-open");
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.remove();
+    });
+  }
 
-  // Remove existing notification classes
-  modalContent.classList.remove(
-    "notification-success",
-    "notification-error",
-    "notification-warning",
-    "notification-info",
-  );
+  let container = document.getElementById("appToastContainer");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "appToastContainer";
+    container.style.position = "fixed";
+    container.style.top = "86px";
+    container.style.right = "24px";
+    container.style.zIndex = "1085";
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.gap = "10px";
+    container.style.maxWidth = "420px";
+    document.body.appendChild(container);
+  }
 
-  // Add appropriate notification class
-  modalContent.classList.add(`notification-${type}`);
+  const palette = {
+    success: { bg: "#ffffff", border: "#22c55e", icon: "#15803d" },
+    error: { bg: "#ffffff", border: "#ef4444", icon: "#b91c1c" },
+    warning: { bg: "#ffffff", border: "#f59e0b", icon: "#b45309" },
+    info: { bg: "#ffffff", border: "#3b82f6", icon: "#1d4ed8" },
+  };
+  const colors = palette[type] || palette.info;
 
-  // Set icon
-  icon.className = `bi ${NOTIFICATION_ICONS[type]}`;
+  const toast = document.createElement("div");
+  toast.setAttribute("role", "status");
+  toast.style.display = "flex";
+  toast.style.alignItems = "center";
+  toast.style.gap = "12px";
+  toast.style.padding = "14px 18px";
+  toast.style.borderRadius = "14px";
+  toast.style.background = colors.bg;
+  toast.style.borderLeft = "5px solid " + colors.border;
+  toast.style.boxShadow = "0 14px 36px rgba(15, 23, 42, 0.18)";
+  toast.style.color = "#111827";
+  toast.style.fontWeight = "500";
+  toast.style.transform = "translateX(20px)";
+  toast.style.opacity = "0";
+  toast.style.transition = "opacity 180ms ease, transform 180ms ease";
 
-  // Set message
-  messageDiv.textContent = message;
+  const icon = document.createElement("i");
+  icon.className = `bi ${NOTIFICATION_ICONS[type] || NOTIFICATION_ICONS.info}`;
+  icon.style.color = colors.icon;
+  icon.style.fontSize = "1.1rem";
+  icon.style.flexShrink = "0";
 
-  // Show modal
-  const bsModal = new bootstrap.Modal(modal);
-  bsModal.show();
+  const text = document.createElement("span");
+  text.textContent = message;
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.setAttribute("aria-label", "Dismiss notification");
+  close.textContent = "×";
+  close.style.marginLeft = "auto";
+  close.style.border = "0";
+  close.style.background = "transparent";
+  close.style.fontSize = "1.2rem";
+  close.style.lineHeight = "1";
+  close.style.color = "#6b7280";
+  close.style.cursor = "pointer";
+
+  const removeToast = function () {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateX(20px)";
+    setTimeout(function () {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 200);
+  };
+
+  close.addEventListener("click", removeToast);
+  toast.appendChild(icon);
+  toast.appendChild(text);
+  toast.appendChild(close);
+  container.appendChild(toast);
+
+  requestAnimationFrame(function () {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateX(0)";
+  });
+
+  setTimeout(removeToast, type === NOTIFICATION_TYPES.ERROR ? 6000 : 3200);
 }
 
 // Handle API Response
 function handleApiResponse(response, showSuccess = false) {
-  if (response.status === "success") {
+  const normalized = AppState.normalizeResponse(response);
+  if (normalized.success) {
     // Disabled automatic success notifications - let components handle their own
     // if (showSuccess && response.message) {
     //     showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
     // }
     // For sidebar endpoint, return the entire response
-    if (response.data?.sidebar !== undefined) {
+    if (normalized.data?.sidebar !== undefined) {
       return response;
     }
     // For other endpoints, return just the data
     return response.data !== undefined ? response.data : response;
   } else {
-    const error = new Error(response.message || "API call failed");
+    const error = new Error(normalized.message || "API call failed");
     error.response = response;
+    error.code = normalized.code;
+    error.errors = normalized.errors;
+    error.state = AppState.classify(normalized);
     throw error;
   }
 }
@@ -123,34 +198,174 @@ async function readJsonSafely(response, context = "API") {
 
 /**
  * User context manager - handles authentication state, permissions, and access control
- * Stores user info, token, roles, and permissions in localStorage + memory
+ * Stores user info, token, roles, and permissions in localStorage or sessionStorage depending on "Remember me"
  * Provides permission checking before API calls
  */
 const AuthContext = (() => {
+  const AUTH_KEYS = [
+    "token",
+    "refresh_token",
+    "user_data",
+    "user_permissions",
+    "user_roles",
+    "sidebar_items",
+    "dashboard_info",
+  ];
+
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
+  let activeStorage = localStorage.getItem("auth_storage_mode") === "local" ? localStorage : sessionStorage;
+
+  function getStorageName(storage) {
+    return storage === localStorage ? "local" : "session";
+  }
+
+  function getStorageByName(name) {
+    return name === "local" ? localStorage : sessionStorage;
+  }
+
+  function detectAuthStorage() {
+    if (sessionStorage.getItem("token")) {
+      activeStorage = sessionStorage;
+      return activeStorage;
+    }
+    if (localStorage.getItem("token")) {
+      activeStorage = localStorage;
+      return activeStorage;
+    }
+    activeStorage = getStorageByName(localStorage.getItem("auth_storage_mode"));
+    return activeStorage;
+  }
+
+  function removeAuthKeys(storage) {
+    AUTH_KEYS.forEach((key) => storage.removeItem(key));
+  }
+
+  function setPersistence(rememberMe = false) {
+    activeStorage = rememberMe ? localStorage : sessionStorage;
+    localStorage.setItem("auth_storage_mode", rememberMe ? "local" : "session");
+    removeAuthKeys(rememberMe ? sessionStorage : localStorage);
+  }
+
+  function getItem(key) {
+    // Use the same activeStorage as setItem - don't re-detect
+    return activeStorage.getItem(key);
+  }
+
+  function setItem(key, value) {
+    activeStorage.setItem(key, value);
+  }
+
+  function setTokens(token, refreshToken = null) {
+    if (token) {
+      setItem("token", token);
+    }
+    if (refreshToken) {
+      setItem("refresh_token", refreshToken);
+    }
+  }
+
+  function getToken() {
+    return getItem("token");
+  }
+
+  function getRefreshToken() {
+    return getItem("refresh_token");
+  }
+
+  function getPersistenceMode() {
+    detectAuthStorage();
+    return getStorageName(activeStorage);
+  }
 
   /**
-   * Initialize user context from localStorage (on page load)
+   * Initialize user context from configured auth storage (on page load)
    */
-  function initialize() {
-    const token = localStorage.getItem("token");
-    const userData = localStorage.getItem("user_data");
-    const permissionsData = localStorage.getItem("user_permissions");
+  /**
+   * Silent boot refresh.
+   *
+   * Web-storage (where this access token lives) can be empty on a fresh window,
+   * incognito tab, after "clear cache", or in a second tab — but the server's
+   * HttpOnly `refresh_token` cookie survives all of those. So when web-storage
+   * has no token, we attempt one silent refresh via that cookie BEFORE deciding
+   * the user is logged out. This is the single point that reconciles the two
+   * storage worlds and stops the "logged out on first load in a new window" bug.
+   *
+   * Returns a Promise<boolean> (resolved, not thrown) so callers can await it.
+   */
+  // One-shot guard: the boot refresh may be triggered both by the module-load
+  // initialize() call and by home.php awaiting initialize() — run it only once.
+  let _bootRefreshDone = false;
+  let _bootRefreshResult = null;
+
+  async function bootstrapFromRefreshCookie() {
+    if (_bootRefreshDone) return _bootRefreshResult;
+    _bootRefreshDone = true;
+    try {
+      const refreshToken = getRefreshToken();
+      const url = new URL(API_BASE_URL + "/auth/refresh-token", window.location.origin);
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include", // carries the HttpOnly refresh_token cookie
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+      });
+      if (!response.ok) return false;
+      const result = await readJsonSafely(response, "Token refresh");
+      if (result && (result.status === "success" || result.success === true) && result.data && result.data.token) {
+        // Rehydrate auth state from the refreshed response. The response has the
+        // full user/permissions envelope only on the auth/refresh-token endpoint.
+        const full = result.data;
+        setTokens(full.token, full.refresh_token || null);
+        if (full.user) {
+          // Preserve the user's original remember-me choice so the refreshed
+          // access token lands in the same storage (local vs session).
+          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
+          setUser(full.user, full, rememberMe);
+        }
+        console.log("[AuthContext] Session restored from refresh cookie on boot");
+        _bootRefreshResult = true;
+        return true;
+      }
+    } catch (e) {
+      console.warn("[AuthContext] Boot refresh failed:", e);
+    }
+    _bootRefreshResult = false;
+    return false;
+  }
+
+  async function initialize() {
+    // Set activeStorage once based on what actually has data
+    detectAuthStorage();
+    let token = activeStorage.getItem("token");
+    const userData = activeStorage.getItem("user_data");
+    const permissionsData = activeStorage.getItem("user_permissions");
 
     if (token && userData) {
       try {
         currentUser = JSON.parse(userData);
         if (permissionsData) {
           permissions = new Set(JSON.parse(permissionsData));
-          roles = JSON.parse(localStorage.getItem("user_roles") || "[]");
+          roles = JSON.parse(activeStorage.getItem("user_roles") || "[]");
         }
       } catch (e) {
-        console.warn("Failed to restore user context from localStorage:", e);
+        console.warn("Failed to restore user context from auth storage:", e);
         currentUser = null;
         permissions.clear();
         roles = [];
+        removeAuthKeys(activeStorage);
+      }
+    }
+
+    // Single source of truth: if web-storage had no token, fall back to the
+    // server-side refresh cookie exactly once. Resolve rather than throw so the
+    // caller can decide whether to redirect.
+    if (!token) {
+      try {
+        await bootstrapFromRefreshCookie();
+      } catch (e) {
+        console.warn("AuthContext initialize refresh skipped:", e);
       }
     }
   }
@@ -160,7 +375,8 @@ const AuthContext = (() => {
    * Deduplicates permissions and extracts unique permission codes
    * Also stores sidebar menu items
    */
-  function setUser(userData, fullResponse) {
+  function setUser(userData, fullResponse, rememberMe = false) {
+    setPersistence(rememberMe);
     currentUser = userData;
 
     console.log("setUser called with:", { userData, fullResponse });
@@ -172,6 +388,24 @@ const AuthContext = (() => {
 
     console.log("Permissions array:", permissionsArray);
 
+    // Use StorageManager for user preferences if available
+    if (typeof StorageManager !== 'undefined' && typeof StorageManager.setPreference === 'function') {
+      try {
+        StorageManager.setPreference('user_theme', userData.theme || 'light');
+        StorageManager.setPreference('sidebar_collapsed', false);
+      } catch (e) {
+        console.warn('StorageManager.setPreference failed:', e);
+      }
+    } else {
+      // Fallback to localStorage directly
+      try {
+        localStorage.setItem('user_theme', userData.theme || 'light');
+        localStorage.setItem('sidebar_collapsed', JSON.stringify(false));
+      } catch (e) {
+        console.warn('localStorage fallback failed:', e);
+      }
+    }
+
     if (Array.isArray(permissionsArray) && permissionsArray.length > 0) {
       // Create Set of unique permission codes (automatically deduplicates)
       const uniquePermissions = new Set(
@@ -181,8 +415,8 @@ const AuthContext = (() => {
 
       console.log("Unique permissions extracted:", permissions.size);
 
-      // Store in localStorage
-      localStorage.setItem(
+      // Store in current auth storage
+      setItem(
         "user_permissions",
         JSON.stringify(Array.from(permissions))
       );
@@ -194,7 +428,7 @@ const AuthContext = (() => {
     const rolesArray = fullResponse?.roles || userData?.roles || [];
     if (Array.isArray(rolesArray) && rolesArray.length > 0) {
       roles = rolesArray.map((r) => r.name || r);
-      localStorage.setItem("user_roles", JSON.stringify(roles));
+      setItem("user_roles", JSON.stringify(roles));
       console.log("Roles extracted:", roles);
 
       // Also extract role IDs for dashboard routing
@@ -219,7 +453,7 @@ const AuthContext = (() => {
       fullResponse?.sidebar_items &&
       Array.isArray(fullResponse.sidebar_items)
     ) {
-      localStorage.setItem(
+      setItem(
         "sidebar_items",
         JSON.stringify(fullResponse.sidebar_items)
       );
@@ -243,14 +477,14 @@ const AuthContext = (() => {
           dashboardInfo.key = decodeURIComponent(routeMatch[1]);
         }
       }
-      localStorage.setItem("dashboard_info", JSON.stringify(dashboardInfo));
+      setItem("dashboard_info", JSON.stringify(dashboardInfo));
       console.log("Dashboard info stored:", dashboardInfo);
     } else {
       console.warn("No dashboard info found in response");
     }
 
     // Store user data (now includes role_ids)
-    localStorage.setItem("user_data", JSON.stringify(userData));
+    setItem("user_data", JSON.stringify(userData));
     console.log("User data stored", userData);
   }
 
@@ -261,12 +495,9 @@ const AuthContext = (() => {
     currentUser = null;
     permissions.clear();
     roles = [];
-    localStorage.removeItem("token");
-    localStorage.removeItem("user_data");
-    localStorage.removeItem("user_permissions");
-    localStorage.removeItem("user_roles");
-    localStorage.removeItem("sidebar_items");
-    localStorage.removeItem("dashboard_info");
+    removeAuthKeys(localStorage);
+    removeAuthKeys(sessionStorage);
+    localStorage.removeItem("auth_storage_mode");
   }
 
   /**
@@ -282,7 +513,9 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissions.has(permissionCode);
+    return PermissionContract.expandPermissionAliases(permissionCode).some((alias) =>
+      permissions.has(alias)
+    );
   }
 
   /**
@@ -298,7 +531,7 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissionCodes.some((code) => permissions.has(code));
+    return permissionCodes.some((code) => hasPermission(code));
   }
 
   /**
@@ -314,7 +547,14 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissionCodes.every((code) => permissions.has(code));
+    return permissionCodes.every((code) => hasPermission(code));
+  }
+
+  function normalizeRoleName(roleName) {
+    return String(roleName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
   }
 
   /**
@@ -324,7 +564,10 @@ const AuthContext = (() => {
    */
   function hasRole(roleName) {
     if (!currentUser) return false;
-    return roles.includes(roleName);
+    const normalizedRoleName = normalizeRoleName(roleName);
+    return roles.some((role) =>
+      role === roleName || normalizeRoleName(role) === normalizedRoleName
+    );
   }
 
   /**
@@ -349,11 +592,11 @@ const AuthContext = (() => {
   }
 
   /**
-   * Get sidebar menu items from localStorage
+   * Get sidebar menu items from current auth storage
    */
   function getSidebarItems() {
     try {
-      const items = localStorage.getItem("sidebar_items");
+      const items = getItem("sidebar_items");
       return items ? JSON.parse(items) : [];
     } catch (e) {
       console.warn("Failed to parse sidebar items:", e);
@@ -362,11 +605,11 @@ const AuthContext = (() => {
   }
 
   /**
-   * Get dashboard info from localStorage
+   * Get dashboard info from current auth storage
    */
   function getDashboardInfo() {
     try {
-      const info = localStorage.getItem("dashboard_info");
+      const info = getItem("dashboard_info");
       return info ? JSON.parse(info) : null;
     } catch (e) {
       console.warn("Failed to parse dashboard info:", e);
@@ -385,7 +628,7 @@ const AuthContext = (() => {
    * Check if user is authenticated
    */
   function isAuthenticated() {
-    return !!currentUser && !!localStorage.getItem("token");
+    return !!currentUser && !!getToken();
   }
 
   /**
@@ -419,8 +662,25 @@ const AuthContext = (() => {
   function canExport(module) {
     return hasPermission(`${module}.export`) || hasPermission(`${module}_export`);
   }
+  function canReject(module) {
+    return hasPermission(`${module}.reject`) || hasPermission(`${module}_reject`);
+  }
+  function canPrint(module) {
+    return hasPermission(`${module}.print`) || hasPermission(`${module}_print`);
+  }
   function canManage(module) {
     return hasPermission(`${module}.manage`) || hasPermission(`${module}_manage`);
+  }
+  function canAction(module, action) {
+    return PermissionContract.aliasesFor(module, action).some((permission) =>
+      hasPermission(permission)
+    );
+  }
+  function getAllowedActions(module) {
+    return PermissionContract.actions.reduce((allowed, action) => {
+      allowed[action] = canAction(module, action);
+      return allowed;
+    }, {});
   }
 
   // Initialize on load
@@ -429,7 +689,13 @@ const AuthContext = (() => {
   // Return public API
   return {
     setUser,
+    setPersistence,
+    setTokens,
+    getToken,
+    getRefreshToken,
+    getPersistenceMode,
     clearUser,
+    initialize,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
@@ -448,10 +714,16 @@ const AuthContext = (() => {
     canEdit,
     canDelete,
     canApprove,
+    canReject,
     canExport,
+    canPrint,
     canManage,
+    canAction,
+    getAllowedActions,
   };
 })();
+
+window.AuthContext = AuthContext;
 
 // Lightweight state refresher registry so mutation calls can auto-refresh linked data
 const APIState = (() => {
@@ -480,11 +752,134 @@ const APIState = (() => {
 // Infer primary resource from endpoint for automatic invalidation
 function inferResourceKey(endpoint = "") {
   const clean = endpoint.split("?")[0].replace(/^\/+/, "");
-  const [resource] = clean.split("/");
-  return resource || null;
+  const segments = clean.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+  // Preserve the module + sub-resource (e.g. "academic/classes-list", "academic/years",
+  // "staff/departments") so distinct routes get distinct cache keys and mutation-time
+  // invalidation doesn't collide. /api/academic/classes and /api/academic/classes-list are
+  // different resources and must not share a key.
+  return segments.slice(0, 2).join("/");
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const PERMISSION_ACTIONS = [
+  "view",
+  "create",
+  "edit",
+  "approve",
+  "reject",
+  "delete",
+  "export",
+  "print",
+];
+
+const PermissionContract = (() => {
+  function normalizeModule(module) {
+    return String(module || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function normalizeAction(action) {
+    const normalized = String(action || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return normalized === "update" ? "edit" : normalized;
+  }
+
+  function aliasesFor(module, action) {
+    const mod = normalizeModule(module);
+    const act = normalizeAction(action);
+    const aliases = [`${mod}_${act}`, `${mod}.${act}`];
+
+    if (act === "edit") {
+      aliases.push(`${mod}_update`, `${mod}.update`);
+    } else if (act === "approve") {
+      aliases.push(`${mod}_approve_final`, `${mod}.approve_final`);
+    } else if (act === "view") {
+      aliases.push(`${mod}_view_all`, `${mod}_view_own`, `${mod}.view_all`, `${mod}.view_own`);
+    }
+
+    return [...new Set(aliases)];
+  }
+
+  function expandPermissionAliases(permission) {
+    const value = String(permission || "").trim();
+    if (!value) return [];
+
+    const aliases = new Set([value]);
+    if (value.includes("_")) aliases.add(value.replace(/_/g, "."));
+    if (value.includes(".")) aliases.add(value.replace(/\./g, "_"));
+    if (value.endsWith("_edit")) aliases.add(value.replace(/_edit$/, "_update"));
+    if (value.endsWith("_update")) aliases.add(value.replace(/_update$/, "_edit"));
+    if (value.endsWith(".edit")) aliases.add(value.replace(/\.edit$/, ".update"));
+    if (value.endsWith(".update")) aliases.add(value.replace(/\.update$/, ".edit"));
+    return [...aliases];
+  }
+
+  return {
+    actions: PERMISSION_ACTIONS,
+    normalizeModule,
+    normalizeAction,
+    permissionFor: (module, action) => `${normalizeModule(module)}_${normalizeAction(action)}`,
+    aliasesFor,
+    expandPermissionAliases,
+  };
+})();
+
+const AppState = (() => {
+  const STATES = {
+    LOADING: "loading",
+    SUCCESS: "success",
+    EMPTY: "empty",
+    VALIDATION_ERROR: "validation_error",
+    UNAUTHORIZED: "unauthorized",
+    FORBIDDEN: "forbidden",
+    SERVER_ERROR: "server_error",
+  };
+
+  function classify(input) {
+    const response = input?.response || input || {};
+    const code = Number(response.code || response.status_code || input?.status || 0);
+    const errors = response.errors || {};
+
+    if (code === 401) return STATES.UNAUTHORIZED;
+    if (code === 403 || input?.code === "PERMISSION_DENIED") return STATES.FORBIDDEN;
+    if (code === 422 || (errors && Object.keys(errors).length > 0)) return STATES.VALIDATION_ERROR;
+    if (code >= 500) return STATES.SERVER_ERROR;
+
+    const data = response.data !== undefined ? response.data : response;
+    if (Array.isArray(data) && data.length === 0) return STATES.EMPTY;
+    if (data && Array.isArray(data.items) && data.items.length === 0) return STATES.EMPTY;
+    if (data && Array.isArray(data.data) && data.data.length === 0) return STATES.EMPTY;
+
+    return STATES.SUCCESS;
+  }
+
+  function normalizeResponse(response) {
+    const success = response?.success !== undefined
+      ? Boolean(response.success)
+      : response?.status === "success";
+    return {
+      success,
+      status: response?.status || (success ? "success" : "error"),
+      data: response?.data ?? null,
+      message: response?.message || (success ? "OK" : "Request failed"),
+      errors: response?.errors || {},
+      code: response?.code || response?.status_code || (success ? 200 : 400),
+      raw: response,
+    };
+  }
+
+  return { STATES, classify, normalizeResponse };
+})();
+
+window.AppState = AppState;
+window.PermissionContract = PermissionContract;
 
 /**
  * Permission requirement mapping for API endpoints
@@ -501,6 +896,7 @@ const ENDPOINT_PERMISSIONS = {
   "/auth/login": null,
   "/auth/logout": null,
   "/auth/refresh-token": null,
+  "/systemconfig/authorize": null,
 
   // Users
   "/users/index": "users_view",
@@ -556,6 +952,9 @@ const ENDPOINT_PERMISSIONS = {
   "/students/promotion-graduate-grade9": "students_promote",
   "/students/promotion-batches": "students_view",
   "/students/promotion-history": "students_view",
+  "/students/promotion-meta-v2": "students_view",
+  "/students/promotion-candidates-v2": "students_view",
+  "/students/promotion-execute-v2": "students_promote",
   "/students/enrollment-history": "students_view",
   "/students/alumni-get": "students_view",
   "/students/enrollment-current": "students_view",
@@ -569,9 +968,76 @@ const ENDPOINT_PERMISSIONS = {
   "/students/academic-year-set-current": "students_promote",
   "/students/academic-year-update-status": "students_promote",
   "/students/academic-year-archive": "students_promote",
+  "/students/my-profile": ["students_view_own", "students_view"],
+  "/students/my-children": ["students_view_own", "students_view", "students_parents_view"],
+  "/students/parents-get": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents-add": "students_edit",
+  "/students/parents-update": "students_edit",
+  "/students/parents-remove": "students_edit",
+  "/students/parents/list": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/get": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/children": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/create": "students_create",
+  "/students/parents/delete": "students_edit",
+  "/students/parents/link-child": "students_edit",
+  "/students/parents/unlink-child": "students_edit",
+  "/students/parents/available-students": "students_edit",
+  "/students/without-parents": ["students_parents_view", "students_view"],
 
   // Academic
   "/academic/index": "academic_view",
+  "/academic/classes-list": "academic_view",
+  "/academic/classes/create": "academic_create",
+  "/academic/classes/update": "academic_update",
+  "/academic/classes/delete": "academic_delete",
+  "/academic/streams-list": "academic_view",
+  "/academic/streams/create": "academic_create",
+  "/academic/streams/update": "academic_update",
+  "/academic/streams/delete": "academic_delete",
+  "/academic/class-capacity": "academic_view",
+  "/academic/teachers-list": "academic_view",
+  "/academic/levels-list": "academic_view",
+  "/academic/context": "academic_view",
+  "/academic/subjects": "academic_view",
+  "/academic/subjects-list": "academic_view",
+  "/academic/learning-areas/list": "academic_view",
+  "/academic/learning-areas/get": "academic_view",
+  "/academic/learning-areas/create": "academic_create",
+  "/academic/learning-areas/update": "academic_update",
+  "/academic/learning-areas/delete": "academic_delete",
+  "/academic/curriculum-units": "academic_view",
+  "/academic/curriculum-units-list": "academic_view",
+  "/academic/curriculum-units-create": "academic_create",
+  "/academic/curriculum-units-get": "academic_view",
+  "/academic/curriculum-units-update": "academic_update",
+  "/academic/curriculum-units-delete": "academic_delete",
+  "/academic/curriculum-units/create": "academic_create",
+  "/academic/curriculum-units/update": "academic_update",
+  "/academic/curriculum-units/delete": "academic_delete",
+  "/academic/exam-schedule": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/schemes-of-work": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/scheme-of-work-get": "academic_view",
+  "/academic/lesson-plans-list": "academic_view",
+  "/academic/lesson-plans-approval": "academic_view",
+  "/academic/lesson-plans-review": "academic_update",
+  "/academic/lesson-plans-bulk-approve": "academic_update",
+  "/academic/performance-overview": "academic_view",
+  "/academic/student-results": "academic_view",
+  "/academic/custom": {
+    GET: "academic_view",
+    POST: "academic_update",
+  },
+  "/academic/schedules-list": "academic_view",
   "/academic/curriculum": {
     GET: "academic_view",
     POST: "academic_create",
@@ -670,6 +1136,14 @@ const ENDPOINT_PERMISSIONS = {
     POST: "schedules_create",
     PUT: "schedules_update",
   },
+  "/schedules/timetable-get": "schedules_view",
+  "/schedules/timetable-create": "schedules_create",
+  "/schedules/timetable-update": "schedules_update",
+  "/schedules/timetable-delete": "schedules_update",
+  "/schedules/timetable-check-conflicts": "schedules_view",
+  "/schedules/timetable-report-conflict": "schedules_create",
+  "/schedules/timetable-time-slots": "schedules_view",
+  "/schedules/rooms-get": "schedules_view",
 
   // Reports
   "/reports/index": "reports_view",
@@ -722,7 +1196,7 @@ function getRequiredPermission(endpoint, method = "GET") {
     return null;
   }
 
-  if (typeof requirement === "string") {
+  if (typeof requirement === "string" || Array.isArray(requirement)) {
     // Simple string permission requirement (same for all methods)
     return requirement;
   }
@@ -753,7 +1227,11 @@ function validatePermission(endpoint, method) {
 
   // Skip permission check if user is not authenticated (will fail at backend)
   if (!AuthContext.isAuthenticated()) {
-    console.warn("API call attempted without authentication");
+    // Only warn for endpoints that actually require auth — public endpoints (login, etc.) have no required permission
+    const requiredForWarn = getRequiredPermission(endpoint, method);
+    if (requiredForWarn) {
+      console.warn("API call attempted without authentication:", endpoint);
+    }
     return;
   }
 
@@ -765,19 +1243,22 @@ function validatePermission(endpoint, method) {
   }
 
   // Check exact permission and common edit/update aliases for backward compatibility.
-  const aliases = new Set([requiredPermission]);
-  if (requiredPermission.endsWith("_edit")) {
-    aliases.add(requiredPermission.replace(/_edit$/, "_update"));
-  }
-  if (requiredPermission.endsWith("_update")) {
-    aliases.add(requiredPermission.replace(/_update$/, "_edit"));
-  }
-  if (requiredPermission.endsWith(".edit")) {
-    aliases.add(requiredPermission.replace(/\.edit$/, ".update"));
-  }
-  if (requiredPermission.endsWith(".update")) {
-    aliases.add(requiredPermission.replace(/\.update$/, ".edit"));
-  }
+  const requiredPermissions = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+  const aliases = new Set(requiredPermissions);
+  requiredPermissions.forEach((permission) => {
+    if (permission.endsWith("_edit")) {
+      aliases.add(permission.replace(/_edit$/, "_update"));
+    }
+    if (permission.endsWith("_update")) {
+      aliases.add(permission.replace(/_update$/, "_edit"));
+    }
+    if (permission.endsWith(".edit")) {
+      aliases.add(permission.replace(/\.edit$/, ".update"));
+    }
+    if (permission.endsWith(".update")) {
+      aliases.add(permission.replace(/\.update$/, ".edit"));
+    }
+  });
 
   const hasPermission = [...aliases].some((permissionCode) =>
     AuthContext.hasPermission(permissionCode)
@@ -797,12 +1278,35 @@ function validatePermission(endpoint, method) {
 
   if (!hasPermission) {
     const error = new Error(
-      `Access Denied: You do not have permission "${requiredPermission}" to ${method} ${endpoint}`
+      `Access Denied: You do not have permission "${requiredPermissions.join(" or ")}" to ${method} ${endpoint}`
     );
     error.code = "PERMISSION_DENIED";
     error.permission = requiredPermission;
     throw error;
   }
+}
+
+function applyPermissionContract(container = document) {
+  if (!container || !container.querySelectorAll || !window.AuthContext) return;
+
+  container
+    .querySelectorAll("[data-permission-module][data-permission-action]")
+    .forEach((element) => {
+      const module = element.getAttribute("data-permission-module");
+      const action = element.getAttribute("data-permission-action");
+      const allowed = AuthContext.canAction(module, action);
+      element.hidden = !allowed;
+      if ("disabled" in element) {
+        element.disabled = !allowed;
+      }
+      element.setAttribute("aria-hidden", allowed ? "false" : "true");
+    });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => applyPermissionContract(document));
+} else {
+  applyPermissionContract(document);
 }
 
 function _showSessionExpiredAndRedirect() {
@@ -836,18 +1340,19 @@ async function refreshAccessToken() {
   isRefreshingToken = true;
   refreshTokenPromise = (async () => {
     try {
-      const refreshToken = localStorage.getItem("refresh_token");
-      if (!refreshToken) {
-        console.warn("No refresh token available, redirecting to login");
-        AuthContext.clearUser();
-        _showSessionExpiredAndRedirect();
-        return false;
-      }
+      const refreshToken = AuthContext.getRefreshToken();
+      // NOTE: Do NOT early-exit here when refreshToken is null.
+      // The server sets the refresh token as an HttpOnly cookie at login.
+      // When credentials:"include" is sent, the browser sends that cookie
+      // automatically and the server reads it from $_COOKIE['refresh_token'].
+      // Only log out if the server itself rejects the refresh attempt.
 
       console.log("Attempting to refresh access token...");
+      // [DIAG] report refresh inputs
+      console.warn('[DIAG-REFRESH] jsRefreshToken?=', !!refreshToken,
+        '| accessToken?=', !!AuthContext.getToken(),
+        '| cookie=include will send HttpOnly refresh_token if present');
 
-      // Prefer the HttpOnly refresh cookie set at login; keep the body token as
-      // a backward-compatible fallback for older sessions.
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin
@@ -857,8 +1362,8 @@ async function refreshAccessToken() {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(localStorage.getItem("token")
-            ? { Authorization: "Bearer " + localStorage.getItem("token") }
+          ...(AuthContext.getToken()
+            ? { Authorization: "Bearer " + AuthContext.getToken() }
             : {}),
         },
         body: JSON.stringify(
@@ -875,11 +1380,15 @@ async function refreshAccessToken() {
 
       const result = await readJsonSafely(response, "Token refresh");
 
-      if (result.status === "success" && result.data.token) {
-        // Store new tokens
-        localStorage.setItem("token", result.data.token);
-        if (result.data.refresh_token) {
-          localStorage.setItem("refresh_token", result.data.refresh_token);
+      if ((result.status === "success" || result.success === true) && result.data.token) {
+        // Store new tokens in selected auth storage
+        AuthContext.setTokens(result.data.token, result.data.refresh_token || null);
+        // On a refresh, rehydrate the full session if the server returned the
+        // user envelope (it does for our refresh endpoint), so a fresh window
+        // that cleared web-storage stays logged in via the HttpOnly cookie.
+        if (result.data.user) {
+          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
+          AuthContext.setUser(result.data.user, result.data, rememberMe);
         }
         console.log("Token refreshed successfully");
         return true;
@@ -907,7 +1416,7 @@ async function refreshAccessToken() {
  * Returns true if token is about to expire (within 60 seconds)
  */
 function isTokenExpired() {
-  const token = localStorage.getItem("token");
+  const token = AuthContext.getToken();
   if (!token) return true;
 
   try {
@@ -936,6 +1445,9 @@ async function apiCall(
   options = {}
 ) {
   try {
+    const queryParams =
+      params && typeof params === "object" && !Array.isArray(params) ? params : {};
+
     // Check if token is about to expire and refresh if needed
     if (AuthContext.isAuthenticated() && isTokenExpired()) {
       console.log("Token expiring soon, refreshing...");
@@ -953,35 +1465,27 @@ async function apiCall(
 
     // Construct URL with query parameters
     const url = new URL(API_BASE_URL + endpoint, window.location.origin);
-    Object.keys(params).forEach((key) =>
-      url.searchParams.append(key, params[key])
-    );
+    Object.keys(queryParams).forEach((key) => {
+      const value = queryParams[key];
+      if (value !== null && value !== undefined) {
+        url.searchParams.append(key, value);
+      }
+    });
 
-    console.log("API Call:", method, url.toString());
-
-    // Check if token exists for debugging
-    const token = localStorage.getItem("token");
+    // Check if token exists
+    const token = AuthContext.getToken();
     if (!token) {
-      console.warn(
-        "⚠️ No JWT token found in localStorage - API call will fail with 401"
-      );
-      console.warn(
-        "Please log in through " + (window.APP_BASE || '') + "/index.php to obtain a JWT token"
-      );
-    } else {
-      console.log("✓ Token found, length:", token.length);
+      console.warn("⚠️ No JWT token found - API call will fail with 401");
     }
 
     // Request options
     const fetchOptions = {
       method: method,
-      // Include credentials to ensure proper session handling
       credentials:
         options.credentials ||
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
-        // Add Authorization header if token exists
         ...(token && {
           Authorization: "Bearer " + token,
         }),
@@ -998,24 +1502,37 @@ async function apiCall(
       }
     }
 
-    console.log("Fetch options:", fetchOptions);
-    console.log(
-      "Request headers:",
-      JSON.stringify(fetchOptions.headers, null, 2)
-    );
-
     let response = await fetch(url, fetchOptions);
 
     // Handle 401 Unauthorized - token may have expired, try to refresh
     if (response.status === 401 && !options.isRefreshAttempt) {
+      // [DIAG] capture auth storage state at first 401 of this session
+      if (!sessionStorage.getItem('_diag_401_dumped')) {
+        sessionStorage.setItem('_diag_401_dumped', '1');
+        const _ls = {}, _ss = {};
+        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); _ls[k] = localStorage.getItem(k); }
+        for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); _ss[k] = sessionStorage.getItem(k); }
+        console.warn('[DIAG-401] url=', url, '| hasToken=', !!AuthContext.getToken(),
+          '| ls.auth_storage_mode=', localStorage.getItem('auth_storage_mode'),
+          '| ls.token?=', !!localStorage.getItem('token'),
+          '| ss.token?=', !!sessionStorage.getItem('token'),
+          '| localStorage=', _ls, '| sessionStorage=', _ss);
+      }
       console.log("Received 401 Unauthorized, attempting token refresh...");
       const refreshed = await refreshAccessToken();
 
       if (refreshed) {
         // Retry the original request with new token
+        const newToken = AuthContext.getToken();
+        if (!newToken) {
+          // Refresh reported success but no access token is available to the
+          // client. Retrying would only 401 again ("Missing Authorization
+          // header") silently. Fail loud so the session is treated as invalid.
+          console.error("Token refresh succeeded but no access token is available; session is invalid.");
+          throw new Error("Authentication failed, please log in again");
+        }
         console.log("Retrying original request with refreshed token...");
-        fetchOptions.headers.Authorization =
-          "Bearer " + localStorage.getItem("token");
+        fetchOptions.headers.Authorization = "Bearer " + newToken;
         response = await fetch(url, fetchOptions);
       } else {
         // Refresh failed, user is logged out and redirected
@@ -1044,17 +1561,63 @@ async function apiCall(
     // Auto-invalidate cached data on mutations
     if (MUTATION_METHODS.has(String(method).toUpperCase())) {
       const targets = options.invalidate || [inferResourceKey(endpoint)];
+
+      // Use DataStore for automatic cache invalidation if available
+      if (typeof DataStore !== 'undefined') {
+        DataStore.invalidateMany(targets.filter(Boolean)).catch((err) => {
+          console.warn('DataStore invalidation failed:', err);
+        });
+      }
+
+      // Fallback to APIState
       APIState.invalidateMany(targets.filter(Boolean)).catch((err) => {
         console.warn("Auto-refresh failed for targets:", targets, err);
       });
+
+      // Propagate the invalidation to OTHER tabs so they don't keep stale
+      // IndexedDB snapshots. Server stays authoritative; this only drops the
+      // local cache in sibling tabs (session_manager handles the broadcast).
+      if (typeof SessionManager !== 'undefined' && SessionManager.broadcastCacheInvalidation) {
+        SessionManager.broadcastCacheInvalidation(targets.filter(Boolean));
+      }
     }
 
     return handled;
   } catch (error) {
+    error.endpoint = error.endpoint || endpoint;
+    error.method = error.method || method;
+
     // For permission denied errors, log to console instead of showing popup
     if (error.code === "PERMISSION_DENIED") {
       console.warn("Permission Denied:", error.message);
     }
+
+    // Offline write-queue producer: if a mutation fails because the network is
+    // unreachable, enqueue it so SyncQueue (and Background Sync) replays it on
+    // reconnect. This is what makes the /js/sync/sync_queue.js engine actually
+    // get fed instead of sitting dormant. Only mutations are queued — a failed
+    // GET is just a cache miss and the SW serves the last good response.
+    const isMutation = MUTATION_METHODS.has(String(method).toUpperCase());
+    const isOffline = navigator.onLine === false ||
+      (typeof error === "object" && error !== null && /Failed to fetch|NetworkError|network/i.test(error.message || ""));
+    if (isMutation && isOffline && typeof SyncQueue !== "undefined") {
+      try {
+        const module = (endpoint.split("/").filter(Boolean)[0] || "api").replace(/^api\//, "").split("/")[0];
+        await SyncQueue.addOperation({
+          module,
+          endpoint: (window.APP_BASE || "") + endpoint,
+          method: String(method).toUpperCase(),
+          payload: data,
+          entity_type: module,
+        });
+        console.warn("[api.js] Offline — mutation queued for sync:", endpoint);
+        // Surface a clear, non-error state so the UI knows it is pending.
+        return { status: "queued", message: "Saved offline; will sync when connection returns." };
+      } catch (queueError) {
+        console.error("[api.js] Failed to queue offline mutation:", queueError);
+      }
+    }
+
     return handleApiError(error);
   }
 }
@@ -1076,26 +1639,30 @@ function createFormData(data, files = {}) {
 //attach API to window for global access
 window.API = {
   apiCall,
+  // Alias so controllers using API.callAPI() instead of API.apiCall() work
+  callAPI: apiCall,
   showNotification,
+  applyPermissionContract,
   state: APIState,
+  appState: AppState,
+  permissions: PermissionContract,
 
   // Auth endpoints
   auth: {
     index: async () => apiCall("/auth/index", "GET"),
-    login: async (username, password) => {
+    login: async (username, password, rememberMe = false) => {
+      AuthContext.setPersistence(rememberMe);
       const response = await apiCall("/auth/login", "POST", {
         username,
         password,
+        remember_me: rememberMe,
       });
 
       console.log("Full login response:", response);
 
       if (response && response.token) {
-        // Store both access and refresh tokens
-        localStorage.setItem("token", response.token);
-        if (response.refresh_token) {
-          localStorage.setItem("refresh_token", response.refresh_token);
-        }
+        // Store both access and refresh tokens in selected auth storage
+        AuthContext.setTokens(response.token, response.refresh_token || null);
 
         // Store user context with permissions
         // The backend returns the user object in response.user
@@ -1105,7 +1672,7 @@ window.API = {
         console.log("Sidebar items:", response.sidebar_items);
         console.log("Dashboard info:", response.dashboard);
 
-        AuthContext.setUser(userData, response);
+        AuthContext.setUser(userData, response, rememberMe);
 
         console.log("After setUser - AuthContext state:");
         console.log("- User:", AuthContext.getUser());
@@ -1152,7 +1719,7 @@ window.API = {
       try {
         // Revoke the refresh token on the server. Cookie-backed sessions still
         // work even when nothing was stored in localStorage.
-        const refreshToken = localStorage.getItem("refresh_token");
+        const refreshToken = AuthContext.getRefreshToken();
         await apiCall(
           "/auth/logout-refresh",
           "POST",
@@ -1175,11 +1742,11 @@ window.API = {
       }
     },
     forgotPassword: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }),
+      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
     resetPassword: async (token, password) =>
-      apiCall("/auth/reset-password", "POST", { token, password }),
+      apiCall("/auth/reset-password", "POST", { token, password }, {}, { checkPermission: false }),
     refreshToken: async () => {
-      const refreshToken = localStorage.getItem("refresh_token");
+      const refreshToken = AuthContext.getRefreshToken();
       const response = await apiCall(
         "/auth/refresh-token",
         "POST",
@@ -1192,10 +1759,7 @@ window.API = {
         },
       );
       if (response && response.token) {
-        localStorage.setItem("token", response.token);
-        if (response.refresh_token) {
-          localStorage.setItem("refresh_token", response.refresh_token);
-        }
+        AuthContext.setTokens(response.token, response.refresh_token || null);
       }
       return response;
     },
@@ -1364,6 +1928,12 @@ window.API = {
     // List helpers
     list: async (params = {}) =>
       apiCall("/students/student", "GET", null, params),
+    contextList: async (params = {}) =>
+      apiCall("/students/context-list", "GET", null, params),
+    contextProfile: async (id, params = {}) =>
+      apiCall(`/students/context-profile/${id}`, "GET", null, params),
+    contextMeta: async (params = {}) =>
+      apiCall("/students/context-meta", "GET", null, params),
     getAll: async (params = {}) => {
       const resp = await apiCall("/students/student", "GET", null, params);
       const payload = resp?.data?.data ?? resp?.data ?? resp;
@@ -1698,6 +2268,7 @@ window.API = {
   // Academic endpoints
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
+    getContext: async () => apiCall("/academic/context", "GET"),
     get: async (id = null) =>
       id ? apiCall(`/academic/${id}`, "GET") : apiCall("/academic", "GET"),
     create: async (data) => apiCall("/academic", "POST", data),
@@ -1820,17 +2391,17 @@ window.API = {
     deleteYear: async (id) => apiCall(`/academic/years/delete/${id}`, "DELETE"),
     setCurrentYear: async (id) =>
       apiCall(`/academic/years/set-current/${id}`, "PUT"),
-    getCurrentAcademicYear: async () =>
-      apiCall("/academic/years-current", "GET"),
+    getCurrentYear: async () => apiCall("/academic/years/current", "GET"),
+    getCurrentAcademicYear: async () => apiCall("/academic/years/current", "GET"),
     getAcademicYear: async (id = null) =>
       id
-        ? apiCall(`/academic/years-get/${id}`, "GET")
-        : apiCall("/academic/years-get", "GET"),
-    getAllAcademicYears: async () => apiCall("/academic/years-list", "GET"),
+        ? apiCall(`/academic/years/get/${id}`, "GET")
+        : apiCall("/academic/years/list", "GET"),
+    getAllAcademicYears: async () => apiCall("/academic/years/list", "GET"),
     createAcademicYear: async (data) =>
-      apiCall("/academic/years-create", "POST", data),
+      apiCall("/academic/years/create", "POST", data),
     setCurrentAcademicYear: async (id) =>
-      apiCall("/academic/years-set-current", "POST", { id }),
+      apiCall(`/academic/years/set-current/${id}`, "PUT"),
 
     // Terms
     createTerm: async (data) => apiCall("/academic/terms/create", "POST", data),
@@ -1846,6 +2417,8 @@ window.API = {
       apiCall("/academic/classes/create", "POST", data),
     listClasses: async (params) =>
       apiCall("/academic/classes-list", "GET", null, params),
+    getClassCapacity: async (params) =>
+      apiCall("/academic/class-capacity", "GET", null, params),
     getClass: async (id = null) =>
       id
         ? apiCall(`/academic/classes-get/${id}`, "GET")
@@ -1992,6 +2565,19 @@ window.API = {
     getCustom: async (params) =>
       apiCall("/academic/custom", "GET", null, params),
     postCustom: async (data) => apiCall("/academic/custom", "POST", data),
+
+    // ---- Admission Stage 5: period-aware, cohort-aware capacity projection ----
+    // Capacity for a target academic year / class (optionally a term & stream).
+    // Params: target_academic_year_id (required), target_class_id (required),
+    //         target_term_id?, target_stream_id?, applied_academic_year?.
+    getCohortCapacity: async (params = {}) =>
+      apiCall("/academic/cohort-capacity", "GET", null, params),
+    // Capacity for a specific admission application (resolves its target class).
+    getCohortProjection: async (applicationId) =>
+      apiCall(
+        `/academic/cohort-projection?application_id=${applicationId}`,
+        "GET",
+      ),
   },
 
   // Attendance endpoints
@@ -2219,6 +2805,10 @@ window.API = {
     index: async () => apiCall("/admission/index", "GET"),
     // Get workflow queues by stage (for role-based views)
     getQueues: async () => apiCall("/admission/queues", "GET"),
+    getStageMatrix: async () => apiCall("/admission/stage-matrix", "GET"),
+    getPolicy: async () => apiCall("/admission/policy", "GET"),
+    getPayments: async (applicationId) =>
+      apiCall(`/admission/payments/${applicationId}`, "GET"),
     // Get single application details with workflow state
     getApplication: async (id) =>
       apiCall(`/admission/application/${id}`, "GET"),
@@ -2251,6 +2841,8 @@ window.API = {
       apiCall("/admission/record-fee-payment", "POST", data),
     completeEnrollment: async (data) =>
       apiCall("/admission/complete-enrollment", "POST", data),
+    confirmEnrollment: async (data) =>
+      apiCall("/admission/confirm-enrollment", "POST", data),
   },
 
   // Communications endpoints
@@ -2547,6 +3139,10 @@ window.API = {
       apiCall("/finance/staff-for-payroll", "GET"),
     getStaffPayrollDetails: async (staffId) =>
       apiCall(`/finance/staff-payroll-details?staff_id=${staffId}`, "GET"),
+    getBulkPayrollPreview: async (month, year) =>
+      apiCall(`/finance/bulk-payroll-preview?month=${month}&year=${year}`, "GET"),
+    processBulkPayroll: async (data) =>
+      apiCall("/finance/process-bulk-payroll", "POST", data),
     processPayrollWithDeductions: async (data) =>
       apiCall("/finance/process-payroll-with-deductions", "POST", data),
     getDetailedPayslip: async (payrollId) =>
@@ -2555,10 +3151,16 @@ window.API = {
       apiCall(`/finance/payroll-stats?month=${month}&year=${year}`, "GET"),
     getPayrollList: async (filters) =>
       apiCall("/finance/payroll-list", "GET", null, filters),
-    markPayrollPaid: async (payrollId, paymentRef = "") =>
+    approvePayroll: async (payrollId, approvedBy = null) =>
+      apiCall("/finance/approve-payroll", "POST", {
+        payroll_id: payrollId,
+        approved_by: approvedBy,
+      }),
+    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank") =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
         payment_reference: paymentRef,
+        payment_mode: paymentMode,
       }),
 
     // Payments
@@ -2916,7 +3518,18 @@ window.API = {
 
   // Staff endpoints
   staff: {
-    index: async () => apiCall("/staff/index", "GET"),
+    index: async () => {
+      const data = await apiCall("/staff/index", "GET");
+      // Directory data: warm the staff IndexedDB cache so reloads render
+      // instantly and revalidate in the background (network-first strategy).
+      if (typeof DataStore !== "undefined" && data != null) {
+        DataStore.set("staff", data, {
+          ttl: DataStore.DEFAULT_TTL.REFERENCE,
+          storeName: "staff_directory_cache",
+        });
+      }
+      return data;
+    },
     get: async (id = null) =>
       id ? apiCall(`/staff/${id}`, "GET") : apiCall("/staff", "GET"),
     create: async (data) => apiCall("/staff", "POST", data),
@@ -2941,10 +3554,13 @@ window.API = {
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
     assignSubject: async (data) =>
       apiCall("/staff/assign-subject", "POST", data),
-    getAssignments: async (id = null) =>
-      id
-        ? apiCall(`/staff/assignments-get/${id}`, "GET")
-        : apiCall("/staff/assignments-get", "GET"),
+    getAssignments: async (idOrParams = null) => {
+      if (idOrParams && typeof idOrParams === "object")
+        return apiCall("/staff/assignments-get", "GET", idOrParams);
+      return idOrParams
+        ? apiCall(`/staff/assignments-get/${idOrParams}`, "GET")
+        : apiCall("/staff/assignments-get", "GET");
+    },
     getCurrentAssignments: async (staffId) =>
       apiCall(`/staff/assignments-current?staff_id=${staffId}`, "GET"),
     getWorkload: async (id = null) =>
@@ -3096,6 +3712,22 @@ window.API = {
       apiCall("/staff/contracts-create", "POST", data),
     updateContract: async (id, data) =>
       apiCall(`/staff/contracts-update/${id}`, "PUT", data),
+
+    // Media (photos & documents) — routes to POST /staff/upload/{id}
+    uploadPhoto: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "photo", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-photo/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
+    uploadDocument: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "document", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-document/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
   },
 
   // Transport endpoints
@@ -3850,48 +4482,14 @@ window.API = {
     deletePolicy: async (id) => apiCall("/system/policies", "DELETE", { id }),
   },
 
-  // School Config endpoints (match SchoolConfigController)
+  // System Config endpoints (match SystemConfigController)
   systemconfig: {
-    authorizeRoute: async (route, options = {}) => {
-      let normalizedRoute = String(route || "").trim();
-      if (normalizedRoute.includes("route=")) {
-        try {
-          const parsedUrl = new URL(
-            normalizedRoute,
-            window.location?.origin || "http://localhost"
-          );
-          const routeParam = parsedUrl.searchParams.get("route");
-          if (routeParam) {
-            normalizedRoute = routeParam.trim();
-          }
-        } catch (error) {
-          const queryString = normalizedRoute.split("?")[1] || "";
-          const params = new URLSearchParams(queryString);
-          const routeParam = params.get("route");
-          if (routeParam) {
-            normalizedRoute = routeParam.trim();
-          }
-        }
+    authorizeRoute: async (route, roleIds = null) => {
+      const payload = { route };
+      if (Array.isArray(roleIds) && roleIds.length > 0) {
+        payload.role_ids = roleIds;
       }
-
-      const payload = {
-        route: normalizedRoute,
-      };
-
-      if (options.userId) {
-        payload.user_id = options.userId;
-      }
-
-      if (Array.isArray(options.roleIds) && options.roleIds.length > 0) {
-        payload.role_ids = options.roleIds;
-      } else if (options.roleId) {
-        payload.role_id = options.roleId;
-      }
-
-      const response = await apiCall("/systemconfig/authorize", "POST", payload, {}, {
-        checkPermission: false,
-      });
-      return response?.data ?? response;
+      return apiCall("/systemconfig/authorize", "POST", payload);
     },
   },
 
@@ -3955,14 +4553,20 @@ window.API = {
 
   resetPassword: {
     request: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }),
+      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
     verify: async (token) =>
-      apiCall("/auth/reset-password", "GET", null, { token }),
+      apiCall("/auth/reset-password", "GET", null, { token }, { checkPermission: false }),
     complete: async (token, newPassword) =>
-      apiCall("/auth/reset-password", "POST", {
-        token,
-        new_password: newPassword,
-      }),
+      apiCall(
+        "/auth/reset-password",
+        "POST",
+        {
+          token,
+          new_password: newPassword,
+        },
+        {},
+        { checkPermission: false }
+      ),
   },
 
   // Dashboard Statistics endpoints
@@ -4176,7 +4780,16 @@ window.API = {
      * Returns: cards, charts, tables, timestamp
      */
     getSchoolAdminFull: async () => {
-      return await apiCall("/dashboard/school-admin/full", "GET");
+      // Dashboard metrics: warm an IndexedDB cache so navigating back to the
+      // dashboard paints instantly (cache-first) while revalidating in background.
+      const data = await apiCall("/dashboard/school-admin/full", "GET");
+      if (typeof DataStore !== "undefined" && data != null) {
+        DataStore.set("dashboard_school_admin", data, {
+          ttl: DataStore.DEFAULT_TTL.DIRECTORY,
+          storeName: "dashboard_cache",
+        });
+      }
+      return data;
     },
 
     /**
@@ -4472,3 +5085,6 @@ window.API = {
     },
   },
 };
+
+// Expose apiCall globally as callAPI — many page controllers use this name
+window.callAPI = apiCall;

@@ -23,7 +23,7 @@
     <!-- Sidebar Navigation -->
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
+            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
             <span class="logo-text">Kingsway Academy</span>
         </div>
 
@@ -288,7 +288,7 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize role-based UI
@@ -455,8 +455,7 @@
     }
 
     function editActivity(id) {
-        // Open modal with activity data
-        console.log('Edit activity:', id);
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&edit=' + id;
     }
 
     async function deleteActivity(id) {

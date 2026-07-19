@@ -14,17 +14,23 @@ use App\Config\DashboardRouter;
 
 // Get route from URL (authentication verified by JWT in JavaScript)
 $route = $_GET['route'] ?? 'loading';
+$route = is_string($route) ? trim($route) : 'loading';
+$route = $route === 'loading' ? $route : DashboardRouter::normalizeDashboardKey($route);
+$isCanonicalRoute = $route === 'loading' || preg_match('/^[A-Za-z0-9_\-\/]+$/', $route);
 
-// Verify the requested route/dashboard exists
+// Verify the requested route/page exists
 $requestedPath = null;
-if ($route !== 'loading') {
-    if (DashboardRouter::dashboardExists($route)) {
-        $requestedPath = DashboardRouter::getDashboardPath($route);
-    } else {
-        // Try as regular page
-        $pagePath = __DIR__ . "/../pages/{$route}.php";
-        if (file_exists($pagePath)) {
-            $requestedPath = $pagePath;
+if ($route !== 'loading' && $isCanonicalRoute) {
+    $pagePath = realpath(__DIR__ . "/../pages/{$route}.php");
+    $pagesDir = realpath(__DIR__ . '/../pages');
+
+    if ($pagePath && $pagesDir && str_starts_with($pagePath, $pagesDir . DIRECTORY_SEPARATOR)) {
+        $requestedPath = $pagePath;
+    } elseif (DashboardRouter::dashboardExists($route)) {
+        $dashboardPath = realpath(DashboardRouter::getDashboardPath($route));
+        $dashboardDir = realpath(__DIR__ . '/../components/dashboards');
+        if ($dashboardPath && $dashboardDir && str_starts_with($dashboardPath, $dashboardDir . DIRECTORY_SEPARATOR)) {
+            $requestedPath = $dashboardPath;
         }
     }
 }
@@ -39,19 +45,22 @@ $sidebar_items = [];
 
 <!-- Main Layout Container -->
 <!-- Uses AuthContext from js/api.js for permission-based rendering -->
-<div class="app-layout d-flex">
+<div class="app-layout">
     <!-- Sidebar (populated by JavaScript based on user permissions) -->
     <div id="sidebar-container">
         <?php include __DIR__ . '/../components/global/sidebar.php'; ?>
     </div>
 
+    <!-- Mobile overlay — closes sidebar when tapping outside -->
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
     <!-- Main Content Area -->
-    <div class="main-flex-layout d-flex flex-column flex-grow-1 min-vh-100" style="margin-left:250px; transition:margin-left 0.3s;">
+    <div class="main-flex-layout d-flex flex-column min-vh-100">
         <!-- Header -->
         <?php include __DIR__ . '/../components/global/header.php'; ?>
         
         <!-- Main Content -->
-        <main class="main-content flex-grow-1" id="main-content-area">
+        <main  id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
                 if ($route === 'loading') {

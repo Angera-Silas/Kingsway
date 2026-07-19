@@ -2,6 +2,7 @@
 namespace App\API\Modules\auth;
 
 use App\API\Includes\BaseAPI;
+use App\API\Includes\ValidationHelper;
 use App\API\Modules\users\UsersAPI;
 use App\API\Modules\users\RoleManager;
 use App\API\Modules\users\PermissionManager;
@@ -31,6 +32,7 @@ class AuthAPI extends BaseAPI
     private ?SystemConfigService $configService = null;
 
     // Feature flag: use database-driven config (set to true when migration is complete)
+    // TEMPORARILY DISABLED due to performance issues in buildLoginResponseFromDatabase
     private bool $useDatabaseConfig = false;
 
     public function __construct()
@@ -44,7 +46,7 @@ class AuthAPI extends BaseAPI
         $this->communicationsApi = new CommunicationsAPI();
 
         // Check if database-driven config is available
-        $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
+        // DISABLED: $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
     }
 
     /**
@@ -108,56 +110,185 @@ class AuthAPI extends BaseAPI
         ];
     }
 
-    // Forgot password workflow (send reset email or SMS with code and link)
     public function forgotPassword($data)
     {
-        $email = $data['email'] ?? null;
-        if (!$email) {
+        $identifier = trim($data['email'] ?? '');
+        if ($identifier === '') {
             return [
                 'success' => false,
                 'message' => 'Email is required.'
             ];
         }
-        // Generate a reset code and link (store code in DB or cache with expiry)
-        $resetCode = bin2hex(random_bytes(4));
-        $resetLink = $this->generateResetLink($email, $resetCode);
-        // Store code and expiry (pseudo, implement as needed)
-        // $this->storeResetCode($email, $resetCode);
-        // Send email (or SMS) with code and link
-        $this->sendResetEmail($email, $email, $resetLink); // username/email for demo
+
+        $message = 'If an account exists for that email, password reset instructions have been sent.';
+
+        try {
+            $stmt = $this->db->prepare('
+                SELECT id, email, username, first_name, last_name
+                FROM users
+                WHERE email = ? OR username = ?
+                LIMIT 1
+            ');
+            $stmt->execute([$identifier, $identifier]);
+            $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                return [
+                    'success' => true,
+                    'message' => $message
+                ];
+            }
+
+            $rawToken = bin2hex(random_bytes(32));
+            $tokenHash = $this->hashResetToken($rawToken);
+
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('UPDATE password_resets SET used = 1 WHERE email = ? AND used = 0');
+            $stmt->execute([$user['email']]);
+
+            $stmt = $this->db->prepare('
+                INSERT INTO password_resets (email, token, created_at, expires_at, used)
+                VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 HOUR), 0)
+            ');
+            $stmt->execute([$user['email'], $tokenHash]);
+
+            $this->db->commit();
+
+            $displayName = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+            $resetLink = $this->generateResetLink($rawToken);
+
+            try {
+                $this->sendResetEmail($user['email'], $displayName ?: ($user['username'] ?? $user['email']), $resetLink);
+            } catch (\Throwable $e) {
+                error_log('Password reset email failed: ' . $e->getMessage());
+            }
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Forgot password failed: ' . $e->getMessage());
+        }
+
         return [
             'success' => true,
-            'message' => 'Password reset instructions sent to your email.'
+            'message' => $message
         ];
     }
 
-    // Reset password using code
-    public function resetPassword($data)
+    public function verifyResetToken($data)
     {
-        $email = $data['email'] ?? null;
-        $code = $data['code'] ?? null;
-        $newPassword = $data['new_password'] ?? null;
-        if (!$email || !$code || !$newPassword) {
+        $token = trim($data['token'] ?? '');
+        if ($token === '') {
             return [
                 'success' => false,
-                'message' => 'Email, code, and new password are required.'
+                'message' => 'Invalid or expired reset link.'
             ];
         }
-        // Validate code (pseudo, implement as needed)
-        // $valid = $this->validateResetCode($email, $code);
-        $valid = true; // For demo, always valid
-        if (!$valid) {
+
+        $stmt = $this->db->prepare('
+            SELECT id
+            FROM password_resets
+            WHERE token = ? AND used = 0 AND expires_at > NOW()
+            LIMIT 1
+        ');
+        $stmt->execute([$this->hashResetToken($token)]);
+
+        if (!$stmt->fetch(\PDO::FETCH_ASSOC)) {
             return [
                 'success' => false,
-                'message' => 'Invalid or expired reset code.'
+                'message' => 'Invalid or expired reset link.'
             ];
         }
-        // Update password (pseudo, implement as needed)
-        // $this->usersApi->updatePasswordByEmail($email, $newPassword);
+
         return [
             'success' => true,
-            'message' => 'Password has been reset successfully.'
+            'message' => 'Reset link is valid.'
         ];
+    }
+
+    public function resetPassword($data)
+    {
+        $token = trim($data['token'] ?? '');
+        $newPassword = $data['new_password'] ?? $data['password'] ?? null;
+
+        if ($token === '' || !$newPassword) {
+            return [
+                'success' => false,
+                'message' => 'Token and new password are required.'
+            ];
+        }
+
+        $passwordValidation = ValidationHelper::validatePassword($newPassword);
+        if (!$passwordValidation['valid']) {
+            return [
+                'success' => false,
+                'message' => $passwordValidation['error']
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('
+                SELECT id, email
+                FROM password_resets
+                WHERE token = ? AND used = 0 AND expires_at > NOW()
+                LIMIT 1
+                FOR UPDATE
+            ');
+            $stmt->execute([$this->hashResetToken($token)]);
+            $reset = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$reset) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired reset link.'
+                ];
+            }
+
+            $stmt = $this->db->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $stmt->execute([$reset['email']]);
+            $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired reset link.'
+                ];
+            }
+
+            $stmt = $this->db->prepare('
+                UPDATE users
+                SET password = ?, password_changed_at = NOW(), updated_at = NOW(), force_password_change = 0
+                WHERE id = ?
+            ');
+            $stmt->execute([
+                password_hash($newPassword, PASSWORD_DEFAULT),
+                $user['id']
+            ]);
+
+            $stmt = $this->db->prepare('UPDATE password_resets SET used = 1 WHERE id = ?');
+            $stmt->execute([$reset['id']]);
+
+            $this->db->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Password has been reset successfully.'
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Reset password failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Password reset failed. Please try again.'
+            ];
+        }
     }
 
     // Refresh JWT token (issue new token if refresh token is valid)
@@ -196,13 +327,21 @@ class AuthAPI extends BaseAPI
         ];
     }
 
-    // Helper to generate a reset link (implement as needed)
-    private function generateResetLink($email, $code)
+    private function hashResetToken(string $token): string
     {
-        $baseUrl = 'https://yourdomain.com/reset-password';
-        return $baseUrl . '?email=' . urlencode($email) . '&code=' . urlencode($code);
+        return hash('sha256', $token);
     }
-     
+
+    private function generateResetLink(string $token): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+
+        return $scheme . '://' . $host . $appBase . '/reset_password.php?token=' . urlencode($token);
+    }
 
     // Login user
     public function login($data)
@@ -268,7 +407,8 @@ class AuthAPI extends BaseAPI
                     $primaryRole,
                     $primaryRoleId,
                     $roleIds,
-                    $token
+                    $token,
+                    filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN)
                 );
             }
 
@@ -371,9 +511,13 @@ class AuthAPI extends BaseAPI
         // Effective permissions for filtering the sidebar
         $effectivePermissions = array_values(array_unique(array_merge($userPermissions, $delegatedPermissions)));
 
+        // Fast path: use hardcoded sidebar if defined for this role
+        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+
         try {
-            // Build sidebar from database using MenuBuilderService
-            if (count($roleIds) > 1) {
+            if ($hardcodedSidebar !== null) {
+                $sidebarItems = $hardcodedSidebar;
+            } elseif (count($roleIds) > 1) {
                 // Multi-role: combine menus from all roles
                 $sidebarItems = $this->getMenuBuilder()->buildSidebarForMultipleRoles(
                     $userId,
@@ -454,14 +598,28 @@ class AuthAPI extends BaseAPI
             $userData = $this->normalizeUserPermissions($userData);
             $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
 
-            // Generate refresh token and set it as HttpOnly secure cookie (do not return in body)
-            $refreshToken = $this->generateRefreshToken($userId);
+            // Generate refresh token and set it as HttpOnly cookie.
+            // Remember me extends browser persistence; normal login is session-cookie scoped.
+            $rememberMe = filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+            $refreshToken = $this->generateRefreshToken($userId, $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
             if ($refreshToken) {
-                // Set cookie for secure contexts; SameSite=Lax for compatibility
                 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-                setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
-                // Also set SameSite attribute if PHP < 7.3 doesn't support options array
-                header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+                $expires = $rememberMe ? (time() + $maxAge) : 0;
+                setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
+                $cookieParts = [
+                    "refresh_token=$refreshToken",
+                    'Path=/',
+                    'HttpOnly',
+                    'SameSite=Lax'
+                ];
+                if ($maxAge > 0) {
+                    $cookieParts[] = "Max-Age=$maxAge";
+                }
+                if ($secure) {
+                    $cookieParts[] = 'Secure';
+                }
+                header('Set-Cookie: ' . implode('; ', $cookieParts));
             }
 
             // Determine the role to resolve dashboard for (prefer primary role id)
@@ -506,30 +664,34 @@ class AuthAPI extends BaseAPI
                 }
             }
 
-            // Add dashboard as first menu item
-            $dashboardMenuItem = [
-                'id' => 'dashboard_' . $primaryRoleId,
-                'label' => $resolvedLabel,
-                'icon' => 'bi-house-door',
-                'url' => $resolvedUrl,
-                'route_url' => $resolvedUrl,
-                'domain' => 'SCHOOL',
-                'display_order' => -200,
-                'subitems' => [],
-                'show_badge' => false,
-                'badge_source' => null,
-                'badge_color' => 'danger',
-                'open_in_new_tab' => false,
-                'requires_confirmation' => false,
-                'confirmation_message' => null,
-                'css_class' => null,
-                'tooltip' => null
-            ];
-            array_unshift($sidebarItems, $dashboardMenuItem);
-
             // Final normalization of dashboard key
             if (preg_match('/[?&]route=([^&]*)/', $resolvedKey, $matches)) {
                 $resolvedKey = $matches[1];
+            }
+
+            // Only prepend a dashboard item if no sidebar item already links to this route.
+            // This prevents duplicate "Dashboard" / "Director Dashboard" entries when the
+            // DB sidebar menus already contain a home/dashboard link for this role.
+            if (!$this->sidebarAlreadyHasRoute($sidebarItems, $resolvedKey)) {
+                $dashboardMenuItem = [
+                    'id' => 'dashboard_' . $primaryRoleId,
+                    'label' => $resolvedLabel,
+                    'icon' => 'bi-house-door',
+                    'url' => $resolvedKey,
+                    'route_url' => $resolvedKey,
+                    'domain' => 'SCHOOL',
+                    'display_order' => -200,
+                    'subitems' => [],
+                    'show_badge' => false,
+                    'badge_source' => null,
+                    'badge_color' => 'danger',
+                    'open_in_new_tab' => false,
+                    'requires_confirmation' => false,
+                    'confirmation_message' => null,
+                    'css_class' => null,
+                    'tooltip' => null
+                ];
+                array_unshift($sidebarItems, $dashboardMenuItem);
             }
 
             return [
@@ -537,12 +699,14 @@ class AuthAPI extends BaseAPI
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
+                    'refresh_token' => $refreshToken,
                     'token_expires_in' => JWT_EXPIRY,
+                    'remember_me' => $rememberMe,
                     'user' => $userData,
                     'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                     'dashboard' => [
                         'key' => $resolvedKey,
-                        'url' => $resolvedUrl,
+                        'url' => $resolvedKey,
                         'label' => $resolvedLabel
                     ],
                     'delegated_permissions' => array_values(array_unique($delegatedPermissions)),
@@ -634,7 +798,8 @@ class AuthAPI extends BaseAPI
         ?string $primaryRole,
         ?int $primaryRoleId,
         array $roleIds,
-        string $token
+        string $token,
+        bool $rememberMe = false
     ): array {
         // Generate sidebar menu items based on user's roles and permissions
         $dashboardManager = new \DashboardManager();
@@ -645,25 +810,33 @@ class AuthAPI extends BaseAPI
         $defaultDashboard = null;
         $dashboardKey = null;
 
+        // Fast path: use hardcoded sidebar if defined for this role (no DB queries needed)
+        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+        if ($hardcodedSidebar !== null) {
+            $sidebarItems = $hardcodedSidebar;
+        }
+
         // Get dashboard key using DashboardRouter (prefer role ID if available)
         if ($primaryRoleId) {
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRoleId);
 
-            // Try to get menu items using role ID as key
-            $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+            if ($hardcodedSidebar === null) {
+                // Only query DB menu items when no hardcoded sidebar exists
+                $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+            }
             $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
         } elseif ($primaryRole) {
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRole);
 
             // Fall back to role name lookup if role ID wasn't provided
-            if ($primaryRoleId) {
+            if ($hardcodedSidebar === null && $primaryRoleId) {
                 $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
                 $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
             }
         }
 
             // If no items for primary role, combine from all roles
-            if (empty($sidebarItems) && !empty($roleIds)) {
+            if ($hardcodedSidebar === null && empty($sidebarItems) && !empty($roleIds)) {
                 // Union menus from dashboards config
                 $dashConfig = include __DIR__ . '/../../includes/dashboards.php';
                 $menusUnion = [];
@@ -711,12 +884,27 @@ class AuthAPI extends BaseAPI
         // Normalize user permissions (effective permissions come from DB / stored procedure only)
         $userData = $this->normalizeUserPermissions($userData);
 
-        // Generate refresh token and set as HttpOnly cookie (do not return in body)
-        $refreshToken = $this->generateRefreshToken($userData['id']);
+        // Generate refresh token and set it as HttpOnly cookie.
+        // Remember me extends browser persistence; normal login is session-cookie scoped.
+        $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+        $refreshToken = $this->generateRefreshToken($userData['id'], $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
         if ($refreshToken) {
             $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-            setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
-            header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+            $expires = $rememberMe ? (time() + $maxAge) : 0;
+            setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
+            $cookieParts = [
+                "refresh_token=$refreshToken",
+                'Path=/',
+                'HttpOnly',
+                'SameSite=Lax'
+            ];
+            if ($maxAge > 0) {
+                $cookieParts[] = "Max-Age=$maxAge";
+            }
+            if ($secure) {
+                $cookieParts[] = 'Secure';
+            }
+            header('Set-Cookie: ' . implode('; ', $cookieParts));
         }
 
         // Determine dashboard details
@@ -734,30 +922,32 @@ class AuthAPI extends BaseAPI
             )
         );
 
-        // Add dashboard as first menu item
-        $dashboardMenuItem = [
-            'id' => 'dashboard_' . $primaryRoleId,
-            'label' => $dashboardLabel,
-            'icon' => 'bi-house-door',
-            'url' => '?route=' . $dashboardKeyResolved,
-            'route_url' => '?route=' . $dashboardKeyResolved,
-            'domain' => 'SCHOOL',
-            'display_order' => -200,
-            'subitems' => [],
-            'show_badge' => false,
-            'badge_source' => null,
-            'badge_color' => 'danger',
-            'open_in_new_tab' => false,
-            'requires_confirmation' => false,
-            'confirmation_message' => null,
-            'css_class' => null,
-            'tooltip' => null
-        ];
-        array_unshift($sidebarItems, $dashboardMenuItem);
-
         // Final normalization of dashboard key
         if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
             $dashboardKeyResolved = $matches[1];
+        }
+
+        // Only prepend a dashboard item if no sidebar item already links to this route.
+        if (!$this->sidebarAlreadyHasRoute($sidebarItems, $dashboardKeyResolved)) {
+            $dashboardMenuItem = [
+                'id' => 'dashboard_' . $primaryRoleId,
+                'label' => $dashboardLabel,
+                'icon' => 'bi-house-door',
+                'url' => $dashboardKeyResolved,
+                'route_url' => $dashboardKeyResolved,
+                'domain' => 'SCHOOL',
+                'display_order' => -200,
+                'subitems' => [],
+                'show_badge' => false,
+                'badge_source' => null,
+                'badge_color' => 'danger',
+                'open_in_new_tab' => false,
+                'requires_confirmation' => false,
+                'confirmation_message' => null,
+                'css_class' => null,
+                'tooltip' => null
+            ];
+            array_unshift($sidebarItems, $dashboardMenuItem);
         }
 
         return [
@@ -765,12 +955,14 @@ class AuthAPI extends BaseAPI
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
+                'refresh_token' => $refreshToken,
                 'token_expires_in' => JWT_EXPIRY,
+                'remember_me' => $rememberMe,
                 'user' => $userData,
                 'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                 'dashboard' => [
                     'key' => $dashboardKeyResolved,
-                    'url' => '?route=' . $dashboardKeyResolved,
+                    'url' => $dashboardKeyResolved,
                     'label' => $dashboardLabel
                 ],
                 'config_source' => 'file'
@@ -798,10 +990,10 @@ class AuthAPI extends BaseAPI
     }
 
     // Generate refresh token (stored in DB, expires in 7 days)
-    private function generateRefreshToken($userId)
+    private function generateRefreshToken($userId, int $ttlSeconds = 604800)
     {
         $token = bin2hex(random_bytes(32)); // 64-char hex token
-        $expiresAt = date('Y-m-d H:i:s', time() + (7 * 24 * 60 * 60)); // 7 days
+        $expiresAt = date('Y-m-d H:i:s', time() + $ttlSeconds);
 
         try {
             $stmt = $this->db->prepare('
@@ -849,9 +1041,11 @@ class AuthAPI extends BaseAPI
 
             // Get user and generate new access token
             $userId = $result['user_id'];
-            $userData = $this->usersApi->get($userId);
+            $userLookup = $this->usersApi->get($userId);
+            // UsersAPI::get() returns a {success, data} envelope; unwrap it.
+            $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
 
-            if (!$userData) {
+            if (!$userData || empty($userData['id'])) {
                 return [
                     'success' => false,
                     'message' => 'User not found'
@@ -879,15 +1073,20 @@ class AuthAPI extends BaseAPI
                 'permissions' => $permissionCodes
             ]);
 
-            return [
-                'success' => true,
-                'message' => 'Token refreshed successfully',
-                'data' => [
-                    'token' => $newToken,
-                    'refresh_token' => $refreshToken,
-                    'token_expires_in' => JWT_EXPIRY
-                ]
-            ];
+            // Reuse the same proven envelope builder as login so the SPA can
+            // rehydrate a full session (user_data / permissions / roles /
+            // sidebar / dashboard) from the refresh cookie alone. This is what
+            // lets a fresh window / incognito / cleared-cache survive without
+            // an immediate logout — web-storage is empty, but the refresh
+            // cookie is still valid, so one refresh restores everything.
+            $roleIds = [];
+            foreach ($userData['roles'] ?? [] as $r) {
+                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
+            }
+            $roleIds = array_values(array_filter(array_unique($roleIds)));
+            $primaryRoleId = $roleIds[0] ?? null;
+
+            return $this->buildLoginResponseFromDatabase($userData, $primaryRoleId, $roleIds, $newToken);
         } catch (\Exception $e) {
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [
@@ -982,6 +1181,102 @@ class AuthAPI extends BaseAPI
         $codes = array_values(array_filter(array_unique($codes)));
         $userData['permissions'] = $codes;
         return $userData;
+    }
+
+    /**
+     * Check if the sidebar already contains a top-level item pointing to a given route name.
+     * Used to avoid duplicating the dashboard entry when DB sidebar menus already include it.
+     */
+    private function sidebarAlreadyHasRoute(array $items, string $routeName): bool
+    {
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $url = $item['url'] ?? '';
+            // Normalize to bare route name for comparison
+            if (strpos($url, 'route=') !== false) {
+                $pos = strpos($url, 'route=');
+                $url = substr($url, $pos + strlen('route='));
+                $url = strtok($url, '&');
+            }
+            if ($url === $routeName) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Return a hardcoded sidebar for the given role, or null if not defined.
+     * Hardcoded sidebars bypass all DB authorization queries (900+ queries saved).
+     * Add roles to config/role_sidebars.php to opt them into the fast path.
+     */
+    private function getHardcodedSidebarItems(int $roleId): ?array
+    {
+        if ($roleId <= 0) {
+            return null;
+        }
+        static $config = null;
+        if ($config === null) {
+            $path = dirname(__DIR__, 3) . '/config/role_sidebars.php';
+            $config = file_exists($path) ? (include $path) : [];
+        }
+        if (!isset($config[$roleId])) {
+            return null;
+        }
+        // Normalise to the same shape as MenuBuilderService output.
+        // IDs: parent = roleId*10000 + groupIndex*100; child = parentId + childIndex + 1
+        $items      = [];
+        $groupIndex = 0;
+        foreach ($config[$roleId] as $item) {
+            $parentId = $roleId * 10000 + $groupIndex * 100;
+            $subitems  = [];
+            $subIndex  = 1;
+            foreach ($item['subitems'] ?? [] as $sub) {
+                $subitems[] = [
+                    'id'                   => $parentId + $subIndex,
+                    'parent_id'            => $parentId,
+                    'label'                => $sub['label'],
+                    'icon'                 => $sub['icon'] ?? null,
+                    'url'                  => $sub['url'] ?? null,
+                    'route_url'            => $sub['url'] ?? null,
+                    'domain'               => 'SCHOOL',
+                    'display_order'        => $subIndex,
+                    'subitems'             => [],
+                    'show_badge'           => false,
+                    'badge_source'         => null,
+                    'badge_color'          => 'danger',
+                    'open_in_new_tab'      => false,
+                    'requires_confirmation'=> false,
+                    'confirmation_message' => null,
+                    'css_class'            => null,
+                    'tooltip'              => null,
+                ];
+                $subIndex++;
+            }
+            $items[] = [
+                'id'                   => $parentId,
+                'parent_id'            => null,
+                'label'                => $item['label'],
+                'icon'                 => $item['icon'] ?? null,
+                'url'                  => $item['url'] ?? null,
+                'route_url'            => $item['url'] ?? null,
+                'domain'               => 'SCHOOL',
+                'display_order'        => $groupIndex,
+                'subitems'             => $subitems,
+                'show_badge'           => false,
+                'badge_source'         => null,
+                'badge_color'          => 'danger',
+                'open_in_new_tab'      => false,
+                'requires_confirmation'=> false,
+                'confirmation_message' => null,
+                'css_class'            => null,
+                'tooltip'              => null,
+            ];
+            $groupIndex++;
+        }
+        return $items;
     }
 
     /**

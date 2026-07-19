@@ -19,7 +19,7 @@
     <!-- Compact Sidebar -->
     <aside class="manager-sidebar" id="managerSidebar">
         <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
         </div>
 
         <nav class="manager-nav">
@@ -169,7 +169,7 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();
@@ -278,8 +278,8 @@
         });
     }
 
-    function viewActivity(id) { window.location.href = `/pages/view_activity.php?id=${id}`; }
-    function editActivity(id) { console.log('Edit activity:', id); }
+    function viewActivity(id) { window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&view=' + id; }
+    function editActivity(id) { window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&edit=' + id; }
 
     function escapeHtml(str) {
         if (!str) return '';

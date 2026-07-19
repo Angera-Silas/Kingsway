@@ -1,10 +1,9 @@
 <?php
 
 namespace App\API\Modules\staff;
-require_once __DIR__ . '/../../includes/BaseAPI.php';
-require_once __DIR__ . '/StaffService.php';
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\staff\StaffService;
 use App\API\Modules\system\MediaManager;
 use PDO;
 use Exception;
@@ -21,11 +20,21 @@ class StaffAPI extends BaseAPI {
     }
 
     // --- Media Operations ---
-    // Upload staff document or photo
+    // Upload staff document or photo.
+    // Documents -> uploads/staff/documents/{staff_no}/
+    // Photos    -> uploads/staff/profile_pictures/{staff_no}/
     public function uploadStaffMedia($staffId, $file, $type = 'document', $uploaderId = null, $description = '', $tags = '')
     {
-        $context = 'staff';
+        // Resolve the staff_no so uploads nest under the staff's own folder.
         $entityId = $staffId;
+        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && !empty($row['staff_no'])) {
+            $entityId = $row['staff_no'];
+        }
+
+        $context = ($type === 'photo') ? 'staff/profile_pictures' : 'staff/documents';
         $albumId = null;
         return $this->mediaManager->upload($file, $context, $entityId, $albumId, $uploaderId, $description, $tags);
     }
@@ -33,8 +42,15 @@ class StaffAPI extends BaseAPI {
     // List staff media
     public function listStaffMedia($staffId, $filters = [])
     {
-        $filters['context'] = 'staff';
-        $filters['entity_id'] = $staffId;
+        // Resolve staff_no so we match media stored under staff/documents & staff/profile_pictures.
+        $entityId = $staffId;
+        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && !empty($row['staff_no'])) {
+            $entityId = $row['staff_no'];
+        }
+        $filters['entity_id'] = $entityId;
         return $this->mediaManager->listMedia($filters);
     }
 
@@ -42,6 +58,20 @@ class StaffAPI extends BaseAPI {
     public function deleteStaffMedia($mediaId)
     {
         return $this->mediaManager->deleteMedia($mediaId);
+    }
+
+    // Return the served URL for an uploaded media item (original, falling back to thumbnail).
+    public function getMediaFileUrl($mediaId)
+    {
+        return $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
+    }
+
+    // Persist an uploaded photo URL onto the staff profile record.
+    public function setProfilePicUrl($staffId, $url)
+    {
+        $stmt = $this->db->prepare("UPDATE staff SET profile_pic_url = ? WHERE id = ?");
+        $stmt->execute([$url, $staffId]);
+        return true;
     }
 
     // List all staff members with pagination and search
@@ -60,7 +90,7 @@ class StaffAPI extends BaseAPI {
 
             // Get total count
             $sql = "
-                SELECT COUNT(*) 
+                SELECT COUNT(*)
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN departments d ON s.department_id = d.id
@@ -70,9 +100,9 @@ class StaffAPI extends BaseAPI {
             $stmt->execute($bindings);
             $total = $stmt->fetchColumn();
 
-            // Get paginated results with user data
+            // Get paginated results with user data and role count (subquery avoids GROUP BY issues)
             $sql = "
-                SELECT 
+                SELECT
                     s.*,
                     u.first_name,
                     u.last_name,
@@ -89,7 +119,8 @@ class StaffAPI extends BaseAPI {
                         WHEN 2 THEN 'non-teaching'
                         WHEN 3 THEN 'admin'
                         ELSE NULL
-                    END as staff_type
+                    END as staff_type,
+                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = s.user_id) AS role_count
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN roles r ON u.role_id = r.id
@@ -99,13 +130,41 @@ class StaffAPI extends BaseAPI {
                 ORDER BY $sort $order
                 LIMIT ? OFFSET ?
             ";
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Compute payroll eligibility for each staff member
+            $eligibilityChecks = [
+                'staff_no' => 'Staff number',
+                'department_id' => 'Department',
+                'role_count' => 'Assigned role',
+                'salary' => 'Basic salary',
+                'kra_pin' => 'KRA PIN',
+                'nssf_no' => 'NSSF number',
+                'nhif_no' => 'NHIF/SHIF number',
+                'phone' => 'Phone number',
+                'bank_name' => 'Bank name',
+                'bank_account' => 'Bank account',
+            ];
+
+            foreach ($staff as &$member) {
+                $missing = [];
+                foreach ($eligibilityChecks as $field => $label) {
+                    $val = $member[$field] ?? null;
+                    if ($field === 'role_count' && (int) $val < 1) { $missing[] = $label; continue; }
+                    if ($field === 'salary' && (float) $val <= 0) { $missing[] = $label; continue; }
+                    if ($val === null || trim((string) $val) === '') { $missing[] = $label; }
+                }
+                $member['payroll_eligible'] = empty($missing);
+                $member['payroll_missing_fields'] = $missing;
+                $member['profile_completeness'] = round((10 - count($missing)) / 10 * 100);
+            }
+            unset($member);
+
             $this->logAction('read', null, 'Listed staff members');
-            
+
             return $this->response([
                 'status' => 'success',
                 'data' => [
@@ -179,7 +238,21 @@ class StaffAPI extends BaseAPI {
     // Create new staff member
     public function create($data) {
         try {
-            $required = ['first_name', 'last_name', 'email', 'department_id', 'position', 'employment_date'];
+            $required = [
+                'first_name',
+                'last_name',
+                'email',
+                'department_id',
+                'position',
+                'employment_date',
+                'phone',
+                'kra_pin',
+                'nssf_no',
+                'nhif_no',
+                'bank_name',
+                'bank_account',
+                'salary'
+            ];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -199,7 +272,11 @@ class StaffAPI extends BaseAPI {
             } elseif (isset($data['role_id'])) {
                 $roleIds = [$data['role_id']];
             } else {
-                $roleIds = [1];
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Missing required fields',
+                    'fields' => ['role_ids']
+                ], 400);
             }
 
             // Map staff_type string to staff_type_id if provided
@@ -223,9 +300,11 @@ class StaffAPI extends BaseAPI {
                 'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
                 'department_id' => $data['department_id'] ?? null,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
+                'phone' => $data['phone'] ?? $data['phone_number'] ?? null,
                 'nssf_no' => $data['nssf_no'] ?? null,
                 'kra_pin' => $data['kra_pin'] ?? null,
                 'nhif_no' => $data['nhif_no'] ?? null,
+                'bank_name' => $data['bank_name'] ?? null,
                 'bank_account' => $data['bank_account'] ?? null,
                 'salary' => $data['salary'] ?? null,
                 'gender' => $data['gender'] ?? null,
@@ -313,8 +392,8 @@ class StaffAPI extends BaseAPI {
             }
 
             // Ensure placeholders for profile picture and documents folder
-            $placeholderPic = '/images/placeholders/profile.png';
-            $defaultDocsFolder = "uploads/staff/{$staffNo}";
+            $placeholderPic = '/uploads/staff/profile_pictures/staff_avatar.jpeg';
+            $defaultDocsFolder = "uploads/staff/documents/{$staffNo}";
             $needUpdate = false;
             $updateParams = [];
             $updateFields = [];
@@ -351,12 +430,12 @@ class StaffAPI extends BaseAPI {
                 }
 
                 // Register placeholder profile image via MediaManager so metadata exists
-                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'placeholders' . DIRECTORY_SEPARATOR . 'profile.png';
+                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'staff' . DIRECTORY_SEPARATOR . 'profile_pictures' . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
                 if (file_exists($placeholderFs)) {
                     try {
-                        // import into uploads/staff/{staffNo}
-                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff', $staffId, 'profile.png', null, 'placeholder profile');
-                        $preview = $this->mediaManager->getPreviewUrl($mediaId);
+                        // import into uploads/staff/profile_pictures/{staffNo}/
+                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff/profile_pictures', $staffNo, 'staff_avatar.jpeg', null, 'placeholder profile');
+                        $preview = $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
                         // Update staff profile_pic_url to the managed preview path if not already set
                         if (empty($profilePic) && $preview) {
                             $stmt = $this->db->prepare('UPDATE staff SET profile_pic_url = ? WHERE id = ?');
@@ -364,7 +443,11 @@ class StaffAPI extends BaseAPI {
                         }
                     } catch (Exception $e) {
                         // fallback: attempt a raw copy if import fails
-                        $destPic = $fullDocsPath . DIRECTORY_SEPARATOR . 'profile.png';
+                        $destDir = $fullDocsPath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'profile_pictures';
+                        if (!is_dir($destDir)) {
+                            @mkdir($destDir, 0755, true);
+                        }
+                        $destPic = $destDir . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
                         if (!file_exists($destPic)) {
                             @copy($placeholderFs, $destPic);
                             @chmod($destPic, 0644);
@@ -533,9 +616,11 @@ class StaffAPI extends BaseAPI {
                 'position',
                 'employment_date',
                 'contract_type',
+                'phone',
                 'nssf_no',
                 'kra_pin',
                 'nhif_no',
+                'bank_name',
                 'bank_account',
                 'salary',
                 'gender',

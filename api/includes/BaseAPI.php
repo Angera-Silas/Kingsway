@@ -7,6 +7,7 @@ Config::init();
 require_once __DIR__ . '/helpers.php';
 
 use App\Database\Database;
+use App\API\Services\PermissionContract;
 use PDO;
 use RuntimeException;
 use Exception;
@@ -22,9 +23,17 @@ class BaseAPI
      */
     protected function response(array $data, int $statusCode = 200)
     {
-        // You can adjust this to return JSON if needed, or just return the array for controller to handle
-        $data['status_code'] = $statusCode;
-        return $data;
+        return ApiResponse::normalize($data, $statusCode);
+    }
+
+    protected function successResponse($data = null, string $message = 'OK', int $statusCode = 200): array
+    {
+        return ApiResponse::success($data, $message, $statusCode);
+    }
+
+    protected function errorResponse(string $message, int $statusCode = 400, array $errors = []): array
+    {
+        return ApiResponse::error($message, $statusCode, $errors);
     }
     protected $db;
     protected $user_id;
@@ -234,6 +243,30 @@ class BaseAPI
         $this->logToFile('audit.log', $auditData);
     }
 
+    protected function requireActionPermission(string $module, string $action): void
+    {
+        $user = $this->getCurrentUser() ?? [];
+        if (!PermissionContract::userCan($user, $module, $action)) {
+            http_response_code(403);
+            throw new RuntimeException(
+                'Forbidden: missing permission for ' . $module . '.' . $action,
+                403
+            );
+        }
+    }
+
+    protected function getAllowedActions(string $module): array
+    {
+        return PermissionContract::allowedActions($this->getCurrentUser() ?? [], $module);
+    }
+
+    protected function auditSensitiveAction(string $action, $recordId, string $description): void
+    {
+        if (in_array($action, ['create', 'edit', 'update', 'approve', 'reject', 'delete', 'export', 'print'], true)) {
+            $this->logAudit($action, $recordId, $description);
+        }
+    }
+
     protected function logToFile($filename, $data)
     {
         try {
@@ -412,6 +445,18 @@ class BaseAPI
         } catch (RuntimeException $e) {
             throw new RuntimeException($e->getMessage());
         }
+    }
+
+    /**
+     * Execute a parameterized query on the raw PDO connection.
+     * Use this instead of $this->db->query($sql, $params) which calls PDO::query()
+     * (PDO::query() does not accept a params array as its 2nd argument).
+     */
+    protected function dbQuery(string $sql, array $params = []): \PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
     }
 
     // ---------- Stored routine helpers ----------

@@ -19,19 +19,36 @@
 <div id="manage-finance-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'manage-finance-loading',
         contentId:   'manage-finance-content',
         templateDir: '/pages/finance/',
         module:      'Finance',
         scriptSrc:   '/js/pages/finance.js',
+        afterLoad: function (container) {
+            var isDirector = PageShell.hasRole(['director', 'director_owner']);
+            if (!isDirector || !container) return;
+
+            container.querySelectorAll('[data-hide-for-director="true"]').forEach(function (el) {
+                el.remove();
+            });
+
+            var heading = container.querySelector('h1, h2, h3');
+            if (heading) heading.textContent = 'Finance Oversight';
+        },
         levels: [
+            {
+                file: 'manager_finance.php',
+                test: function () {
+                    return PageShell.hasRole(['director', 'director_owner']);
+                },
+            },
             {
                 file: 'admin_finance.php',
                 test: function () {
                     return PageShell.hasAny(['finance_manage', 'finance_admin', 'finance_delete', 'finance_approve']) ||
-                           PageShell.hasRole(['system_administrator', 'director', 'director_owner', 'headteacher', 'school_administrator']);
+                           PageShell.hasRole(['system_administrator', 'headteacher', 'school_administrator']);
                 },
             },
             {
@@ -57,5 +74,5 @@
             },
         ],
     });
-})();
+});
 </script>

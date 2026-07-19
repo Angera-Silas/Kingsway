@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Modules\admission;
 
-require_once __DIR__ . '/../vendor/autoload.php';
+require_once dirname(__DIR__, 3) . '/vendor/autoload.php';
 use App\Config\Config;
 Config::init();
 require_once __DIR__ . '/../../includes/WorkflowHandler.php';
@@ -24,9 +24,13 @@ use function App\API\Includes\formatResponse;
  * - Functions: calculate_total_fees
  */
 class StudentAdmissionWorkflow extends WorkflowHandler {
-    
+    private AdmissionPolicy $policy;
+    private AdmissionPaymentService $paymentService;
+
     public function __construct() {
         parent::__construct('student_admission');
+        $this->policy = new AdmissionPolicy();
+        $this->paymentService = new AdmissionPaymentService($this->db);
     }
 
     /**
@@ -46,17 +50,27 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 }
             }
 
+            $applicationSource = $this->policy->resolveApplicationSource($data);
+            $admissionCategory = $this->policy->resolveAdmissionCategory($data);
+            $targetTermId = $this->policy->resolveTargetTermId($data);
+            $normalizedGrade = $this->policy->normalizeGrade((string) $data['grade_applying_for']);
+            $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
+            $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
+
             // Generate application number (format: ADM/2025/001)
             $app_no = $this->generateApplicationNumber($data['academic_year']);
 
-            // Insert application (outside transaction, committed immediately)
             $sql = "INSERT INTO admission_applications (
                 application_no, applicant_name, date_of_birth, gender,
                 grade_applying_for, academic_year, parent_id,
+                application_source, admission_category, target_term_id,
+                requires_interview, interview_policy_reason,
                 previous_school, has_special_needs, special_needs_details,
                 status, created_at
             ) VALUES (
                 :app_no, :name, :dob, :gender, :grade, :year, :parent,
+                :application_source, :admission_category, :target_term_id,
+                :requires_interview, :interview_policy_reason,
                 :prev_school, :has_needs, :needs_details,
                 'submitted', NOW()
             )";
@@ -67,9 +81,14 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'name' => $data['applicant_name'],
                 'dob' => $data['date_of_birth'],
                 'gender' => $data['gender'],
-                'grade' => $data['grade_applying_for'],
+                'grade' => $normalizedGrade,
                 'year' => $data['academic_year'],
                 'parent' => $data['parent_id'],
+                'application_source' => $applicationSource,
+                'admission_category' => $admissionCategory,
+                'target_term_id' => $targetTermId,
+                'requires_interview' => $requiresInterview,
+                'interview_policy_reason' => $interviewReason,
                 'prev_school' => $data['previous_school'] ?? null,
                 'has_needs' => $data['has_special_needs'] ?? 0,
                 'needs_details' => $data['special_needs_details'] ?? null
@@ -77,12 +96,16 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $application_id = $this->db->lastInsertId();
 
-            // Start workflow (which will handle its own transaction)
             $workflow_data = [
                 'application_no' => $app_no,
                 'applicant_name' => $data['applicant_name'],
-                'grade' => $data['grade_applying_for'],
+                'grade' => $normalizedGrade,
                 'parent_id' => (int) $data['parent_id'],
+                'application_source' => $applicationSource,
+                'admission_category' => $admissionCategory,
+                'target_term_id' => $targetTermId,
+                'requires_interview' => (bool) $requiresInterview,
+                'interview_policy_reason' => $interviewReason,
                 'created_by' => (int) $this->user_id,
                 'submitted_by' => (int) $this->user_id
             ];
@@ -93,8 +116,16 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'application_id' => $application_id,
                 'application_no' => $app_no,
                 'workflow_instance_id' => $instance_id,
-                'next_stage' => 'document_verification',
-                'required_documents' => $this->getRequiredDocuments($data['grade_applying_for'])
+                'current_stage' => 'application_received',
+                'next_stage' => 'application_review',
+                'policy' => [
+                    'requires_interview' => (bool) $requiresInterview,
+                    'interview_reason' => $interviewReason,
+                    'application_source' => $applicationSource,
+                    'admission_category' => $admissionCategory,
+                    'target_term_id' => $targetTermId,
+                ],
+                'required_documents' => $this->getRequiredDocuments($normalizedGrade, $admissionCategory)
             ], 'Application submitted successfully');
 
         } catch (Exception $e) {
@@ -104,6 +135,52 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->logError('admission_submit_failed', $e->getMessage());
             return formatResponse(false, null, 'Application submission failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Central transition helper.
+     *
+     * Every admission workflow movement is routed through the domain stored
+     * procedure `sp_advance_admission_workflow_stage`. The proc is the single
+     * source of truth that:
+     *   - writes the audit row in workflow_stage_history (actor + remarks),
+     *   - updates workflow_instances.current_stage (the state every logged-in
+     *     user reads, so cross-user visibility is guaranteed),
+     *   - merges admission_applications.workflow_data_json,
+     *   - and syncs admission_applications.status to the stage.
+     *
+     * Note: the proc REPLACES workflow_instances.data_json with the passed JSON,
+     * while it MERGES admission_applications.workflow_data_json. So we merge the
+     * supplied updates into the current instance data before calling, to avoid
+     * clobbering per-stage data (interview dates, scores, etc.).
+     *
+     * @param int    $applicationId The admission_applications.id
+     * @param string $toStage       New stage key
+     * @param string $action        Audit action code
+     * @param array  $updates       Workflow data to merge into instance + application
+     * @param string $remarks       Audit remarks
+     */
+    private function advance(int $applicationId, string $toStage, string $action, array $updates = [], string $remarks = ''): void
+    {
+        $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+        if (!$instance) {
+            throw new Exception("No active workflow instance found for application {$applicationId}");
+        }
+
+        $currentData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
+        $merged = array_merge($currentData, $updates);
+        $workflowUpdatesJson = json_encode($merged, JSON_UNESCAPED_UNICODE);
+
+        $stmt = $this->db->prepare("CALL sp_advance_admission_workflow_stage(?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $applicationId,
+            $toStage,
+            $action,
+            (int) ($this->user_id ?? 1),
+            $remarks,
+            $workflowUpdatesJson
+        ]);
+        $stmt->closeCursor();
     }
 
     /**
@@ -126,11 +203,22 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $grade = $this->getApplicationGrade($application_id);
             $requiredDocuments = $this->getRequiredDocuments($grade);
             $isMandatory = !empty($requiredDocuments[$document_type]['mandatory']) ? 1 : 0;
+            $application = $this->getApplicationSummary($application_id);
+            $preferredBaseName = $this->buildAdmissionDocumentFilenameBase($application, $document_type);
 
-            // Upload file via MediaManager into uploads/documents/{application_id}
+            // Upload admission documents under uploads/students/documents/{application_id}
             $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-            $mediaId = $mediaManager->upload($file, 'documents', $application_id, null, $this->user_id, 'admission document');
-            $preview = $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
+            $mediaId = $mediaManager->upload(
+                $file,
+                'students/documents',
+                $application_id,
+                null,
+                $this->user_id,
+                'admission document',
+                '',
+                $preferredBaseName
+            );
+            $documentPath = $mediaManager->getFileUrl($mediaId) ?: $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
 
             // Save document record
             $sql = "INSERT INTO admission_documents (
@@ -142,24 +230,36 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt->execute([
                 'app_id' => $application_id,
                 'type' => $document_type,
-                'path' => $preview,
+                'path' => $documentPath,
                 'mandatory' => $isMandatory
             ]);
+            $documentId = $this->db->lastInsertId();
 
             // Check if all mandatory docs uploaded
             $all_uploaded = $this->checkMandatoryDocuments($application_id);
             $currentStage = $instance['current_stage'] ?? null;
 
-            if ($all_uploaded && in_array($currentStage, ['application', 'application_submission'], true)) {
-                // Advance to document verification stage
-                $this->advanceStage($instance['id'], 'document_verification', 'all_documents_uploaded');
-                $this->updateApplicationStatus($application_id, 'documents_pending');
+            // Only advance forward from the early intake stages when every
+            // mandatory document has now been uploaded. We never reset the stage
+            // backward on an upload — that was the old bug that made "Start Intake"
+            // reopen Upload Documents even after documents already existed.
+            $advanceEligibleStages = ['application_received', 'application_review', 'documents_upload'];
+            if ($all_uploaded && in_array($currentStage, $advanceEligibleStages, true)) {
+                $this->advance(
+                    $application_id,
+                    'documents_verification',
+                    'all_documents_uploaded',
+                    ['documents_uploaded' => true, 'documents_uploaded_at' => date('Y-m-d H:i:s')],
+                    'All mandatory documents uploaded'
+                );
             }
 
             $this->db->commit();
 
             return formatResponse(true, [
-                'document_id' => $this->db->lastInsertId(),
+                'document_id' => $documentId,
+                'document_type' => $document_type,
+                'document_path' => $documentPath,
                 'all_mandatory_uploaded' => $all_uploaded
             ], 'Document uploaded successfully');
 
@@ -168,6 +268,27 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->logError('document_upload_failed', $e->getMessage());
             return formatResponse(false, null, 'Document upload failed: ' . $e->getMessage());
         }
+    }
+
+    private function getApplicationSummary($application_id): array
+    {
+        $stmt = $this->db->prepare("SELECT application_no, applicant_name FROM admission_applications WHERE id = :id LIMIT 1");
+        $stmt->execute(['id' => $application_id]);
+        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function buildAdmissionDocumentFilenameBase(array $application, string $documentType): string
+    {
+        $applicantName = $application['applicant_name'] ?? 'Applicant';
+        $applicationNo = $application['application_no'] ?? 'Application';
+        $documentLabel = $this->formatDocumentTypeLabel($documentType);
+
+        return "{$applicantName}_{$documentLabel}_{$applicationNo}";
+    }
+
+    private function formatDocumentTypeLabel(string $documentType): string
+    {
+        return ucwords(str_replace('_', ' ', $documentType));
     }
 
     public function verifyDocument($document_id, $status, $notes = '') {
@@ -196,26 +317,39 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt->execute(['doc_id' => $document_id]);
             $application_id = $stmt->fetchColumn();
 
-            // Check if all documents verified
-            if ($this->checkAllDocumentsVerified($application_id)) {
+            if ($status === 'rejected') {
+                // A rejected document reopens the upload stage so the applicant can
+                // supply corrected documents. The workflow stays auditable: the app
+                // returns to documents_upload and Start Intake will surface
+                // "Upload Corrected Documents" with the rejection note.
                 $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-                
+                if ($instance && ($instance['current_stage'] ?? '') === 'documents_verification') {
+                    $this->advance(
+                        $application_id,
+                        'documents_upload',
+                        'document_rejected',
+                        ['documents_rejected' => true, 'document_rejection_notes' => $notes],
+                        'Document rejected — awaiting corrected upload'
+                    );
+                }
+            } elseif ($this->checkAllDocumentsVerified($application_id)) {
                 // Get application details to check grade
                 $sql = "SELECT grade_applying_for FROM admission_applications WHERE id = :id";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute(['id' => $application_id]);
                 $grade = $stmt->fetchColumn();
-                
-                // Playground/ECD, PP1, PP2, Grade1, Grade7-9 skip interview - advance directly to placement_offer stage.
-                // Status stays documents_verified; placement_offered is only set once the admin generates the offer.
-                if (!$this->requiresAssessment($grade)) {
-                    $this->advanceStage($instance['id'], 'placement_offer', 'documents_verified_auto_qualify');
-                    $this->updateApplicationStatus($application_id, 'documents_verified');
-                } else {
-                    // Grade 2-6 require interview assessment
-                    $this->advanceStage($instance['id'], 'interview_scheduling', 'all_documents_verified');
-                    $this->updateApplicationStatus($application_id, 'documents_verified');
-                }
+
+                // Space availability is checked for ALL grades before any interview
+                // is scheduled (workflow step 5). Non-assessment grades will move
+                // from class_space_check straight to admission_decision; assessment
+                // grades proceed to interview_scheduling from there.
+                $this->advance(
+                    $application_id,
+                    'class_space_check',
+                    'all_documents_verified',
+                    ['documents_verified' => true, 'documents_verified_at' => date('Y-m-d H:i:s'), 'documents_rejected' => false],
+                    'All documents verified — proceeding to class space check'
+                );
             }
 
             $this->db->commit();
@@ -277,8 +411,21 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // Send SMS notification to parent
             $this->sendInterviewSMS($application_id, $interview_date, $interview_time, $venue);
 
-            // Advance to interview assessment
-            $this->advanceStage($instance['id'], 'interview_assessment', 'interview_scheduled');
+            // Advance to interview results (awaiting assessment)
+            // Advance to interview results (awaiting assessment). Include the interview
+            // details here so advance() does not overwrite the data_json it set above.
+            $this->advance(
+                $application_id,
+                'interview_results',
+                'interview_scheduled',
+                [
+                    'interview_scheduled' => true,
+                    'interview_date' => $interview_date,
+                    'interview_time' => $interview_time,
+                    'interview_venue' => $venue
+                ],
+                'Interview scheduled'
+            );
 
             $this->db->commit();
 
@@ -308,7 +455,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->db->beginTransaction();
 
             $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-            if (!$instance || $instance['current_stage'] !== 'interview_assessment') {
+            if (!$instance || $instance['current_stage'] !== 'interview_results') {
                 throw new Exception("Invalid workflow state for interview assessment");
             }
             
@@ -343,12 +490,31 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             // Determine if qualified (e.g., score >= 70)
             if ($assessment_data['score'] >= 70) {
-                // Advance to placement offer
-                $this->advanceStage($instance['id'], 'placement_offer', 'assessment_passed');
+                // Passed → admission decision stage
+                $this->advance(
+                    $application_id,
+                    'admission_decision',
+                    'assessment_passed',
+                    [
+                        'interview_passed' => true,
+                        'interview_score' => $assessment_data['score'],
+                        'interview_notes' => $assessment_data['notes'] ?? ''
+                    ],
+                    'Interview passed — proceeding to admission decision'
+                );
             } else {
-                // Reject application
-                $this->updateApplicationStatus($application_id, 'cancelled');
-                $this->cancelWorkflow($instance['id'], 'Did not meet interview requirements');
+                // Failed → rejected stage (audit-logged). status stays visible to all.
+                $this->advance(
+                    $application_id,
+                    'rejected',
+                    'assessment_failed',
+                    [
+                        'interview_passed' => false,
+                        'interview_score' => $assessment_data['score'],
+                        'rejection_reason' => 'Did not meet interview requirements'
+                    ],
+                    'Interview failed — application rejected'
+                );
             }
 
             $this->db->commit();
@@ -376,36 +542,28 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->db->beginTransaction();
 
             $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-            if (!$instance || $instance['current_stage'] !== 'placement_offer') {
+            if (!$instance || !in_array(($instance['current_stage'] ?? ''), ['admission_decision', 'fees_payment'], true)) {
                 throw new Exception("Invalid workflow state for placement offer");
             }
 
             $total_fees = $this->calculatePlacementFees((int) $assigned_class_id, (int) $application_id);
 
-            // Store placement details
-            $sql = "UPDATE workflow_instances 
-                    SET data_json = JSON_SET(
-                        COALESCE(data_json, '{}'),
-                        '$.assigned_class_id', :class_id,
-                        '$.total_fees', :fees,
-                        '$.offer_date', NOW()
-                    )
-                    WHERE id = :instance_id";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                'class_id' => $assigned_class_id,
-                'fees' => $total_fees,
-                'instance_id' => $instance['id']
-            ]);
-
-            $this->updateApplicationStatus($application_id, 'placement_offered');
+            // Store placement details (no stage change — offer letter is informational;
+            // the workflow is now driven by the 12-step keys).
+            $this->advance(
+                $application_id,
+                $instance['current_stage'],
+                'placement_offer_generated',
+                [
+                    'assigned_class_id' => (int) $assigned_class_id,
+                    'total_fees' => $total_fees,
+                    'offer_date' => date('Y-m-d H:i:s')
+                ],
+                'Placement offer generated'
+            );
 
             // Send placement offer letter (SMS/Email)
             $this->sendPlacementOfferNotification($application_id, $total_fees);
-
-            // Advance to fee payment
-            $this->advanceStage($instance['id'], 'fee_payment', 'placement_offered');
 
             $this->db->commit();
 
@@ -442,32 +600,11 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 throw new Exception("Payment amount must be greater than zero");
             }
 
-            $paymentMethod = $this->normalizePaymentMethod((string) ($payment_data['method'] ?? $payment_data['payment_method'] ?? 'cash'));
-            $paymentDate = $payment_data['payment_date'] ?? date('Y-m-d H:i:s');
-            $referenceNo = trim((string) ($payment_data['reference'] ?? $payment_data['reference_no'] ?? ''));
-            if ($referenceNo === '') {
-                $referenceNo = 'ADM-' . $application_id . '-' . date('YmdHis');
-            }
-
-            $receiptNo = trim((string) ($payment_data['receipt_no'] ?? ''));
-            if ($receiptNo === '') {
-                $receiptNo = $this->generateAdmissionReceiptNumber((int) $application_id);
-            }
+            $payment = $this->paymentService->recordApplicationPayment((int) $application_id, $payment_data, (int) $this->user_id);
 
             $instanceData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
-            $pendingPayments = $instanceData['pending_payments'] ?? [];
-            $pendingPayments[] = [
-                'amount' => $amount,
-                'payment_method' => $paymentMethod,
-                'reference_no' => $referenceNo,
-                'receipt_no' => $receiptNo,
-                'payment_date' => $paymentDate,
-                'notes' => (string) ($payment_data['notes'] ?? ''),
-                'recorded_by' => (int) $this->user_id,
-                'recorded_at' => date('Y-m-d H:i:s')
-            ];
-            $instanceData['pending_payments'] = $pendingPayments;
             $instanceData['last_payment_recorded_at'] = date('Y-m-d H:i:s');
+            $instanceData['last_admission_payment_id'] = $payment['payment_id'];
             $this->saveWorkflowInstanceData((int) $instance['id'], $instanceData);
 
             // Update application status
@@ -476,15 +613,23 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // Any payment recorded allows advancement to enrollment
             // The school determines minimum payment requirements outside this workflow
             if ($amount > 0) {
-                // Advance to enrollment
-                $this->advanceStage($instance['id'], 'enrollment', 'payment_received');
+                // Advance to student ID generation (proc maps stage → status 'fees_paid')
+                $this->advance(
+                    $application_id,
+                    'student_id_generation',
+                    'payment_received',
+                    ['payment_status' => 'paid', 'last_payment_recorded_at' => date('Y-m-d H:i:s'), 'last_admission_payment_id' => $payment['payment_id'] ?? null],
+                    'Admission fee payment recorded'
+                );
             }
 
             $this->db->commit();
 
             return formatResponse(true, [
+                'payment_id' => $payment['payment_id'],
                 'amount_paid' => $amount,
-                'receipt_no' => $receiptNo,
+                'receipt_no' => $payment['receipt_no'],
+                'reference_no' => $payment['reference_no'],
                 'can_enroll' => $amount > 0
             ], 'Payment recorded successfully');
 
@@ -492,6 +637,326 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->db->rollBack();
             $this->logError('fee_payment_failed', $e->getMessage());
             return formatResponse(false, null, 'Payment recording failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * =======================================================================
+     * STAGE: CLASS SPACE CHECK (workflow step 5)
+     * =======================================================================
+     * Role: Registrar / Admissions Office
+     * Calls sp_check_class_space_availability, captures the result, and persists
+     * it via sp_advance_admission_workflow_stage. If space is available we move
+     * to interview_scheduling (assessment grades) or admission_decision
+     * (non-assessment grades that auto-qualify). If there is no space we stay at
+     * class_space_check with a blocking note so the intake cannot proceed.
+     */
+    public function checkClassSpace(int $applicationId, bool $available, ?string $notes = null): array
+    {
+        try {
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'class_space_check') {
+                throw new Exception('Application is not at the class space check stage');
+            }
+
+            // Leverage the existing SQL routine to compute capacity vs. current count.
+            $stmt = $this->db->prepare("CALL sp_check_class_space_availability(:app_id, :user_id)");
+            $stmt->execute(['app_id' => $applicationId, 'user_id' => (int) ($this->user_id ?? 1)]);
+            $spaceInfo = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $stmt->closeCursor();
+
+            if (!$available) {
+                $this->advance(
+                    $applicationId,
+                    'class_space_check',
+                    'class_space_unavailable',
+                    [
+                        'space_checked' => true,
+                        'space_available' => false,
+                        'available_spaces' => (int) ($spaceInfo['available_spaces'] ?? 0),
+                        'class_checked_id' => (int) ($spaceInfo['class_id'] ?? 0),
+                        'period_checked_id' => (int) ($spaceInfo['academic_year_id'] ?? 0),
+                        'space_message' => $notes ?? 'No space available in the applied class.'
+                    ],
+                    'Class space unavailable — intake blocked'
+                );
+                return formatResponse(true, ['space_available' => false], 'No space available; intake blocked.');
+            }
+
+            $requiresAssessment = (bool) ($spaceInfo['requires_assessment'] ?? $this->requiresAssessment($spaceInfo['grade'] ?? null));
+            $nextStage = $requiresAssessment ? 'interview_scheduling' : 'admission_decision';
+            $action = $requiresAssessment ? 'space_confirmed_to_interview' : 'space_confirmed_to_decision';
+
+            $this->advance(
+                $applicationId,
+                $nextStage,
+                $action,
+                [
+                    'space_checked' => true,
+                    'space_available' => true,
+                    'available_spaces' => (int) ($spaceInfo['available_spaces'] ?? 0),
+                    'class_checked_id' => (int) ($spaceInfo['class_id'] ?? 0),
+                    'period_checked_id' => (int) ($spaceInfo['academic_year_id'] ?? 0),
+                    'space_message' => $notes
+                ],
+                'Class space confirmed'
+            );
+
+            return formatResponse(true, ['space_available' => true, 'next_stage' => $nextStage], 'Space confirmed.');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Class space check failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * =======================================================================
+     * STAGE: ADMIT STUDENT (workflow step 8 entry)
+     * =======================================================================
+     * Role: Director / Headteacher
+     * Marks the interview-passed / space-confirmed application as admitted. The
+     * provisional student is NOT created here (that is createProvisionalStudent)
+     * so the two steps are independently auditable.
+     */
+    public function admitStudent(int $applicationId): array
+    {
+        try {
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance) {
+                throw new Exception('No active workflow instance found');
+            }
+            $stage = $instance['current_stage'] ?? '';
+            if (!in_array($stage, ['interview_results', 'admission_decision', 'class_space_check'], true)) {
+                throw new Exception("Application cannot be admitted from stage '{$stage}'");
+            }
+
+            $this->advance(
+                $applicationId,
+                'provisional_student_creation',
+                'student_admitted',
+                ['admission_approved' => true, 'admitted_at' => date('Y-m-d H:i:s')],
+                'Student admitted — proceed to provisional student creation'
+            );
+
+            return formatResponse(true, ['next_stage' => 'provisional_student_creation'], 'Student admitted.');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Admission failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * =======================================================================
+     * STAGE 8: CREATE PROVISIONAL STUDENT
+     * =======================================================================
+     * Role: Registrar
+     * Builds the real students row for the admitted application. Dedup-guarded:
+     * if a students row already exists for this application it is returned
+     * instead of creating a duplicate. Advances to fees_payment.
+     */
+    public function createProvisionalStudent(int $applicationId): array
+    {
+        try {
+            $this->db->beginTransaction();
+
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance) {
+                throw new Exception('No active workflow instance found');
+            }
+            if (($instance['current_stage'] ?? '') !== 'provisional_student_creation') {
+                throw new Exception('Application is not at the provisional student creation stage');
+            }
+
+            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1");
+            $stmt->execute(['id' => $applicationId]);
+            $application = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$application) {
+                throw new Exception('Admission application not found');
+            }
+
+            // Dedup guard: existing provisional/created student for this application.
+            $stmt = $this->db->prepare("SELECT student_id FROM admission_applications WHERE id = :id AND enrolled_student_id IS NOT NULL LIMIT 1");
+            $stmt->execute(['id' => $applicationId]);
+            $existingStudentId = $stmt->fetchColumn();
+            if ($existingStudentId) {
+                $this->db->commit();
+                return formatResponse(true, [
+                    'student_id' => (int) $existingStudentId,
+                    'admission_number' => $application['admission_no'] ?? null,
+                    'reused' => true
+                ], 'Student already created for this application.');
+            }
+
+            // Resolve the applied class by name, then a real stream (NOT NULL + capacity trigger).
+            $classId = null;
+            $className = trim((string) ($application['grade_applying_for'] ?? ''));
+            if ($className !== '') {
+                $stmt = $this->db->prepare("SELECT id FROM classes WHERE name = :name LIMIT 1");
+                $stmt->execute(['name' => $className]);
+                $classId = $stmt->fetchColumn() ?: null;
+            }
+            if (!$classId) {
+                throw new Exception("Could not resolve a class for grade '{$className}'");
+            }
+
+            $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = :class_id AND status = 'active' ORDER BY id ASC LIMIT 1");
+            $stmt->execute(['class_id' => $classId]);
+            $streamId = $stmt->fetchColumn() ?: null;
+            if (!$streamId) {
+                throw new Exception("No active class stream configured for '{$className}'");
+            }
+
+            $academicYearId = (int) ($application['academic_year'] ?? date('Y'));
+            $studentNumber = $this->generateStudentNumber($academicYearId, (int) $classId);
+
+            $names = explode(' ', trim((string) $application['applicant_name']));
+            $firstName = $names[0] ?? 'Applicant';
+            $lastName = isset($names[1]) ? implode(' ', array_slice($names, 1)) : '';
+
+            $studentTypeId = $this->resolveDefaultStudentTypeId();
+            if (!$studentTypeId) {
+                throw new Exception('Unable to resolve an active student type');
+            }
+
+            $sql = "INSERT INTO students (
+                admission_no, first_name, last_name, date_of_birth,
+                gender, stream_id, student_type_id, admission_date, status, application_id
+            ) VALUES (
+                :student_no, :first_name, :last_name, :dob,
+                :gender, :stream_id, :student_type_id, CURDATE(), 'inactive', :application_id
+            )";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                'student_no' => $studentNumber,
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'dob' => $application['date_of_birth'],
+                'gender' => $application['gender'],
+                'stream_id' => (int) $streamId,
+                'student_type_id' => (int) $studentTypeId,
+                'application_id' => $applicationId,
+            ]);
+            $studentId = (int) $this->db->lastInsertId();
+
+            // Link the parent record from the application, if present.
+            if (!empty($application['parent_id'])) {
+                $this->linkParentToStudent($studentId, (int) $application['parent_id']);
+            }
+
+            // Write back linkage to the application row.
+            $stmt = $this->db->prepare("UPDATE admission_applications SET enrolled_student_id = :student_id WHERE id = :id");
+            $stmt->execute(['student_id' => $studentId, 'id' => $applicationId]);
+
+            $this->db->commit();
+
+            $this->advance(
+                $applicationId,
+                'fees_payment',
+                'provisional_student_created',
+                ['student_id' => $studentId, 'student_number' => $studentNumber, 'admission_number' => $studentNumber],
+                'Provisional student created — awaiting fee payment'
+            );
+
+            return formatResponse(true, [
+                'student_id' => $studentId,
+                'admission_number' => $studentNumber,
+                'class_id' => (int) $classId,
+                'stream_id' => (int) $streamId
+            ], 'Provisional student created successfully.');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'Provisional student creation failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * =======================================================================
+     * STAGE 10: GENERATE STUDENT ID CARD
+     * =======================================================================
+     * Role: Registrar
+     * Reuses StudentIDCardGenerator to produce the ID card + QR token, records it
+     * in student_id_cards, and advances to final_approval.
+     */
+    public function generateStudentIdCard(int $applicationId): array
+    {
+        try {
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'student_id_generation') {
+                throw new Exception('Application is not at the student ID generation stage');
+            }
+
+            $stmt = $this->db->prepare("SELECT enrolled_student_id FROM admission_applications WHERE id = :id LIMIT 1");
+            $stmt->execute(['id' => $applicationId]);
+            $studentId = (int) ($stmt->fetchColumn() ?: 0);
+            if (!$studentId) {
+                throw new Exception('No student record linked to this application');
+            }
+
+            $cardGenerator = new \App\Modules\Students\StudentIDCardGenerator();
+            $qrResult = $cardGenerator->generateEnhancedQRCode($studentId);
+            $qrToken = is_array($qrResult) && !empty($qrResult['data']['qr_token']) ? $qrResult['data']['qr_token'] : null;
+            if (!$qrToken) {
+                $qrToken = bin2hex(random_bytes(16));
+            }
+
+            $academicYearId = (int) ($this->getCurrentAcademicYearId() ?? date('Y'));
+            $cardNumber = 'IDC-' . str_pad((string) $studentId, 6, '0', STR_PAD_LEFT);
+            $stmt = $this->db->prepare("
+                INSERT INTO student_id_cards (student_id, card_number, qr_token, qr_payload, issue_date, expiry_year, status, generated_at, generated_by, created_at)
+                VALUES (:student_id, :card_number, :qr_token, :qr_payload, CURDATE(), :expiry_year, 'generated', NOW(), :generated_by, NOW())
+                ON DUPLICATE KEY UPDATE qr_token = VALUES(qr_token), status = 'generated', generated_at = NOW()
+            ");
+            $stmt->execute([
+                'student_id' => $studentId,
+                'card_number' => $cardNumber,
+                'qr_token' => $qrToken,
+                'qr_payload' => json_encode(['student_id' => $studentId]),
+                'expiry_year' => $academicYearId,
+                'generated_by' => (int) ($this->user_id ?? 1)
+            ]);
+            $cardId = (int) $this->db->lastInsertId();
+
+            $this->advance(
+                $applicationId,
+                'final_approval',
+                'student_id_card_generated',
+                ['student_id_card_generated' => true, 'student_id_card_id' => $cardId],
+                'Student ID card generated — awaiting final approval'
+            );
+
+            return formatResponse(true, ['card_id' => $cardId, 'next_stage' => 'final_approval'], 'Student ID card generated.');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'ID card generation failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * =======================================================================
+     * STAGE 11: FINAL APPROVAL
+     * =======================================================================
+     * Role: Director / Headteacher
+     * Approves the provisioned student and advances to enrollment (the final
+     * class/stream/dorm/register/subjects assignment step).
+     */
+    public function finalApproval(int $applicationId): array
+    {
+        try {
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'final_approval') {
+                throw new Exception('Application is not at the final approval stage');
+            }
+
+            $this->advance(
+                $applicationId,
+                'enrollment',
+                'final_approval_granted',
+                ['final_approval_done' => true, 'final_approval_at' => date('Y-m-d H:i:s')],
+                'Final approval granted'
+            );
+
+            return formatResponse(true, ['next_stage' => 'enrollment'], 'Final approval granted.');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Final approval failed: ' . $e->getMessage());
         }
     }
 
@@ -516,67 +981,65 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['id' => $application_id]);
             $application = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$application) {
+                throw new Exception('Admission application not found');
+            }
+            if (($application['status'] ?? '') === 'enrolled') {
+                throw new Exception('Application is already enrolled');
+            }
+            if (!$this->paymentService->hasPositivePayment((int) $application_id)) {
+                throw new Exception('A positive admission payment is required before enrollment');
+            }
 
-            // Get assigned class and stream from workflow data
-            $instance_data = json_decode($instance['data_json'], true);
+            // The provisional student was created at step 8 (createProvisionalStudent).
+            // Reuse it rather than inserting a second student row.
+            $student_id = (int) ($application['enrolled_student_id'] ?? 0);
+            if (!$student_id) {
+                throw new Exception('No provisional student linked — run create provisional student first');
+            }
+
+            // Get assigned class and stream from workflow data.
+            $instance_data = json_decode($instance['data_json'], true) ?: [];
             $class_id = $instance_data['assigned_class_id'] ?? null;
+            $studentTypeId = $this->resolveDefaultStudentTypeId();
+            if (!$studentTypeId) {
+                throw new Exception('Unable to resolve an active student type for enrollment');
+            }
+
+            // Determine stream: prefer assigned, else the provisional student's stream.
             $stream_id = $instance_data['assigned_stream_id'] ?? null;
-
-            // Generate student number based on class context (if available).
-            $student_number = $this->generateStudentNumber(
-                (int) $application['academic_year'],
-                $class_id ? (int) $class_id : null
-            );
-
-            // If only class_id provided, get the default stream for that class
-            if ($class_id && !$stream_id) {
+            if (!$stream_id) {
+                $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = :id LIMIT 1");
+                $stmt->execute(['id' => $student_id]);
+                $stream_id = $stmt->fetchColumn() ?: null;
+            }
+            if (!$stream_id) {
                 $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = :class_id LIMIT 1");
                 $stmt->execute(['class_id' => $class_id]);
                 $stream_id = $stmt->fetchColumn() ?: null;
             }
-
             if (!$stream_id) {
                 throw new Exception('No class stream is configured for the selected placement class');
             }
 
             // Get current academic year
-            $stmt = $this->db->query("
-                SELECT id
-                FROM academic_years
-                WHERE is_current = 1 OR status = 'active'
-                ORDER BY is_current DESC, id DESC
-                LIMIT 1
-            ");
-            $academic_year_id = $stmt->fetchColumn();
+            $academic_year_id = (int) $this->getCurrentAcademicYearId();
             if (!$academic_year_id) {
                 throw new Exception('No active academic year found for enrollment');
             }
 
-            // Parse name (simple split - adjust as needed)
-            $names = explode(' ', $application['applicant_name']);
-            $first_name = $names[0];
-            $last_name = isset($names[1]) ? implode(' ', array_slice($names, 1)) : '';
-
-            // Create student record with stream_id (not class_id)
-            $sql = "INSERT INTO students (
-                admission_no, first_name, last_name, date_of_birth,
-                gender, stream_id, admission_date, status
-            ) VALUES (
-                :student_no, :first_name, :last_name, :dob,
-                :gender, :stream_id, CURDATE(), 'active'
-            )";
-
-            $stmt = $this->db->prepare($sql);
+            // Activate the provisional student and lock in placement.
+            $stmt = $this->db->prepare("
+                UPDATE students
+                SET status = 'active', stream_id = :stream_id, student_type_id = :student_type_id,
+                    admission_date = CURDATE()
+                WHERE id = :id
+            ");
             $stmt->execute([
-                'student_no' => $student_number,
-                'first_name' => $first_name,
-                'last_name' => $last_name,
-                'dob' => $application['date_of_birth'],
-                'gender' => $application['gender'],
-                'stream_id' => $stream_id
+                'stream_id' => (int) $stream_id,
+                'student_type_id' => (int) $studentTypeId,
+                'id' => $student_id,
             ]);
-
-            $student_id = $this->db->lastInsertId();
 
             // Create class enrollment record using stored procedure
             if ($class_id && $stream_id) {
@@ -587,6 +1050,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                     'stream_id' => $stream_id,
                     'year_id' => $academic_year_id
                 ]);
+                $stmt->closeCursor();
 
                 $result = $this->db->query("SELECT @enr_id as enrollment_id, @fees as fee_obligations")->fetch(PDO::FETCH_ASSOC);
                 $enrollment_id = $result['enrollment_id'];
@@ -595,30 +1059,43 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             // Link parent from application
             if (!empty($application['parent_id'])) {
-                $this->linkParentToStudent($student_id, $application['parent_id']);
+                $this->linkParentToStudent($student_id, (int) $application['parent_id']);
             }
 
-            // Post any fee payments that were captured before enrollment.
-            $postedPaymentCount = $this->postPendingAdmissionPayments(
-                (int) $instance['id'],
-                $instance_data,
+            // Post admission payments that were captured before enrollment.
+            $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
+                (int) $application_id,
                 (int) $student_id,
                 !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                (int) $this->user_id,
                 (string) ($application['application_no'] ?? '')
             );
 
-            // Update application status
-            $this->updateApplicationStatus($application_id, 'enrolled');
-
-            // Complete workflow
-            $this->completeWorkflow($instance['id'], [
-                'student_id' => $student_id,
-                'student_number' => $student_number,
-                'enrollment_id' => $enrollment_id ?? null,
-                'fee_obligations_created' => $fee_obligations_created ?? 0,
-                'payments_posted' => $postedPaymentCount,
-                'enrollment_date' => date('Y-m-d H:i:s')
+            // Update application status and link created student
+            $stmt = $this->db->prepare("UPDATE admission_applications SET status = 'enrolled', enrolled_student_id = :student_id, enrolled_at = NOW() WHERE id = :id");
+            $stmt->execute([
+                'student_id' => (int) $student_id,
+                'id' => (int) $application_id,
             ]);
+
+            $instance_data['student_id'] = (int) $student_id;
+            $instance_data['enrollment_id'] = $enrollment_id ?? null;
+            $instance_data['fee_obligations_created'] = $fee_obligations_created ?? 0;
+            $instance_data['payments_posted'] = $postedPaymentCount;
+            $instance_data['enrollment_date'] = date('Y-m-d H:i:s');
+            $instance_data['enrollment_completed'] = true;
+            $instance_data['class_assigned'] = !empty($class_id);
+            $instance_data['attendance_register_added'] = !empty($class_id);
+            $this->saveWorkflowInstanceData((int) $instance['id'], $instance_data);
+
+            // Advance to the terminal 'enrolled' stage (final approval already done).
+            $this->advance(
+                (int) $application_id,
+                'enrolled',
+                'enrollment_completed',
+                $instance_data,
+                'Enrollment completed'
+            );
 
             $this->db->commit();
 
@@ -626,13 +1103,83 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'student_id' => $student_id,
                 'enrollment_id' => $enrollment_id ?? null,
                 'fee_obligations_created' => $fee_obligations_created ?? 0,
-                'student_number' => $student_number
+                'student_number' => $application['admission_no'] ?? null
             ], 'Enrollment completed successfully');
 
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('enrollment_failed', $e->getMessage());
             return formatResponse(false, null, 'Enrollment failed: ' . $e->getMessage());
+        }
+    }
+
+    public function confirmEnrollment(int $applicationId, string $notes = ''): array
+    {
+        try {
+            $this->db->beginTransaction();
+
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            // Optional Director sign-off that runs after enrollment is complete.
+            if (!$instance || !in_array(($instance['current_stage'] ?? ''), ['enrolled', 'director_confirmation'], true)) {
+                throw new Exception('Application is not ready for Director confirmation');
+            }
+
+            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1");
+            $stmt->execute(['id' => $applicationId]);
+            $application = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$application) {
+                throw new Exception('Admission application not found');
+            }
+            if (($application['status'] ?? '') !== 'enrolled' || empty($application['enrolled_student_id'])) {
+                throw new Exception('Only enrolled admission records can be confirmed');
+            }
+            if (!empty($application['director_confirmed_at'])) {
+                throw new Exception('Admission record has already been confirmed');
+            }
+
+            $stmt = $this->db->prepare("UPDATE admission_applications
+                SET director_confirmed_by = :confirmed_by,
+                    director_confirmed_at = NOW(),
+                    director_confirmation_notes = :notes
+                WHERE id = :id");
+            $stmt->execute([
+                'confirmed_by' => (int) $this->user_id,
+                'notes' => $notes,
+                'id' => $applicationId,
+            ]);
+
+            $stmt = $this->db->prepare("INSERT INTO admission_enrollment_confirmations
+                (application_id, student_id, confirmed_by, confirmed_at, notes, created_at)
+                VALUES (:application_id, :student_id, :confirmed_by, NOW(), :notes, NOW())
+                ON DUPLICATE KEY UPDATE notes = VALUES(notes)");
+            $stmt->execute([
+                'application_id' => $applicationId,
+                'student_id' => (int) $application['enrolled_student_id'],
+                'confirmed_by' => (int) $this->user_id,
+                'notes' => $notes,
+            ]);
+
+            $instanceData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
+            $instanceData['director_confirmed_by'] = (int) $this->user_id;
+            $instanceData['director_confirmed_at'] = date('Y-m-d H:i:s');
+            $instanceData['director_confirmation_notes'] = $notes;
+            $this->saveWorkflowInstanceData((int) $instance['id'], $instanceData);
+
+            $this->completeWorkflow((int) $instance['id'], $instanceData);
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'application_id' => $applicationId,
+                'student_id' => (int) $application['enrolled_student_id'],
+                'confirmed_at' => $instanceData['director_confirmed_at'],
+                'workflow_status' => 'completed',
+            ], 'Enrollment confirmed successfully');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->logError('director_confirmation_failed', $e->getMessage());
+            return formatResponse(false, null, 'Director confirmation failed: ' . $e->getMessage());
         }
     }
 
@@ -687,29 +1234,19 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         return substr($normalized, 0, 10);
     }
 
-    private function getRequiredDocuments($grade) {
-        return [
-            'birth_certificate' => ['mandatory' => true, 'label' => 'Birth Certificate'],
-            'immunization_card' => ['mandatory' => true, 'label' => 'Immunization Card'],
-            'progress_report' => ['mandatory' => in_array($grade, ['Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6']), 'label' => 'Latest Progress Report'],
-            'passport_photo' => ['mandatory' => true, 'label' => 'Passport Photo'],
-            'leaving_certificate' => ['mandatory' => in_array($grade, ['Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6']), 'label' => 'Leaving Certificate from Previous School']
-        ];
+    private function getRequiredDocuments($grade, string $category = 'standard') {
+        return $this->policy->getRequiredDocuments((string) $grade, $category);
     }
 
     private function getApplicationGrade($application_id) {
         $sql = "SELECT grade_applying_for FROM admission_applications WHERE id = :id LIMIT 1";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => $application_id]);
-        return (string) ($stmt->fetchColumn() ?: '');
+        return $this->policy->normalizeGrade((string) ($stmt->fetchColumn() ?: ''));
     }
-    
+
     private function requiresAssessment($grade) {
-        // Only Grade 2-6 require interview assessment.
-        // Playground (ECD), PP1, PP2, Grade1, Grade7, Grade8, Grade9 are
-        // auto-admitted once documents are verified.
-        $requiresInterview = ['Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6'];
-        return in_array($grade, $requiresInterview);
+        return $this->policy->requiresInterview((string) $grade);
     }
 
     private function checkMandatoryDocuments($application_id) {
@@ -926,106 +1463,6 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         return $fallbackId ? (int) $fallbackId : null;
     }
 
-    private function normalizePaymentMethod(string $method): string
-    {
-        $normalized = strtolower(trim($method));
-        if ($normalized === 'bank' || $normalized === 'bank transfer') {
-            return 'bank_transfer';
-        }
-
-        $allowed = ['cash', 'bank_transfer', 'mpesa', 'cheque', 'other'];
-        return in_array($normalized, $allowed, true) ? $normalized : 'other';
-    }
-
-    private function generateAdmissionReceiptNumber(int $applicationId): string
-    {
-        return sprintf('ADM-%d-%s', $applicationId, date('YmdHis'));
-    }
-
-    private function postPendingAdmissionPayments(
-        int $instanceId,
-        array $instanceData,
-        int $studentId,
-        ?int $fallbackParentId,
-        string $applicationNo
-    ): int {
-        $pendingPayments = $instanceData['pending_payments'] ?? [];
-        if (empty($pendingPayments) || !is_array($pendingPayments)) {
-            return 0;
-        }
-
-        $processedPayments = $instanceData['processed_payments'] ?? [];
-        $processedCount = 0;
-        $suffix = $applicationNo !== '' ? " ({$applicationNo})" : '';
-
-        foreach ($pendingPayments as $payment) {
-            $amount = isset($payment['amount']) ? (float) $payment['amount'] : 0.0;
-            if ($amount <= 0) {
-                continue;
-            }
-
-            $paymentMethod = $this->normalizePaymentMethod((string) ($payment['payment_method'] ?? 'cash'));
-            $referenceNo = trim((string) ($payment['reference_no'] ?? ''));
-            if ($referenceNo === '') {
-                $referenceNo = 'ADM-POST-' . $instanceId . '-' . date('YmdHis');
-            }
-
-            $receiptNo = trim((string) ($payment['receipt_no'] ?? ''));
-            if ($receiptNo === '') {
-                $receiptNo = $this->generateAdmissionReceiptNumber($instanceId);
-            }
-
-            $recordedBy = !empty($payment['recorded_by']) ? (int) $payment['recorded_by'] : (int) $this->user_id;
-            $paymentDate = $payment['payment_date'] ?? date('Y-m-d H:i:s');
-            $notes = trim((string) ($payment['notes'] ?? ''));
-            if ($notes !== '') {
-                $notes .= ' | ';
-            }
-            $notes .= 'Admission pre-enrollment payment posted after enrollment' . $suffix;
-
-            $stmt = $this->db->prepare("
-                CALL sp_process_student_payment(
-                    :student_id,
-                    :parent_id,
-                    :amount_paid,
-                    :payment_method,
-                    :reference_no,
-                    :receipt_no,
-                    :received_by,
-                    :payment_date,
-                    :notes
-                )
-            ");
-            $stmt->execute([
-                'student_id' => $studentId,
-                'parent_id' => $fallbackParentId,
-                'amount_paid' => $amount,
-                'payment_method' => $paymentMethod,
-                'reference_no' => $referenceNo,
-                'receipt_no' => $receiptNo,
-                'received_by' => $recordedBy,
-                'payment_date' => $paymentDate,
-                'notes' => $notes
-            ]);
-            $stmt->closeCursor();
-
-            $processedPayments[] = [
-                'amount' => $amount,
-                'payment_method' => $paymentMethod,
-                'reference_no' => $referenceNo,
-                'receipt_no' => $receiptNo,
-                'posted_at' => date('Y-m-d H:i:s')
-            ];
-            $processedCount++;
-        }
-
-        $instanceData['pending_payments'] = [];
-        $instanceData['processed_payments'] = $processedPayments;
-        $instanceData['payments_posted_at_enrollment'] = $processedCount;
-        $this->saveWorkflowInstanceData($instanceId, $instanceData);
-
-        return $processedCount;
-    }
 
     private function getWorkflowInstanceByReference($ref_type, $ref_id) {
         $sql = "SELECT * FROM workflow_instances 

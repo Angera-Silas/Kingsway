@@ -1,32 +1,3 @@
-// Sidebar toggle (desktop & mobile)
-function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const mainFlex = document.querySelector('.main-flex-layout');
-    sidebar.classList.toggle('sidebar-collapsed');
-    const logo = document.querySelector('.sidebar .logo');
-
-    // Hide all submenus and dropdown arrows when collapsed
-    if (sidebar.classList.contains('sidebar-collapsed')) {
-        document.querySelectorAll('.sidebar .collapse').forEach(c => c.classList.remove('show'));
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
-        // Hide logo name/text
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
-        mainFlex.style.marginLeft = '60px';
-        logo.style.width = '60px';
-    } else {
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = '');
-        // Show logo name/text
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
-        mainFlex.style.marginLeft = '250px';
-        logo.style.width = '250px';
-    }
-    // For mobile
-    if (window.innerWidth < 992) {
-        sidebar.classList.toggle('sidebar-visible-mobile');
-        mainFlex.style.marginLeft = '0';
-    }
-}
-
 // Sidebar UI re-initializer for dynamic sidebar
 window.initSidebarUI = function() {
     // Sidebar submenu accordion (open/close on click)
@@ -147,21 +118,49 @@ window.addEventListener('resize', function () {
     }
 });
 
-window.toggleSidebar = toggleSidebar;
+function getRouteDataFromUrl(url) {
+    if (!url) return { route: '', params: '' };
+    const value = String(url).trim();
+
+    try {
+        const parsed = new URL(value, window.location.origin);
+        const route = parsed.searchParams.get('route');
+        if (route) {
+            parsed.searchParams.delete('route');
+            const params = parsed.searchParams.toString();
+            return { route, params };
+        }
+    } catch (e) {
+        // Fall through to route fragment parsing.
+    }
+
+    const match = value.match(/^([^?&#]+)(?:\?([^#]*))?/);
+    if (match && match[1]) {
+        return { route: match[1].replace(/^\/+/, ''), params: match[2] || '' };
+    }
+
+    return { route: value.replace(/^\/+/, ''), params: '' };
+}
 
 function getRouteFromUrl(url) {
-    if (!url) return '';
-    const value = String(url).trim();
-    const match = value.match(/[?&]route=([^&#]+)/);
-    if (match && match[1]) {
-        try {
-            return decodeURIComponent(match[1]);
-        } catch (e) {
-            return match[1];
-        }
-    }
-    return value;
+    return getRouteDataFromUrl(url).route;
 }
+
+function navigateWithFullPageShell(route) {
+    const routeData = getRouteDataFromUrl(route);
+    const normalizedRoute = routeData.route;
+    if (!normalizedRoute || normalizedRoute === '#') {
+        return false;
+    }
+
+    const suffix = routeData.params ? `&${routeData.params}` : '';
+    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}${suffix}`;
+    return true;
+}
+
+window.AppRouter = window.AppRouter || {};
+window.AppRouter.go = navigateWithFullPageShell;
+window.navigateToRoute = navigateWithFullPageShell;
 
 function getCurrentUserRoleIds() {
     const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
@@ -243,43 +242,33 @@ function getBestAllowedRoute(excludedRoute = "") {
     return allowed[0] || dashboardRoute || "";
 }
 
-async function authorizeRouteAccess(route) {
+function authorizeRouteAccess(route) {
     const normalizedRoute = getRouteFromUrl(route);
+
+    // Loading placeholder and empty routes are always allowed
     if (!normalizedRoute || normalizedRoute === "loading") {
-        return { authorized: true, route: normalizedRoute, source: "shell" };
+        return Promise.resolve({ authorized: true, route: normalizedRoute, source: "shell" });
     }
 
+    // Must be authenticated
     if (typeof AuthContext === "undefined" || !AuthContext.isAuthenticated()) {
-        return { authorized: false, route: normalizedRoute, reason: "unauthenticated" };
+        return Promise.resolve({ authorized: false, route: normalizedRoute, reason: "unauthenticated" });
     }
 
-    const user = AuthContext.getUser() || {};
-    const userId = user.id || user.user_id || null;
-    const roleIds = getCurrentUserRoleIds();
+    return Promise.resolve(authorizeRouteFromLocalContract(normalizedRoute));
+}
 
-    try {
-        const response = await API.systemconfig.authorizeRoute(normalizedRoute, {
-            userId,
-            roleIds,
-        });
-        if (response && response.success === false) {
-            throw new Error(response.message || "Route authorization failed");
-        }
+function authorizeRouteFromLocalContract(normalizedRoute) {
+    const allowedRoutes = getAllowedRoutes();
+    const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
+    const authorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
 
-        const authorization = {
-            route: normalizedRoute,
-            ...(response || { authorized: false }),
-        };
-        return authorization;
-    } catch (error) {
-        console.warn("Route authorization API failed, denying route:", normalizedRoute, error);
-        return {
-            authorized: false,
-            route: normalizedRoute,
-            source: "api_error",
-            reason: "authorization_check_failed",
-        };
-    }
+    return {
+        authorized,
+        route: normalizedRoute,
+        source: "local_sidebar",
+        reason: authorized ? "in_sidebar" : "not_in_sidebar",
+    };
 }
 
 // Route guard overlay removed — PHP serves the correct page directly.
@@ -324,34 +313,10 @@ window.addEventListener('click', async function(e) {
     }
 });
 
-// Navigation function for loading dashboard/pages
-async function navigateToRoute(route) {
-    const normalizedRoute = getRouteFromUrl(route);
-    const authorization = await authorizeRouteAccess(normalizedRoute);
-    if (!authorization.authorized) {
-        showNotification("You are not allowed to open that page.", NOTIFICATION_TYPES.WARNING);
-        await redirectToAllowedRoute(normalizedRoute);
-        return false;
-    }
-
-    let html = '';
-    try {
-        html = await fetchContent((window.APP_BASE || '') + `/components/dashboards/${normalizedRoute}.php`);
-    } catch {
-        try {
-            html = await fetchContent((window.APP_BASE || '') + `/pages/${normalizedRoute}.php`);
-        } catch {
-            html = "<div class='alert alert-warning'>Page not found.</div>";
-        }
-    }
-    document.getElementById('main-content-segment').innerHTML = html;
-    return true;
-}
-
-async function fetchContent(path) {
-    const res = await fetch(path);
-    if (!res.ok) throw new Error('Not found');
-    return await res.text();
+// Navigation function for dashboard/cards. The app standard is full-page shell routing
+// so PHP page scripts execute normally and old controllers cannot remain mounted.
+function navigateToRoute(route) {
+    return navigateWithFullPageShell(route);
 }
 
 // Initial load: load sidebar and default dashboard if needed
@@ -369,4 +334,5 @@ window.AppRouteAccess = {
     getCurrentUserRoleIds,
     normalizeRoute: getRouteFromUrl,
 };
+window.AppRouter.go = navigateToRoute;
 window.navigateToRoute = navigateToRoute;

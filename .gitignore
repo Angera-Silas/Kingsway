@@ -1,14 +1,17 @@
 # Composer dependencies
 /vendor/
 ./vendor
-/uploads/
+
 /*.lock
-
+/.remember/
 /.claude
-/uploads/
-
+.agents
+.devin
+.openclaude
 .htaccess
 /.htaccess
+./.htaccess
+.openclaude-profile.json
 
 
 /tests/
@@ -44,6 +47,7 @@ logs/
 # Cache
 cache/
 
+
 # Database dumps (large dump files only — migrations are tracked)
 !database/migrations/*.sql
 
@@ -63,3 +67,9 @@ cache/
 # Environment files
 .env
 config/.env
+.codex
+ADMISSION_SUBMISSION_PROCESS.md
+AGENTS.md
+CLAUDE.md
+structure.txt
+Kingsway.code-workspace

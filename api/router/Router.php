@@ -1,13 +1,13 @@
 <?php
 
-namespace App\API\router;
+namespace App\API\Router;
 
 use App\API\Middleware\CORSMiddleware;
 use App\API\Middleware\AuthMiddleware;
 use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\RBACMiddleware;
-use App\API\Middleware\EnhancedRBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
+use App\API\Middleware\RouteAuthorization;
 use Exception;
 
 class Router
@@ -35,12 +35,21 @@ class Router
             // 4. RBAC - Resolve user permissions from database
             RBACMiddleware::handle();
 
-            // 4.5. Enhanced RBAC - Module, workflow, and data scope context
-            EnhancedRBACMiddleware::resolvePermissionsWithContext(
-                $_SERVER['auth_user']['user_id'] ?? $_SERVER['auth_user']['sub'] ?? null
-            );
+            // 5. Route Authorization - Enforce DB route whitelist for registered API routes
+            $routeAuth = RouteAuthorization::enforceCurrentRequest();
+            if (!$routeAuth['success']) {
+                http_response_code($routeAuth['http_code']);
+                return [
+                    'success' => false,
+                    'status' => 'error',
+                    'data' => null,
+                    'message' => $routeAuth['message'],
+                    'errors' => [],
+                    'code' => $routeAuth['http_code']
+                ];
+            }
 
-            // 5. Device - Log device fingerprint and check blacklist
+            // 6. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
             // ===== DELEGATE TO CONTROLLER ROUTER =====
@@ -48,11 +57,18 @@ class Router
             return $this->controllerRouter->route();
 
         } catch (Exception $e) {
-            http_response_code(500);
+            $code = (int) $e->getCode();
+            if ($code < 400 || $code > 599) {
+                $code = 500;
+            }
+            http_response_code($code);
             return [
+                "success" => false,
                 "status" => "error",
+                "data" => null,
                 "message" => $e->getMessage(),
-                "code" => $e->getCode()
+                "errors" => [],
+                "code" => $code
             ];
         }
     }

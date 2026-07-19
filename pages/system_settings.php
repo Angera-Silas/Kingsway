@@ -78,7 +78,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">School Logo URL</label>
-                                <input type="text" id="sysLogoUrl" class="form-control" placeholder="/images/logo.png">
+                                <input type="text" id="sysLogoUrl" class="form-control" placeholder="/uploads/school_assets/official_school_logo.png">
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary" id="saveGeneralBtn">
@@ -277,4 +277,4 @@
         </div>
     </div>
 </div>
-<script src="<?= $appBase ?>js/pages/system_settings.js"></script>
+<script src="<?= $appBase ?>/js/pages/system_settings.js"></script>
