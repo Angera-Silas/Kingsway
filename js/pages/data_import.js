@@ -183,17 +183,7 @@ const dataImportController = {
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      const token = AuthContext.getToken ? AuthContext.getToken() : (AuthContext.token || localStorage.getItem('auth_token') || '');
-      const base  = (window.APP_BASE || '').replace(/\/$/, '');
-      const res   = await fetch(base + '/api/import/preview', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + token },
-        body: formData,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.message || 'Preview failed');
-
-      this._previewData = json.data ?? json;
+      this._previewData = await apiCall('/import/preview', 'POST', formData, null, { isFile: true });
       this._renderPreview(this._previewData);
       this.goStep(3);
     } catch (e) {
@@ -283,10 +273,7 @@ const dataImportController = {
     if (!this._previewData?.errors?.length) return;
     const rows = [['Row','Field','Error'], ...this._previewData.errors.map(e => [e.row, e.field, e.message])];
     const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,"''")}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `import_errors_${this._type}_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click(); URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(csv, `import_errors_${this._type}_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv'); URL.revokeObjectURL(a.href);
   },
 
   // ── STEP 4: Confirm ───────────────────────────────────────────────────────
@@ -326,15 +313,8 @@ const dataImportController = {
     formData.append('type', this._type);
 
     try {
-      const token = AuthContext.getToken ? AuthContext.getToken() : (AuthContext.token || localStorage.getItem('auth_token') || '');
-      const base  = (window.APP_BASE || '').replace(/\/$/, '');
-      const res   = await fetch(base + '/api/import/execute', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + token },
-        body: formData,
-      });
-      const json = await res.json().catch(() => ({}));
-      this._renderResults(json.data ?? json, json.status);
+      const data = await apiCall('/import/execute', 'POST', formData, null, { isFile: true });
+      this._renderResults(data, undefined);
     } catch (e) {
       if (card) card.innerHTML = `<div class="card-body"><div class="alert alert-danger"><i class="bi bi-x-circle me-2"></i>${this._esc(e.message || 'Import failed.')}</div></div>`;
     }

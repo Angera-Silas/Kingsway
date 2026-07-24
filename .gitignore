@@ -14,8 +14,8 @@
 .openclaude-profile.json
 
 
-/tests/
 /logs/*.log
+.phpunit.cache/
 
 # Node modules (if any in the future)
 /node_modules/
@@ -59,7 +59,8 @@ cache/
 *.7z
 *.rar
 
-# Ignore test output
+# Ignore generated print/test output
+/temp/print/
 /test-output/
 
 # Ignore documentation build output

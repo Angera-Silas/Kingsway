@@ -152,7 +152,7 @@ const MarkAttendanceController = {
             strategy: 'network-first',
             ttl: 300000, // 5 minutes
             storeName: 'attendance_roster_cache',
-            endpoint: `/students/transport-passengers?${params.toString()}`,
+            endpoint: '/students/transport-passengers',
             params: Object.fromEntries(params)
           });
           console.log("[Attendance] Data from DataStore:", passengers);
@@ -457,28 +457,7 @@ const MarkAttendanceController = {
   },
 
   api: async function (endpoint, method = "GET", data = null) {
-    if (window.API && typeof window.API.apiCall === "function") {
-      return window.API.apiCall(endpoint, method, data);
-    }
-
-    const base = window.APP_BASE || "";
-    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-
-    const options = { method, headers: {} };
-
-    if (data) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(data);
-    }
-
-    const response = await fetch(url, options);
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok || json.success === false) {
-      throw new Error(json.message || json.error || "Request failed.");
-    }
-
-    return json;
+    return API.callAPI(endpoint, method, data);
   },
 
   unwrap(response) {
@@ -526,20 +505,21 @@ const MarkAttendanceController = {
     });
 
     const columns = [
-      { key: 'admission_no', label: 'Adm No' },
-      { key: 'full_name', label: 'Student Name' },
-      { key: 'class_name', label: 'Class' },
-      { key: 'stream_name', label: 'Stream' },
-      { key: 'pickup_point', label: 'Pickup Point' },
-      { key: 'dropoff_point', label: 'Dropoff Point' },
-      { key: 'status', label: 'Attendance Status' },
-      { key: 'time', label: 'Time' }
+      { key: 'admission_no', label: 'Admission No.', width: '12%', cellClassName: 'print-cell-code' },
+      { key: 'full_name', label: 'Student Name', width: '20%', cellClassName: 'print-cell-strong' },
+      { key: 'class_name', label: 'Class', width: '8%' },
+      { key: 'stream_name', label: 'Stream', width: '8%' },
+      { key: 'pickup_point', label: 'Pickup Point', width: '15%' },
+      { key: 'dropoff_point', label: 'Drop-off Point', width: '15%' },
+      { key: 'status', label: 'Status', width: '12%' },
+      { key: 'time', label: 'Time', width: '10%' }
     ];
 
     window.PrintManager.printTable({
       title: 'Transport Attendance Sheet',
       subtitle: 'Daily Passenger Attendance Register',
-      columns: columns,
+      description: 'Official school transport passenger attendance register.',
+      columns,
       rows: this.state.passengers.map(p => ({
         ...p,
         status: (this.state.attendance[p.student_id] || {}).status || 'pending',
@@ -556,10 +536,11 @@ const MarkAttendanceController = {
       filters: filters,
       orientation: 'landscape',
       paperSize: 'A4',
-      reportCode: 'ATT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      filename: `transport_attendance_${this.ui.attendanceDate?.value || new Date().toISOString().slice(0, 10)}`,
+      reportCode: 'TRN-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
       signatureSection: [
-        { label: 'Driver' },
-        { label: 'Transport Manager' }
+        { label: 'Driver', dateLine: true },
+        { label: 'Transport Manager', dateLine: true }
       ]
     });
   },

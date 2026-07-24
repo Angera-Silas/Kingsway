@@ -553,15 +553,7 @@ const BoardingStudentsController = {
     ]);
 
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `boarding_sheet_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, `boarding_sheet_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv");
   },
 
   openBoardingNoteModal() {
@@ -637,28 +629,15 @@ const BoardingStudentsController = {
   },
 
   api: async function (endpoint, method = "GET", data = null) {
-    if (window.API && typeof window.API.apiCall === "function") {
-      return window.API.apiCall(endpoint, method, data);
+    // ALL HTTP goes through API.callAPI (aliased apiCall) in js/api.js.
+    // It returns response.data on success and throws {message} on failure.
+    // Re-wrap into the envelope shape this.unwrap() callers expect.
+    try {
+      const result = await API.callAPI(endpoint, method, data);
+      return { success: true, data: result };
+    } catch (err) {
+      throw new Error((err && err.message) || "Request failed.");
     }
-
-    const base = window.APP_BASE || "";
-    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-
-    const options = { method, headers: {} };
-
-    if (data) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(data);
-    }
-
-    const response = await fetch(url, options);
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok || json.success === false) {
-      throw new Error(json.message || json.error || "Request failed.");
-    }
-
-    return json;
   },
 
   unwrap(response) {

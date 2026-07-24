@@ -41,8 +41,13 @@ const accountantAssetsDashboardController = Object.assign(
     },
 
     fetchJSON: function (url) {
-      return fetch(url)
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // Route through the centralized API.callAPI (no raw fetch allowed).
+      // Convert the absolute url into a /api-relative endpoint.
+      var endpoint = url.replace((window.APP_BASE || '') + '/api', '');
+      return API.callAPI(endpoint, 'GET', null, null, { checkPermission: false })
+        // API.callAPI resolves to the *inner* data object; preserve the
+        // downstream `result.data` business logic by re-wrapping it.
+        .then(function (data) { return { data: data }; })
         .catch(function () { return null; });
     },
 
@@ -137,13 +142,12 @@ const accountantAssetsDashboardController = Object.assign(
       if (printBtn) {
         printBtn.addEventListener("click", function () {
           if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
-            window.PrintManager.printElement({
-              elementId: 'dashboardContent',
+            window.PrintManager.printElement('dashboardContent', {
               title: 'Assets Management Dashboard',
               subtitle: 'Asset Tracking & Depreciation'
             });
           } else {
-            window.print();
+            console.error("PrintManager is unavailable.");
           }
         });
       }
@@ -173,13 +177,7 @@ const accountantAssetsDashboardController = Object.assign(
           dashboard: "Assets Management Dashboard",
           timestamp: new Date().toISOString(),
         };
-        var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "assets-dashboard-" + Date.now() + ".json";
-        link.click();
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(JSON.stringify(data, null, 2), "assets-dashboard-" + Date.now() + ".json", "application/json");
       } catch (e) {
         console.error("Export failed:", e);
       }

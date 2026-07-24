@@ -162,9 +162,14 @@ const announcementsController = {
   exportCSV: function () {
     if (!this._filtered.length) { showNotification('No data to export.','warning'); return; }
     const h = ['Title','Category','Audience','Status','Published','Expiry'];
-    const rows = [h.join(','),...this._filtered.map(a=>[`"${a.title||''}"`,'`"${a.category||''}"`,`"${a.audience||''}"`,`"${a.status||''}"`,`"${a.publish_date||''}"`,`"${a.expiry_date||''}"` ].join(','))];
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='announcements.csv'; el.click();
+    const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [
+      h.map(csvCell).join(','),
+      ...this._filtered.map((a) => [
+        a.title, a.category, a.audience, a.status, a.publish_date, a.expiry_date
+      ].map(csvCell).join(','))
+    ];
+    KingswayFileLifecycle.exportText(rows.join('\n'), 'announcements.csv', 'text/csv');
   },
 
   _set: (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; },

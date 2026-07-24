@@ -1,0 +1,526 @@
+@page {
+    size: A4 portrait;
+    margin: 10mm 11mm 22mm;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    color: #17251f;
+    background: #ffffff;
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    font-size: 8.5pt;
+    line-height: 1.4;
+}
+
+.server-print-document {
+    width: 100%;
+}
+
+/* Header */
+
+.server-print-header {
+    position: static;
+    width: 100%;
+    height: auto;
+    margin: 0 0 4mm;
+    background: #ffffff;
+    page-break-inside: avoid;
+}
+
+.server-print-header-table {
+    width: 100%;
+    height: 29mm;
+    border-collapse: collapse;
+    table-layout: fixed;
+    background: #fffdf5;
+}
+
+.server-print-header-logo-cell {
+    width: 27mm;
+    padding: 1.5mm 1mm;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.server-print-logo-frame {
+    width: 25mm;
+    height: 25mm;
+    margin: 0 auto;
+    padding: 1mm;
+    border: none;
+    border-radius: 50%;
+    background: #ffffff;
+    text-align: center;
+}
+
+.server-print-logo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: auto;
+}
+
+.server-print-logo-fallback {
+    width: 18mm;
+    height: 18mm;
+    margin: 0 auto;
+    padding-top: 5mm;
+    border-radius: 50%;
+    background: #0f5b3b;
+    color: #ffffff;
+    font-family: "DejaVu Serif", Georgia, serif;
+    font-size: 8pt;
+    font-weight: bold;
+    text-align: center;
+}
+
+.server-print-school-cell {
+    padding: 2mm 3mm;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.server-print-school-name {
+    color: #0b4d33;
+    font-family: "DejaVu Serif", Georgia, serif;
+    font-size: 15.5pt;
+    font-weight: bold;
+    line-height: 1.05;
+    text-transform: uppercase;
+}
+
+.server-print-school-motto {
+    margin-top: 0.8mm;
+    color: #9a7612;
+    font-family: "DejaVu Serif", Georgia, serif;
+    font-size: 8.5pt;
+    font-style: italic;
+    font-weight: bold;
+}
+
+.server-print-school-contact {
+    margin-top: 0.5mm;
+    color: #3e5047;
+    font-size: 6.4pt;
+    line-height: 1.2;
+}
+
+.server-print-reference-cell {
+    width: 37mm;
+    padding: 3mm 0 2mm 2mm;
+    vertical-align: middle;
+}
+
+.server-print-reference-box {
+    width: 34mm;
+    border: 0.35mm solid #0f5b3b;
+    text-align: center;
+}
+
+.server-print-reference-label {
+    padding: 1.2mm 1mm;
+    background: #0f5b3b;
+    color: #ffffff;
+    font-size: 6.2pt;
+    font-weight: bold;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.server-print-reference-code {
+    padding: 1.5mm 1mm;
+    color: #083f2b;
+    font-family: "DejaVu Sans Mono", monospace;
+    font-size: 6.2pt;
+    font-weight: bold;
+    overflow-wrap: anywhere;
+}
+
+.server-print-gold-strip {
+    height: 1.7mm;
+    background: #d3ad24;
+}
+
+.server-print-green-strip {
+    height: 0.8mm;
+    background: #0f5b3b;
+}
+
+/* Report title and metadata */
+
+.server-print-report-heading {
+    margin-bottom: 4mm;
+    page-break-inside: avoid;
+}
+
+.server-print-title-panel {
+    padding: 2.7mm 4mm;
+    border-left: 1.5mm solid #d3ad24;
+    background: #0f5b3b;
+    color: #ffffff;
+    text-align: center;
+}
+
+.server-print-report-title {
+    font-family: "DejaVu Serif", Georgia, serif;
+    font-size: 13pt;
+    font-weight: bold;
+    line-height: 1.15;
+    text-transform: uppercase;
+}
+
+.server-print-report-subtitle {
+    margin-top: 0.8mm;
+    color: #fff7d6;
+    font-size: 8pt;
+}
+
+.server-print-meta-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    border: 0.25mm solid #bdc9c2;
+    border-top: 0;
+    background: #fffdf5;
+}
+
+.server-print-filter-cell {
+    width: 64%;
+    padding: 2.4mm 3mm;
+    vertical-align: top;
+}
+
+.server-print-generation-cell {
+    width: 36%;
+    padding: 2.4mm 3mm;
+    border-left: 0.25mm solid #bdc9c2;
+    vertical-align: top;
+}
+
+.server-print-filter-table,
+.server-print-generation-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.server-print-filter-item {
+    width: 50%;
+    padding: 0.8mm 2mm 0.8mm 0;
+    vertical-align: top;
+}
+
+.server-print-meta-label,
+.server-print-generation-label {
+    color: #596a61;
+    font-size: 6.3pt;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.server-print-meta-value,
+.server-print-generation-value {
+    color: #17251f;
+    font-size: 7.2pt;
+    font-weight: bold;
+    overflow-wrap: anywhere;
+}
+
+.server-print-generation-label {
+    width: 22mm;
+    padding: 0.7mm 1mm 0.7mm 0;
+}
+
+.server-print-generation-value {
+    padding: 0.7mm 0;
+}
+
+.server-print-document-description {
+    color: #596a61;
+    font-size: 7.4pt;
+}
+
+/* Tables */
+
+.print-table-container {
+    width: 100%;
+    margin: 0;
+    overflow: visible;
+}
+
+.print-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    border: 0.3mm solid #70877a;
+    font-size: 7.4pt;
+}
+
+.print-table thead {
+    display: table-header-group;
+}
+
+.print-table tfoot {
+    display: table-footer-group;
+}
+
+.print-table tr {
+    page-break-inside: avoid;
+}
+
+.print-table th,
+.print-table td {
+    border: 0.22mm solid #9cadA3;
+    overflow-wrap: anywhere;
+}
+
+.print-table th,
+.print-column-header {
+    padding: 2.2mm 1.8mm;
+    background: #0f5b3b !important;
+    color: #ffffff !important;
+    font-family: "DejaVu Sans", Arial, sans-serif;
+    font-size: 6.8pt;
+    font-weight: bold;
+    line-height: 1.2;
+    text-align: left;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.print-table td,
+.print-table-cell {
+    padding: 1.8mm 1.8mm;
+    color: #17251f;
+    background: #ffffff;
+    vertical-align: top;
+}
+
+.print-row-even td {
+    background: #f1f6f3;
+}
+
+.print-cell-numeric {
+    text-align: right !important;
+    white-space: nowrap;
+}
+
+.print-cell-currency {
+    font-family: "DejaVu Sans Mono", monospace;
+    font-size: 7pt;
+}
+
+.print-cell-percentage {
+    font-weight: bold;
+}
+
+.print-cell-strong {
+    color: #083f2b;
+    font-weight: bold;
+}
+
+.print-cell-code {
+    font-family: "DejaVu Sans Mono", monospace;
+    font-size: 6.9pt;
+}
+
+.print-cell-grade {
+    color: #083f2b;
+    font-weight: bold;
+    text-align: center;
+}
+
+.print-empty-value {
+    color: #7b8981;
+    font-style: italic;
+}
+
+.print-table-empty {
+    padding: 8mm 3mm !important;
+    color: #596a61 !important;
+    text-align: center;
+    font-style: italic;
+}
+
+/* Record reports */
+
+.record-section {
+    margin-bottom: 4mm;
+    page-break-inside: avoid;
+}
+
+.record-section h3,
+.print-summary h3 {
+    margin: 0;
+    padding: 2mm 3mm;
+    border-left: 1.2mm solid #d3ad24;
+    background: #eaf2ed;
+    color: #083f2b;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+}
+
+.record-fields,
+.print-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.record-fields td,
+.print-summary-table td {
+    padding: 1.8mm 2.3mm;
+    border: 0.22mm solid #afbeb5;
+    vertical-align: top;
+}
+
+.record-fields td:first-child,
+.print-summary-table td:first-child {
+    width: 34%;
+    background: #f3f7f4;
+    color: #3f5047;
+    font-weight: bold;
+}
+
+.print-summary {
+    margin-top: 5mm;
+    page-break-inside: avoid;
+}
+
+/* Signatures */
+
+.server-print-signatures {
+    margin-top: 10mm;
+    page-break-inside: avoid;
+}
+
+.server-print-signature-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 6mm 0;
+    table-layout: fixed;
+}
+
+.server-print-signature-cell {
+    text-align: center;
+    vertical-align: bottom;
+}
+
+.server-print-signature-space {
+    height: 10mm;
+}
+
+.server-print-signature-line {
+    border-top: 0.3mm solid #17251f;
+}
+
+.server-print-signature-name {
+    margin-top: 1.2mm;
+    color: #083f2b;
+    font-size: 8pt;
+    font-weight: bold;
+}
+
+.server-print-signature-label {
+    margin-top: 0.6mm;
+    color: #083f2b;
+    font-size: 6.8pt;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.server-print-signature-date {
+    margin-top: 0.8mm;
+    color: #596a61;
+    font-size: 6.4pt;
+}
+
+/* Footer */
+
+.server-print-footer {
+    position: fixed;
+    right: 0;
+    bottom: -17mm;
+    left: 0;
+    height: 16mm;
+    background: #ffffff;
+}
+
+.server-print-footer-colour-line {
+    height: 0.8mm;
+    margin-bottom: 1.5mm;
+    white-space: nowrap;
+}
+
+.server-print-footer-green {
+    display: inline-block;
+    width: 72%;
+    height: 0.8mm;
+    background: #0f5b3b;
+}
+
+.server-print-footer-gold {
+    display: inline-block;
+    width: 28%;
+    height: 0.8mm;
+    background: #d3ad24;
+}
+
+.server-print-footer-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    color: #596a61;
+    font-size: 5.9pt;
+    line-height: 1.25;
+}
+
+.server-print-footer-school {
+    width: 27%;
+    vertical-align: middle;
+}
+
+.server-print-footer-school strong {
+    display: block;
+    color: #083f2b;
+    font-size: 6.5pt;
+}
+
+.server-print-footer-school span {
+    color: #9a7612;
+    font-style: italic;
+}
+
+.server-print-footer-note {
+    width: 46%;
+    padding: 0 3mm;
+    text-align: center;
+    vertical-align: middle;
+    font-style: italic;
+}
+
+.server-print-footer-contact {
+    margin-top: 0.4mm;
+    color: #083f2b;
+    font-style: normal;
+}
+
+.server-print-footer-meta {
+    width: 27%;
+    text-align: right;
+    vertical-align: middle;
+}
+
+.server-print-page-number {
+    color: #083f2b;
+    font-weight: bold;
+}

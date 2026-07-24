@@ -407,7 +407,7 @@ const StudentIdCardsController = {
             return `
                 <tr>
                     <td><input type="checkbox" class="student-checkbox" data-id="${studentId}"></td>
-                    <td><img src="${student.photo_url || (window.APP_BASE + '/uploads/students/avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
+                    <td><img src="${student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
                     <td><strong>${this.escapeHtml(student.admission_no || '—')}</strong></td>
                     <td>${this.escapeHtml(fullName)}</td>
                     <td>${this.escapeHtml(student.class_name || '—')}</td>
@@ -913,68 +913,6 @@ const StudentIdCardsController = {
         );
     },
 
-    generatePrintCardHTML: function(data) {
-        const student = data.student || {};
-        const school = data.school_settings || data.school_profile || {};
-        const appBase = window.APP_BASE || "";
-        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
-        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
-        const fullName = this.getFullName(student);
-        const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
-        const cardNumber = student.card_number || "Not generated";
-        const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
-        const expiryYear = student.expiry_year || "—";
-        const schoolName = school.school_name || "Kingsway Preparatory Academy";
-        const schoolAddress = school.school_address || "Londiani, Kenya";
-        const schoolPhone = school.school_phone || "";
-        const schoolEmail = school.school_email || "";
-        const schoolMotto = school.school_motto || "Education for Excellence";
-
-        const frontHTML = `
-            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 0; overflow: hidden; position: relative; font-family: Arial, sans-serif;">
-                <div style="background: rgba(255,255,255,0.95); padding: 8px; text-align: center; border-bottom: 3px solid #667eea;">
-                    <img src="${logo}" style="width: 40px; height: 40px; border-radius: 50%; margin-bottom: 5px;" alt="Logo">
-                    <div style="font-size: 11px; font-weight: bold; color: #333; margin: 0;">${schoolName}</div>
-                    <div style="font-size: 7px; color: #666; font-style: italic; margin: 0;">${schoolMotto}</div>
-                </div>
-                <div style="display: flex; padding: 10px; background: white; height: calc(100% - 70px);">
-                    <div style="width: 35%; padding-right: 10px;">
-                        <img src="${photo}" style="width: 100%; height: 110px; object-fit: cover; border: 2px solid #667eea; border-radius: 8px;" alt="Student Photo">
-                    </div>
-                    <div style="width: 65%; padding-left: 10px;">
-                        <div style="font-size: 14px; font-weight: bold; color: #333; margin: 0 0 5px 0;">${fullName}</div>
-                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.admission_no || 'N/A'}</div>
-                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.class_name || 'N/A'} ${student.stream_name || ''}</div>
-                        <div style="font-size: 9px; color: #999; margin: 5px 0 0 0;">Card: ${cardNumber}</div>
-                        <div style="font-size: 9px; color: #999; margin: 2px 0;">Valid: ${issueDate} - ${expiryYear}</div>
-                    </div>
-                </div>
-                <div style="position: absolute; bottom: 8px; right: 8px;">
-                    <img src="${qrCodePath}" style="width: 40px; height: 40px;" alt="QR Code">
-                </div>
-            </div>
-        `;
-
-        const backHTML = `
-            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #764ba2 0%, #667eea 100%); border-radius: 15px; padding: 15px; overflow: hidden; font-family: Arial, sans-serif; color: white;">
-                <div style="text-align: center; margin-bottom: 15px;">
-                    <div style="font-size: 12px; font-weight: bold; margin: 0 0 5px 0;">${schoolName}</div>
-                    <div style="font-size: 8px; opacity: 0.9; margin: 0;">${schoolAddress}</div>
-                </div>
-                <div style="font-size: 9px; line-height: 1.4;">
-                    <div style="margin-bottom: 8px;"><strong>Terms & Conditions:</strong></div>
-                    <div style="font-size: 8px;">This card is property of ${schoolName}. It must be carried at all times while on school premises.</div>
-                    <div style="margin-top: 15px; font-size: 8px; opacity: 0.8;">Lost cards should be reported immediately to the administration office.</div>
-                </div>
-                <div style="position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 8px; opacity: 0.7;">
-                    ${schoolPhone} | ${schoolEmail}
-                </div>
-            </div>
-        `;
-
-        return { front: frontHTML, back: backHTML };
-    },
-
     renderCardPreview: function(data) {
         const student = data.student || {};
         const school = data.school_settings || data.school_profile || {};
@@ -1067,101 +1005,95 @@ const StudentIdCardsController = {
         if (Number.isNaN(date.getTime())) return String(value);
         return date.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
     },
-
     printSingleCard: async function() {
-        // Print the currently displayed card by fetching server-rendered HTML.
         if (!this.currentPreviewStudentId) {
-            this.notify("warning", "No card preview available");
+            this.notify("warning", "No card preview is available.");
             return;
         }
 
-        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
-        const side = document.getElementById('printSideSelect')?.value || 'both';
-        await this.openServerPrintHtml(
-            '/students/id-card/print-single',
-            {
-                student_id: this.currentPreviewStudentId,
-                side: side,
-                print_mode: printMode
-            },
-            `ID Card - ${this.currentPreviewStudentId}`
-        );
-    },
-
-    downloadSingleCard: async function() {
-        // Generate a single-card PDF via the bulk endpoint (single ID) and open it.
-        if (!this.currentPreviewStudentId) {
-            this.notify("warning", "No card preview available");
-            return;
-        }
-
-        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
-        const side = document.getElementById('printSideSelect')?.value || 'both';
-        const includeFront = side === 'both' || side === 'front';
-        const includeBack = side === 'both' || side === 'back';
+        const selectedMode =
+            document.getElementById("printModeDirect")?.value
+            || "direct_card";
+        const side =
+            document.getElementById("printSideSelect")?.value
+            || "both";
+        const printerMode = selectedMode === "a4_sheet"
+            ? "a4_pdf"
+            : selectedMode;
 
         try {
-            this.notify("info", "Generating single card PDF...");
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
-                student_ids: [this.currentPreviewStudentId],
-                print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
-            });
-            const data = this.unwrapPayload(response);
-            if (data && data.pdf_url) {
-                window.open(data.pdf_url, '_blank');
-                this.notify("success", "Single card PDF ready");
-            } else {
-                this.notify("error", response.message || "Failed to generate PDF");
-            }
+            await window.PrintManager.printSingleStudentIdCard(
+                this.currentPreviewStudentId,
+                {
+                    printerMode,
+                    side,
+                    filename: `student_id_${this.currentPreviewStudentId}`,
+                },
+            );
+            this.notify("success", "Student ID-card PDF is ready.");
         } catch (error) {
-            console.error('Failed to download single card:', error);
-            this.notify("error", error.message || "Failed to generate PDF");
+            console.error("Student ID-card printing failed:", error);
+            this.notify(
+                "error",
+                error.message || "Unable to print the student ID card.",
+            );
         }
     },
-
+    downloadSingleCard: async function() {
+        return this.printSingleCard();
+    },
     printSelected: async function() {
-        // Collect selected students and produce ONE combined A4/PDF sheet via
-        // the server renderer (front | back per row, table layout, QR as data URI).
-        const selectedStudentIds = Array.from(this.selectedStudents);
-        if (selectedStudentIds.length === 0) {
-            this.notify("warning", "Please select students first");
+        const studentIds = Array.from(this.selectedStudents);
+
+        if (!studentIds.length) {
+            this.notify("warning", "Select at least one student.");
             return;
         }
 
-        const includeFront = document.getElementById('bulkIncludeFront')?.checked ?? true;
-        const includeBack = document.getElementById('bulkIncludeBack')?.checked ?? true;
-        const printMode = document.getElementById('bulkPrintMode')?.value || 'a4_sheet';
+        const includeFront =
+            document.getElementById("bulkIncludeFront")?.checked
+            ?? true;
+        const includeBack =
+            document.getElementById("bulkIncludeBack")?.checked
+            ?? true;
 
         if (!includeFront && !includeBack) {
-            this.notify("warning", "Please select at least one card side");
+            this.notify("warning", "Select at least one card side.");
             return;
         }
 
+        const selectedMode =
+            document.getElementById("bulkPrintMode")?.value
+            || "a4_sheet";
+        const printerMode = selectedMode === "a4_sheet"
+            ? "a4_pdf"
+            : selectedMode;
+        const side = includeFront && includeBack
+            ? "both"
+            : (includeFront ? "front" : "back");
+
         try {
-            this.notify("info", `Generating print file for ${selectedStudentIds.length} student(s)...`);
-
-            // Direct-card mode: each card is a separate CR80 page. Fetch the
-            // server-rendered HTML once per student would be heavy; instead the
-            // bulk PDF endpoint already supports direct_card. Use it.
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
-                student_ids: selectedStudentIds,
-                print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
-            });
-
-            const data = this.unwrapPayload(response);
-            if (data && data.pdf_url) {
-                window.open(data.pdf_url, '_blank');
-                this.notify("success", `Print file ready for ${data.student_count} student(s)`);
-            } else {
-                this.notify("error", response.message || "Failed to generate print file");
-            }
+            await window.PrintManager.printBulkStudentIdCards(
+                studentIds,
+                {
+                    printerMode,
+                    side,
+                    chunkSize: 100,
+                    filename: `student_id_cards_${new Date()
+                        .toISOString()
+                        .slice(0, 10)}`,
+                },
+            );
+            this.notify(
+                "success",
+                `ID-card PDF ready for ${studentIds.length} student(s).`,
+            );
         } catch (error) {
-            console.error('Failed to print selected:', error);
-            this.notify("error", error.message || "Failed to generate print file");
+            console.error("Bulk ID-card printing failed:", error);
+            this.notify(
+                "error",
+                error.message || "Unable to generate ID cards.",
+            );
         }
     },
 
@@ -1170,36 +1102,6 @@ const StudentIdCardsController = {
      * the browser/system print dialog. The OS printer driver handles the job,
      * including any installed ID-card printer selected by the user.
      */
-    openServerPrintHtml: async function(endpoint, body, docTitle) {
-        try {
-            this.notify("info", "Preparing print-ready card...");
-            const response = await this.apiCall(endpoint, 'POST', body);
-            const data = this.unwrapPayload(response);
-
-            if (!data || !data.html) {
-                this.notify("error", response.message || "Failed to generate print card");
-                return;
-            }
-
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                this.notify("warning", "Please allow popups to print ID cards");
-                return;
-            }
-
-            printWindow.document.open();
-            printWindow.document.write(data.html);
-            printWindow.document.close();
-            printWindow.document.title = docTitle || 'ID Card';
-
-            printWindow.onload = function () {
-                setTimeout(() => printWindow.print(), 300);
-            };
-        } catch (error) {
-            console.error('Failed to open print HTML:', error);
-            this.notify("error", error.message || "Failed to open print view");
-        }
-    },
 
     exportData: function() {
         if (!this.students.length) {

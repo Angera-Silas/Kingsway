@@ -41,8 +41,13 @@ const accountantAccountsCashDashboardController = Object.assign(
     },
 
     fetchJSON: function (url) {
-      return fetch(url)
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // Route through the centralized API.callAPI (no raw fetch allowed).
+      // Convert the absolute url into a /api-relative endpoint.
+      var endpoint = url.replace((window.APP_BASE || '') + '/api', '');
+      return API.callAPI(endpoint, 'GET', null, null, { checkPermission: false })
+        // API.callAPI resolves to the *inner* data object; preserve the
+        // downstream `result.data` business logic by re-wrapping it.
+        .then(function (data) { return { data: data }; })
         .catch(function () { return null; });
     },
 
@@ -114,13 +119,12 @@ const accountantAccountsCashDashboardController = Object.assign(
       if (printBtn) {
         printBtn.addEventListener("click", function () {
           if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
-            window.PrintManager.printElement({
-              elementId: 'dashboardContent',
+            window.PrintManager.printElement('dashboardContent', {
               title: 'Accounts & Cash Dashboard',
               subtitle: 'Cash Flow Overview'
             });
           } else {
-            window.print();
+            console.error("PrintManager is unavailable.");
           }
         });
       }
@@ -145,16 +149,7 @@ const accountantAccountsCashDashboardController = Object.assign(
 
     exportDashboardData: function () {
       try {
-        var blob = new Blob(
-          [JSON.stringify({ dashboard: this.dashboardName, timestamp: new Date().toISOString() }, null, 2)],
-          { type: "application/json" }
-        );
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "accounts-cash-dashboard-" + Date.now() + ".json";
-        link.click();
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(JSON.stringify({ dashboard: this.dashboardName, timestamp: new Date().toISOString() }, null, 2), "accounts-cash-dashboard-" + Date.now() + ".json", "application/json");
       } catch (e) {
         console.error("Export failed:", e);
       }

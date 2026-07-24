@@ -1,0 +1,520 @@
+/* ==========================================================================
+   Shared Student ID-card template styles
+   Loaded by both A4 and CR80 print documents.
+
+   Page sizing, margins, pagination and sheet positioning belong in:
+   - student-id-card-a4.css
+   - student-id-card-cr80.css
+   ========================================================================== */
+
+/* ==========================================================================
+   Global reset
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  font-family: "DejaVu Sans", Arial, sans-serif;
+  line-height: 1;
+}
+
+.id-print-body {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+/* Keep shared templates neutral.
+   A4 and CR80 stylesheets exclusively control pagination. */
+.id-card,
+.id-card-front,
+.id-card-back,
+.id-front-layout,
+.id-back-layout,
+.id-front-layout tbody,
+.id-back-layout tbody,
+.id-front-layout tr,
+.id-back-layout tr,
+.id-front-layout td,
+.id-back-layout td,
+.id-card-detail-table,
+.id-card-detail-table tbody,
+.id-card-detail-table tr,
+.id-card-detail-table td,
+.id-card-back-detail-table,
+.id-card-back-detail-table tbody,
+.id-card-back-detail-table tr,
+.id-card-back-detail-table td {
+  page-break-before: auto;
+  page-break-after: auto;
+  page-break-inside: auto;
+  break-before: auto;
+  break-after: auto;
+  break-inside: auto;
+}
+
+/* ==========================================================================
+   Physical CR80 card canvas
+   ========================================================================== */
+
+.id-card {
+  position: relative;
+  display: block;
+
+  width: 85.6mm;
+  height: 53.98mm;
+  min-width: 85.6mm;
+  max-width: 85.6mm;
+  min-height: 53.98mm;
+  max-height: 53.98mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+
+  border: 0.4mm solid #0f5132;
+  border-radius: 1.8mm;
+
+  background: #fffdf4;
+  color: #143d2b;
+}
+
+/* ==========================================================================
+   Shared front/back table layout
+   ========================================================================== */
+
+.id-front-layout,
+.id-back-layout {
+  width: 100%;
+  height: 100%;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0;
+  border-spacing: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.id-front-layout tr,
+.id-back-layout tr,
+.id-front-layout td,
+.id-back-layout td {
+  margin: 0;
+}
+
+/* ==========================================================================
+   Front side
+   ========================================================================== */
+
+.id-card-front {
+  background: #fffdf4;
+}
+
+.id-front-header-row {
+  height: 10.4mm;
+  max-height: 10.4mm;
+
+  background: #0f5132;
+  color: #ffffff;
+}
+
+.id-front-logo-cell {
+  width: 12mm;
+  padding: 1mm 0 1mm 2.2mm;
+  vertical-align: middle;
+}
+
+.id-front-school-cell {
+  padding: 1mm 2.2mm 1mm 0.8mm;
+  vertical-align: middle;
+}
+
+.id-card-logo {
+  display: block;
+
+  width: 8.4mm;
+  height: 8.4mm;
+
+  margin: 0;
+  padding: 0.35mm;
+
+  border: 0.25mm solid #d4af37;
+  border-radius: 50%;
+
+  background: #ffffff;
+
+  object-fit: contain;
+}
+
+.id-card-school-name {
+  margin: 0;
+  padding: 0;
+
+  color: #ffffff;
+
+  font-family: "DejaVu Serif", Georgia, serif;
+  font-size: 6.7pt;
+  font-weight: bold;
+  line-height: 1.02;
+
+  text-transform: uppercase;
+}
+
+.id-card-school-meta {
+  margin: 0.35mm 0 0;
+  padding: 0;
+
+  color: #f7d774;
+
+  font-size: 4.1pt;
+  font-weight: bold;
+  line-height: 1.05;
+}
+
+.id-card-title-strip {
+  height: 3.8mm;
+  max-height: 3.8mm;
+
+  padding: 0.65mm 2mm;
+
+  background: #d4af37;
+  color: #143d2b;
+
+  font-size: 4.8pt;
+  font-weight: bold;
+  line-height: 1;
+
+  letter-spacing: 0.45pt;
+  text-align: center;
+  text-transform: uppercase;
+
+  vertical-align: middle;
+}
+
+.id-front-body-row {
+  height: 30.4mm;
+  max-height: 30.4mm;
+}
+
+.id-front-photo-cell {
+  width: 24mm;
+
+  padding: 1.25mm 0.8mm 1mm 2.5mm;
+
+  vertical-align: top;
+}
+
+.id-front-details-cell {
+  padding: 1.25mm 2.5mm 1mm 0.8mm;
+
+  vertical-align: top;
+}
+
+.id-card-photo {
+  display: block;
+
+  width: 20mm;
+  height: 20mm;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0.55mm solid #d4af37;
+  border-radius: 1.1mm;
+
+  background: #ffffff;
+
+  object-fit: cover;
+}
+
+.id-card-photo-placeholder {
+  padding-top: 7.2mm;
+
+  color: #0f5132;
+
+  font-size: 4.7pt;
+  font-weight: bold;
+  line-height: 1;
+
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.id-card-name {
+  margin: 0 0 1.1mm;
+  padding: 0;
+
+  color: #0f5132;
+
+  font-size: 6.7pt;
+  font-weight: bold;
+  line-height: 1.02;
+
+  text-transform: uppercase;
+}
+
+.id-card-detail-table {
+  width: 100%;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0;
+  border-spacing: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+
+  font-size: 4.6pt;
+  line-height: 1.08;
+}
+
+.id-card-detail-table td {
+  padding: 0.33mm 0;
+
+  border: 0;
+
+  vertical-align: top;
+}
+
+.id-card-detail-table td:first-child {
+  width: 16mm;
+
+  padding-right: 0.8mm;
+
+  color: #6b5b1a;
+
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.id-card-detail-table td:last-child {
+  color: #143d2b;
+
+  font-weight: bold;
+
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.id-card-footer-strip {
+  height: 4.9mm;
+  max-height: 5.0mm;
+
+  padding: 0.65mm 2.5mm;
+
+  background: #0f5132;
+  color: #ffffff;
+
+  font-size: 4pt;
+  font-weight: bold;
+  line-height: 1.05;
+
+  vertical-align: middle;
+}
+
+.id-card-footer-strip span:first-child {
+  float: left;
+  max-width: 32mm;
+
+  text-align: left;
+}
+
+.id-card-footer-strip span:last-child {
+  float: right;
+  max-width: 45mm;
+
+  text-align: right;
+}
+
+/* ==========================================================================
+   Back side
+   ========================================================================== */
+
+.id-card-back {
+  background: #f7edc4;
+}
+
+.id-back-layout td {
+  vertical-align: top;
+}
+
+.id-back-qr-cell {
+  width: 28mm;
+
+  padding: 2mm 1.1mm 2mm 2.4mm;
+}
+
+.id-back-details-cell {
+  padding: 2mm 2.4mm 2mm 0.8mm;
+}
+
+.id-card-back-qr-panel {
+  height: 39mm;
+  max-height: 39mm;
+
+  margin: 0;
+  padding: 2.8mm 1.5mm 1.4mm;
+
+  overflow: hidden;
+
+  border: 0.25mm solid #b7c9bd;
+  border-radius: 1.4mm;
+
+  background: #ffffff;
+
+  text-align: center;
+}
+
+.id-card-qr,
+.id-card-qr-placeholder {
+  display: block;
+
+  width: 19mm;
+  height: 19mm;
+
+  margin: 0 auto;
+  padding: 0.7mm;
+
+  border: 0.25mm solid #b7c9bd;
+  border-radius: 0.8mm;
+
+  background: #ffffff;
+
+  object-fit: contain;
+}
+
+.id-card-qr-placeholder {
+  padding-top: 6.5mm;
+
+  color: #0f5132;
+
+  font-size: 3.8pt;
+  font-weight: bold;
+  line-height: 1;
+
+  text-transform: uppercase;
+}
+
+.id-card-scan-label {
+  margin: 1mm 0 0;
+  padding: 0;
+
+  color: #0f5132;
+
+  font-size: 4pt;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.id-card-back-title {
+  margin: 0 0 0.7mm;
+  padding: 0;
+
+  color: #0f5132;
+
+  font-size: 5.4pt;
+  font-weight: bold;
+  line-height: 1;
+
+  text-transform: uppercase;
+}
+
+.id-card-back-detail-table {
+  width: 100%;
+
+  margin: 0;
+  padding: 0;
+
+  border: 0;
+  border-spacing: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+
+  font-size: 4.2pt;
+  line-height: 1.05;
+}
+
+.id-card-back-detail-table td {
+  padding: 0.38mm 0;
+
+  border-bottom: 0.18mm solid #d6dec9;
+
+  vertical-align: top;
+}
+
+.id-card-back-detail-table td:first-child {
+  width: 14.5mm;
+
+  padding-right: 0.7mm;
+
+  color: #6b5b1a;
+
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.id-card-back-detail-table td:last-child {
+  color: #143d2b;
+
+  font-weight: bold;
+  text-align: right;
+
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.id-card-return-note {
+  margin: 0.8mm 0 0;
+  padding: 0.65mm;
+
+  border: 0.2mm solid #c7d6cc;
+  border-radius: 1mm;
+
+  background: #eef5f0;
+  color: #143d2b;
+
+  font-size: 3.45pt;
+  font-weight: bold;
+  line-height: 1.08;
+
+  text-align: center;
+}
+
+/* ==========================================================================
+   Shared image and print-colour handling
+   ========================================================================== */
+
+.id-card img {
+  max-width: 100%;
+}
+
+@media print {
+  html,
+  body,
+  .id-print-body {
+    margin: 0 !important;
+    padding: 0 !important;
+
+    background: #ffffff !important;
+
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .id-card {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
