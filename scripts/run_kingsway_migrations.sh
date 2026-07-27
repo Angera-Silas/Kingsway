@@ -1,55 +1,62 @@
 #!/usr/bin/env bash
-# Run Kingsway SQL migrations in a safe order so RBAC matches SystemConfigService +
-# MenuBuilderService (strict route + required permissions).
+# Validate and optionally apply the committed Kingsway SQL migrations.
 #
-# Usage:
-#   MYSQL_PWD=yourpass ./scripts/run_kingsway_migrations.sh
-#   DB=KingsWayAcademy DBU=root MYSQL_PWD=pass ./scripts/run_kingsway_migrations.sh
+# Safe default: print the ordered migration plan without changing the database.
+# Apply only after review:
+#   MYSQL_PWD='...' APPLY=1 ./scripts/run_kingsway_migrations.sh
 #
-# Do NOT run 2026_03_29_rbac_workflow_sync.sql again — it fails when schema already
-# exists. Use 2026_04_01_rbac_schema_extensions_idempotent.sql + 2026_04_01_rbac_module_tagging_updates.sql instead.
-# Do NOT run 2026_03_29_route_permissions_detailed.sql after 2026_03_30_rebuild_* — it can
-# reintroduce multi-permission route rows; the rebuild script is canonical.
-#
+# Optional variables: MYSQL, DB, DBU, MIGRATIONS_DIR, PHP_VERIFY.
 set -euo pipefail
 
 MYSQL="${MYSQL:-/opt/lampp/bin/mysql}"
 DB="${DB:-KingsWayAcademy}"
 DBU="${DBU:-root}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-M="$ROOT/database/migrations"
+MIGRATIONS_DIR="${MIGRATIONS_DIR:-$ROOT/database/migrations}"
+APPLY="${APPLY:-0}"
 
-run_sql() {
-  local name="$1"
-  local file="$2"
-  echo ""
-  echo ">>> $name"
-  "$MYSQL" -u "$DBU" -p"${MYSQL_PWD:-}" "$DB" < "$file"
-  echo "    OK"
-}
-
-echo "=== Kingsway migrations (DB=$DB) ==="
-
-run_sql "timetable_system_setup" "$M/timetable_system_setup.sql"
-run_sql "lesson_plans_and_timetable_fixes" "$M/lesson_plans_and_timetable_fixes.sql"
-run_sql "2026_02_07_fix_orphaned_role_routes" "$M/2026_02_07_fix_orphaned_role_routes.sql"
-run_sql "2026_03_29_fix_director_authorization" "$M/2026_03_29_fix_director_authorization.sql"
-run_sql "2026_04_01_rbac_schema_extensions_idempotent" "$M/2026_04_01_rbac_schema_extensions_idempotent.sql"
-run_sql "2026_04_01_rbac_module_tagging_updates" "$M/2026_04_01_rbac_module_tagging_updates.sql"
-run_sql "2026_03_30_rebuild_route_permissions_and_role_routes" "$M/2026_03_30_rebuild_route_permissions_and_role_routes.sql"
-run_sql "2026_03_30_role_permissions_from_blueprint" "$M/2026_03_30_role_permissions_from_blueprint.sql"
-run_sql "2026_03_31_director_vs_admin_fix_workflow_linkage" "$M/2026_03_31_director_vs_admin_fix_workflow_linkage.sql"
-
-echo ""
-echo "=== Validation (SQL) ==="
-"$MYSQL" -u "$DBU" -p"${MYSQL_PWD:-}" "$DB" < "$M/2026_03_31_validate_rbac_consistency.sql"
-
-echo ""
-PHP_VERIFY="${PHP_VERIFY:-/opt/lampp/bin/php}"
-if [[ -x "$PHP_VERIFY" ]]; then
-  echo "=== PHP UI alignment (MenuBuilder vs SystemConfigService) ==="
-  "$PHP_VERIFY" "$ROOT/scripts/verify_rbac_ui_alignment.php" || exit 1
-else
-  echo "=== Skipping verify_rbac_ui_alignment.php (set PHP_VERIFY to php with pdo_mysql) ==="
+if [[ ! -x "$MYSQL" ]]; then
+    echo "ERROR: mysql client is not executable: $MYSQL" >&2
+    exit 1
 fi
-echo "=== Done ==="
+
+if [[ ! -d "$MIGRATIONS_DIR" ]]; then
+    echo "ERROR: migration directory does not exist: $MIGRATIONS_DIR" >&2
+    exit 1
+fi
+
+mapfile -t FILES < <(
+    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' -printf '%f\n' | LC_ALL=C sort
+)
+
+if [[ "${#FILES[@]}" -eq 0 ]]; then
+    echo "ERROR: no committed SQL migrations found in $MIGRATIONS_DIR" >&2
+    echo "Create an approved migration set before applying database changes." >&2
+    exit 1
+fi
+
+if [[ -z "${MYSQL_PWD:-}" ]]; then
+    echo "ERROR: MYSQL_PWD is required; do not place credentials in this script." >&2
+    exit 1
+fi
+
+echo "=== Kingsway migration plan (DB=$DB) ==="
+printf ' - %s\n' "${FILES[@]}"
+
+if [[ "$APPLY" != "1" ]]; then
+    echo "Validation only. Set APPLY=1 to execute this reviewed plan."
+    exit 0
+fi
+
+for file in "${FILES[@]}"; do
+    echo ">>> Applying $file"
+    "$MYSQL" --batch --force=false -u "$DBU" -p"$MYSQL_PWD" "$DB" < "$MIGRATIONS_DIR/$file"
+    echo "    OK"
+done
+
+echo "=== Migration execution complete ==="
+
+PHP_VERIFY="${PHP_VERIFY:-/opt/lampp/bin/php}"
+if [[ -x "$PHP_VERIFY" && -f "$ROOT/scripts/verify_rbac_ui_alignment.php" ]]; then
+    "$PHP_VERIFY" "$ROOT/scripts/verify_rbac_ui_alignment.php"
+fi

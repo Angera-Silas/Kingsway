@@ -288,9 +288,9 @@ class RouteAuthorization
         $routeName = self::resolveCurrentRouteName();
         if ($routeName === null) {
             return [
-                'success' => true,
-                'message' => 'No registered API route matched',
-                'http_code' => 200
+                'success' => false,
+                'message' => 'API route is not registered',
+                'http_code' => 404
             ];
         }
 

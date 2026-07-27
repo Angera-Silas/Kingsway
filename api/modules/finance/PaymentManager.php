@@ -225,20 +225,61 @@ class PaymentManager
                 return formatResponse(false, null, 'Payment not found');
             }
 
-            // sp_allocate_payment(p_transaction_id, p_fee_structure_id, p_amount,
-            //                     p_academic_term_id, p_allocated_by, p_notes)
-            $stmt = $this->db->prepare("CALL sp_allocate_payment(?, ?, ?, ?, ?, ?)");
+            // The live procedure contract is:
+            // (payment_id, student_id, allocation_amount, term_id, year_id, allocated_by).
+            // Detailed allocations use payment_allocations_detailed separately.
+            $procedure = $this->db->prepare("CALL sp_allocate_payment(?, ?, ?, ?, ?, ?)");
+            $detail = $this->db->prepare("
+                INSERT INTO payment_allocations_detailed (
+                    payment_transaction_id,
+                    student_fee_obligation_id,
+                    amount_allocated,
+                    allocated_by,
+                    notes
+                ) VALUES (?, ?, ?, ?, ?)
+            ");
 
+            $allocated = 0.0;
             foreach ($allocations as $allocation) {
-                $stmt->execute([
-                    $paymentId,                             // p_transaction_id
-                    $allocation['fee_structure_id']         // p_fee_structure_id
-                        ?? $allocation['fee_type_id'] ?? null,
-                    $allocation['amount'],                  // p_amount
-                    $allocation['term_id'] ?? null,         // p_academic_term_id
-                    $this->user_id ?? null,                 // p_allocated_by
-                    $allocation['notes'] ?? null            // p_notes
+                $amount = (float) ($allocation['amount'] ?? $allocation['amount_allocated'] ?? 0);
+                $obligationId = (int) ($allocation['student_fee_obligation_id'] ?? 0);
+                if ($amount <= 0 || $obligationId <= 0) {
+                    throw new Exception('Each allocation requires a positive amount and student_fee_obligation_id');
+                }
+
+                $obligationStmt = $this->db->prepare(
+                    'SELECT student_id, term_id, academic_year FROM student_fee_obligations WHERE id = ? LIMIT 1'
+                );
+                $obligationStmt->execute([$obligationId]);
+                $obligation = $obligationStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$obligation) {
+                    throw new Exception("Student fee obligation {$obligationId} not found");
+                }
+
+                $procedure->execute([
+                    $paymentId,
+                    (int) $obligation['student_id'],
+                    $amount,
+                    (int) $obligation['term_id'],
+                    (int) $obligation['academic_year'],
+                    $this->user_id ?? null,
                 ]);
+                while ($procedure->nextRowset()) {
+                    // Drain procedure result sets before the next execution.
+                }
+
+                $detail->execute([
+                    $paymentId,
+                    $obligationId,
+                    $amount,
+                    $this->user_id ?? null,
+                    $allocation['notes'] ?? null,
+                ]);
+                $allocated += $amount;
+            }
+
+            if ($allocated > (float) $payment['amount']) {
+                throw new Exception('Allocation total exceeds payment amount');
             }
 
             $this->db->commit();
