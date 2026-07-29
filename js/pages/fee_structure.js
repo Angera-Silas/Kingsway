@@ -15,13 +15,14 @@ class FeeStructureController {
     this.feeStructureModal = null;
     this.deleteConfirmModal = null;
     this.duplicateModal = null;
-    this.userRole = document.body.getAttribute("data-user-role") || "guest";
+    this.userRole = window.AuthContext?.getRoles?.()?.[0] || "guest";
   }
 
   /**
    * Initialize the controller
    */
-  static init() {
+  static async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureController();
     controller.setupEventListeners();
     controller.loadAcademicYears();
@@ -618,7 +619,7 @@ class FeeStructureController {
   canDeleteStructure(structure) {
     return (
       ["draft"].includes(structure.status) &&
-      ["school_admin", "director_owner"].includes(this.userRole)
+      (window.AuthContext?.hasRole?.("school_admin") || window.AuthContext?.hasRole?.("director_owner"))
     );
   }
 
@@ -726,5 +727,10 @@ class FeeStructureController {
   }
 }
 
-// Make controller globally accessible
 window.FeeStructureController = FeeStructureController;
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => FeeStructureController.init().catch(() => {}));
+} else {
+  FeeStructureController.init().catch(() => {});
+}

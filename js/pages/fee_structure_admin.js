@@ -17,9 +17,7 @@ class FeeStructureAdminController {
     this.viewingGroup = null;
     this.deleteTarget = null;
     this.duplicateSourceYear = null;
-    this.userRole =
-      document.querySelector(".admin-layout")?.getAttribute("data-user-role") ||
-      "admin";
+    this.userRole = window.AuthContext?.getRoles?.()?.[0] || "admin";
     this.charts = {};
 
     this.availableYears = [];
@@ -45,7 +43,8 @@ class FeeStructureAdminController {
   /**
    * Initialize the controller
    */
-  static init() {
+  static async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureAdminController();
     window.adminController = controller;
     controller.setupEventListeners();
@@ -1579,10 +1578,10 @@ class FeeStructureAdminController {
 // Expose for inline onclick handlers
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    FeeStructureAdminController.init();
+    FeeStructureAdminController.init().catch(() => {});
     window.adminController = FeeStructureAdminController;
   });
 } else {
-  FeeStructureAdminController.init();
+  FeeStructureAdminController.init().catch(() => {});
   window.adminController = FeeStructureAdminController;
 }

@@ -1,5 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.teaching_assignments.view'); });
-c/**
+/**
  * Assign Subjects to Teachers Page Controller
  * Manages teacher-subject-class assignment workflow
  */
@@ -232,6 +231,7 @@ const AssignSubjectsController = (() => {
     }
 
     async function init() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
         attachListeners();
         await loadReferenceData();
         await loadData();

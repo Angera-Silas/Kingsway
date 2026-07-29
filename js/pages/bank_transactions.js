@@ -21,6 +21,7 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
                 await Promise.all([
                     this.loadData(),
@@ -471,4 +472,10 @@
     };
 
     window.BankTransactionsController = BankTransactionsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => BankTransactionsController.init().catch(() => {}));
+    } else {
+        BankTransactionsController.init().catch(() => {});
+    }
 })();

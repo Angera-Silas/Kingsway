@@ -1,4 +1,3 @@
-document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.attendance.view'); });
 const StaffAttendanceController = {
   departments: [],
   dutyTypes: [],
@@ -13,6 +12,8 @@ const StaffAttendanceController = {
   },
 
   init: async function () {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    if (!window.AuthContext?.hasAnyPermission?.(['staff.attendance.view', 'staff_attendance_view'])) return;
     this.setDefaultDates();
     this.bindEvents();
     await Promise.all([this.loadDepartments(), this.loadDutyTypes()]);

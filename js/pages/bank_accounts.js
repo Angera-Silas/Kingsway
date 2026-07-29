@@ -20,6 +20,7 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
                 await this.loadData();
             } catch (error) {
@@ -438,4 +439,10 @@
     };
 
     window.BankAccountsController = BankAccountsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => BankAccountsController.init().catch(() => {}));
+    } else {
+        BankAccountsController.init().catch(() => {});
+    }
 })();

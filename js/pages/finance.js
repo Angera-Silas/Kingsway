@@ -16,6 +16,7 @@ const financeController = {
      * Initialize controller
      */
     init: async function() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
         try {
             await Promise.all([
                 this.loadPayments(),
@@ -540,12 +541,9 @@ const financeController = {
      * Check user permissions
      */
     checkUserPermissions: function() {
-        const currentUser = AuthContext.getUser();
-        if (!currentUser || !currentUser.permissions) return;
-
         document.querySelectorAll('[data-permission]').forEach(btn => {
             const requiredPerm = btn.getAttribute('data-permission');
-            if (!currentUser.permissions.includes(requiredPerm)) {
+            if (!window.AuthContext?.hasPermission?.(requiredPerm)) {
                 btn.style.display = 'none';
             }
         });

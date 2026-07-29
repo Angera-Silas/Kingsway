@@ -19,9 +19,9 @@ const viewAttendanceController = {
   },
 
   init: async function () {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     if (
-      typeof PageShell !== "undefined" &&
-      !PageShell.hasAny(["attendance_view", "student_attendance_view", "attendance_manage"])
+      !window.AuthContext?.hasAnyPermission?.(['attendance_view', 'student_attendance_view', 'attendance_manage', 'attendance.view', 'student_attendance.view', 'attendance.manage'])
     ) {
       const container = document.querySelector("#attendanceContainer .container-fluid") || document.querySelector(".container-fluid");
       if (container) {

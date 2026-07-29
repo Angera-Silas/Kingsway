@@ -1,5 +1,13 @@
 const delegationsController = (function () {
   let state = { page: 1, limit: 20, search: "", active: "" };
+  let initialized = false;
+
+  async function init() {
+    if (initialized) return;
+    initialized = true;
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await load();
+  }
 
   async function load() {
     const qs = new URLSearchParams({
@@ -164,6 +172,7 @@ const delegationsController = (function () {
 
   // Public API
   return {
+    init,
     load,
     handleSearch,
     handleActiveFilter,
@@ -175,8 +184,8 @@ const delegationsController = (function () {
 })();
 
 // Auto-load when page is ready
-document.addEventListener("DOMContentLoaded", () => {
-  if (document.getElementById("delegationsTableContainer")) {
-    delegationsController.load();
-  }
-});
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => delegationsController.init().catch(() => {}));
+} else {
+  delegationsController.init().catch(() => {});
+}

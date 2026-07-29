@@ -1,4 +1,13 @@
 const studentsManagementController = {
+    initialized: false,
+
+    async init() {
+        if (this.initialized) return;
+        this.initialized = true;
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
+        this.loadStats();
+        this.loadStudents();
+    },
 
     loadStats() {
         API.students.getStatistics()
@@ -114,7 +123,8 @@ const studentsManagementController = {
     }
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-    studentsManagementController.loadStats();
-    studentsManagementController.loadStudents();
-});
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => studentsManagementController.init().catch(() => {}));
+} else {
+    studentsManagementController.init().catch(() => {});
+}

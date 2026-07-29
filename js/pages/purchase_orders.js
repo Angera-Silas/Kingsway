@@ -21,6 +21,7 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
                 await this.loadData();
             } catch (error) {

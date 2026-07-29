@@ -172,6 +172,7 @@ const AdmissionsController = {
    * Initialize the controller
    */
   async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     if (this.state.isInitializing) {
       return;
     }

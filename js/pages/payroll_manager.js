@@ -24,19 +24,17 @@ const PayrollManagerController = {
    */
   init: async function () {
     try {
-      if (window.StaffAccess) {
-        await StaffAccess.init();
-        this.accessReady = true;
-        const allowed =
-          this.canManagePayroll() ||
-          this.canApprovePayroll() ||
-          this.canProcessPayroll() ||
-          StaffAccess.can("staff.payslip.manage,staff.payslip.self");
-        if (!allowed) {
-          await StaffAccess.require("staff.payroll.manage,staff.payroll.approve,staff.payroll.process,staff.payslip.manage,staff.payslip.self");
-          return;
-        }
-        StaffAccess.apply(document);
+      if (window.AuthContext?.ready) await window.AuthContext.ready();
+
+      const allowed =
+        this.canManagePayroll() ||
+        this.canApprovePayroll() ||
+        this.canProcessPayroll() ||
+        window.AuthContext?.hasPermission?.('staff.payslip.manage') ||
+        window.AuthContext?.hasPermission?.('staff.payslip.self');
+      if (!allowed) {
+        window.showNotification?.('You do not have payroll access.', 'error');
+        return;
       }
 
       this.applyRoleMode();
@@ -64,15 +62,15 @@ const PayrollManagerController = {
   },
 
   canManagePayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.manage");
+    return window.AuthContext?.hasPermission?.('staff.payroll.manage') || false;
   },
 
   canApprovePayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.approve");
+    return window.AuthContext?.hasPermission?.('staff.payroll.approve') || false;
   },
 
   canProcessPayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.process");
+    return window.AuthContext?.hasPermission?.('staff.payroll.process') || false;
   },
 
   applyRoleMode: function () {

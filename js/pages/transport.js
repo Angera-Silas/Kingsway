@@ -17,9 +17,9 @@ const transportController = {
      * Initialize controller
      */
     init: async function() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
         if (
-            typeof PageShell !== "undefined" &&
-            !PageShell.hasAny(["transport_view", "transport_manage", "transport_read"])
+            !window.AuthContext?.hasAnyPermission?.(['transport_view', 'transport_manage', 'transport_read', 'transport.view', 'transport.manage', 'transport.read'])
         ) {
             const container = document.querySelector(".container-fluid");
             if (container) {
@@ -472,12 +472,9 @@ const transportController = {
      * Check user permissions
      */
     checkUserPermissions: function() {
-        const currentUser = AuthContext.getUser();
-        if (!currentUser || !currentUser.permissions) return;
-
         document.querySelectorAll('[data-permission]').forEach(btn => {
             const requiredPerm = btn.getAttribute('data-permission');
-            if (!currentUser.permissions.includes(requiredPerm)) {
+            if (!window.AuthContext?.hasPermission?.(requiredPerm)) {
                 btn.style.display = 'none';
             }
         });

@@ -21,6 +21,7 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
                 await this.loadData();
             } catch (error) {
@@ -445,4 +446,10 @@
     };
 
     window.MpesaSettlementsController = MpesaSettlementsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => MpesaSettlementsController.init().catch(() => {}));
+    } else {
+        MpesaSettlementsController.init().catch(() => {});
+    }
 })();

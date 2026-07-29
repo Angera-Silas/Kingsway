@@ -15,10 +15,7 @@ class FeeStructureViewerController {
     this.itemsPerPage = 20;
     this.currentFilters = {};
     this.chart = null;
-    this.userRole =
-      document
-        .querySelector(".viewer-layout")
-        ?.getAttribute("data-user-role") || "viewer";
+    this.userRole = window.AuthContext?.getRoles?.()?.[0] || "viewer";
 
     this.academicYears = [];
     this.levels = [];
@@ -34,7 +31,8 @@ class FeeStructureViewerController {
   /**
    * Initialize the controller
    */
-  static init() {
+  static async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureViewerController();
     window.viewerController = controller;
     controller.setupEventListeners();
@@ -844,8 +842,8 @@ class FeeStructureViewerController {
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () =>
-    FeeStructureViewerController.init(),
+    FeeStructureViewerController.init().catch(() => {}),
   );
 } else {
-  FeeStructureViewerController.init();
+  FeeStructureViewerController.init().catch(() => {});
 }

@@ -141,6 +141,7 @@ const competencyChecklistController = (() => {
   }
 
   async function init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     // Initialize Academic Context if available
     if (window.AcademicContext) {
       // Subscribe to context changes

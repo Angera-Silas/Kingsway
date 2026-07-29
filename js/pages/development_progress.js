@@ -102,7 +102,8 @@ const developmentProgressController = (() => {
     }
   }
 
-  function init() {
+  async function init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     load();
   }
 

@@ -16,10 +16,7 @@ class FeeStructureAccountantController {
     this.currentFilters = {};
     this.editingGroup = null;
     this.duplicateSourceYear = null;
-    this.userRole =
-      document
-        .querySelector(".manager-layout")
-        ?.getAttribute("data-user-role") || "accountant";
+    this.userRole = window.AuthContext?.getRoles?.()?.[0] || "accountant";
     this.charts = {};
 
     this.availableYears = [];
@@ -45,7 +42,8 @@ class FeeStructureAccountantController {
   /**
    * Initialize the controller
    */
-  static init() {
+  static async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureAccountantController();
     window.accountantController = controller;
     controller.setupEventListeners();
@@ -1708,8 +1706,8 @@ class FeeStructureAccountantController {
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () =>
-    FeeStructureAccountantController.init(),
+    FeeStructureAccountantController.init().catch(() => {}),
   );
 } else {
-  FeeStructureAccountantController.init();
+  FeeStructureAccountantController.init().catch(() => {});
 }
