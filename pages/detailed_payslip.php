@@ -221,10 +221,10 @@
                 <table class="table table-striped mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th>Child Name</th>
-                            <th>Class</th>
-                            <th>Term Fees</th>
-                            <th>Discount</th>
+                            <th scope="col">Child Name</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Term Fees</th>
+                            <th scope="col">Discount</th>
                             <th class="text-end">Deduction</th>
                         </tr>
                     </thead>
@@ -250,8 +250,8 @@
                 <table class="table table-striped mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th>Description</th>
-                            <th>Reference</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Reference</th>
                             <th class="text-end">Amount</th>
                         </tr>
                     </thead>
@@ -568,4 +568,4 @@
 
 
 </style><script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/detailed_payslip.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/detailed_payslip.js"></script>

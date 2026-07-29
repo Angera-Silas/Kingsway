@@ -45,10 +45,10 @@
     <table class="operator-data-table" id="casesTable">
         <thead>
             <tr>
-                <th>Date</th>
-                <th>Student</th>
-                <th>Category</th>
-                <th>Status</th>
+                <th scope="col">Date</th>
+                <th scope="col">Student</th>
+                <th scope="col">Category</th>
+                <th scope="col">Status</th>
             </tr>
         </thead>
         <tbody id="casesTableBody">

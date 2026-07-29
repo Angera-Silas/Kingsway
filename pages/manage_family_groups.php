@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-users me-2"></i>
+                        <i class="bi bi-people me-2"></i>
                         Family Groups
                     </h4>
                     <small id="scopeSubtitle">Manage siblings, guardians, and household relationships</small>
@@ -77,7 +77,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student, guardian, phone, or family code">
@@ -86,13 +86,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -104,7 +104,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Families</small>
@@ -120,7 +120,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-user-graduate"></i>
+                                    <i class="bi bi-mortarboard"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Students Linked</small>
@@ -136,7 +136,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-user-minus"></i>
+                                    <i class="bi bi-person-minus"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">No Family Group</small>
@@ -152,7 +152,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-users-cog"></i>
+                                    <i class="bi bi-people-cog"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Multiple Students</small>
@@ -168,7 +168,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-phone-slash"></i>
+                                    <i class="bi bi-telephone-slash"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Missing Contact</small>
@@ -184,7 +184,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-money-bill"></i>
+                                    <i class="bi bi-cash"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Outstanding</small>
@@ -198,20 +198,20 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="familiesLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading family groups...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading family groups...
             </div>
 
             <div id="familiesError" class="alert alert-danger d-none"></div>
 
             <div id="familiesEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No family groups found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No family groups found for the selected filters.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="familiesCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-success"></i>
+                        <i class="bi bi-list-ul me-2 text-success"></i>
                         Parent/Guardian List
                     </strong>
                 </div>
@@ -220,13 +220,13 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Guardian</th>
-                                <th>Phone</th>
-                                <th>Email</th>
-                                <th>Students Count</th>
-                                <th>Student Names</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th scope="col">Guardian</th>
+                                <th scope="col">Phone</th>
+                                <th scope="col">Email</th>
+                                <th scope="col">Students Count</th>
+                                <th scope="col">Student Names</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="familiesTableBody">
@@ -250,7 +250,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-success text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-users me-2"></i>
+                        <i class="bi bi-people me-2"></i>
                         Family Group Details
                     </h5>
                     <small id="modalSubtitle">Parent and linked students</small>
@@ -260,7 +260,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading family details...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading family details...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>

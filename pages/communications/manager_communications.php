@@ -86,13 +86,13 @@
         <table class="manager-data-table" id="messagesTable">
             <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Recipient</th>
-                    <th>Channel</th>
-                    <th>Message</th>
-                    <th>Status</th>
-                    <th>Sent At</th>
-                    <th>Actions</th>
+                    <th scope="col">ID</th>
+                    <th scope="col">Recipient</th>
+                    <th scope="col">Channel</th>
+                    <th scope="col">Message</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Sent At</th>
+                    <th scope="col">Actions</th>
                 </tr>
             </thead>
             <tbody id="messagesTableBody">
@@ -125,11 +125,11 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Recipient</label>
-                        <input type="text" class="form-control" id="recipient" placeholder="Search parent/staff...">
+                        <input type="text" class="form-control" id="recipient" placeholder="Search parent/staff..." required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Message</label>
-                        <textarea class="form-control" id="message" rows="4"></textarea>
+                        <textarea class="form-control" id="message" rows="4" required></textarea>
                     </div>
                 </form>
             </div>

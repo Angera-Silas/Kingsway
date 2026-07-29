@@ -45,10 +45,10 @@
         <table class="operator-data-table" id="classFeesTable">
             <thead>
                 <tr>
-                    <th>Adm. No.</th>
-                    <th>Student Name</th>
+                    <th scope="col">Adm. No.</th>
+                    <th scope="col">Student Name</th>
                     <th class="text-end">Balance</th>
-                    <th>Status</th>
+                    <th scope="col">Status</th>
                 </tr>
             </thead>
             <tbody id="feesTableBody">

@@ -20,6 +20,7 @@ const ViewPastPapersController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,7 +30,6 @@ const ViewPastPapersController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in view_past_papers:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadPapers();
         }
@@ -223,18 +223,7 @@ const ViewPastPapersController = {
   },
 
   showNotification(message, type = 'info') {
-    if (typeof showNotification === 'function') {
-      showNotification(message, type);
-    } else {
-      // Fallback notification
-      const container = document.querySelector('.container-fluid') || document.body;
-      const alert = document.createElement('div');
-      alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-      alert.style.zIndex = '9999';
-      alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-      container.appendChild(alert);
-      setTimeout(() => alert.remove(), 4000);
-    }
+    window.showNotification(message, type);
   }
 };
 

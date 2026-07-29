@@ -8,4 +8,4 @@ $token = htmlspecialchars($_GET['token'] ?? '', ENT_QUOTES, 'UTF-8');
     <form id="rdpForm"><input type="hidden" id="rdpToken" value="<?= $token ?>"><div class="mb-3"><label class="form-label">New password</label><input id="rdpPassword" type="password" class="form-control" minlength="10" required></div><div class="mb-3"><label class="form-label">Confirm password</label><input id="rdpConfirm" type="password" class="form-control" minlength="10" required></div><button class="btn btn-primary w-100">Update password</button></form>
   </div></div>
 </div>
-<script src="<?= $appBase ?? '' ?>/js/pages/reset_default_password.js"></script>
+<script src="<?= $appBase ?? '' ?>/js/pages/reset_default_password.js?v=<?= filemtime(__DIR__ . '/../js/pages/reset_default_password.js') ?>"></script>

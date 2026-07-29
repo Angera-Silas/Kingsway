@@ -52,6 +52,9 @@ class AuthMiddleware
             'parent-portal/login',
             'parent-portal/login-otp-request',
             'parent-portal/login-otp-verify',
+            // 2FA challenge/verify — called during login before JWT is issued
+            'twofactor/challenge',
+            'twofactor/verify',
             // Public careers intake for candidates who passed recruitment screening
             'staff-appointments/careers-candidate',
             // Client telemetry/error ingestion (reporter sends a periodic fire-and-forget
@@ -222,7 +225,7 @@ class AuthMiddleware
             $_SERVER['auth_session_id'] = (int) $session['id'];
 
         } catch (\Exception $e) {
-            self::deny(401, 'Invalid or expired token: ' . $e->getMessage());
+            self::deny(401, 'Invalid or expired token');
         }
     }
 

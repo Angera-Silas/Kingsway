@@ -7,6 +7,7 @@ const inventoryController = {
   _items: [], _filtered: [], _page: 1, _perPage: 20, _itemModal: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
     this._bindEvents();

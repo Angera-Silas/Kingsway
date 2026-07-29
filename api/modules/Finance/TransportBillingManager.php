@@ -1,194 +1,329 @@
 <?php
+declare(strict_types=1);
+
 namespace App\API\Modules\Finance;
 
 use App\Database\Database;
 use Exception;
 
+/**
+ * TransportBillingManager
+ * Manages monthly transport subscription billing, separate from school fees.
+ */
 class TransportBillingManager
 {
-    private $db;
+    private \PDO $db;
 
     public function __construct()
     {
         $this->db = Database::getInstance();
     }
 
+    /**
+     * Subscribe a student to a transport route from a given month.
+     */
     public function subscribe(array $data): array
     {
-        $studentId = (int)($data['student_id'] ?? 0);
-        $routeId   = (int)($data['route_id'] ?? 0);
-        if (!$studentId || !$routeId) throw new \InvalidArgumentException('student_id and route_id are required');
-
-        $startMonth = $data['start_month'] ?? date('Y-m-01');
+        $studentId    = (int)($data['student_id'] ?? 0);
+        $routeId      = (int)($data['route_id'] ?? 0);
+        $startMonth   = $data['start_month'] ?? date('Y-m-01');
+        $direction    = $data['direction'] ?? 'both';
         $subscribedBy = $data['subscribed_by'] ?? null;
+        $notes        = $data['notes'] ?? null;
 
-        // Cancel any existing active subscription for this student/route
-        $this->db->query(
-            "UPDATE transport_subscriptions SET status='cancelled', end_month=:em, updated_at=NOW()
-             WHERE student_id=:sid AND route_id=:rid AND status='active'",
-            [':em' => date('Y-m-01'), ':sid' => $studentId, ':rid' => $routeId]
-        );
+        if (!$studentId || !$routeId) {
+            throw new \InvalidArgumentException('student_id and route_id are required');
+        }
 
-        $this->db->query(
-            "INSERT INTO transport_subscriptions (student_id, route_id, start_month, status, subscribed_by)
-             VALUES (:sid, :rid, :sm, 'active', :by)",
-            [':sid' => $studentId, ':rid' => $routeId, ':sm' => $startMonth, ':by' => $subscribedBy]
-        );
-        return ['subscription_id' => (int)$this->db->lastInsertId()];
+        // Get route fee
+        $stmt = $this->db->prepare("SELECT fee, name FROM transport_routes WHERE id = :id LIMIT 1");
+        $stmt->execute([':id' => $routeId]);
+        $route = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$route) throw new Exception("Route {$routeId} not found");
+
+        $monthlyFee  = (float)($route['fee'] ?? 0);
+        $academicYear = (int)date('Y', strtotime($startMonth));
+
+        $stmt = $this->db->prepare("
+            INSERT INTO transport_subscriptions
+              (student_id, route_id, academic_year, start_month, monthly_fee, direction, status, subscribed_by, notes)
+            VALUES (:sid, :rid, :yr, :sm, :fee, :dir, 'active', :by, :notes)
+            ON DUPLICATE KEY UPDATE
+              status='active', end_month=NULL, monthly_fee=:fee2, direction=:dir2,
+              subscribed_by=:by2, notes=:notes2, updated_at=NOW()
+        ");
+        $stmt->execute([
+            ':sid' => $studentId, ':rid' => $routeId, ':yr' => $academicYear,
+            ':sm' => $startMonth, ':fee' => $monthlyFee, ':dir' => $direction,
+            ':by' => $subscribedBy, ':notes' => $notes,
+            ':fee2' => $monthlyFee, ':dir2' => $direction,
+            ':by2' => $subscribedBy, ':notes2' => $notes,
+        ]);
+        $subId = (int)$this->db->lastInsertId();
+
+        // Generate first month's bill
+        $this->generateBillForSubscription($subId ?: $this->getSubscriptionId($studentId, $routeId, $startMonth), $startMonth);
+
+        return ['subscription_id' => $subId, 'monthly_fee' => $monthlyFee, 'route_name' => $route['name']];
     }
 
-    public function unsubscribe(int $id, string $endMonth, $userId): bool
+    /**
+     * Cancel / unsubscribe a student from transport.
+     */
+    public function unsubscribe(int $subscriptionId, string $endMonth, ?int $userId): bool
     {
-        $this->db->query(
-            "UPDATE transport_subscriptions SET status='cancelled', end_month=:em, cancelled_by=:by, updated_at=NOW()
-             WHERE id=:id",
-            [':em' => $endMonth, ':by' => $userId, ':id' => $id]
+        $stmt = $this->db->prepare(
+            "UPDATE transport_subscriptions SET status='cancelled', end_month=:em, updated_at=NOW() WHERE id=:id"
         );
-        return true;
+        $stmt->execute([':em' => $endMonth, ':id' => $subscriptionId]);
+        return $stmt->rowCount() > 0;
     }
 
-    public function getSubscriptions(array $filters): array
+    /**
+     * Generate monthly bills for all active subscriptions for a given billing month.
+     * @param string $billingMonth 'YYYY-MM-01' format
+     */
+    public function generateMonthlyBills(string $billingMonth, ?int $generatedBy): array
+    {
+        // Get all active subscriptions covering this month
+        $stmt = $this->db->prepare("
+            SELECT ts.*, tr.name AS route_name
+            FROM transport_subscriptions ts
+            JOIN transport_routes tr ON tr.id = ts.route_id
+            WHERE ts.status = 'active'
+              AND ts.start_month <= :bm
+              AND (ts.end_month IS NULL OR ts.end_month >= :bm2)
+        ");
+        $stmt->execute([':bm' => $billingMonth, ':bm2' => $billingMonth]);
+        $subscriptions = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $dueDate   = date('Y-m-t', strtotime($billingMonth)); // last day of month
+        $generated = 0;
+        $skipped   = 0;
+
+        foreach ($subscriptions as $sub) {
+            $ins = $this->db->prepare("
+                INSERT IGNORE INTO transport_monthly_bills
+                  (student_id, subscription_id, route_id, billing_month, amount_due, payment_status, due_date, generated_by)
+                VALUES (:sid, :subid, :rid, :bm, :amt, 'pending', :due, :by)
+            ");
+            $ins->execute([
+                ':sid'   => $sub['student_id'],
+                ':subid' => $sub['id'],
+                ':rid'   => $sub['route_id'],
+                ':bm'    => $billingMonth,
+                ':amt'   => $sub['monthly_fee'],
+                ':due'   => $dueDate,
+                ':by'    => $generatedBy,
+            ]);
+            if ($ins->rowCount() > 0) $generated++;
+            else $skipped++;
+        }
+
+        return [
+            'billing_month'  => $billingMonth,
+            'bills_generated' => $generated,
+            'bills_skipped'  => $skipped,
+            'total_subscriptions' => count($subscriptions),
+        ];
+    }
+
+    /**
+     * Get monthly bills with optional filters.
+     */
+    public function getBills(array $filters = []): array
+    {
+        $where = ['1=1'];
+        $params = [];
+
+        if (!empty($filters['billing_month'])) {
+            $where[] = 'tmb.billing_month = :bm';
+            $params[':bm'] = $filters['billing_month'];
+        }
+        if (!empty($filters['student_id'])) {
+            $where[] = 'tmb.student_id = :sid';
+            $params[':sid'] = (int)$filters['student_id'];
+        }
+        if (!empty($filters['route_id'])) {
+            $where[] = 'tmb.route_id = :rid';
+            $params[':rid'] = (int)$filters['route_id'];
+        }
+        if (!empty($filters['payment_status'])) {
+            $where[] = 'tmb.payment_status = :ps';
+            $params[':ps'] = $filters['payment_status'];
+        }
+
+        $limit  = min((int)($filters['limit'] ?? 50), 200);
+        $offset = ((int)($filters['page'] ?? 1) - 1) * $limit;
+
+        $stmt = $this->db->prepare("
+            SELECT tmb.*, s.first_name, s.last_name, s.admission_no,
+                   tr.name AS route_name, tr.code AS route_code
+            FROM transport_monthly_bills tmb
+            JOIN students s ON s.id = tmb.student_id
+            JOIN transport_routes tr ON tr.id = tmb.route_id
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY tmb.billing_month DESC, s.last_name ASC
+            LIMIT :lim OFFSET :off
+        ");
+        foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+        $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(':off', $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get monthly billing summary totals.
+     */
+    public function getMonthlyBillingSummary(string $billingMonth): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) AS total_bills,
+                   SUM(amount_due) AS total_due,
+                   SUM(amount_paid) AS total_paid,
+                   SUM(balance) AS total_outstanding,
+                   SUM(CASE WHEN payment_status='paid' THEN 1 ELSE 0 END) AS paid_count,
+                   SUM(CASE WHEN payment_status='pending' THEN 1 ELSE 0 END) AS pending_count
+            FROM transport_monthly_bills
+            WHERE billing_month = :bm
+        ");
+        $stmt->execute([':bm' => $billingMonth]);
+        $summary = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        // Per-route breakdown
+        $stmt2 = $this->db->prepare("
+            SELECT tr.name AS route_name, COUNT(*) AS bills, SUM(tmb.amount_due) AS total_due,
+                   SUM(tmb.amount_paid) AS total_paid, SUM(tmb.balance) AS outstanding
+            FROM transport_monthly_bills tmb
+            JOIN transport_routes tr ON tr.id = tmb.route_id
+            WHERE tmb.billing_month = :bm
+            GROUP BY tmb.route_id, tr.name
+        ");
+        $stmt2->execute([':bm' => $billingMonth]);
+
+        return [
+            'billing_month' => $billingMonth,
+            'summary'       => $summary,
+            'by_route'      => $stmt2->fetchAll(\PDO::FETCH_ASSOC),
+        ];
+    }
+
+    /**
+     * Record a payment against a transport bill.
+     */
+    public function recordTransportPayment(int $billId, array $data): array
+    {
+        $amountPaid   = (float)($data['amount_paid'] ?? 0);
+        $method       = $data['payment_method'] ?? 'cash';
+        $receivedBy   = $data['received_by'] ?? null;
+        $referenceNo  = $data['reference_no'] ?? null;
+        $notes        = $data['notes'] ?? null;
+
+        if ($amountPaid <= 0) throw new \InvalidArgumentException('amount_paid must be positive');
+
+        // Get bill
+        $stmt = $this->db->prepare("SELECT * FROM transport_monthly_bills WHERE id = :id LIMIT 1");
+        $stmt->execute([':id' => $billId]);
+        $bill = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$bill) throw new Exception("Bill {$billId} not found");
+
+        $newPaid    = (float)$bill['amount_paid'] + $amountPaid;
+        $newBalance = (float)$bill['amount_due']  - $newPaid;
+        $newStatus  = $newBalance <= 0 ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
+
+        $upd = $this->db->prepare(
+            "UPDATE transport_monthly_bills SET amount_paid=:ap, payment_status=:ps, updated_at=NOW() WHERE id=:id"
+        );
+        $upd->execute([':ap' => $newPaid, ':ps' => $newStatus, ':id' => $billId]);
+
+        // Insert into payment_transactions for reconciliation trail
+        try {
+            $pt = $this->db->prepare("
+                INSERT INTO payment_transactions
+                  (student_id, academic_year, payment_method, amount_paid, payment_date,
+                   reference_no, received_by, status, transport_bill_id, notes)
+                VALUES (:sid, :yr, :meth, :amt, NOW(), :ref, :by, 'confirmed', :bid, :notes)
+            ");
+            $pt->execute([
+                ':sid'   => $bill['student_id'],
+                ':yr'    => (int)date('Y', strtotime($bill['billing_month'])),
+                ':meth'  => $method,
+                ':amt'   => $amountPaid,
+                ':ref'   => $referenceNo,
+                ':by'    => $receivedBy,
+                ':bid'   => $billId,
+                ':notes' => $notes,
+            ]);
+        } catch (Exception $e) {
+            // payment_transactions may not have transport_bill_id yet — log and continue
+            error_log("TransportBilling: could not insert payment_transaction: " . $e->getMessage());
+        }
+
+        return [
+            'bill_id'        => $billId,
+            'amount_paid'    => $newPaid,
+            'balance'        => max(0, $newBalance),
+            'payment_status' => $newStatus,
+        ];
+    }
+
+    /**
+     * Get subscriptions with optional filters.
+     */
+    public function getSubscriptions(array $filters = []): array
     {
         $where  = ['1=1'];
         $params = [];
         if (!empty($filters['student_id'])) { $where[] = 'ts.student_id=:sid'; $params[':sid'] = (int)$filters['student_id']; }
         if (!empty($filters['route_id']))   { $where[] = 'ts.route_id=:rid';   $params[':rid'] = (int)$filters['route_id']; }
-        if (!empty($filters['status']))     { $where[] = 'ts.status=:status';  $params[':status'] = $filters['status']; }
+        if (!empty($filters['status']))     { $where[] = 'ts.status=:st';      $params[':st']  = $filters['status']; }
 
-        $stmt = $this->db->query(
-            "SELECT ts.*,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name, s.admission_no,
-                    r.name AS route_name, r.fee AS monthly_fee
-             FROM transport_subscriptions ts
-             JOIN students s ON s.id = ts.student_id
-             LEFT JOIN transport_routes r ON r.id = ts.route_id
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY ts.created_at DESC",
-            $params
-        );
+        $stmt = $this->db->prepare("
+            SELECT ts.*, s.first_name, s.last_name, s.admission_no,
+                   tr.name AS route_name, tr.code AS route_code
+            FROM transport_subscriptions ts
+            JOIN students s ON s.id = ts.student_id
+            JOIN transport_routes tr ON tr.id = ts.route_id
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY s.last_name, s.first_name
+        ");
+        foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+        $stmt->execute();
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
-    public function generateMonthlyBills(string $billingMonth, $userId): array
-    {
-        // Find all active subscriptions
-        $stmt = $this->db->query(
-            "SELECT ts.id AS subscription_id, ts.student_id, ts.route_id,
-                    COALESCE(r.fee AS monthly_fee, 0) AS amount
-             FROM transport_subscriptions ts
-             LEFT JOIN transport_routes r ON r.id = ts.route_id
-             WHERE ts.status='active'
-               AND (ts.end_month IS NULL OR ts.end_month >= :bm)
-               AND ts.start_month <= :bm2",
-            [':bm' => $billingMonth, ':bm2' => $billingMonth]
-        );
-        $subs = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    // ----------------------------------------------------------------
+    // Private helpers
+    // ----------------------------------------------------------------
 
-        $ins = $this->db->getConnection()->prepare(
-            "INSERT IGNORE INTO transport_bills
-                (subscription_id, student_id, route_id, billing_month, amount, generated_by)
-             VALUES (:sub, :sid, :rid, :bm, :amt, :by)"
-        );
-        $count = 0;
-        foreach ($subs as $sub) {
-            $ins->execute([
-                ':sub' => $sub['subscription_id'],
-                ':sid' => $sub['student_id'],
-                ':rid' => $sub['route_id'],
-                ':bm'  => $billingMonth,
-                ':amt' => $sub['amount'],
-                ':by'  => $userId,
-            ]);
-            $count++;
-        }
-        return ['generated' => $count, 'billing_month' => $billingMonth];
+    private function generateBillForSubscription(int $subId, string $billingMonth): void
+    {
+        $stmt = $this->db->prepare("SELECT * FROM transport_subscriptions WHERE id=:id LIMIT 1");
+        $stmt->execute([':id' => $subId]);
+        $sub = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$sub) return;
+
+        $dueDate = date('Y-m-t', strtotime($billingMonth));
+        $ins = $this->db->prepare("
+            INSERT IGNORE INTO transport_monthly_bills
+              (student_id, subscription_id, route_id, billing_month, amount_due, payment_status, due_date)
+            VALUES (:sid, :subid, :rid, :bm, :amt, 'pending', :due)
+        ");
+        $ins->execute([
+            ':sid' => $sub['student_id'], ':subid' => $subId,
+            ':rid' => $sub['route_id'],   ':bm' => $billingMonth,
+            ':amt' => $sub['monthly_fee'], ':due' => $dueDate,
+        ]);
     }
 
-    public function getBills(array $filters): array
+    private function getSubscriptionId(int $studentId, int $routeId, string $startMonth): int
     {
-        $where  = ['1=1'];
-        $params = [];
-        if (!empty($filters['billing_month']))  { $where[] = 'tb.billing_month=:bm';    $params[':bm'] = $filters['billing_month']; }
-        if (!empty($filters['student_id']))     { $where[] = 'tb.student_id=:sid';       $params[':sid'] = (int)$filters['student_id']; }
-        if (!empty($filters['route_id']))       { $where[] = 'tb.route_id=:rid';         $params[':rid'] = (int)$filters['route_id']; }
-        if (!empty($filters['payment_status'])) { $where[] = 'tb.payment_status=:ps';   $params[':ps'] = $filters['payment_status']; }
-
-        $page   = max(1, (int)($filters['page'] ?? 1));
-        $limit  = min(200, max(1, (int)($filters['limit'] ?? 50)));
-        $offset = ($page - 1) * $limit;
-
-        $total = (int)$this->db->query(
-            "SELECT COUNT(*) FROM transport_bills tb WHERE " . implode(' AND ', $where),
-            $params
-        )->fetchColumn();
-
-        $params[':limit']  = $limit;
-        $params[':offset'] = $offset;
-        $stmt = $this->db->query(
-            "SELECT tb.*,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name, s.admission_no,
-                    r.name AS route_name
-             FROM transport_bills tb
-             JOIN students s ON s.id = tb.student_id
-             LEFT JOIN transport_routes r ON r.id = tb.route_id
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY tb.billing_month DESC, s.last_name
-             LIMIT :limit OFFSET :offset",
-            $params
+        $stmt = $this->db->prepare(
+            "SELECT id FROM transport_subscriptions WHERE student_id=:s AND route_id=:r AND start_month=:m LIMIT 1"
         );
-        return [
-            'bills' => $stmt->fetchAll(\PDO::FETCH_ASSOC),
-            'pagination' => ['page' => $page, 'limit' => $limit, 'total' => $total],
-        ];
-    }
-
-    public function getMonthlyBillingSummary(string $billingMonth): array
-    {
-        $stmt = $this->db->query(
-            "SELECT
-                COUNT(*) AS total_bills,
-                SUM(amount) AS total_billed,
-                SUM(amount_paid) AS total_collected,
-                SUM(amount - amount_paid) AS total_outstanding,
-                SUM(payment_status='paid') AS fully_paid,
-                SUM(payment_status='unpaid') AS unpaid,
-                SUM(payment_status='partial') AS partial
-             FROM transport_bills
-             WHERE billing_month=:bm",
-            [':bm' => $billingMonth]
-        );
-        return $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-    }
-
-    public function recordTransportPayment(int $billId, array $data): array
-    {
-        $amount = (float)($data['amount'] ?? 0);
-        if ($amount <= 0) throw new \InvalidArgumentException('amount must be positive');
-
-        $stmt = $this->db->query("SELECT * FROM transport_bills WHERE id=:id LIMIT 1", [':id' => $billId]);
-        $bill = $stmt->fetch(\PDO::FETCH_ASSOC);
-        if (!$bill) throw new \InvalidArgumentException('Bill not found');
-
-        $this->db->query(
-            "INSERT INTO transport_bill_payments (bill_id, amount, payment_method, transaction_id, received_by, payment_date, notes)
-             VALUES (:bid, :amt, :method, :txn, :by, :dt, :notes)",
-            [
-                ':bid'    => $billId,
-                ':amt'    => $amount,
-                ':method' => $data['payment_method'] ?? 'cash',
-                ':txn'    => $data['transaction_id'] ?? null,
-                ':by'     => $data['received_by'] ?? null,
-                ':dt'     => $data['payment_date'] ?? date('Y-m-d'),
-                ':notes'  => $data['notes'] ?? null,
-            ]
-        );
-
-        $newPaid   = (float)$bill['amount_paid'] + $amount;
-        $newStatus = $newPaid >= (float)$bill['amount'] ? 'paid' : 'partial';
-        $this->db->query(
-            "UPDATE transport_bills SET amount_paid=:paid, payment_status=:ps, paid_at=IF(:ps2='paid',NOW(),paid_at), updated_at=NOW() WHERE id=:id",
-            [':paid' => $newPaid, ':ps' => $newStatus, ':ps2' => $newStatus, ':id' => $billId]
-        );
-        return ['bill_id' => $billId, 'amount_paid' => $newPaid, 'payment_status' => $newStatus];
+        $stmt->execute([':s' => $studentId, ':r' => $routeId, ':m' => $startMonth]);
+        return (int)($stmt->fetchColumn() ?: 0);
     }
 }

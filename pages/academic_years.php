@@ -18,15 +18,15 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-calendar me-2"></i>Academic Years</h4>
+                    <h4 class="mb-1"><i class="bi bi-calendar me-2"></i>Academic Years</h4>
                     <p class="text-muted mb-0">Manage academic years, terms, and school calendar</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-outline-success" id="exportYearsBtn">
-                        <i class="fas fa-download me-1"></i> Export
+                        <i class="bi bi-download me-1"></i> Export
                     </button>
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAcademicYearModal">
-                        <i class="fas fa-plus me-1"></i> Add Academic Year
+                        <i class="bi bi-plus-lg me-1"></i> Add Academic Year
                     </button>
                 </div>
             </div>
@@ -38,7 +38,7 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
         <div class="col-md-6">
             <div class="card border-primary">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-star me-2"></i>Current Academic Year</h5>
+                    <h5 class="mb-0"><i class="bi bi-star me-2"></i>Current Academic Year</h5>
                 </div>
                 <div class="card-body" id="currentYearInfo">
                     <div class="text-center py-3">
@@ -52,7 +52,7 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Current Term</h5>
+                    <h5 class="mb-0"><i class="bi bi-clock me-2"></i>Current Term</h5>
                 </div>
                 <div class="card-body" id="currentTermInfo">
                     <div class="text-center py-3">
@@ -68,7 +68,7 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
     <!-- Academic Years Table -->
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-list me-2"></i>All Academic Years</h5>
+            <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>All Academic Years</h5>
             <div class="btn-group btn-group-sm">
                 <button class="btn btn-outline-secondary active" data-view="all">All</button>
                 <button class="btn btn-outline-secondary" data-view="active">Active</button>
@@ -80,12 +80,12 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
                 <table class="table table-hover" id="academicYearsTable">
                     <thead>
                         <tr>
-                            <th>Year</th>
-                            <th>Start Date</th>
-                            <th>End Date</th>
-                            <th>Terms</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Year</th>
+                            <th scope="col">Start Date</th>
+                            <th scope="col">End Date</th>
+                            <th scope="col">Terms</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -148,4 +148,4 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/academic_years.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/academic_years.js"></script>

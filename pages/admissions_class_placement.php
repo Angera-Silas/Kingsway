@@ -191,13 +191,13 @@ if ($appBase === '.')
                         <table class="table table-hover align-middle mb-0">
                             <thead class="bg-light">
                                 <tr>
-                                    <th>Application No</th>
-                                    <th>Applicant Name</th>
-                                    <th>Applied Grade</th>
-                                    <th>Assigned Class</th>
-                                    <th>Stream</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Application No</th>
+                                    <th scope="col">Applicant Name</th>
+                                    <th scope="col">Applied Grade</th>
+                                    <th scope="col">Assigned Class</th>
+                                    <th scope="col">Stream</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="placementsTableBody">
@@ -326,7 +326,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_class_placement.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_class_placement.js"
     onload="console.log('admissions_class_placement.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_class_placement.js. Check path:', this.src)">
 </script>

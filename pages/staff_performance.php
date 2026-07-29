@@ -11,7 +11,7 @@
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white">
             <div class="d-flex justify-content-between align-items-center">
-                <h4 class="mb-0"><i class="fas fa-user-tie"></i> Staff Performance Reports</h4>
+                <h4 class="mb-0"><i class="bi bi-person-tie"></i> Staff Performance Reports</h4>
                 <div class="btn-group">
                     <button class="btn btn-light btn-sm" id="exportBtn" data-permission-module="staff" data-permission-action="export">
                         <i class="bi bi-download"></i> Export
@@ -120,14 +120,14 @@
                     <table class="table table-bordered table-hover" id="performanceTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Staff Name</th>
-                                <th>Department</th>
-                                <th>Attendance</th>
-                                <th>Punctuality</th>
-                                <th>Task Completion</th>
-                                <th>Student Results</th>
-                                <th>Overall Rating</th>
-                                <th>Actions</th>
+                                <th scope="col">Staff Name</th>
+                                <th scope="col">Department</th>
+                                <th scope="col">Attendance</th>
+                                <th scope="col">Punctuality</th>
+                                <th scope="col">Task Completion</th>
+                                <th scope="col">Student Results</th>
+                                <th scope="col">Overall Rating</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -197,12 +197,12 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Period</th>
-                                <th>Appraiser</th>
-                                <th>Overall Score</th>
-                                <th>Comments</th>
-                                <th>Actions</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Period</th>
+                                <th scope="col">Appraiser</th>
+                                <th scope="col">Overall Score</th>
+                                <th scope="col">Comments</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="appraisalHistoryBody">
@@ -215,4 +215,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/staff_performance.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_performance.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_performance.js") ?>"></script>

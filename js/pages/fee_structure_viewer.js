@@ -41,7 +41,6 @@ class FeeStructureViewerController {
     controller.loadDropdowns();
     controller.loadFeeStructures();
     controller.initializeChart();
-    console.log("FeeStructureViewerController initialized");
   }
 
   /**

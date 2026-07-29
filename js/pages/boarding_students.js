@@ -17,8 +17,8 @@ const BoardingStudentsController = {
   ui: {},
 
   async init() {
-    console.log("BoardingStudentsController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,13 +27,9 @@ const BoardingStudentsController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("BoardingStudentsController: Loading metadata...");
     await this.loadMeta();
-    console.log("BoardingStudentsController: Loading summary...");
     await this.loadSummary();
-    console.log("BoardingStudentsController: Loading students...");
     await this.loadStudents();
-    console.log("BoardingStudentsController: Initialization complete");
   },
 
   cacheDom() {
@@ -509,9 +505,72 @@ const BoardingStudentsController = {
 
   openRollCallModal() {
     this.ui.rollCallDate.value = new Date().toISOString().slice(0, 10);
+    this.ui.rollCallStudentsList.innerHTML =
+      '<p class="text-muted">Select dormitory and click Load Students to begin.</p>';
+
+    this.ui.rollCallDormitory.onchange = () => this.loadRollCallStudents();
+
     if (typeof bootstrap !== "undefined" && this.ui.rollCallModal) {
       const modalInstance = new bootstrap.Modal(this.ui.rollCallModal);
       modalInstance.show();
+    }
+
+    this.loadRollCallStudents();
+  },
+
+  async loadRollCallStudents() {
+    const dormitoryId = this.ui.rollCallDormitory?.value || "";
+    const list = this.ui.rollCallStudentsList;
+    if (!list) return;
+
+    list.innerHTML = '<p class="text-muted"><i class="bi bi-hourglass-split"></i> Loading students...</p>';
+
+    try {
+      const qs = dormitoryId ? `?dormitory_id=${dormitoryId}` : "";
+      const response = await this.api(`/boarding/students${qs}`, "GET");
+      const students = this.unwrap(response) || [];
+
+      if (!students.length) {
+        list.innerHTML = '<p class="text-muted">No students found for the selected dormitory.</p>';
+        return;
+      }
+
+      list.innerHTML = `
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th style="width:40px">#</th>
+              <th>Student</th>
+              <th>Adm No</th>
+              <th>Dormitory</th>
+              <th style="width:160px">Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${students.map((s, i) => `
+              <tr class="roll-call-row" data-student-id="${s.id}">
+                <td>${i + 1}</td>
+                <td>${this.escape(s.student_name || "-")}</td>
+                <td>${this.escape(s.admission_no || "-")}</td>
+                <td>${this.escape(s.dormitory_name || "-")}</td>
+                <td>
+                  <select class="form-select form-select-sm roll-call-status">
+                    <option value="present" selected>Present</option>
+                    <option value="absent">Absent</option>
+                    <option value="late">Late</option>
+                    <option value="excused">Excused</option>
+                  </select>
+                </td>
+                <td><input type="text" class="form-control form-control-sm roll-call-notes" placeholder="Optional note"></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        <p class="text-muted small mb-0">${students.length} student(s) loaded</p>
+      `;
+    } catch (error) {
+      list.innerHTML = `<p class="text-danger">Failed to load students: ${this.escape(error.message)}</p>`;
     }
   },
 
@@ -524,11 +583,104 @@ const BoardingStudentsController = {
   },
 
   async saveRollCall() {
-    this.notify("Roll call saved (placeholder - implement endpoint)", "info");
+    const date = this.ui.rollCallDate?.value;
+    const session = this.ui.rollCallSession?.value;
+    const dormitoryId = this.ui.rollCallDormitory?.value || "";
+
+    if (!date) {
+      this.notify("Please select a date", "warning");
+      return;
+    }
+    if (!session) {
+      this.notify("Please select a session", "warning");
+      return;
+    }
+
+    const rows = this.ui.rollCallStudentsList?.querySelectorAll(".roll-call-row");
+    if (!rows || rows.length === 0) {
+      this.notify("No students loaded for roll call", "warning");
+      return;
+    }
+
+    const records = [];
+    rows.forEach((row) => {
+      const studentId = row.dataset.studentId;
+      const statusSelect = row.querySelector(".roll-call-status");
+      const notesInput = row.querySelector(".roll-call-notes");
+      if (studentId && statusSelect) {
+        records.push({
+          student_id: parseInt(studentId, 10),
+          status: statusSelect.value || "present",
+          notes: notesInput?.value || null,
+        });
+      }
+    });
+
+    if (!records.length) {
+      this.notify("No roll call records to save", "warning");
+      return;
+    }
+
+    try {
+      await this.api("/boarding/roll-call", "POST", { date, session, dormitory_id: dormitoryId, records });
+      this.notify(`Roll call saved for ${records.length} students`, "success");
+      if (typeof bootstrap !== "undefined" && this.ui.rollCallModal) {
+        const modalInstance = bootstrap.Modal.getInstance(this.ui.rollCallModal);
+        modalInstance?.hide();
+      }
+      this.loadStudents();
+      this.loadSummary();
+    } catch (error) {
+      this.notify(error.message || "Failed to save roll call", "error");
+    }
   },
 
   async saveExeat() {
-    this.notify("Exeat created (placeholder - implement endpoint)", "info");
+    const studentId = this.ui.exeatStudent?.value;
+    const exeatType = this.ui.exeatType?.value;
+    const reason = this.ui.exeatReason?.value?.trim();
+    const destination = this.ui.exeatDestination?.value?.trim();
+    const leaveAt = this.ui.exeatLeaveAt?.value;
+    const expectedReturn = this.ui.exeatExpectedReturn?.value;
+    const guardianContacted = this.ui.exeatGuardianContacted?.value === "1";
+    const notes = this.ui.exeatNotes?.value?.trim();
+
+    if (!studentId) {
+      this.notify("Please select a student", "warning");
+      return;
+    }
+    if (!reason) {
+      this.notify("Please enter a reason", "warning");
+      return;
+    }
+    if (!leaveAt) {
+      this.notify("Please select leave date/time", "warning");
+      return;
+    }
+    if (!expectedReturn) {
+      this.notify("Please select expected return date/time", "warning");
+      return;
+    }
+
+    const formData = {
+      student_id: parseInt(studentId, 10),
+      reason: [reason, destination ? `Destination: ${destination}` : "", notes || ""].filter(Boolean).join(". "),
+      departure_date: leaveAt.replace("T", " ") + ":00",
+      return_date: expectedReturn.replace("T", " ") + ":00",
+    };
+
+    try {
+      await this.api("/boarding/exeats", "POST", formData);
+      this.notify("Exeat request submitted successfully", "success");
+      if (typeof bootstrap !== "undefined" && this.ui.exeatModal) {
+        const modalInstance = bootstrap.Modal.getInstance(this.ui.exeatModal);
+        modalInstance?.hide();
+      }
+      this.loadStudents();
+      this.loadSummary();
+    } catch (error) {
+      this.notify(error.message || "Failed to submit exeat request", "error");
+    }
   },
 
   exportBoardingSheet() {

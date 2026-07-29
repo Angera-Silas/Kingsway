@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-chart-area me-2"></i>Performance Trends</h4>
+                    <h4 class="mb-1"><i class="bi bi-bar-chart-steps me-2"></i>Performance Trends</h4>
                     <p class="text-muted mb-0">Track and analyze academic performance patterns</p>
                 </div>
                 <button class="btn btn-outline-primary" id="exportAnalysis">
-                    <i class="fas fa-file-pdf me-1"></i> Export Analysis
+                    <i class="bi bi-file-pdf me-1"></i> Export Analysis
                 </button>
             </div>
         </div>
@@ -89,7 +89,7 @@
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="fas fa-arrow-up me-2"></i>Top Improving</h5>
+                    <h5 class="mb-0"><i class="bi bi-arrow-up me-2"></i>Top Improving</h5>
                 </div>
                 <div class="card-body">
                     <ul class="list-group list-group-flush" id="topImproving"></ul>
@@ -99,7 +99,7 @@
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header bg-warning text-dark">
-                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Need Attention</h5>
+                    <h5 class="mb-0"><i class="bi bi-exclamation-triangle me-2"></i>Need Attention</h5>
                 </div>
                 <div class="card-body">
                     <ul class="list-group list-group-flush" id="needAttention"></ul>
@@ -109,4 +109,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/performance_trends.js"></script>
+<script src="<?= $appBase ?>/js/pages/performance_trends.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/performance_trends.js") ?>"></script>

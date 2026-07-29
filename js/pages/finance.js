@@ -17,14 +17,12 @@ const financeController = {
      */
     init: async function() {
         try {
-            console.log('Loading finance data...');
             await Promise.all([
                 this.loadPayments(),
                 this.loadPayrolls(),
                 this.loadFeesStructure()
             ]);
             this.checkUserPermissions();
-            console.log('Finance management loaded successfully');
         } catch (error) {
             console.error('Error initializing finance controller:', error);
             showNotification('Failed to load finance management', 'error');

@@ -15,10 +15,27 @@ const TimetableController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+
+    if (
+      typeof PageShell !== "undefined" &&
+      !PageShell.hasAny(["schedules_view", "timetable_view", "schedules_manage"])
+    ) {
+      const container = document.getElementById("timetableContainer") || document.querySelector(".container-fluid");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to view the timetable." +
+          "</div>";
+      }
+      return;
+    }
+
     this.bindEvents();
     await Promise.all([this.loadFilters(), this.loadTimeSlots()]);
   },

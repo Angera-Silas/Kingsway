@@ -16,15 +16,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-futbol me-2"></i>Sports</h4>
+                    <h4 class="mb-1"><i class="bi bi-circle me-2"></i>Sports</h4>
                     <p class="text-muted mb-0">Manage school sports teams and activities</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTeamModal">
-                        <i class="fas fa-plus me-1"></i> New Team
+                        <i class="bi bi-plus-lg me-1"></i> New Team
                     </button>
                     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addFixtureModal">
-                        <i class="fas fa-calendar me-1"></i> Add Fixture
+                        <i class="bi bi-calendar me-1"></i> Add Fixture
                     </button>
                 </div>
             </div>
@@ -63,12 +63,12 @@
                         <table class="table" id="fixturesTable">
                             <thead>
                                 <tr>
-                                    <th>Date</th>
-                                    <th>Sport</th>
-                                    <th>Opponent</th>
-                                    <th>Venue</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Sport</th>
+                                    <th scope="col">Opponent</th>
+                                    <th scope="col">Venue</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody></tbody>
@@ -86,11 +86,11 @@
                         <table class="table" id="resultsTable">
                             <thead>
                                 <tr>
-                                    <th>Date</th>
-                                    <th>Sport</th>
-                                    <th>Match</th>
-                                    <th>Score</th>
-                                    <th>Result</th>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Sport</th>
+                                    <th scope="col">Match</th>
+                                    <th scope="col">Score</th>
+                                    <th scope="col">Result</th>
                                 </tr>
                             </thead>
                             <tbody></tbody>
@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/sports.js"></script>
+<script src="<?= $appBase ?>/js/pages/sports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/sports.js") ?>"></script>

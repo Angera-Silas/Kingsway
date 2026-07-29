@@ -10,11 +10,11 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h4 class="mb-1"><i class="fas fa-plus-circle me-2"></i>Add Student Result</h4>
+            <h4 class="mb-1"><i class="bi bi-plus-lg-circle me-2"></i>Add Student Result</h4>
             <p class="text-muted mb-0">Quick entry for individual student marks</p>
         </div>
         <a href="<?= $appBase ?>/home.php?route=enter_results" class="btn btn-outline-primary">
-            <i class="fas fa-th me-1"></i>Bulk Entry
+            <i class="bi bi-grid-3x3-gap me-1"></i>Bulk Entry
         </a>
     </div>
 
@@ -23,7 +23,7 @@
         <div class="col-md-7">
             <div class="card shadow-sm">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Result Entry Form</h5>
+                    <h5 class="mb-0"><i class="bi bi-pencil me-2"></i>Result Entry Form</h5>
                 </div>
                 <div class="card-body">
                     <form id="addResultForm">
@@ -38,9 +38,6 @@
                                 <label class="form-label">Term</label>
                                 <select id="termSelect" class="form-select" required>
                                     <option value="">-- Select Term --</option>
-                                    <option value="Term 1">Term 1</option>
-                                    <option value="Term 2">Term 2</option>
-                                    <option value="Term 3">Term 3</option>
                                 </select>
                             </div>
                             <div class="col-md-6">
@@ -65,10 +62,6 @@
                                 <label class="form-label">Assessment Type</label>
                                 <select id="assessmentType" class="form-select" required>
                                     <option value="">-- Select Type --</option>
-                                    <option value="CAT">CAT</option>
-                                    <option value="Exam">End of Term Exam</option>
-                                    <option value="Assignment">Assignment</option>
-                                    <option value="Project">Project</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
@@ -91,7 +84,7 @@
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-primary btn-lg w-100">
-                                    <i class="fas fa-save me-2"></i>Save Result
+                                    <i class="bi bi-check-lg me-2"></i>Save Result
                                 </button>
                             </div>
                         </div>
@@ -104,7 +97,7 @@
         <div class="col-md-5">
             <div class="card shadow-sm">
                 <div class="card-header bg-light">
-                    <h6 class="mb-0"><i class="fas fa-history me-2"></i>Recently Added</h6>
+                    <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>Recently Added</h6>
                 </div>
                 <div class="card-body p-0" id="recentEntries">
                     <div class="text-center text-muted py-4">No entries yet this session</div>
@@ -114,4 +107,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/add_results.js"></script>
+<script src="<?= $appBase ?>/js/pages/add_results.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/add_results.js") ?>"></script>

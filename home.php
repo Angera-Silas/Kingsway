@@ -14,6 +14,13 @@ if ($appBase === '.') {
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 
+// Define the filesystem root so page files under pages/ can resolve
+// absolute paths for filemtime() — used by 80+ page scripts for
+// cache-busting version parameters without a central autoloader.
+if (!defined('APP_BASE_PATH')) {
+    define('APP_BASE_PATH', __DIR__);
+}
+
 function asset_version(string $relativePath): string
 {
     $path = __DIR__ . '/' . ltrim($relativePath, '/');
@@ -68,12 +75,12 @@ function asset_script(string $appBase, string $path): void
         rel="stylesheet"
     >
     <link
-        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css"
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
         rel="stylesheet"
         referrerpolicy="no-referrer"
     >
     <link
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
         rel="stylesheet"
         referrerpolicy="no-referrer"
     >
@@ -81,6 +88,10 @@ function asset_script(string $appBase, string $path): void
     <link
         rel="stylesheet"
         href="<?= htmlspecialchars($appBase) ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>"
+    >
+    <link
+        rel="stylesheet"
+        href="<?= htmlspecialchars($appBase) ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>"
     >
     <link
         rel="stylesheet"
@@ -219,5 +230,44 @@ foreach ($files as $file) {
     asset_script($appBase, $file);
 }
 ?>
+<script>
+    (async function () {
+        const route = window.REQUESTED_ROUTE;
+        if (!route || route === 'loading') return;
+
+        try {
+            // Wait for auth to be fully initialized before checking route access.
+            // Without this, the check runs before AuthContext.initialize() completes
+            // so isAuthenticated() returns false and every route is denied.
+            if (window.AuthContext?.ready) {
+                await window.AuthContext.ready();
+            } else if (window.KingswayBootstrap?.initialize) {
+                await window.KingswayBootstrap.initialize();
+            }
+
+            const auth = await window.AppRouteAccess?.authorizeRouteAccess?.(route);
+            if (auth && !auth.authorized) {
+                const seg = document.getElementById('main-content-segment');
+                if (seg) {
+                    seg.innerHTML =
+                        '<div class="alert alert-danger border-0 shadow-sm mt-3">' +
+                        '<i class="bi bi-shield-lock me-2"></i>' +
+                        '<strong>Access denied.</strong> ' +
+                        'You do not have permission to view this page.' +
+                        '</div>';
+                }
+                window.showNotification?.(
+                    'You are not allowed to open that page.',
+                    'warning'
+                );
+                setTimeout(function () {
+                    window.AppRouteAccess.redirectToAllowedRoute?.(route);
+                }, 2000);
+            }
+        } catch (e) {
+            console.warn('Route authorization check failed:', e);
+        }
+    })();
+</script>
 </body>
 </html>

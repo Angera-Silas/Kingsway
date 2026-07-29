@@ -16,10 +16,12 @@
 require_once __DIR__ . '/../config/Config.php';
 \App\Config\Config::init();
 
-// Simple authentication check - in production, use proper JWT validation
+// Dual-auth pattern: session for initial page load, JWT via AuthMiddleware for API-backed requests.
+// - $_SESSION['user'] is set by the login form (session-based auth for browser page loads).
+// - $_SERVER['auth_user'] is set by AuthMiddleware when a valid JWT Bearer token is present.
+// - For unauthenticated visitors (e.g. QR code scanning), the page renders a limited public view.
 session_start();
 
-// Check if user is logged in via session
 if (!isset($_SESSION['user']) && !isset($_SERVER['auth_user'])) {
     // For QR code scanning, we need to allow public access but with limited info
     // For now, we'll show basic info to anyone, but sensitive info requires auth
@@ -39,7 +41,7 @@ if (!$studentId) {
 }
 
 // Get database connection
-require_once __DIR__ . '/database/Database.php';
+require_once __DIR__ . '/../database/Database.php';
 $db = \App\Database\Database::getInstance()->getConnection();
 
 // Get student details
@@ -207,7 +209,8 @@ if (canShowSection('authorization', $allowedSections)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Portal - <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?></title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="../css/app-common.css?v=<?= filemtime(APP_BASE_PATH . '/css/app-common.css') ?>">
     <style>
         body {
             background: #f5f5f5;
@@ -288,11 +291,11 @@ if (canShowSection('authorization', $allowedSections)) {
                     <p class="mb-0">
                         <?php if ($isAuthenticated): ?>
                             <span class="role-badge">
-                                <i class="fas fa-user-shield"></i> Viewing as: <?php echo ucfirst($userRole); ?>
+                                <i class="bi bi-person-shield"></i> Viewing as: <?php echo ucfirst($userRole); ?>
                             </span>
                         <?php else: ?>
                             <span class="role-badge">
-                                <i class="fas fa-qrcode"></i> Public View - <a href="/index.php" style="color: white;">Login for full details</a>
+                                <i class="bi bi-qr-code"></i> Public View - <a href="/index.php" style="color: white;">Login for full details</a>
                             </span>
                         <?php endif; ?>
                     </p>
@@ -302,7 +305,7 @@ if (canShowSection('authorization', $allowedSections)) {
 
         <!-- Basic Information (always shown) -->
         <div class="info-card">
-            <h4><i class="fas fa-user"></i> Basic Information</h4>
+            <h4><i class="bi bi-person"></i> Basic Information</h4>
             <div class="info-row">
                 <div class="info-label">Full Name:</div>
                 <div class="info-value"><?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?></div>
@@ -336,7 +339,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Academic Information (for teachers, accountants, etc.) -->
         <?php if (canShowSection('academic', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-graduation-cap"></i> Academic Information</h4>
+            <h4><i class="bi bi-mortarboard"></i> Academic Information</h4>
             <div class="info-row">
                 <div class="info-label">Year Joined:</div>
                 <div class="info-value"><?php echo htmlspecialchars($student['year_joined']); ?></div>
@@ -360,7 +363,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Financial Information (for accountants, finance managers) -->
         <?php if (canShowSection('financial', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-money-bill-wave"></i> Financial Information</h4>
+            <h4><i class="bi bi-cash-wave"></i> Financial Information</h4>
             <?php if (!empty($additionalData['fees'])): ?>
                 <?php foreach ($additionalData['fees'] as $fee): ?>
                     <div class="info-row">
@@ -382,7 +385,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Transportation Information (for drivers, transport managers) -->
         <?php if (canShowSection('transportation', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-bus"></i> Transportation Information</h4>
+            <h4><i class="bi bi-bus-front"></i> Transportation Information</h4>
             <?php if (!empty($additionalData['transport'])): ?>
                 <div class="info-row">
                     <div class="info-label">Route:</div>
@@ -409,7 +412,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Authorization Information (for security personnel) -->
         <?php if (canShowSection('authorization', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-id-card"></i> Authorization Information</h4>
+            <h4><i class="bi bi-person-badge"></i> Authorization Information</h4>
             <?php if (!empty($additionalData['id_card'])): ?>
                 <div class="info-row">
                     <div class="info-label">Card Number:</div>
@@ -438,7 +441,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Medical Information (for medical staff) -->
         <?php if (canShowSection('medical', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-heartbeat"></i> Medical Information</h4>
+            <h4><i class="bi bi-heartbeat"></i> Medical Information</h4>
             <?php if (!empty($additionalData['medical'])): ?>
                 <?php foreach ($additionalData['medical'] as $medical): ?>
                     <div class="info-row">
@@ -455,7 +458,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Sports Information (for sports coordinator) -->
         <?php if (canShowSection('sports', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-running"></i> Sports Information</h4>
+            <h4><i class="bi bi-person-walking"></i> Sports Information</h4>
             <?php if (!empty($additionalData['sports'])): ?>
                 <?php foreach ($additionalData['sports'] as $sport): ?>
                     <div class="info-row">
@@ -476,7 +479,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Library Information (for librarian) -->
         <?php if (canShowSection('library', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-book"></i> Library Information</h4>
+            <h4><i class="bi bi-book"></i> Library Information</h4>
             <?php if (!empty($additionalData['library'])): ?>
                 <?php foreach ($additionalData['library'] as $book): ?>
                     <div class="info-row">
@@ -497,7 +500,7 @@ if (canShowSection('authorization', $allowedSections)) {
         <!-- Guidance Information (for guidance counselor) -->
         <?php if (canShowSection('guidance', $allowedSections)): ?>
         <div class="info-card">
-            <h4><i class="fas fa-comments"></i> Guidance & Counseling</h4>
+            <h4><i class="bi bi-chats"></i> Guidance & Counseling</h4>
             <?php if (!empty($additionalData['guidance'])): ?>
                 <?php foreach ($additionalData['guidance'] as $guidance): ?>
                     <div class="info-row">

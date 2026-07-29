@@ -172,11 +172,7 @@ const LessonPlansByClassController = (() => {
     }
   }
 
-  function showNotification(message, type) {
-    if (window.API?.showNotification)
-      window.API.showNotification(message, type);
-    else alert((type === "error" ? "Error: " : "") + message);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   function attachListeners() {
     document
@@ -204,7 +200,6 @@ const LessonPlansByClassController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in lesson_plans_by_class:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload data when academic year or term changes
           loadData();

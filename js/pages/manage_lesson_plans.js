@@ -34,10 +34,27 @@ const lessonPlansController = (() => {
   };
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+
+    if (
+      typeof PageShell !== "undefined" &&
+      !PageShell.hasAny(["lesson_plans_view", "lesson_plans_manage", "lesson_plans_create"])
+    ) {
+      const container = document.querySelector(".container-fluid") || document.getElementById("lessonPlansContainer");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to view lesson plans." +
+          "</div>";
+      }
+      return;
+    }
+
     await loadReferenceData();
     await loadPlans();
   }

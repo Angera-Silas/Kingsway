@@ -103,14 +103,14 @@
                 <table class="table table-hover table-bordered" id="curriculumTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Grade Level</th>
-                            <th>Learning Area</th>
-                            <th>Strand</th>
-                            <th>Sub-Strand</th>
-                            <th>Indicators</th>
-                            <th>Assessment Criteria</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Grade Level</th>
+                            <th scope="col">Learning Area</th>
+                            <th scope="col">Strand</th>
+                            <th scope="col">Sub-Strand</th>
+                            <th scope="col">Indicators</th>
+                            <th scope="col">Assessment Criteria</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="curriculumTableBody">

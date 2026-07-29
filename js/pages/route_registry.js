@@ -25,17 +25,16 @@ const RouteRegistryController = {
     init: async function() {
         try {
             // Check authentication
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
-            console.log('🚀 Initializing Route Registry Controller...');
             
             this.setupEventListeners();
             await this.loadRoutes();
             
-            console.log('✅ Route Registry Controller initialized');
         } catch (error) {
             console.error('❌ Error initializing Route Registry:', error);
             this.showError('Failed to initialize route registry');

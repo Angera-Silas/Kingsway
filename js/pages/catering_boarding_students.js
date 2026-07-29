@@ -16,8 +16,8 @@ const CateringBoardingController = {
   ui: {},
 
   async init() {
-    console.log("CateringBoardingController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,13 +29,9 @@ const CateringBoardingController = {
     // Set default date to today
     this.ui.dateFilter.value = this.state.selectedDate;
 
-    console.log("CateringBoardingController: Loading metadata...");
     await this.loadMeta();
-    console.log("CateringBoardingController: Loading summary...");
     await this.loadSummary();
-    console.log("CateringBoardingController: Loading students...");
     await this.loadStudents();
-    console.log("CateringBoardingController: Initialization complete");
   },
 
   cacheDom() {

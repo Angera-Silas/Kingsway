@@ -3,7 +3,6 @@
  * Handles the new applications page - receiving, tracking, and creating applications
  */
 
-console.log("new_applications.js loaded successfully");
 
 const newApplicationsController = {
   applications: [],
@@ -17,9 +16,17 @@ const newApplicationsController = {
     if (this.initialized) return;
     this.initialized = true;
 
-    console.log("newApplicationsController: Initializing...");
-
     try {
+      // Wait for AuthContext to finish bootstrapping (restores session
+      // from HttpOnly refresh cookie) before checking auth state.
+      // Without this, isAuthenticated() returns false on page load
+      // because the access token is only kept in memory.
+      if (window.AuthContext?.ready) {
+        await window.AuthContext.ready();
+      } else {
+        console.warn("newApplicationsController: AuthContext not available");
+      }
+
       if (
         window.AuthContext &&
         typeof window.AuthContext.isAuthenticated === "function"
@@ -31,8 +38,6 @@ const newApplicationsController = {
           window.location.href = `${window.APP_BASE || ""}/index.php`;
           return;
         }
-      } else {
-        console.warn("newApplicationsController: AuthContext not available");
       }
 
       // Check for URL parameters that might trigger auto-view
@@ -41,7 +46,6 @@ const newApplicationsController = {
       const viewId = urlParams.get('view');
       
       if (applicationId && !viewId) {
-        console.log("Auto-viewing application from URL parameter:", applicationId);
         // Remove the parameter from URL without triggering page reload
         const newUrl = window.location.pathname + window.location.search.replace(/[?&]application_id=[^&]+/, '').replace(/^&/, '?');
         window.history.replaceState({}, '', newUrl);
@@ -57,7 +61,6 @@ const newApplicationsController = {
       await this.loadMetadata();
       await this.loadApplications();
 
-      console.log("newApplicationsController: Initialization complete");
     } catch (error) {
       console.error("Failed to initialize New Applications Controller:", error);
       this.showError(
@@ -182,10 +185,45 @@ const newApplicationsController = {
 
   loadMetadata: async function () {
     await this.loadParents();
+    await this.loadClasses();
 
     const currentYear = new Date().getFullYear();
     this.academicYears = [currentYear, currentYear + 1];
     this.populateAcademicYearDropdown();
+  },
+
+  loadClasses: async function () {
+    try {
+      let classes = [];
+      if (window.API?.admission?.getPlacementClasses) {
+        const response = await window.API.admission.getPlacementClasses();
+        const payload = response?.data || response || {};
+        classes = payload.classes || (Array.isArray(payload) ? payload : []);
+      }
+      if (!classes.length && window.API?.academic?.listClasses) {
+        const response = await window.API.academic.listClasses({ limit: 200 });
+        const payload = response?.data || response || {};
+        classes = Array.isArray(payload) ? payload : payload.classes || [];
+      }
+      this.populateClassSelects(classes);
+    } catch (error) {
+      console.error('Failed to load classes:', error);
+    }
+  },
+
+  populateClassSelects: function (classes) {
+    ['filterClass', 'gradeSelect'].forEach(selectId => {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const currentVal = select.value;
+      const firstOption = select.querySelector('option:first-child');
+      const firstLabel = firstOption ? firstOption.textContent : 'All Classes';
+      const firstValue = firstOption ? firstOption.value : '';
+      let html = `<option value="${firstValue}">${firstLabel}</option>`;
+      html += classes.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+      select.innerHTML = html;
+      if (currentVal) select.value = currentVal;
+    });
   },
 
   loadParents: async function () {
@@ -196,7 +234,6 @@ const newApplicationsController = {
       this.parents = parents;
       this.populateParentDropdown();
 
-      console.log("Parents loaded:", this.parents.length);
     } catch (error) {
       console.error("Failed to load parents:", error);
       this.parents = [];
@@ -251,9 +288,6 @@ const newApplicationsController = {
     try {
       const response = await this.apiCall("/admission/queues", "GET");
 
-      console.log("Admission queues response:", response);
-      console.log("Response success field:", response.success);
-      console.log("Response structure:", JSON.stringify(response, null, 2));
 
       if (!this.isSuccessfulResponse(response)) {
         throw new Error(response?.message || "Failed to load applications.");
@@ -263,9 +297,6 @@ const newApplicationsController = {
       const queues = payload?.queues || {};
       const summary = payload?.summary || {};
 
-      console.log("Payload:", payload);
-      console.log("Queues:", queues);
-      console.log("Summary:", summary);
 
       const allApplications = [];
 
@@ -284,7 +315,6 @@ const newApplicationsController = {
       this.updateSummaryCards(summary);
       this.applyFilters();
 
-      console.log("Applications loaded:", this.applications.length);
     } catch (error) {
       console.error("Failed to load applications:", error);
       this.applications = [];
@@ -616,7 +646,6 @@ const newApplicationsController = {
     });
 
     try {
-      console.log("Submitting application data:", data);
 
       const response = await this.apiCall(
         "/admission/submit-application",
@@ -624,7 +653,6 @@ const newApplicationsController = {
         data,
       );
 
-      console.log("Submit application response:", response);
 
       if (!this.isSuccessfulResponse(response)) {
         throw new Error(response?.message || "Failed to submit application.");

@@ -82,14 +82,14 @@
             <table class="table table-hover table-striped" id="assignedSubjectsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Subject</th>
-                        <th>Learning Area</th>
-                        <th>Classes</th>
-                        <th>Teacher</th>
-                        <th>Periods/Week</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Learning Area</th>
+                        <th scope="col">Classes</th>
+                        <th scope="col">Teacher</th>
+                        <th scope="col">Periods/Week</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -107,4 +107,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/intern_assigned_subjects.js"></script>
+<script src="<?= $appBase ?>/js/pages/intern_assigned_subjects.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/intern_assigned_subjects.js") ?>"></script>

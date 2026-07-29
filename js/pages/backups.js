@@ -9,6 +9,7 @@ const backupsController = {
     filters: { search: '', level: '' },
 
     init: async function () {
+        await window.AuthContext?.ready();
         if (!AuthContext.isAuthenticated()) { window.location.href = '/'; return; }
         if (!AuthContext.hasPermission('system_view')) {
             const el = document.getElementById('mainTable');

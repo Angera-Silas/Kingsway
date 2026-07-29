@@ -15,8 +15,8 @@ const StudentCounselingController = {
   ui: {},
 
   async init() {
-    console.log("StudentCounselingController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -25,11 +25,8 @@ const StudentCounselingController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentCounselingController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentCounselingController: Loading cases...");
     await this.loadCases();
-    console.log("StudentCounselingController: Initialization complete");
   },
 
   cacheDom() {

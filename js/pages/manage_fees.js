@@ -11,6 +11,7 @@ const feesController = {
     tab: 'structures',
 
     init: async function() {
+        await window.AuthContext?.ready();
         if (!AuthContext.isAuthenticated()) { window.location.href = '/'; return; }
         if (!AuthContext.hasPermission('finance_view')) {
             (document.getElementById('feesContainer') || document.body).insertAdjacentHTML('afterbegin',

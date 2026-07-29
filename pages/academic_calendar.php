@@ -17,15 +17,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-calendar-alt me-2"></i>Academic Calendar</h4>
+                    <h4 class="mb-1"><i class="bi bi-calendar-alt me-2"></i>Academic Calendar</h4>
                     <p class="text-muted mb-0">View and manage school calendar, events, and important dates</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
-                        <i class="fas fa-plus me-1"></i> Add Event
+                        <i class="bi bi-plus-lg me-1"></i> Add Event
                     </button>
                     <button class="btn btn-outline-secondary" id="printCalendar">
-                        <i class="fas fa-print me-1"></i> Print
+                        <i class="bi bi-printer me-1"></i> Print
                     </button>
                 </div>
             </div>
@@ -60,11 +60,11 @@
     <div class="row mb-3">
         <div class="col-12">
             <div class="d-flex flex-wrap gap-3">
-                <span class="badge bg-primary"><i class="fas fa-circle me-1"></i> Term Dates</span>
-                <span class="badge bg-danger"><i class="fas fa-circle me-1"></i> Holidays</span>
-                <span class="badge bg-success"><i class="fas fa-circle me-1"></i> Exams</span>
-                <span class="badge bg-warning text-dark"><i class="fas fa-circle me-1"></i> Events</span>
-                <span class="badge bg-info"><i class="fas fa-circle me-1"></i> Meetings</span>
+                <span class="badge bg-primary"><i class="bi bi-circle me-1"></i> Term Dates</span>
+                <span class="badge bg-danger"><i class="bi bi-circle me-1"></i> Holidays</span>
+                <span class="badge bg-success"><i class="bi bi-circle me-1"></i> Exams</span>
+                <span class="badge bg-warning text-dark"><i class="bi bi-circle me-1"></i> Events</span>
+                <span class="badge bg-info"><i class="bi bi-circle me-1"></i> Meetings</span>
             </div>
         </div>
     </div>
@@ -88,7 +88,7 @@
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Upcoming Events</h5>
+                    <h5 class="mb-0"><i class="bi bi-clock me-2"></i>Upcoming Events</h5>
                 </div>
                 <div class="card-body" id="upcomingEvents">
                     <div class="list-group list-group-flush">
@@ -102,7 +102,7 @@
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0"><i class="fas fa-umbrella-beach me-2"></i>Holidays This Term</h5>
+                    <h5 class="mb-0"><i class="bi bi-brightness-high me-2"></i>Holidays This Term</h5>
                 </div>
                 <div class="card-body" id="holidaysList">
                     <div class="list-group list-group-flush">
@@ -169,4 +169,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/academic_calendar.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/academic_calendar.js"></script>

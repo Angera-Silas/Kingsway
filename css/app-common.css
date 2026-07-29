@@ -1,0 +1,79 @@
+/* ═══ App-wide accessibility + shared utility styles ═══ */
+
+/* Skip-to-content link (hidden until focused via Tab) */
+.skip-link,
+.visually-hidden-focusable.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 10999;
+  padding: 0.75rem 1.5rem;
+  background: #0d4f2a;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 0 0 0.5rem 0;
+  transition: top 0.15s ease-in-out;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 0;
+  outline: 3px solid #f9c80e;
+  outline-offset: 2px;
+}
+
+/* ─── Kingsway brand tokens (safe to use everywhere) ─── */
+:root {
+  --kw-green: #0d4f2a;
+  --kw-green-light: #198754;
+  --kw-gold: #f9c80e;
+  --kw-cream: #f5f5dc;
+  --kw-green-grad: linear-gradient(135deg, #0d4f2a 0%, #198754 100%);
+}
+
+/* ─── Stat-card gradients (reused across dashboards) ─── */
+.kw-grad-green  { background: linear-gradient(135deg, #0d4f2a 0%, #198754 100%); }
+.kw-grad-gold   { background: linear-gradient(135deg, #b8860b 0%, #f9c80e 100%); }
+.kw-grad-blue   { background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%); }
+.kw-grad-purple { background: linear-gradient(135deg, #4a235a 0%, #7d3c98 100%); }
+.kw-grad-red    { background: linear-gradient(135deg, #78281f 0%, #cb4335 100%); }
+.kw-grad-teal   { background: linear-gradient(135deg, #0e6655 0%, #1abc9c 100%); }
+.kw-grad-orange { background: linear-gradient(135deg, #7e5109 0%, #f39c12 100%); }
+.kw-grad-indigo { background: linear-gradient(135deg, #1b2631 0%, #5b2c6f 100%); }
+
+/* ─── Toast notification (centralized) ─── */
+.kw-toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10900;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.kw-toast {
+  pointer-events: auto;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  color: #fff;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  opacity: 0;
+  transform: translateX(100%);
+  transition: opacity 0.3s, transform 0.3s;
+  max-width: 400px;
+}
+.kw-toast.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+.kw-toast-success { background: #198754; }
+.kw-toast-danger  { background: #dc3545; }
+.kw-toast-warning { background: #ffc107; color: #000; }
+.kw-toast-info    { background: #0d6efd; }
+
+/* ─── Table header scope helper ─── */
+table.table thead th[scope="col"] {
+  font-weight: 600;
+}

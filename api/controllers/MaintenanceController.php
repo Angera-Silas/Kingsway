@@ -18,6 +18,14 @@ class MaintenanceController extends BaseController
         $this->systemApi = new SystemAPI();
     }
 
+    private function guardMaintenance(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Maintenance API is running']);
@@ -40,6 +48,8 @@ class MaintenanceController extends BaseController
     // POST /api/maintenance - Create new maintenance record (equipment by default)
     public function postMaintenance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardMaintenance()) return $guard;
+
         // Determine type: equipment or vehicle
         $type = $data['type'] ?? 'equipment';
 
@@ -54,6 +64,8 @@ class MaintenanceController extends BaseController
     // PUT /api/maintenance/{id} - Update maintenance record
     public function putMaintenance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardMaintenance()) return $guard;
+
         if (!$id) {
             return $this->badRequest('ID is required for update');
         }
@@ -72,6 +84,8 @@ class MaintenanceController extends BaseController
     // DELETE /api/maintenance/{id} - Delete maintenance record
     public function deleteMaintenance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardMaintenance()) return $guard;
+
         if (!$id) {
             return $this->badRequest('ID is required for deletion');
         }
@@ -103,6 +117,12 @@ class MaintenanceController extends BaseController
     // POST /api/maintenance/logs/clear
     public function postLogsClear($id = null, $data = [], $segments = [])
     {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasRole('System Administrator') && !$this->userHasPermission('*')) {
+            return $this->forbidden('System Administrator access required');
+        }
         $result = $this->systemApi->clearLogs();
         return $this->handleResponse($result);
     }
@@ -110,6 +130,12 @@ class MaintenanceController extends BaseController
     // POST /api/maintenance/logs/archive
     public function postLogsArchive($id = null, $data = [], $segments = [])
     {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasRole('System Administrator') && !$this->userHasPermission('*')) {
+            return $this->forbidden('System Administrator access required');
+        }
         $result = $this->systemApi->archiveLogs();
         return $this->handleResponse($result);
     }
@@ -124,6 +150,8 @@ class MaintenanceController extends BaseController
     // POST /api/maintenance/config
     public function postConfig($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardMaintenance()) return $guard;
+
         $result = $this->systemApi->setSchoolConfig($data);
         return $this->handleResponse($result);
     }

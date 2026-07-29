@@ -72,6 +72,7 @@
         currentMonth: new Date().getMonth(),
 
         init: async function () {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
@@ -81,7 +82,6 @@
             if (window.AcademicContext) {
                 // Subscribe to context changes
                 window.AcademicContext.subscribe((context, event, data) => {
-                    console.log('AcademicContext changed in school_events:', event, data);
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload events when academic year or term changes
                         this.loadData();

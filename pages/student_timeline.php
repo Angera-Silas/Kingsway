@@ -144,8 +144,8 @@
                 <div class="table-responsive">
                   <table class="table table-sm table-hover align-middle mb-0">
                     <thead class="table-light"><tr>
-                      <th>Date</th><th>Year</th><th>Term</th>
-                      <th class="text-end">Amount</th><th>Method</th><th>Receipt</th><th>Status</th>
+                      <th scope="col">Date</th><th scope="col">Year</th><th scope="col">Term</th>
+                      <th class="text-end">Amount</th><th scope="col">Method</th><th scope="col">Receipt</th><th scope="col">Status</th>
                     </tr></thead>
                     <tbody id="tlPaymentsBody"></tbody>
                   </table>
@@ -162,7 +162,7 @@
                 <div class="table-responsive">
                   <table class="table table-sm mb-0">
                     <thead class="table-light"><tr>
-                      <th>Ref</th><th>Amount</th><th>Remaining</th><th>Status</th>
+                      <th scope="col">Ref</th><th scope="col">Amount</th><th scope="col">Remaining</th><th scope="col">Status</th>
                     </tr></thead>
                     <tbody id="tlCreditsBody"></tbody>
                   </table>
@@ -177,7 +177,7 @@
                 <div class="table-responsive">
                   <table class="table table-sm mb-0">
                     <thead class="table-light"><tr>
-                      <th>Year</th><th>Term</th><th>Fee</th><th class="text-end">Balance</th>
+                      <th scope="col">Year</th><th scope="col">Term</th><th scope="col">Fee</th><th class="text-end">Balance</th>
                     </tr></thead>
                     <tbody id="tlObligationsBody"></tbody>
                   </table>
@@ -193,7 +193,7 @@
         <div class="table-responsive">
           <table class="table table-hover border-0 shadow-sm">
             <thead class="table-light"><tr>
-              <th>Year</th><th>Term</th><th class="text-center">Present</th>
+              <th scope="col">Year</th><th scope="col">Term</th><th class="text-center">Present</th>
               <th class="text-center">Absent</th><th class="text-center">Late</th>
               <th class="text-center">Total</th><th class="text-end">%</th>
             </tr></thead>
@@ -262,5 +262,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_timeline.js"></script>
+<script src="<?= $appBase ?>/js/pages/student_timeline.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_timeline.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => studentTimelineController.init());</script>

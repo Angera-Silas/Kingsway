@@ -72,13 +72,13 @@
     <table class="manager-data-table" id="casesTable">
         <thead>
             <tr>
-                <th>Date</th>
-                <th>Student</th>
-                <th>Class</th>
-                <th>Category</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Date</th>
+                <th scope="col">Student</th>
+                <th scope="col">Class</th>
+                <th scope="col">Category</th>
+                <th scope="col">Severity</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="casesTableBody">

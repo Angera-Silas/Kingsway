@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-secondary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-church"></i> Chapel Services</h4>
+            <h4 class="mb-0"><i class="bi bi-building"></i> Chapel Services</h4>
             <button class="btn btn-light btn-sm" id="addServiceBtn" data-permission="chapel_manage">
                 <i class="bi bi-plus-circle"></i> Schedule Service
             </button>
@@ -86,13 +86,13 @@
             <table class="table table-hover" id="servicesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Date/Time</th>
-                        <th>Service Type</th>
-                        <th>Theme</th>
-                        <th>Speaker</th>
-                        <th>Attendance</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Date/Time</th>
+                        <th scope="col">Service Type</th>
+                        <th scope="col">Theme</th>
+                        <th scope="col">Speaker</th>
+                        <th scope="col">Attendance</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -286,4 +286,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/chapel_services.js"></script>
+<script src="<?= $appBase ?>/js/pages/chapel_services.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/chapel_services.js") ?>"></script>

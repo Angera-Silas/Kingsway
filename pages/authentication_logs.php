@@ -19,14 +19,14 @@
                 class="btn btn-outline-secondary"
                 id="resetAuthenticationLogFiltersBtn"
             >
-                <i class="fas fa-undo me-1"></i> Reset filters
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="refreshAuthenticationLogsBtn"
             >
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -54,7 +54,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -141,12 +141,12 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>Date and time</th>
-                        <th>Account / identifier</th>
-                        <th>Result</th>
-                        <th>IP address</th>
-                        <th>Failure reason</th>
-                        <th>Client</th>
+                        <th scope="col">Date and time</th>
+                        <th scope="col">Account / identifier</th>
+                        <th scope="col">Result</th>
+                        <th scope="col">IP address</th>
+                        <th scope="col">Failure reason</th>
+                        <th scope="col">Client</th>
                     </tr>
                 </thead>
                 <tbody id="authenticationLogsTableBody">
@@ -173,7 +173,7 @@
                         class="btn btn-outline-secondary"
                         id="authenticationLogsPreviousPage"
                     >
-                        <i class="fas fa-chevron-left me-1"></i> Previous
+                        <i class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -186,7 +186,7 @@
                         class="btn btn-outline-secondary"
                         id="authenticationLogsNextPage"
                     >
-                        Next <i class="fas fa-chevron-right ms-1"></i>
+                        Next <i class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

@@ -119,18 +119,18 @@
         <thead>
             <tr>
                 <th class="checkbox-col"><input type="checkbox" id="selectAll"></th>
-                <th>Photo</th>
-                <th>Adm No</th>
-                <th>Name</th>
-                <th>Class</th>
-                <th>Stream</th>
-                <th>Gender</th>
-                <th>DOB</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Parent Contact</th>
-                <th>Fee Balance</th>
-                <th>Actions</th>
+                <th scope="col">Photo</th>
+                <th scope="col">Adm No</th>
+                <th scope="col">Name</th>
+                <th scope="col">Class</th>
+                <th scope="col">Stream</th>
+                <th scope="col">Gender</th>
+                <th scope="col">DOB</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Parent Contact</th>
+                <th scope="col">Fee Balance</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="studentsTableBody">

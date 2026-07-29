@@ -18,8 +18,8 @@ const StudentPromotionController = {
   ui: {},
 
   async init() {
-    console.log("StudentPromotionController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -32,7 +32,6 @@ const StudentPromotionController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in student_promotion:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload metadata when academic year or term changes
           this.loadMeta();
@@ -54,9 +53,7 @@ const StudentPromotionController = {
       }
     }
 
-    console.log("StudentPromotionController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentPromotionController: Initialization complete");
   },
 
   cacheDom() {

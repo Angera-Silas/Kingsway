@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-dark text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-bus"></i> My Vehicle</h4>
+            <h4 class="mb-0"><i class="bi bi-bus-front"></i> My Vehicle</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="logMaintenanceBtn">
                     <i class="bi bi-wrench"></i> Log Maintenance
@@ -120,12 +120,12 @@
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Description</th>
-                                <th>Mileage (KM)</th>
-                                <th>Cost (KES)</th>
-                                <th>Garage</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Description</th>
+                                <th scope="col">Mileage (KM)</th>
+                                <th scope="col">Cost (KES)</th>
+                                <th scope="col">Garage</th>
                             </tr>
                         </thead>
                         <tbody id="maintenanceBody">
@@ -141,11 +141,11 @@
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th>
-                                <th>Issue</th>
-                                <th>Priority</th>
-                                <th>Status</th>
-                                <th>Resolved By</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Issue</th>
+                                <th scope="col">Priority</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Resolved By</th>
                             </tr>
                         </thead>
                         <tbody id="issuesBody">
@@ -161,11 +161,11 @@
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th>
-                                <th>Liters</th>
-                                <th>Cost (KES)</th>
-                                <th>Mileage (KM)</th>
-                                <th>Station</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Liters</th>
+                                <th scope="col">Cost (KES)</th>
+                                <th scope="col">Mileage (KM)</th>
+                                <th scope="col">Station</th>
                             </tr>
                         </thead>
                         <tbody id="fuelBody">
@@ -309,4 +309,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/my_vehicle.js"></script>
+<script src="<?= $appBase ?>/js/pages/my_vehicle.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/my_vehicle.js") ?>"></script>

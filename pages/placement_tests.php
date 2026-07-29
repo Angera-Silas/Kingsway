@@ -319,7 +319,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/placement_tests.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/placement_tests.js"
     onload="console.log('placement_tests.js script tag loaded successfully')",
     onerror="console.error('FAILED to load placement_tests.js. Check path:', this.src)">
 </script>

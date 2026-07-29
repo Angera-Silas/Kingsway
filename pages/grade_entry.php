@@ -83,9 +83,9 @@
                                 <thead>
                                     <tr>
                                         <th style="width: 50px;">#</th>
-                                        <th>Adm No</th>
-                                        <th>Student Name</th>
-                                        <th>Class</th>
+                                        <th scope="col">Adm No</th>
+                                        <th scope="col">Student Name</th>
+                                        <th scope="col">Class</th>
                                         <th style="width: 120px;">Marks</th>
                                         <th style="width: 120px;">Grade</th>
                                         <th style="width: 100px;">Remarks</th>
@@ -108,4 +108,4 @@
     </div>
 </div>
 
-<script src="js/pages/grade_entry.js"></script>
+<script src="js/pages/grade_entry.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/grade_entry.js") ?>"></script>

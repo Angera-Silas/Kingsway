@@ -13,6 +13,8 @@ namespace App\Config;
 
 define('DEBUG', true);
 
+define('APP_BASE_PATH', __DIR__ . '/..');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root
@@ -55,9 +57,6 @@ define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
 
-define('CURRENT_YEAR', date('Y'));
-define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
-
 /*
 |--------------------------------------------------------------------------
 | Database
@@ -72,13 +71,36 @@ define('DB_PASS', $_ENV['DB_PASS'] ?? 'admin123');
 
 /*
 |--------------------------------------------------------------------------
+| Academic year and term — read from database, fall back to calendar
+|--------------------------------------------------------------------------
+*/
+
+try {
+    $_db = new \PDO(
+        'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+        DB_USER,
+        DB_PASS,
+        [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
+    );
+    $_row = $_db->query("SELECT id AS year FROM academic_years WHERE is_current = 1 LIMIT 1")->fetch();
+    define('CURRENT_YEAR', $_row ? (int) $_row['year'] : (int) date('Y'));
+    $_row2 = $_db->query("SELECT term_number FROM academic_terms WHERE status = 'current' LIMIT 1")->fetch();
+    define('CURRENT_TERM', $_row2 ? (int) $_row2['term_number'] : (int) ceil((int) date('n') / 3));
+    $_db = null;
+} catch (\Exception $_e) {
+    define('CURRENT_YEAR', (int) date('Y'));
+    define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+}
+
+/*
+|--------------------------------------------------------------------------
 | Authentication
 |--------------------------------------------------------------------------
 */
 
 define(
     'JWT_SECRET',
-    $_ENV['JWT_SECRET'] ?? 'dev_secret_key_change_this'
+    $_ENV['JWT_SECRET'] ?? 'dev_secret_key_change_this_use_64_chars_minimum'
 );
 
 define(

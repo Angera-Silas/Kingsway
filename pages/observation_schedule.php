@@ -63,13 +63,13 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Date</th>
-                <th>Time</th>
-                <th>Class</th>
-                <th>Subject</th>
-                <th>Observer</th>
-                <th>Status</th>
-                <th></th>
+                <th scope="col">Date</th>
+                <th scope="col">Time</th>
+                <th scope="col">Class</th>
+                <th scope="col">Subject</th>
+                <th scope="col">Observer</th>
+                <th scope="col">Status</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="osTableBody"></tbody>
@@ -126,4 +126,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/observation_schedule.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/observation_schedule.js"></script>

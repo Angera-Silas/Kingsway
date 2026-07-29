@@ -28,19 +28,19 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-hand-holding-heart me-2"></i>
+                        <i class="bi bi-heart me-2"></i>
                         Special Needs & Student Support
                     </h4>
                     <small id="scopeSubtitle">Track and manage students with special educational needs and IEPs</small>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-light btn-sm" id="exportRecordsBtn">
+                    <button class="btn btn-light btn-sm" id="exportRecordsBtn" data-permission="students_export">
                         <i class="bi bi-download"></i> Export
                     </button>
                     <button class="btn btn-outline-light btn-sm" id="printRecordsBtn">
                         <i class="bi bi-printer"></i> Print
                     </button>
-                    <button class="btn btn-light btn-sm" id="addRecordBtn" style="display: none;">
+                    <button class="btn btn-light btn-sm" id="addRecordBtn" data-permission="students_create">
                         <i class="bi bi-plus-circle"></i> Add IEP
                     </button>
                 </div>
@@ -87,7 +87,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, or IEP type">
@@ -96,13 +96,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-info w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -114,7 +114,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total IEPs</small>
@@ -130,7 +130,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-check-circle"></i>
+                                    <i class="bi bi-check-lg-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Active IEPs</small>
@@ -146,7 +146,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-edit"></i>
+                                    <i class="bi bi-pencil"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Draft</small>
@@ -162,7 +162,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-graduation-cap"></i>
+                                    <i class="bi bi-mortarboard"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Completed</small>
@@ -178,7 +178,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-heartbeat"></i>
+                                    <i class="bi bi-heartbeat"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Health Records</small>
@@ -194,7 +194,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-archive"></i>
+                                    <i class="bi bi-archive"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Archived</small>
@@ -208,24 +208,24 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="iepsLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading special needs records...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading special needs records...
             </div>
 
             <div id="iepsError" class="alert alert-danger d-none"></div>
 
             <div id="iepsEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No special needs records found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No special needs records found for the selected filters.
             </div>
 
             <div id="iepsForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-lock me-2"></i> You do not have permission to view special needs records.
+                <i class="bi bi-lock me-2"></i> You do not have permission to view special needs records.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="iepsCard">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <strong>
-                        <i class="fas fa-list me-2 text-info"></i>
+                        <i class="bi bi-list-ul me-2 text-info"></i>
                         Individualized Education Programs (IEPs)
                     </strong>
                 </div>
@@ -234,18 +234,18 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>IEP ID</th>
-                                <th>Student</th>
-                                <th>Adm No</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Dormitory</th>
-                                <th>IEP Type</th>
-                                <th>Category</th>
-                                <th>Status</th>
-                                <th>Academic Year</th>
-                                <th>Created Date</th>
-                                <th>Actions</th>
+                                <th scope="col">IEP ID</th>
+                                <th scope="col">Student</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Dormitory</th>
+                                <th scope="col">IEP Type</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Academic Year</th>
+                                <th scope="col">Created Date</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="iepsTableBody">
@@ -269,7 +269,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-info text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-file-medical me-2"></i>
+                        <i class="bi bi-file-medical me-2"></i>
                         IEP Details
                     </h5>
                     <small id="modalIepSubtitle">IEP #<span id="modalIepId"></span></small>
@@ -280,7 +280,7 @@ if (!isset($appBase)) {
             <div class="modal-body">
 
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading IEP details...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading IEP details...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>

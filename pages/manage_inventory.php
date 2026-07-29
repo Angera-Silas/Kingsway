@@ -156,14 +156,14 @@
             <table class="table table-hover" id="inventoryTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Item Code</th>
-                        <th>Item Name</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Unit</th>
-                        <th>Location</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Item Code</th>
+                        <th scope="col">Item Name</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Unit</th>
+                        <th scope="col">Location</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -201,4 +201,4 @@
         </a>
     </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/manage_inventory.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_inventory.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_inventory.js") ?>"></script>

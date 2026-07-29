@@ -13,6 +13,8 @@ namespace App\Config;
 
 define('DEBUG', true);
 
+define('APP_BASE_PATH', __DIR__ . '/..');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root

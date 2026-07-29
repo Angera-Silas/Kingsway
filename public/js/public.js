@@ -112,14 +112,218 @@ document.addEventListener('DOMContentLoaded', () => {
       setSpinnerLabel('Verifying credentials…');
       try {
         const res = await API.auth.login(username, password, rememberMe);
+
+        // ── 2FA challenge ─────────────────────────────────────────────
+        if (res && res.requires_2fa) {
+          // Hide login modal, show 2FA modal
+          const loginModal = bootstrap.Modal.getInstance(document.getElementById('loginModal'));
+          loginModal?.hide();
+          await showTFAVerification(res, username, password, rememberMe);
+          return;
+        }
+        // ── end 2FA challenge ──────────────────────────────────────────
+
         if (!res?.token) throw new Error(res?.message || 'Login failed. Check your credentials.');
-        // Token received — keep the spinner visible while the dashboard loads.
-        // The browser unloads this page on redirect, so we don't reset here.
         setSpinnerLabel('Preparing your dashboard…');
       } catch (err) {
         showLoginErr(err.message || 'Login failed. Please try again.');
       }
     });
+  }
+
+  /* ── 2FA Verification ───────────────────────────────────────────────────── */
+  let tfaState = null; // { userId, method, username, password, rememberMe }
+
+  window.showTFAVerification = async function (res, username, password, rememberMe) {
+    tfaState = { userId: res.user_id, method: res.method, username, password, rememberMe };
+
+    const modalEl = document.getElementById('tfaModal');
+    const methodDesc = document.getElementById('tfaMethodDesc');
+    const codeLabel  = document.getElementById('tfaCodeLabel');
+    const resendRow  = document.getElementById('tfaResend');
+    const resendBtn  = document.getElementById('tfaResendBtn');
+    const tfaRecoveryBtn = document.getElementById('tfaRecoveryBtn');
+    const tfaCode = document.getElementById('tfaCode');
+    const tfaError = document.getElementById('tfaError');
+    const tfaErrorText = document.getElementById('tfaErrorText');
+
+    // Reset
+    tfaCode.value = '';
+    tfaError.classList.add('d-none');
+    hideTFASpinner();
+
+    if (res.method === 'totp') {
+      methodDesc.textContent = 'Enter the 6-digit verification code from your authenticator app.';
+      codeLabel.textContent = 'Authentication Code (from app)';
+      resendRow.classList.add('d-none');
+      tfaRecoveryBtn.classList.remove('d-none');
+    } else if (res.method === 'email') {
+      methodDesc.textContent = 'A verification code has been sent to your email address.';
+      codeLabel.textContent = 'Email Verification Code';
+      resendRow.classList.remove('d-none');
+      tfaRecoveryBtn.classList.add('d-none');
+      startTFACountdown();
+      // Auto-send OTP
+      try {
+        await window.callAPI?.('/twofactor/challenge', 'POST', { user_id: res.user_id, method: res.method });
+      } catch (_) { /* ignore — code may already be sent */ }
+    } else if (res.method === 'sms') {
+      methodDesc.textContent = 'A verification code has been sent to your phone.';
+      codeLabel.textContent = 'SMS Verification Code';
+      resendRow.classList.remove('d-none');
+      tfaRecoveryBtn.classList.add('d-none');
+      startTFACountdown();
+      try {
+        await window.callAPI?.('/twofactor/challenge', 'POST', { user_id: res.user_id, method: res.method });
+      } catch (_) { /* ignore */ }
+    }
+
+    const tfaModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+    tfaModal.show();
+
+    // Focus the input after modal opens
+    modalEl.addEventListener('shown.bs.modal', () => tfaCode?.focus(), { once: true });
+  };
+
+  // Submit 2FA code
+  document.getElementById('tfaSubmitBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    const code = document.getElementById('tfaCode')?.value?.trim();
+    if (!code || code.length < 4) {
+      showTFAError('Please enter a valid verification code.');
+      return;
+    }
+
+    showTFASpinner();
+    try {
+      let currentMethod = document.getElementById('tfaRecoveryBtn')?.classList.contains('d-none')
+        ? tfaState.method : tfaState.method;
+
+      // If the input looks like a backup code (9 chars with dash), use backup method
+      const isBackup = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code);
+      const method = isBackup ? 'backup' : currentMethod;
+
+      // Verify the code
+      const verifyRes = await window.callAPI?.('/twofactor/verify', 'POST', {
+        code,
+        user_id: tfaState.userId,
+        method,
+      });
+
+      if (!verifyRes?.verified) {
+        showTFAError('Invalid verification code. Please try again.');
+        hideTFASpinner();
+        return;
+      }
+
+      // 2FA passed — complete the login
+      document.getElementById('tfaBtnText').textContent = 'Completing login…';
+      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe);
+      if (!loginRes?.token) throw new Error(loginRes?.message || 'Login failed');
+
+      // Close 2FA modal
+      bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+
+      // Redirect to dashboard
+      const dashboardInfo = window.AuthContext?.getDashboardInfo?.();
+      const redirect = dashboardInfo?.key
+        ? (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key
+        : (window.APP_BASE || '') + '/home.php';
+      window.location.href = redirect;
+    } catch (err) {
+      showTFAError(err.message || 'Verification failed. Please try again.');
+      hideTFASpinner();
+    }
+  });
+
+  // Back to login
+  document.getElementById('tfaBackBtn')?.addEventListener('click', () => {
+    bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+    tfaState = null;
+    const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+    loginModal.show();
+    resetLoginBtn();
+  });
+
+  // Recovery code toggle
+  document.getElementById('tfaRecoveryBtn')?.addEventListener('click', () => {
+    const codeInput = document.getElementById('tfaCode');
+    const label  = document.getElementById('tfaCodeLabel');
+    const desc   = document.getElementById('tfaMethodDesc');
+    const btn    = document.getElementById('tfaRecoveryBtn');
+    codeInput.placeholder = 'XXXX-XXXX';
+    codeInput.maxLength = 9;
+    codeInput.inputMode = 'text';
+    label.textContent = 'Recovery Code';
+    desc.textContent = 'Enter one of your backup recovery codes.';
+    btn.classList.add('d-none');
+    document.getElementById('tfaResend')?.classList.add('d-none');
+    codeInput.focus();
+  });
+
+  // Resend code
+  document.getElementById('tfaResendBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    try {
+      await window.callAPI?.('/twofactor/challenge', 'POST', {
+        user_id: tfaState.userId,
+        method: tfaState.method,
+      });
+      startTFACountdown();
+      showTFASuccess('A new code has been sent.');
+    } catch (_) {
+      showTFAError('Failed to resend. Please try again.');
+    }
+  });
+
+  // Enter key submits in the 2FA code field
+  document.getElementById('tfaCode')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('tfaSubmitBtn')?.click();
+  });
+
+  function showTFAError(msg) {
+    const el = document.getElementById('tfaError');
+    const txt = document.getElementById('tfaErrorText');
+    if (el && txt) { el.classList.remove('d-none'); txt.textContent = msg; }
+  }
+
+  function showTFASuccess(msg) {
+    const el = document.getElementById('tfaError');
+    const txt = document.getElementById('tfaErrorText');
+    if (el && txt) { el.classList.remove('d-none'); el.classList.remove('alert-danger'); el.classList.add('alert-success'); txt.textContent = msg; }
+  }
+
+  function showTFASpinner() {
+    document.getElementById('tfaBtnText')?.classList.add('d-none');
+    document.getElementById('tfaSpinner')?.classList.remove('d-none');
+    document.getElementById('tfaSubmitBtn')?.setAttribute('disabled', '');
+  }
+
+  function hideTFASpinner() {
+    document.getElementById('tfaBtnText')?.classList.remove('d-none');
+    document.getElementById('tfaSpinner')?.classList.add('d-none');
+    document.getElementById('tfaSubmitBtn')?.removeAttribute('disabled');
+  }
+
+  function startTFACountdown() {
+    const resendBtn = document.getElementById('tfaResendBtn');
+    const resendTimer = document.getElementById('tfaResendTimer');
+    const countdownEl = document.getElementById('tfaCountdown');
+    if (!resendBtn || !resendTimer || !countdownEl) return;
+
+    resendBtn.classList.add('d-none');
+    resendTimer.classList.remove('d-none');
+    let seconds = 60;
+    countdownEl.textContent = seconds;
+    const interval = setInterval(() => {
+      seconds--;
+      countdownEl.textContent = seconds;
+      if (seconds <= 0) {
+        clearInterval(interval);
+        resendBtn.classList.remove('d-none');
+        resendTimer.classList.add('d-none');
+      }
+    }, 1000);
   }
 
   /* ── Smooth scroll for anchor links ─────────────────────────────────────────── */

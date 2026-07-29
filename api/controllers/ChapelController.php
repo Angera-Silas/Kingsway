@@ -23,6 +23,9 @@ class ChapelController extends BaseController
      */
     public function getServices($id = null, $data = [], $segments = [])
     {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
         $limit    = min((int)($_GET['limit'] ?? 10), 50);
         $upcoming = !empty($_GET['upcoming']);
 

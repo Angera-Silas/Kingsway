@@ -21,9 +21,7 @@
          */
         init: async function () {
             try {
-                console.log("Initializing BankAccountsController...");
                 await this.loadData();
-                console.log("BankAccountsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing BankAccountsController:", error);
                 this.showNotification("Failed to load bank accounts", "error");

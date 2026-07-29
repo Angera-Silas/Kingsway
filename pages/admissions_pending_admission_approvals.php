@@ -170,20 +170,8 @@
             </div>
             <div class="col-md-4">
                 <label class="form-label small fw-semibold">Class Applied For</label>
-                <select id="filterClass" class="form-select">
+                <select id="filterClass" class="form-select grade-select-dynamic">
                     <option value="">All Classes</option>
-                    <option value="Playground">Playground</option>
-                    <option value="PP1">PP1</option>
-                    <option value="PP2">PP2</option>
-                    <option value="Grade1">Grade 1</option>
-                    <option value="Grade2">Grade 2</option>
-                    <option value="Grade3">Grade 3</option>
-                    <option value="Grade4">Grade 4</option>
-                    <option value="Grade5">Grade 5</option>
-                    <option value="Grade6">Grade 6</option>
-                    <option value="Grade7">Grade 7</option>
-                    <option value="Grade8">Grade 8</option>
-                    <option value="Grade9">Grade 9</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -297,7 +285,7 @@
 </div>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_pending_admission_approvals.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_pending_admission_approvals.js"
     onload="console.log('admissions_pending_admission_approvals.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_pending_admission_approvals.js. Check path:', this.src)">
 </script>

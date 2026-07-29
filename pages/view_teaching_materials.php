@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/view_teaching_materials.js"></script>
+<script src="<?= $appBase ?>/js/pages/view_teaching_materials.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/view_teaching_materials.js") ?>"></script>

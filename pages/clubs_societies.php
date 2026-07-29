@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-users-cog me-2"></i>Clubs & Societies</h4>
+                    <h4 class="mb-1"><i class="bi bi-people-cog me-2"></i>Clubs & Societies</h4>
                     <p class="text-muted mb-0">Manage school clubs, societies, and student participation</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClubModal">
-                    <i class="fas fa-plus me-1"></i> New Club
+                    <i class="bi bi-plus-lg me-1"></i> New Club
                 </button>
             </div>
         </div>
@@ -121,4 +121,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/clubs_societies.js"></script>
+<script src="<?= $appBase ?>/js/pages/clubs_societies.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/clubs_societies.js") ?>"></script>

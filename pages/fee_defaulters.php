@@ -16,15 +16,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-exclamation-circle me-2"></i>Fee Defaulters</h4>
+                    <h4 class="mb-1"><i class="bi bi-exclamation-circle me-2"></i>Fee Defaulters</h4>
                     <p class="text-muted mb-0">Manage students with overdue fee payments</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-warning" id="sendNotices">
-                        <i class="fas fa-paper-plane me-1"></i> Send Notices
+                        <i class="bi bi-send me-1"></i> Send Notices
                     </button>
                     <button class="btn btn-outline-secondary" id="exportDefaulters">
-                        <i class="fas fa-download me-1"></i> Export
+                        <i class="bi bi-download me-1"></i> Export
                     </button>
                 </div>
             </div>
@@ -32,7 +32,7 @@
     </div>
 
     <div class="alert alert-warning">
-        <i class="fas fa-info-circle me-2"></i>
+        <i class="bi bi-info-circle me-2"></i>
         Students shown here have balances exceeding the threshold or have missed payment deadlines.
     </div>
 
@@ -99,14 +99,14 @@
                 <table class="table table-hover" id="defaultersTable">
                     <thead>
                         <tr>
-                            <th><input type="checkbox" id="selectAll"></th>
-                            <th>Student</th>
-                            <th>Class</th>
-                            <th>Balance</th>
-                            <th>Days Overdue</th>
-                            <th>Severity</th>
-                            <th>Last Contact</th>
-                            <th>Actions</th>
+                            <th scope="col"><input type="checkbox" id="selectAll"></th>
+                            <th scope="col">Student</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">Days Overdue</th>
+                            <th scope="col">Severity</th>
+                            <th scope="col">Last Contact</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -116,4 +116,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/fee_defaulters.js"></script>
+<script src="<?= $appBase ?>/js/pages/fee_defaulters.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_defaulters.js") ?>"></script>

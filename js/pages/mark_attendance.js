@@ -14,8 +14,8 @@ const MarkAttendanceController = {
   ui: {},
 
   async init() {
-    console.log("MarkAttendanceController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,9 +29,7 @@ const MarkAttendanceController = {
     const user = window.AuthContext?.getUser() || {};
     this.ui.driverName.value = user.full_name || user.name || "Driver";
 
-    console.log("MarkAttendanceController: Loading metadata...");
     await this.loadMeta();
-    console.log("MarkAttendanceController: Initialization complete");
   },
 
   cacheDom() {
@@ -155,7 +153,6 @@ const MarkAttendanceController = {
             endpoint: '/students/transport-passengers',
             params: Object.fromEntries(params)
           });
-          console.log("[Attendance] Data from DataStore:", passengers);
         } catch (dataStoreError) {
           console.warn("[Attendance] DataStore failed, falling back to API:", dataStoreError);
         }

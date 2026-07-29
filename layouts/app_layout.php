@@ -3,7 +3,8 @@
 // Stateless authenticated application layout.
 
 error_reporting(E_ALL);
-ini_set('display_errors', '1');
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
 require_once __DIR__ . '/../config/DashboardRouter.php';
 
@@ -58,6 +59,10 @@ $sidebar_items = [];
 ?>
 
 <div class="app-shell" id="app-shell">
+    <a href="#main-content-area" class="visually-hidden-focusable skip-link">
+        Skip to main content
+    </a>
+
     <aside
         id="sidebar-container"
         class="app-sidebar-container"
@@ -76,7 +81,7 @@ $sidebar_items = [];
     <div class="app-main-column">
         <?php include __DIR__ . '/../components/global/header.php'; ?>
 
-        <main id="main-content-area" class="app-content" tabindex="-1">
+        <main id="main-content-area" class="app-content" tabindex="-1" role="main">
             <div
                 class="container-fluid app-content-inner"
                 id="main-content-segment"

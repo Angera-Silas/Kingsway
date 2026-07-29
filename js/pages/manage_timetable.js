@@ -18,6 +18,7 @@ const timetableController = (() => {
   let currentTerm = null;
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,7 +28,6 @@ const timetableController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in manage_timetable:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload timetable when academic year or term changes
           loadTimetable();
@@ -640,14 +640,7 @@ const timetableController = (() => {
     }
   }
 
-  function showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   async function generateTimetable() {
     const classId = document.getElementById("generateClass")?.value || "";

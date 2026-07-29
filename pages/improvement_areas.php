@@ -60,11 +60,11 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Area</th>
-                <th>Priority</th>
-                <th>Identified On</th>
-                <th>Action Plan</th>
-                <th>Status</th>
+                <th scope="col">Area</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Identified On</th>
+                <th scope="col">Action Plan</th>
+                <th scope="col">Status</th>
               </tr>
             </thead>
             <tbody id="iaTableBody"></tbody>
@@ -79,4 +79,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/improvement_areas.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/improvement_areas.js"></script>

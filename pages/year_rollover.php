@@ -72,8 +72,8 @@
         <table class="table table-sm table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Step</th><th>Status</th><th>Promoted</th><th>Retained</th>
-              <th>Fee Carryovers</th><th>Credit Notes</th><th>Performed</th>
+              <th scope="col">Step</th><th scope="col">Status</th><th scope="col">Promoted</th><th scope="col">Retained</th>
+              <th scope="col">Fee Carryovers</th><th scope="col">Credit Notes</th><th scope="col">Performed</th>
             </tr>
           </thead>
           <tbody id="yrLogBody">
@@ -85,5 +85,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/year_rollover.js"></script>
+<script src="<?= $appBase ?>/js/pages/year_rollover.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/year_rollover.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => yearRolloverController.init());</script>

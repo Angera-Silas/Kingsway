@@ -30,6 +30,14 @@ class CounselingController extends BaseController
         $this->api = new CounselingAPI();
     }
 
+    private function guardCounseling(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     /**
      * GET /api/counseling/index
      */
@@ -76,6 +84,7 @@ class CounselingController extends BaseController
      */
     public function postSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         // Map frontend field names to API field names if needed
         $mappedData = $this->mapRequestData($data);
         return $this->handleResponse($this->api->create($mappedData));
@@ -87,6 +96,7 @@ class CounselingController extends BaseController
      */
     public function putSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         if (!$id) {
             return $this->badRequest('Session ID is required');
         }
@@ -100,6 +110,7 @@ class CounselingController extends BaseController
      */
     public function deleteSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         if (!$id) {
             return $this->badRequest('Session ID is required');
         }

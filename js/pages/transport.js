@@ -17,6 +17,21 @@ const transportController = {
      * Initialize controller
      */
     init: async function() {
+        if (
+            typeof PageShell !== "undefined" &&
+            !PageShell.hasAny(["transport_view", "transport_manage", "transport_read"])
+        ) {
+            const container = document.querySelector(".container-fluid");
+            if (container) {
+                container.innerHTML =
+                    '<div class="alert alert-warning border-0 shadow-sm">' +
+                    '<i class="bi bi-shield-lock me-2"></i>' +
+                    "You do not have permission to view transport management." +
+                    "</div>";
+            }
+            return;
+        }
+
         try {
             showNotification('Loading transport data...', 'info');
             await Promise.all([
@@ -173,7 +188,6 @@ const transportController = {
      * Edit route
      */
     editRoute: function(routeId) {
-        console.log('Edit route feature coming soon');
     },
 
     /**

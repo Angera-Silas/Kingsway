@@ -904,18 +904,9 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
-        // Verify password
-        if (!password_verify($password, $user['password'])) {
-            $this->recordAuthenticationAttempt(
-                $username,
-                (int) $user['id'],
-                'failed',
-                'invalid_credentials',
-                true
-            );
-            return ['success' => false, 'error' => 'Invalid username or password'];
-        }
-
+        // Check lockout BEFORE password_verify to prevent timing-based
+        // account enumeration (attacker would otherwise learn an account
+        // exists because password_verify takes longer than the "not found" path).
         if ((int) ($user['is_locked'] ?? 0) === 1) {
             $this->recordAuthenticationAttempt(
                 $username,
@@ -927,6 +918,18 @@ class UsersAPI extends BaseAPI
                 'success' => false,
                 'error' => 'Account is temporarily locked'
             ];
+        }
+
+        // Verify password
+        if (!password_verify($password, $user['password'])) {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'invalid_credentials',
+                true
+            );
+            return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
         if (isset($user['status']) && $user['status'] !== 'active') {

@@ -83,15 +83,15 @@
     <table class="manager-data-table" id="feesTable">
         <thead>
             <tr>
-                <th>Admission No.</th>
-                <th>Student Name</th>
-                <th>Class</th>
-                <th>Term</th>
+                <th scope="col">Admission No.</th>
+                <th scope="col">Student Name</th>
+                <th scope="col">Class</th>
+                <th scope="col">Term</th>
                 <th class="text-end">Expected</th>
                 <th class="text-end">Paid</th>
                 <th class="text-end">Balance</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="feesTableBody">
@@ -173,7 +173,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/studentFees.js"></script>
+<script src="<?= $appBase ?>/js/pages/studentFees.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/studentFees.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof FeesController !== 'undefined') {

@@ -102,15 +102,15 @@
                     <table class="table table-hover table-striped" id="classesTable">
                         <thead class="table-light">
                             <tr>
-                                <th>#</th>
-                                <th>Class Name</th>
-                                <th>Grade Level</th>
-                                <th>Streams</th>
-                                <th>Students</th>
-                                <th>Teachers</th>
-                                <th>Capacity</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th scope="col">#</th>
+                                <th scope="col">Class Name</th>
+                                <th scope="col">Grade Level</th>
+                                <th scope="col">Streams</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Teachers</th>
+                                <th scope="col">Capacity</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="classesTableBody">
@@ -143,13 +143,13 @@
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>#</th>
-                                <th>Stream Name</th>
-                                <th>Class</th>
-                                <th>Students</th>
-                                <th>Teacher</th>
-                                <th>Capacity</th>
-                                <th>Status</th>
+                                <th scope="col">#</th>
+                                <th scope="col">Stream Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Teacher</th>
+                                <th scope="col">Capacity</th>
+                                <th scope="col">Status</th>
                             </tr>
                         </thead>
                         <tbody id="streamsTableBody">
@@ -170,14 +170,14 @@
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>#</th>
-                                <th>Teacher Name</th>
-                                <th>Class Assigned</th>
-                                <th>Stream</th>
-                                <th>Students Count</th>
-                                <th>Subject</th>
-                                <th>Contact</th>
-                                <th>Actions</th>
+                                <th scope="col">#</th>
+                                <th scope="col">Teacher Name</th>
+                                <th scope="col">Class Assigned</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Students Count</th>
+                                <th scope="col">Subject</th>
+                                <th scope="col">Contact</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="classTeachersTableBody">

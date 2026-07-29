@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-secondary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-chart-line"></i> Financial Reports</h4>
+            <h4 class="mb-0"><i class="bi bi-graph-up"></i> Financial Reports</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="exportReportBtn">
                     <i class="bi bi-download"></i> Export Report
@@ -121,10 +121,10 @@
 
         <!-- Empty State -->
         <div id="emptyState" class="text-center py-5" style="display: none;">
-            <i class="fas fa-chart-bar fa-4x text-muted mb-3"></i>
+            <i class="bi bi-bar-chart fa-4x text-muted mb-3"></i>
             <h5 class="text-muted">No Report Generated</h5>
             <p class="text-muted">Select report type and date range, then click "Generate Report"</p>
         </div>
     </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/finance_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/finance_reports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/finance_reports.js") ?>"></script>

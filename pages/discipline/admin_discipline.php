@@ -115,16 +115,16 @@
     <table class="admin-data-table" id="casesTable">
         <thead>
             <tr>
-                <th>Case ID</th>
-                <th>Date</th>
-                <th>Student</th>
-                <th>Class</th>
-                <th>Category</th>
-                <th>Description</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Reported By</th>
-                <th>Actions</th>
+                <th scope="col">Case ID</th>
+                <th scope="col">Date</th>
+                <th scope="col">Student</th>
+                <th scope="col">Class</th>
+                <th scope="col">Category</th>
+                <th scope="col">Description</th>
+                <th scope="col">Severity</th>
+                <th scope="col">Status</th>
+                <th scope="col">Reported By</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="casesTableBody">

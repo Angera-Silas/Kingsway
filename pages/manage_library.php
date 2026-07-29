@@ -12,7 +12,7 @@
 </div>
 <div id="library-content" style="display:none;"></div>
 
-<script src="<?= $appBase ?>/js/pages/manage_library.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_library.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({

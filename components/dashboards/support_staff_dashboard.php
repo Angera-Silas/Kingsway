@@ -114,7 +114,7 @@
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
                             <thead>
-                                <tr><th>Subject</th><th>Source</th><th>Priority</th><th>Date</th></tr>
+                                <tr><th scope="col">Subject</th><th scope="col">Source</th><th scope="col">Priority</th><th scope="col">Date</th></tr>
                             </thead>
                             <tbody id="supportMessagesBody">
                                 <tr><td colspan="4" class="text-center text-muted py-4">Loading...</td></tr>
@@ -179,7 +179,7 @@
                 <div class="card-body p-0 dashboard-table-wrap">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
-                            <thead><tr><th>Period</th><th>Net Pay</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+                            <thead><tr><th scope="col">Period</th><th scope="col">Net Pay</th><th scope="col">Status</th><th class="text-end">Actions</th></tr></thead>
                             <tbody id="supportPayslipsBody"><tr><td colspan="4" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                         </table>
                     </div>
@@ -195,7 +195,7 @@
                 <div class="card-body p-0 dashboard-table-wrap">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
-                            <thead><tr><th>Type</th><th>Dates</th><th>Days</th><th>Status</th></tr></thead>
+                            <thead><tr><th scope="col">Type</th><th scope="col">Dates</th><th scope="col">Days</th><th scope="col">Status</th></tr></thead>
                             <tbody id="supportLeaveBody"><tr><td colspan="4" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                         </table>
                     </div>
@@ -210,7 +210,7 @@
                 <div class="card-body p-0 dashboard-table-wrap">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
-                            <thead><tr><th>Position</th><th>Department</th><th>Deadline</th><th>Status</th><th class="text-end">Action</th></tr></thead>
+                            <thead><tr><th scope="col">Position</th><th scope="col">Department</th><th scope="col">Deadline</th><th scope="col">Status</th><th class="text-end">Action</th></tr></thead>
                             <tbody id="supportOpportunitiesBody"><tr><td colspan="5" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                         </table>
                     </div>
@@ -226,7 +226,7 @@
                 <div class="card-body p-0 dashboard-table-wrap">
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0">
-                            <thead><tr><th>Reference</th><th>Category</th><th>Severity</th><th>Status</th></tr></thead>
+                            <thead><tr><th scope="col">Reference</th><th scope="col">Category</th><th scope="col">Severity</th><th scope="col">Status</th></tr></thead>
                             <tbody id="supportIncidentsBody"><tr><td colspan="4" class="text-center text-muted py-4">Loading...</td></tr></tbody>
                         </table>
                     </div>

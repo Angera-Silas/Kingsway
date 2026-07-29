@@ -25,6 +25,14 @@ class TransportController extends BaseController
         $this->billing = new TransportBillingManager();
     }
 
+    private function guardTransport(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Transport API is running']);
@@ -49,6 +57,7 @@ class TransportController extends BaseController
      */
     public function postVerifyStudent($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $admissionNo = $data['admission_no'] ?? null;
         $phone = $data['phone'] ?? null;
         if (!$admissionNo && !$phone) {
@@ -76,16 +85,19 @@ class TransportController extends BaseController
     }
     public function postTransportRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->createRoute($data);
         return $this->handleResponse($result);
     }
     public function putTransportRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->updateRoute($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportRoute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->deleteRoute($id);
         return $this->handleResponse($result);
     }
@@ -103,16 +115,19 @@ class TransportController extends BaseController
     }
     public function postTransportStop($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->createStop($data);
         return $this->handleResponse($result);
     }
     public function putTransportStop($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->updateStop($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportStop($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->deleteStop($id);
         return $this->handleResponse($result);
     }
@@ -137,21 +152,25 @@ class TransportController extends BaseController
     }
     public function postTransportDriver($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->createDriver($data);
         return $this->handleResponse($result);
     }
     public function putTransportDriver($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->updateDriver($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportDriver($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->deleteDriver($id);
         return $this->handleResponse($result);
     }
     public function postDriverAssign($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->assignDriverToRoute($data['driver_id'], $data['route_id']);
         return $this->handleResponse($result);
     }
@@ -159,11 +178,13 @@ class TransportController extends BaseController
     // ASSIGNMENT ENDPOINTS
     public function postAssignStudent($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'], $data['month'], $data['year']);
         return $this->handleResponse($result);
     }
     public function postWithdrawAssignment($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->withdrawAssignment($data['student_id'], $data['month'], $data['year']);
         return $this->handleResponse($result);
     }
@@ -181,11 +202,13 @@ class TransportController extends BaseController
     // PAYMENT ENDPOINTS
     public function postRecordPayment($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'], $data['year'], $data['payment_date'], $data['payment_method'], $data['transaction_id']);
         return $this->handleResponse($result);
     }
     public function putPaymentStatus($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->updatePaymentStatus($id, $data['status']);
         return $this->handleResponse($result);
     }
@@ -260,6 +283,7 @@ class TransportController extends BaseController
      */
     public function put($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         if ($id === null) {
             return $this->badRequest('Transport ID is required for update');
         }
@@ -273,6 +297,7 @@ class TransportController extends BaseController
      */
     public function delete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         if ($id === null) {
             return $this->badRequest('Transport ID is required for deletion');
         }
@@ -299,6 +324,7 @@ class TransportController extends BaseController
      */
     public function postRoutesAssign($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->assignRoute($data);
         return $this->handleResponse($result);
     }
@@ -321,6 +347,7 @@ class TransportController extends BaseController
      */
     public function postVehiclesAssign($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->assignVehicle($data);
         return $this->handleResponse($result);
     }
@@ -343,6 +370,7 @@ class TransportController extends BaseController
      */
     public function postDriversAssign($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $result = $this->api->assignDriver($data);
         return $this->handleResponse($result);
     }
@@ -469,6 +497,7 @@ class TransportController extends BaseController
      */
     public function postAttendance($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $userId = $this->getCurrentUserId();
         $date = $data['date'] ?? date('Y-m-d');
         $presentIds = $data['present_student_ids'] ?? [];
@@ -505,6 +534,7 @@ class TransportController extends BaseController
     /** POST /api/transport/subscriptions — subscribe student to route */
     public function postSubscriptions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         try {
             $data['subscribed_by'] = $this->user['user_id'] ?? $this->user['id'] ?? null;
             $result = $this->billing->subscribe($data);
@@ -519,6 +549,7 @@ class TransportController extends BaseController
     /** DELETE /api/transport/subscriptions/{id} — cancel subscription */
     public function deleteSubscriptions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         if (!$id) return $this->badRequest('subscription_id required');
         $endMonth = $data['end_month'] ?? date('Y-m-01');
         $userId   = $this->user['user_id'] ?? $this->user['id'] ?? null;
@@ -540,6 +571,7 @@ class TransportController extends BaseController
     /** POST /api/transport/bills-generate — generate monthly bills */
     public function postBillsGenerate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         $billingMonth = $data['billing_month'] ?? date('Y-m-01');
         $userId       = $this->user['user_id'] ?? $this->user['id'] ?? null;
         try {
@@ -574,6 +606,7 @@ class TransportController extends BaseController
     /** POST /api/transport/bills-record-payment/{id} */
     public function postBillsRecordPayment($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardTransport()) return $guard;
         if (!$id) return $this->badRequest('bill_id required');
         $data['received_by'] = $this->user['user_id'] ?? $this->user['id'] ?? null;
         try {

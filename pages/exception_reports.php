@@ -76,13 +76,13 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Reference</th>
-              <th>Exception Type</th>
-              <th>Description</th>
-              <th>Amount</th>
-              <th>Affected Party</th>
-              <th>Detected</th>
-              <th>Status / Actions</th>
+              <th scope="col">Reference</th>
+              <th scope="col">Exception Type</th>
+              <th scope="col">Description</th>
+              <th scope="col">Amount</th>
+              <th scope="col">Affected Party</th>
+              <th scope="col">Detected</th>
+              <th scope="col">Status / Actions</th>
             </tr>
           </thead>
           <tbody id="erTableBody">
@@ -100,5 +100,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/exception_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/exception_reports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/exception_reports.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());</script>

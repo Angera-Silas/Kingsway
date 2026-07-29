@@ -18,7 +18,7 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-door-open me-2"></i>Permissions & Exeats</h4>
+                    <h4 class="mb-1"><i class="bi bi-door-open me-2"></i>Permissions & Exeats</h4>
                     <p class="text-muted mb-0">Manage learner permission and exeat requests using the live attendance workflow</p>
                 </div>
                 <div class="btn-group">
@@ -116,14 +116,14 @@
                 <table class="table table-hover" id="requestsTable">
                     <thead class="table-light">
                         <tr>
-                            <th>Student</th>
-                            <th>Class</th>
-                            <th>Permission Type</th>
-                            <th>Dates</th>
-                            <th>Reason</th>
-                            <th>Requested</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Student</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Permission Type</th>
+                            <th scope="col">Dates</th>
+                            <th scope="col">Reason</th>
+                            <th scope="col">Requested</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -259,4 +259,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/permissions_exeats.js"></script>
+<script src="<?= $appBase ?>/js/pages/permissions_exeats.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/permissions_exeats.js") ?>"></script>

@@ -121,7 +121,7 @@ final class DownloadController extends BaseController
         echo json_encode([
             'status' => 'error',
             'success' => false,
-            'message' => $exception->getMessage(),
+            'message' => $expired ? 'Download link has expired' : 'File not found',
             'data' => null,
             'code' => $expired ? 410 : 404,
         ], JSON_UNESCAPED_SLASHES);

@@ -1,5 +1,5 @@
 /** Kingsway service worker: safe static caching only. */
-const CACHE_VERSION = 'v8.8.4-safe-bootstrap';
+const CACHE_VERSION = 'v9.7-fix';
 const STATIC_CACHE = `kingsway-static-${CACHE_VERSION}`;
 const OFFLINE_URL = './offline.html';
 const PRECACHE = [
@@ -17,6 +17,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(STATIC_CACHE);
     await Promise.allSettled(PRECACHE.map((url) => cache.add(url)));
+    await self.skipWaiting();
   })());
 });
 
@@ -35,6 +36,10 @@ self.addEventListener('fetch', (event) => {
 
   // Never intercept API/auth/session requests or mutations.
   if (request.method !== 'GET' || url.pathname.includes('/api/')) return;
+  // Never intercept upload or asset paths — must load fresh from server.
+  // The app lives under a subdirectory (e.g. /Kingsway/), so url.pathname
+  // is /Kingsway/uploads/..., not /uploads/... — use includes() not startsWith().
+  if (url.pathname.includes('/uploads/') || url.pathname.includes('/uploads_backup/') || url.pathname.includes('/assets/')) return;
   if (url.origin !== self.location.origin) return;
 
   // Never cache PHP/application navigations. Use network and offline fallback only.
@@ -47,23 +52,32 @@ self.addEventListener('fetch', (event) => {
 
   // JS and CSS are network-first so deployments cannot execute stale controllers.
   if (/\.(?:js|css)$/i.test(url.pathname)) {
-    event.respondWith(fetch(request, { cache: 'no-store' }).catch(async () => {
-      return (await caches.match(request)) || new Response('Offline', { status: 503 });
-    }));
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(request, { cache: 'no-store' });
+        return response;
+      } catch (_) {
+        return (await caches.match(request)) || new Response('Offline', { status: 503 });
+      }
+    })());
     return;
   }
 
   // Cache-first only for immutable visual/font assets.
   if (/\.(?:png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot)$/i.test(url.pathname)) {
     event.respondWith((async () => {
-      const cached = await caches.match(request);
-      if (cached) return cached;
-      const response = await fetch(request);
-      if (response.ok) {
-        const cache = await caches.open(STATIC_CACHE);
-        await cache.put(request, response.clone());
+      try {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        const response = await fetch(request);
+        if (response.ok) {
+          const cache = await caches.open(STATIC_CACHE);
+          await cache.put(request, response.clone());
+        }
+        return response;
+      } catch (_) {
+        return new Response('', { status: 503 });
       }
-      return response;
     })());
   }
 });

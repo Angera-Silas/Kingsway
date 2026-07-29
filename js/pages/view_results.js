@@ -282,6 +282,7 @@ const viewResultsCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -291,7 +292,6 @@ const viewResultsCtrl = (() => {
         if (window.AcademicContext) {
             // Subscribe to context changes
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in view_results:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     // Reload terms and classes when academic year or term changes
                     loadTerms();

@@ -5,7 +5,8 @@
  * This file ensures the controller initialises when this route is loaded
  * outside of manage_academics.php (e.g. SPA navigation).
  */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
         window.location.href = (window.APP_BASE || '') + '/index.php';
         return;

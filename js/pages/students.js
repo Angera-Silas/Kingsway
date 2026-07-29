@@ -25,7 +25,6 @@ const studentsManagementController = {
                         endpoint: '/students',
                         params: params
                     });
-                    console.log("[Students] Data from DataStore:", data);
                 } catch (dataStoreError) {
                     console.warn("[Students] DataStore failed, falling back to API:", dataStoreError);
                 }

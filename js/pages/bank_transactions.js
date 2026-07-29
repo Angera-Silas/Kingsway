@@ -22,12 +22,10 @@
          */
         init: async function () {
             try {
-                console.log("Initializing BankTransactionsController...");
                 await Promise.all([
                     this.loadData(),
                     this.loadAccounts()
                 ]);
-                console.log("BankTransactionsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing BankTransactionsController:", error);
                 this.showNotification("Failed to load bank transactions", "error");

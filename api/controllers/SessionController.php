@@ -267,8 +267,7 @@ class SessionController extends BaseAPI
                         'permissions' => $permissionCodes,
                         'session_id' => session_id(),
                         'session_expires_at' => $sessionExpiresAt,
-                        'csrf_token' => $csrfToken,
-                        'refresh_token' => $_COOKIE['refresh_token'] ?? null
+                        'csrf_token' => $csrfToken
                     ]
                 ];
                 
@@ -298,8 +297,14 @@ class SessionController extends BaseAPI
             'timestamp' => time(),
             'random' => bin2hex(random_bytes(16))
         ];
-        
-        return hash_hmac('sha256', json_encode($tokenData), JWT_SECRET);
+
+        $tokenData['signature'] = hash_hmac('sha256', json_encode([
+            'user_id'   => $tokenData['user_id'],
+            'timestamp' => $tokenData['timestamp'],
+            'random'    => $tokenData['random'],
+        ]), JWT_SECRET);
+
+        return base64_encode(json_encode($tokenData));
     }
 
     /**
@@ -307,8 +312,35 @@ class SessionController extends BaseAPI
      */
     private function validateCsrfToken($userId, $token)
     {
-        // For now, accept any non-empty token during transition
-        // TODO: Implement proper CSRF token validation with timestamp check
-        return !empty($token);
+        if (empty($token)) {
+            return false;
+        }
+
+        $decoded = base64_decode($token, true);
+        if ($decoded === false) {
+            return false;
+        }
+
+        $payload = json_decode($decoded, true);
+        if (!is_array($payload) || !isset($payload['user_id'], $payload['timestamp'], $payload['random'], $payload['signature'])) {
+            return false;
+        }
+
+        if ((int) $payload['user_id'] !== (int) $userId) {
+            return false;
+        }
+
+        $ts = (int) $payload['timestamp'];
+        if ($ts < 1 || abs(time() - $ts) > 3600) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', json_encode([
+            'user_id'   => $payload['user_id'],
+            'timestamp' => $payload['timestamp'],
+            'random'    => $payload['random'],
+        ]), JWT_SECRET);
+
+        return hash_equals($expected, $payload['signature']);
     }
 }

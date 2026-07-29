@@ -84,13 +84,13 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Ref No</th>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Student / Account</th>
+              <th scope="col">Ref No</th>
+              <th scope="col">Date</th>
+              <th scope="col">Type</th>
+              <th scope="col">Student / Account</th>
               <th class="text-end">Amount (KES)</th>
-              <th>Reason</th>
-              <th>Submitted By</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Submitted By</th>
               <th class="text-center">Status</th>
               <th class="text-center">Actions</th>
             </tr>
@@ -198,4 +198,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/adjustments.js"></script>
+<script src="<?= $appBase ?>/js/pages/adjustments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/adjustments.js") ?>"></script>

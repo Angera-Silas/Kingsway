@@ -30,14 +30,14 @@
     <table class="manager-data-table" id="studentsTable">
         <thead>
             <tr>
-                <th>Adm No</th>
-                <th>Name</th>
-                <th>Class</th>
-                <th>Stream</th>
-                <th>Gender</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Adm No</th>
+                <th scope="col">Name</th>
+                <th scope="col">Class</th>
+                <th scope="col">Stream</th>
+                <th scope="col">Gender</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="studentsTableBody">
@@ -68,4 +68,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/all_students_accountant.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_students_accountant.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/all_students_accountant.js") ?>"></script>

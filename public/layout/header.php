@@ -26,8 +26,7 @@ $activePage = $activePage ?? 'home';
   <!-- CSS -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="<?= $appBase ?>/public/css/public.css">
+  <link rel="stylesheet" href="<?= $appBase ?>/public/css/public.css?v=<?= filemtime(__DIR__ . '/../css/public.css') ?>">
 </head>
 <body>
 
@@ -155,5 +154,47 @@ $activePage = $activePage ?? 'home';
         <small class="text-muted"><i class="bi bi-shield-lock me-1 text-success"></i>Secured with SSL encryption</small>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- ═══ 2FA VERIFICATION MODAL ════════════════════════════════════════════════ -->
+<div class="modal fade modal-login" id="tfaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:420px">
+    <div class="modal-content">
+      <div class="modal-login-header">
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
+        <h5>Two-Factor Verification</h5>
+        <p id="tfaMethodDesc">Enter the verification code from your authenticator app.</p>
+      </div>
+      <div class="p-4">
+        <div id="tfaError" class="alert alert-danger d-none py-2 small mb-3">
+          <i class="bi bi-exclamation-triangle me-1"></i><span id="tfaErrorText"></span>
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold text-muted" id="tfaCodeLabel">Authentication Code</label>
+          <input type="text" id="tfaCode" class="form-control text-center fw-bold" placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="font-size:1.5rem;letter-spacing:8px;font-family:monospace">
+        </div>
+        <div id="tfaResend" class="text-center small text-muted d-none mb-3">
+          <span id="tfaResendTimer">Resend code in <span id="tfaCountdown">60</span>s</span>
+          <button type="button" id="tfaResendBtn" class="btn btn-link btn-sm p-0 d-none">Resend code</button>
+        </div>
+        <button type="button" class="btn-kw-primary w-100 justify-content-center py-2" id="tfaSubmitBtn">
+          <span id="tfaBtnText"><i class="bi bi-shield-check me-2"></i>Verify</span>
+          <span id="tfaSpinner" class="d-none"><span class="spinner-border spinner-border-sm me-2"></span>Verifying…</span>
+        </button>
+        <div class="text-center mt-3">
+          <button type="button" id="tfaBackBtn" class="btn btn-link btn-sm text-muted">
+            <i class="bi bi-arrow-left me-1"></i>Back to login
+          </button>
+          <button type="button" id="tfaRecoveryBtn" class="btn btn-link btn-sm text-muted ms-2">
+            <i class="bi bi-key me-1"></i>Use recovery code
+          </button>
+        </div>
+      </div>
+      <div class="bg-light text-center py-3 px-4 border-top rounded-bottom">
+        <small class="text-muted"><i class="bi bi-shield-lock me-1 text-success"></i>Secured with SSL encryption</small>
+      </div>
+    </div>
   </div>
 </div>

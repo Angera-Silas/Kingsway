@@ -92,13 +92,13 @@
                 <table class="table table-hover table-bordered" id="assignmentsTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Teacher Name</th>
-                            <th>Subject</th>
-                            <th>Class / Stream</th>
-                            <th>Periods/Week</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Teacher Name</th>
+                            <th scope="col">Subject</th>
+                            <th scope="col">Class / Stream</th>
+                            <th scope="col">Periods/Week</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="assignmentsTableBody">

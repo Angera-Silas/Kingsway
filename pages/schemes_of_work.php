@@ -19,7 +19,7 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-book-open me-2"></i>Schemes of Work</h4>
+                    <h4 class="mb-1"><i class="bi bi-book-open me-2"></i>Schemes of Work</h4>
                     <p class="text-muted mb-0">Manage and track teaching schemes across all subjects and classes</p>
                 </div>
                 <div class="btn-group">
@@ -118,14 +118,14 @@
                 <table class="table table-hover" id="schemesTable">
                     <thead class="table-light">
                         <tr>
-                            <th>Subject</th>
-                            <th>Class</th>
-                            <th>Teacher</th>
-                            <th>Term</th>
-                            <th>Topic Count</th>
-                            <th>Status</th>
-                            <th>Last Updated</th>
-                            <th>Actions</th>
+                            <th scope="col">Subject</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Term</th>
+                            <th scope="col">Topic Count</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Last Updated</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -267,4 +267,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/schemes_of_work.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/schemes_of_work.js"></script>

@@ -16,6 +16,18 @@ const TOKEN_REFRESH_LOCK_KEY = "kingsway_token_refresh_lock";
 const TOKEN_REFRESH_EVENT_KEY = "kingsway_token_refresh_event";
 const TOKEN_REFRESH_LOCK_TTL_MS = 20000;
 const TOKEN_REFRESH_WAIT_MS = 18000;
+
+/**
+ * Per-user localStorage keys.  Two users sharing the same browser must not
+ * interfere with each other's session activity timestamps or refresh locks.
+ */
+function _userStorageKey(suffix) {
+  const uid = (() => {
+    try { return localStorage.getItem("kw_active_user_id") || null; }
+    catch (_) { return null; }
+  })();
+  return uid ? `kw_${uid}_${suffix}` : `kw_${suffix}`;
+}
 const KINGSWAY_AUTH_SESSION_CONFIG = window.AUTH_SESSION_CONFIG || {};
 const ACTIVE_SESSION_WINDOW_MS =
   Math.max(
@@ -285,20 +297,17 @@ const AuthContext = (() => {
     "dashboard_info",
   ];
 
+  // Sentinel key that stores the active user ID so doInitialize() can
+  // bootstrap without requiring currentUser to already be set (the
+  // chicken-and-egg problem).  Written by setUser(), read by doInitialize().
+  const ACTIVE_USER_ID_KEY = "kw_active_user_id";
+
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
+  let storagePrefix = "kw_";
+  let _accessToken = null;
 
-  // SINGLE SOURCE OF TRUTH for all auth state. Every key in AUTH_KEYS
-  // (token, refresh_token, user_data, user_permissions, user_roles,
-  // sidebar_items, dashboard_info) is read from and written to ONE store:
-  // localStorage. This guarantees that username, user_id, role, tokens and
-  // permissions are available GLOBALLY across every page, tab and window of the
-  // same browser — any new window opens with the full login response already
-  // present, so a user never has to "log in twice". sessionStorage is no longer
-  // used as a target; we only clear any stale sessionStorage keys left over from
-  // older builds. The HttpOnly refresh_token cookie remains the server-side
-  // anchor for device-level session lifetime.
   let activeStorage = localStorage;
 
   function getStorageName(storage) {
@@ -306,61 +315,93 @@ const AuthContext = (() => {
   }
 
   function getStorageByName(name) {
-    // There is only one canonical store now. Keeping this indirection for any
-    // external callers, but it always resolves to localStorage.
     return name === "local" ? localStorage : localStorage;
   }
 
-  // Detects whether an existing session is present. With a single store this is
-  // trivial, but it still short-circuits when a token is already in localStorage
-  // so callers (initialize) know there is nothing to restore from the cookie.
   function detectAuthStorage() {
-    // Single store: nothing to switch. Clear any legacy sessionStorage leftovers
-    // so they can't shadow or confuse future logic.
     removeAuthKeys(sessionStorage);
     activeStorage = localStorage;
     return activeStorage;
   }
 
+  /**
+   * Build a namespaced localStorage key.
+   *
+   * Resolution order:
+   *  1. currentUser.id / currentUser.user_id (already in memory)
+   *  2. The ACTIVE_USER_ID_KEY sentinel persisted by a previous setUser()
+   *  3. null → fallback to bare prefix "kw_<key>" (legacy / anonymous)
+   */
+  function namespacedKey(key) {
+    const userId =
+      currentUser?.id ||
+      currentUser?.user_id ||
+      (() => {
+        try { return localStorage.getItem(ACTIVE_USER_ID_KEY) || null; }
+        catch (_) { return null; }
+      })();
+
+    return userId
+      ? `${storagePrefix}${userId}_${key}`
+      : `${storagePrefix}${key}`;
+  }
+
   function removeAuthKeys(storage) {
-    AUTH_KEYS.forEach((key) => storage.removeItem(key));
+    AUTH_KEYS.forEach((key) => {
+      storage.removeItem(key);
+      storage.removeItem(namespacedKey(key));
+    });
+  }
+
+  /**
+   * Remove ALL namespaced keys for the active user from the given storage.
+   * Used during logout / clearUser() when currentUser may already be null.
+   */
+  function removeAllUserKeys(storage) {
+    const userId = (() => {
+      try { return localStorage.getItem(ACTIVE_USER_ID_KEY) || null; }
+      catch (_) { return null; }
+    })();
+
+    AUTH_KEYS.forEach((key) => {
+      storage.removeItem(key);                         // bare key
+      if (userId) storage.removeItem(`${storagePrefix}${userId}_${key}`); // namespaced
+    });
+
+    // Also clean the sentinel
+    if (storage === localStorage) {
+      storage.removeItem(ACTIVE_USER_ID_KEY);
+    }
   }
 
   function setPersistence(rememberMe = false) {
-    // Always persist auth state in localStorage (the single source of truth).
-    // 'rememberMe' is recorded for telemetry/UX only; the storage target is
-    // fixed so the full login response is always globally available. Session
-    // lifetime is governed by the server-side HttpOnly refresh cookie, not by
-    // client storage choice.
     activeStorage = localStorage;
     localStorage.setItem("auth_storage_mode", "local");
     removeAuthKeys(sessionStorage);
   }
 
   function getItem(key) {
-    // Use the same activeStorage as setItem - don't re-detect
-    return activeStorage.getItem(key);
+    const namespaced = namespacedKey(key);
+    return activeStorage.getItem(namespaced) || activeStorage.getItem(key);
   }
 
   function setItem(key, value) {
-    activeStorage.setItem(key, value);
+    const namespaced = namespacedKey(key);
+    activeStorage.setItem(namespaced, value);
   }
 
   function setTokens(token, refreshToken = null) {
     if (token) {
-      setItem("token", token);
-    }
-    if (refreshToken) {
-      setItem("refresh_token", refreshToken);
+      _accessToken = token;
     }
   }
 
   function getToken() {
-    return getItem("token");
+    return _accessToken;
   }
 
   function getRefreshToken() {
-    return getItem("refresh_token");
+    return null; // refresh_token is HttpOnly cookie only — JS never touches it
   }
 
   function getPersistenceMode() {
@@ -392,7 +433,6 @@ const AuthContext = (() => {
     if (_bootRefreshDone) return _bootRefreshResult;
     _bootRefreshDone = true;
     try {
-      const refreshToken = getRefreshToken();
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin,
@@ -406,9 +446,7 @@ const AuthContext = (() => {
           Accept: "application/json",
           "Cache-Control": "no-store",
         },
-        body: JSON.stringify(
-          refreshToken ? { refresh_token: refreshToken } : {},
-        ),
+        // No body — server reads refresh_token from the HttpOnly cookie
       });
       if (!response.ok) return false;
       const result = await readJsonSafely(response, "Token refresh");
@@ -421,7 +459,7 @@ const AuthContext = (() => {
         // Rehydrate auth state from the refreshed response. The response has the
         // full user/permissions envelope only on the auth/refresh-token endpoint.
         const full = result.data;
-        setTokens(full.token, full.refresh_token || null);
+        setTokens(full.token);
         if (full.user) {
           // Rehydrate into the single auth store (localStorage). The refreshed
           // access token and full user envelope land in the same global store
@@ -452,38 +490,36 @@ const AuthContext = (() => {
   let _bootPromise = null;
 
   function doInitialize() {
-    // Set activeStorage once based on what actually has data.
     detectAuthStorage();
-    const token = activeStorage.getItem("token");
-    const userData = activeStorage.getItem("user_data");
-    const permissionsData = activeStorage.getItem("user_permissions");
 
-    if (token && userData) {
+    // Restore user context from localStorage (user_data, permissions, roles).
+    // The access token is NOT stored here — it comes from in-memory or refresh cookie.
+    const userData = getItem("user_data");
+    const permissionsData = getItem("user_permissions");
+
+    if (userData) {
       try {
         currentUser = JSON.parse(userData);
         if (permissionsData) {
           permissions = new Set(JSON.parse(permissionsData));
-          roles = JSON.parse(activeStorage.getItem("user_roles") || "[]");
+          roles = JSON.parse(getItem("user_roles") || "[]");
         }
       } catch (e) {
-        console.warn("Failed to restore user context from auth storage:", e);
+        console.warn("Failed to restore user context from storage:", e);
         currentUser = null;
         permissions.clear();
         roles = [];
-        removeAuthKeys(activeStorage);
+        removeAuthKeys(localStorage);
       }
     }
 
-    if (currentUser && token) {
-      // Defer the refresh call to the next microtask. AuthContext is assigned to
-      // window only after this IIFE finishes, while refreshAccessToken() is the
-      // canonical token owner and reads window.AuthContext.
+    // If we already have an in-memory token (rare on page load):
+    if (_accessToken && currentUser) {
       return Promise.resolve().then(async () => {
         if (isSessionIdleExpired()) {
           clearUser();
           return false;
         }
-
         if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
           const refreshed = await refreshAccessToken();
           if (!refreshed && isTokenExpired(0)) {
@@ -491,18 +527,34 @@ const AuthContext = (() => {
             return false;
           }
         }
-
         return isAuthenticated();
       });
     }
 
-    // Single source of truth: if web-storage had no token, fall back to the
-    // server-side refresh cookie exactly once. Resolve rather than throw so the
-    // caller can decide whether to redirect.
-    return bootstrapFromRefreshCookie().catch((e) => {
-      console.warn("AuthContext initialize refresh skipped:", e);
-      return false;
-    });
+    // No in-memory token — try cookie-based bootstrap.
+    // The HttpOnly refresh_token cookie may still be valid.
+    const shouldTryCookie =
+      !!currentUser ||
+      (() => {
+        try { return !!localStorage.getItem(ACTIVE_USER_ID_KEY); }
+        catch (_) { return false; }
+      })();
+
+    if (shouldTryCookie) {
+      return bootstrapFromRefreshCookie().then((refreshed) => {
+        if (!refreshed) {
+          clearUser();
+          return false;
+        }
+        return true;
+      }).catch((e) => {
+        console.warn("AuthContext initialize refresh skipped:", e);
+        clearUser();
+        return false;
+      });
+    }
+
+    return Promise.resolve(false);
   }
 
   async function initialize() {
@@ -526,6 +578,14 @@ const AuthContext = (() => {
   function setUser(userData, fullResponse, rememberMe = false) {
     setPersistence(rememberMe);
     currentUser = userData;
+
+    // Persist the active user ID so doInitialize() can bootstrap
+    // namespaced keys on the next page load without needing currentUser
+    // to already be set (fixes the chicken-and-egg problem).
+    try {
+      const uid = userData?.id || userData?.user_id;
+      if (uid) localStorage.setItem(ACTIVE_USER_ID_KEY, String(uid));
+    } catch (_) {}
 
     console.log("setUser called with:", { userData, fullResponse });
 
@@ -631,19 +691,28 @@ const AuthContext = (() => {
     // Store user data (now includes role_ids)
     setItem("user_data", JSON.stringify(userData));
     console.log("User data stored", userData);
+
+    // Store CSRF token if provided
+    if (fullResponse?.csrf_token) {
+      setCsrfToken(fullResponse.csrf_token);
+    }
   }
 
   /**
    * Clear user context on logout
    */
   function clearUser() {
+    _accessToken = null;
     currentUser = null;
     permissions.clear();
     roles = [];
-    removeAuthKeys(localStorage);
-    removeAuthKeys(sessionStorage);
+    _csrfToken = null;
+    // Use removeAllUserKeys() which reads the sentinel BEFORE clearing it,
+    // so it can compute the correct namespaced keys (kw_<userId>_*) to delete.
+    removeAllUserKeys(localStorage);
+    removeAllUserKeys(sessionStorage);
     localStorage.removeItem("auth_storage_mode");
-    localStorage.removeItem(SESSION_ACTIVITY_KEY);
+    localStorage.removeItem(_userStorageKey("session_activity"));
   }
 
   /**
@@ -904,6 +973,9 @@ const AuthContext = (() => {
     canAction,
     getAllowedActions,
     canManageStaff,
+    // Expose boot promise so apiCall() can wait for bootstrapFromRefreshCookie
+    // before treating a null in-memory token as session expiry.
+    getBootPromise: () => _bootPromise,
   };
 })();
 
@@ -1623,6 +1695,16 @@ if (document.readyState === "loading") {
  * broadcasts the expiry and redirects the browser to the login page.
  */
 let _sessionExpiredEmitted = false;
+let _csrfToken = null;
+
+/**
+ * Public setter so other modules (login page, session bootstrap, etc.)
+ * can persist the server-issued CSRF token.
+ */
+function setCsrfToken(token) {
+  _csrfToken = token;
+}
+
 function handleSessionExpired(reason = "refresh_rejected") {
   if (_sessionExpiredEmitted) return;
   _sessionExpiredEmitted = true;
@@ -1703,7 +1785,6 @@ async function refreshAccessToken() {
 
 async function performRefreshAccessToken() {
   try {
-    const refreshToken = AuthContext.getRefreshToken();
     const url = new URL(
       API_BASE_URL + "/auth/refresh-token",
       window.location.origin,
@@ -1718,7 +1799,7 @@ async function performRefreshAccessToken() {
         Accept: "application/json",
         "Cache-Control": "no-store",
       },
-      body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+      // No body — server reads refresh_token from the HttpOnly cookie
     });
 
     // Only an explicit authentication rejection proves the refresh session
@@ -1743,7 +1824,7 @@ async function performRefreshAccessToken() {
       return false;
     }
 
-    AuthContext.setTokens(token, payload.refresh_token || null);
+    AuthContext.setTokens(token);
 
     if (payload.user) {
       AuthContext.setUser(payload.user, payload, true);
@@ -1807,13 +1888,13 @@ function base64UrlDecode(value) {
 
 function recordSessionActivity(source = "user") {
   try {
-    localStorage.setItem(SESSION_ACTIVITY_KEY, String(Date.now()));
+    localStorage.setItem(_userStorageKey("session_activity"), String(Date.now()));
   } catch (_) {}
   window.KingswaySessionActivitySource = source;
 }
 
 function getLastSessionActivityAt() {
-  const raw = localStorage.getItem(SESSION_ACTIVITY_KEY);
+  const raw = localStorage.getItem(_userStorageKey("session_activity"));
   const parsed = Number(raw || 0);
   if (Number.isFinite(parsed) && parsed > 0) {
     return parsed;
@@ -1836,9 +1917,10 @@ function isSessionActiveForRefresh() {
 
 function acquireTokenRefreshLock() {
   const now = Date.now();
+  const lockKey = _userStorageKey("token_refresh_lock");
   try {
     const existing = JSON.parse(
-      localStorage.getItem(TOKEN_REFRESH_LOCK_KEY) || "null",
+      localStorage.getItem(lockKey) || "null",
     );
     if (
       existing &&
@@ -1850,9 +1932,9 @@ function acquireTokenRefreshLock() {
     }
 
     const lock = { owner: CURRENT_TAB_ID, created_at: now };
-    localStorage.setItem(TOKEN_REFRESH_LOCK_KEY, JSON.stringify(lock));
+    localStorage.setItem(lockKey, JSON.stringify(lock));
     const stored = JSON.parse(
-      localStorage.getItem(TOKEN_REFRESH_LOCK_KEY) || "null",
+      localStorage.getItem(lockKey) || "null",
     );
     return stored && stored.owner === CURRENT_TAB_ID;
   } catch (_) {
@@ -1861,29 +1943,32 @@ function acquireTokenRefreshLock() {
 }
 
 function releaseTokenRefreshLock() {
+  const lockKey = _userStorageKey("token_refresh_lock");
   try {
     const lock = JSON.parse(
-      localStorage.getItem(TOKEN_REFRESH_LOCK_KEY) || "null",
+      localStorage.getItem(lockKey) || "null",
     );
     if (lock && lock.owner === CURRENT_TAB_ID) {
-      localStorage.removeItem(TOKEN_REFRESH_LOCK_KEY);
+      localStorage.removeItem(lockKey);
     }
   } catch (_) {
-    localStorage.removeItem(TOKEN_REFRESH_LOCK_KEY);
+    localStorage.removeItem(lockKey);
   }
 }
 
 function announceTokenRefresh() {
+  const eventKey = _userStorageKey("token_refresh_event");
   try {
     localStorage.setItem(
-      TOKEN_REFRESH_EVENT_KEY,
+      eventKey,
       JSON.stringify({ owner: CURRENT_TAB_ID, refreshed_at: Date.now() }),
     );
-    localStorage.removeItem(TOKEN_REFRESH_EVENT_KEY);
+    localStorage.removeItem(eventKey);
   } catch (_) {}
 }
 
 function waitForRemoteTokenRefresh() {
+  const eventKey = _userStorageKey("token_refresh_event");
   return new Promise((resolve) => {
     let settled = false;
     const done = (ok) => {
@@ -1895,7 +1980,7 @@ function waitForRemoteTokenRefresh() {
       resolve(Boolean(ok));
     };
     const onStorage = (event) => {
-      if (event.key === TOKEN_REFRESH_EVENT_KEY) {
+      if (event.key === eventKey) {
         done(!isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS));
       }
     };
@@ -2014,6 +2099,9 @@ async function apiCall(
       "/auth/session",
       "/auth/refresh-session",
       "/auth/validate-token",
+      // 2FA endpoints called during login (no JWT yet)
+      "/twofactor/challenge",
+      "/twofactor/verify",
     ]);
     isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
 
@@ -2036,22 +2124,49 @@ async function apiCall(
         const tokenAlreadyExpired = isTokenExpired(0);
         console.log("Access token is expiring; refreshing before request...");
         const refreshed = await refreshAccessToken();
-
-        if (!refreshed && tokenAlreadyExpired) {
-          handleSessionExpired("expired_token_refresh_failed");
-          throw createSessionExpiredError(
-            "Your session expired. Please sign in again.",
-          );
+        if (!refreshed) {
+          if (tokenAlreadyExpired) {
+            handleSessionExpired("expired_token_refresh_failed");
+            throw createSessionExpiredError(
+              "Your session expired. Please sign in again.",
+            );
+          }
+          // Pre-emptive refresh failed but the access token hadn't expired
+          // yet. If the server rejected the refresh cookie (401/403),
+          // performRefreshAccessToken already called handleSessionExpired
+          // which cleared the in-memory token.  Detect that and bail out
+          // instead of falling through to the getToken() null check which
+          // throws a misleading "not authenticated" error.
+          if (_sessionExpiredEmitted) {
+            throw createSessionExpiredError(
+              "Your session is no longer valid. Please sign in again.",
+            );
+          }
+          // Transient error (network blip) – the existing token is still
+          // usable so continue with the request.
         }
       }
     }
 
     const token = isProtectedRequest ? AuthContext.getToken() : null;
     if (!token && isProtectedRequest) {
-      handleSessionExpired("missing_access_token");
-      throw createSessionExpiredError(
-        "Your session is no longer authenticated. Please sign in again.",
-      );
+      // If a boot refresh is in-flight, wait for it instead of immediately
+      // treating a null in-memory token as session expiry. The token may
+      // appear null during the window between page load and the completion
+      // of bootstrapFromRefreshCookie().
+      const bootP = AuthContext.getBootPromise?.();
+      if (bootP) {
+        await bootP;
+      }
+      const retryToken = AuthContext.getToken();
+      if (!retryToken && !_sessionExpiredEmitted) {
+        handleSessionExpired("missing_access_token");
+      }
+      if (!retryToken) {
+        throw createSessionExpiredError(
+          "Your session is no longer authenticated. Please sign in again.",
+        );
+      }
     }
 
     // Request options
@@ -2065,6 +2180,9 @@ async function apiCall(
         Accept: "application/json",
         ...(token && {
           Authorization: "Bearer " + token,
+        }),
+        ...(_csrfToken && !authFreeEndpoints.has(normalizedEndpoint) && {
+          "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
       },
@@ -2300,11 +2418,19 @@ window.API = {
         remember_me: rememberMe,
       });
 
+      // ── 2FA gate ──────────────────────────────────────────────────────
+      // If the user has 2FA enabled, response will have requires_2fa: true
+      // (no token). Return early so the caller (login.html or modal) can
+      // open the verification modal.
+      if (response && response.requires_2fa) {
+        return response;
+      }
+      // ── end 2FA gate ──────────────────────────────────────────────────
+
       console.log("Full login response:", response);
 
       if (response && response.token) {
-        // Store both access and refresh tokens in selected auth storage
-        AuthContext.setTokens(response.token, response.refresh_token || null);
+        AuthContext.setTokens(response.token);
 
         // Store user context with permissions
         // The backend returns the user object in response.user
@@ -2361,15 +2487,32 @@ window.API = {
       }
       return response;
     },
+    // Complete a 2FA-verified login. Called after the user enters their
+    // TOTP/OTP code and /twofactor/verify returns success.
+    complete2FALogin: async (userId, rememberMe = false) => {
+      AuthContext.setPersistence(rememberMe);
+      const response = await apiCall("/auth/login", "POST", {
+        user_id: userId,
+        remember_me: rememberMe,
+        "2fa_verified": "1",
+      });
+
+      if (response && response.token) {
+        AuthContext.setTokens(response.token);
+        const userData = response.user || {};
+        AuthContext.setUser(userData, response, rememberMe);
+        recordSessionActivity("login");
+      }
+      return response;
+    },
     logout: async () => {
       try {
-        // Revoke the refresh token on the server. Cookie-backed sessions still
-        // work even when nothing was stored in localStorage.
-        const refreshToken = AuthContext.getRefreshToken();
+        // Revoke the refresh token on the server. The HttpOnly cookie carries
+        // the token — no need to send it in the request body.
         await apiCall(
           "/auth/logout-refresh",
           "POST",
-          refreshToken ? { refresh_token: refreshToken } : {},
+          {},
           {},
           {
             checkPermission: false,
@@ -2381,8 +2524,18 @@ window.API = {
         console.warn("Error revoking refresh token on server:", error);
         // Continue with logout even if revoke fails
       } finally {
-        // Clear local storage
+        // Capture userId before clearUser() nulls it, so we can purge
+        // user-scoped IndexedDB data.
+        const userId = AuthContext.getUser?.()?.id || null;
+
+        // Clear auth state and namespaced localStorage keys
         AuthContext.clearUser();
+
+        // Purge user-scoped data from IndexedDB so the next login
+        // (possibly a different user) starts with a clean slate.
+        try { DataStore?.clearAll?.(); } catch (_) {}
+        try { KingswayDB?.clearUserData?.(userId); } catch (_) {}
+
         // Redirect to login
         window.location.href = (window.APP_BASE || "") + "/index.php";
       }
@@ -2404,11 +2557,10 @@ window.API = {
         { checkPermission: false },
       ),
     refreshToken: async () => {
-      const refreshToken = AuthContext.getRefreshToken();
       const response = await apiCall(
         "/auth/refresh-token",
         "POST",
-        refreshToken ? { refresh_token: refreshToken } : {},
+        {},
         {},
         {
           checkPermission: false,
@@ -2417,7 +2569,7 @@ window.API = {
         },
       );
       if (response && response.token) {
-        AuthContext.setTokens(response.token, response.refresh_token || null);
+        AuthContext.setTokens(response.token);
       }
       return response;
     },

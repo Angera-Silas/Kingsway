@@ -138,5 +138,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/upload_teaching_resource.js"></script>
+<script src="<?= $appBase ?>/js/pages/upload_teaching_resource.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/upload_teaching_resource.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => uploadResourceController.init());</script>

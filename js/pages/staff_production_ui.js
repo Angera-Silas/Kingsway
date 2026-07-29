@@ -47,7 +47,6 @@ const StaffProductionUI = {
             return this;
         }
 
-        console.log('[StaffProductionUI] Initializing...');
 
         if (window.AuthContext?.ready) {
             await window.AuthContext.ready();
@@ -84,7 +83,6 @@ const StaffProductionUI = {
         this.applyPageContext();
 
         this.initialized = true;
-        console.log('[StaffProductionUI] Initialized successfully');
 
         return this;
     },
@@ -273,7 +271,6 @@ const StaffProductionUI = {
 
     async _loadStaff() {
         try {
-            console.log('[StaffProductionUI] Loading staff directory...');
             const response = await window.API.staff.index({
                 page: 1,
                 limit: 100,

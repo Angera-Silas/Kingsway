@@ -4,8 +4,6 @@
  * Integrates with AcademicContext for academic year awareness
  */
 
-console.log("placement_tests.js loaded successfully");
-
 const placementTestsController = {
     tests: [],
     filteredTests: [],
@@ -19,10 +17,10 @@ const placementTestsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("placementTestsController: Initializing...");
-
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("placementTestsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -36,7 +34,6 @@ const placementTestsController = {
             if (window.AcademicContext) {
                 // Subscribe to context changes
                 window.AcademicContext.subscribe((context, event, data) => {
-                    console.log('AcademicContext changed in placement_tests:', event, data);
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload tests when academic year or term changes
                         this.loadTests();
@@ -58,7 +55,6 @@ const placementTestsController = {
             await this.loadLearningAreas();
             await this.loadTests();
 
-            console.log("placementTestsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Placement Tests Controller:", error);
             this.showError("Failed to load placement tests");
@@ -194,7 +190,6 @@ const placementTestsController = {
                 .sort((a, b) => a.name.localeCompare(b.name));
 
             this.learningAreas = learningAreas;
-            console.log("Learning areas loaded:", this.learningAreas);
             this.populateSubjectDropdowns();
         } catch (error) {
             console.error("Failed to load learning areas:", error);
@@ -239,14 +234,12 @@ const placementTestsController = {
             // Load placement tests from the database
             // For now, we'll simulate this with admission applications that require placement tests
             const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Placement tests response:", response);
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load placement tests.");
             }
 
             const payload = this.unwrapPayload(response);
-            console.log("Payload:", payload);
 
             // Convert placement queue applications to test records
             const testRecords = [];
@@ -282,7 +275,6 @@ const placementTestsController = {
             }
 
             this.tests = testRecords;
-            console.log("Placement tests loaded:", this.tests);
             this.applyFilters();
             this.updateSummaryCards();
         } catch (error) {
@@ -564,16 +556,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing placement tests controller");
         window.placementTestsController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

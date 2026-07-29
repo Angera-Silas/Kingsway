@@ -61,9 +61,17 @@ class DirectorAnalyticsService
         $stmt = $this->db->query($query);
         $result['outstanding'] = $stmt->fetch()['outstanding'] ?? 0;
 
-        // Fee collection rate
-        $total = $result['collected'] + $result['outstanding'];
-        $result['collection_rate'] = $total > 0 ? round(($result['collected'] / $total) * 100, 1) : 0;
+        // Fee collection rate from vw_collection_rate_by_class
+        try {
+            $stmt = $this->db->query(
+                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
+                 FROM vw_collection_rate_by_class"
+            );
+            $result['collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+        } catch (\Exception $e) {
+            $total = $result['collected'] + $result['outstanding'];
+            $result['collection_rate'] = $total > 0 ? round(($result['collected'] / $total) * 100, 1) : 0;
+        }
 
         return $result;
     }
@@ -286,9 +294,17 @@ class DirectorAnalyticsService
         }
         $result['fees_outstanding'] = $outstanding;
 
-        // Fee Collection Rate
-        $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
-        $result['fee_collection_rate'] = $total_fees > 0 ? round(($result['fees_collected_ytd'] / $total_fees) * 100, 1) : 0;
+        // Fee Collection Rate from vw_collection_rate_by_class
+        try {
+            $stmt = $this->db->query(
+                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
+                 FROM vw_collection_rate_by_class"
+            );
+            $result['fee_collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+        } catch (\Exception $e) {
+            $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
+            $result['fee_collection_rate'] = $total_fees > 0 ? round(($result['fees_collected_ytd'] / $total_fees) * 100, 1) : 0;
+        }
 
         // Attendance Today
         $query = "SELECT AVG(CASE WHEN status = 'present' THEN 100 ELSE 0 END) as rate FROM student_attendance WHERE date = CURDATE()";
@@ -831,6 +847,37 @@ class DirectorAnalyticsService
         ";
         $stmt = $this->db->query($query);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Get collection rates by class level and term from vw_collection_rate_by_class
+     * Returns per-level, per-term breakdown with fee totals, payment statuses, and collection rate.
+     */
+    public function getCollectionRatesByClass()
+    {
+        try {
+            $query = "
+                SELECT
+                    level_name,
+                    level_code,
+                    academic_term,
+                    total_students,
+                    total_fees_due,
+                    total_fees_paid,
+                    total_fees_waived,
+                    collection_rate_percent,
+                    students_paid_in_full,
+                    students_partial_payment,
+                    students_no_payment,
+                    average_payment_per_student
+                FROM vw_collection_rate_by_class
+                ORDER BY level_name, academic_term
+            ";
+            $stmt = $this->db->query($query);
+            return $stmt->fetchAll();
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     /**

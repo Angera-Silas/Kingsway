@@ -46,10 +46,10 @@
     <table class="operator-data-table" id="studentsTable">
         <thead>
             <tr>
-                <th>Adm No</th>
-                <th>Name</th>
-                <th>Gender</th>
-                <th>Action</th>
+                <th scope="col">Adm No</th>
+                <th scope="col">Name</th>
+                <th scope="col">Gender</th>
+                <th scope="col">Action</th>
             </tr>
         </thead>
         <tbody id="studentsTableBody">

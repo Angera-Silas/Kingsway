@@ -15,6 +15,8 @@ use RuntimeException;
 
 define('DEBUG', false);
 
+define('APP_BASE_PATH', __DIR__ . '/..');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root
@@ -86,6 +88,12 @@ $jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
 if ($jwtSecret === '') {
     throw new RuntimeException(
         'JWT_SECRET must be configured in production.'
+    );
+}
+
+if (strlen($jwtSecret) < 64) {
+    throw new RuntimeException(
+        'JWT_SECRET must be at least 64 characters in production. Generate with: openssl rand -hex 32'
     );
 }
 

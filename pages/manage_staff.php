@@ -12,7 +12,7 @@ if (!isset($staffPageDescription)) {
     $staffPageDescription = 'Manage all staff members and their assignments';
 }
 if (!isset($staffPageIcon)) {
-    $staffPageIcon = 'fas fa-chalkboard-teacher';
+    $staffPageIcon = 'bi bi-person-workspace';
 }
 if (isset($staffPageContext) && is_array($staffPageContext)) {
     echo '<script>window.STAFF_PAGE_CONTEXT = ' .
@@ -30,13 +30,13 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
             </div>
             <div class="btn-group">
                 <button class="btn btn-primary" id="addStaffBtn" data-permission-module="staff" data-permission-action="create">
-                    <i class="fas fa-plus me-1"></i>Add Staff
+                    <i class="bi bi-plus-lg me-1"></i>Add Staff
                 </button>
                 <button class="btn btn-outline-primary" id="importStaffBtn" data-permission="staff.directory.manage">
-                    <i class="fas fa-file-import me-1"></i>Import Staff
+                    <i class="bi bi-file-import me-1"></i>Import Staff
                 </button>
                 <button class="btn btn-outline-secondary" id="exportStaffBtn" data-permission-module="staff" data-permission-action="export">
-                    <i class="fas fa-download me-1"></i>Export
+                    <i class="bi bi-download me-1"></i>Export
                 </button>
             </div>
         </div>
@@ -75,7 +75,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                 </div>
                 <div class="col-md-3">
                     <button class="btn btn-outline-secondary w-100" id="resetFilters">
-                        <i class="fas fa-redo me-1"></i>Reset Filters
+                        <i class="bi bi-arrow-clockwise me-1"></i>Reset Filters
                     </button>
                 </div>
             </div>
@@ -89,8 +89,8 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                 <table class="table table-hover" id="staffTable">
                     <thead>
                         <tr id="staffTableHead">
-                            <th>Staff</th>
-                            <th>Status</th>
+                            <th scope="col">Staff</th>
+                            <th scope="col">Status</th>
                         </tr>
                     </thead>
                     <tbody id="staffTableBody">
@@ -125,17 +125,17 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                         <div class="border rounded p-3 h-100">
                             <div class="d-flex flex-wrap gap-2 mb-3">
                                 <button type="button" class="btn btn-outline-primary btn-sm" id="downloadStaffCsvTemplate">
-                                    <i class="fas fa-file-csv me-1"></i>CSV Template
+                                    <i class="bi bi-file-csv me-1"></i>CSV Template
                                 </button>
                                 <button type="button" class="btn btn-outline-success btn-sm" id="downloadStaffExcelTemplate">
-                                    <i class="fas fa-file-excel me-1"></i>Excel Template
+                                    <i class="bi bi-file-excel me-1"></i>Excel Template
                                 </button>
                             </div>
                             <label class="form-label fw-semibold" for="staffImportFile">Completed staff file</label>
                             <input class="form-control" type="file" id="staffImportFile" accept=".csv,.xlsx,.xls">
                             <div class="form-text">Required fields include names, email, phone, department code, role, employment date, contract type, position, and payroll identifiers.</div>
                             <button type="button" class="btn btn-primary mt-3" id="validateStaffImportBtn" disabled>
-                                <i class="fas fa-shield-alt me-1"></i>Validate File
+                                <i class="bi bi-shield-lock me-1"></i>Validate File
                             </button>
                         </div>
                     </div>
@@ -150,7 +150,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                     <div class="d-flex justify-content-between align-items-center border-bottom p-3">
                         <h6 class="mb-0">Validation Result</h6>
                         <button type="button" class="btn btn-success btn-sm" id="commitStaffImportBtn" disabled>
-                            <i class="fas fa-database me-1"></i>Commit Import
+                            <i class="bi bi-database me-1"></i>Commit Import
                         </button>
                     </div>
                     <div class="p-3">
@@ -159,11 +159,11 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                             <table class="table table-sm align-middle mb-0">
                                 <thead>
                                     <tr>
-                                        <th>Row</th>
-                                        <th>Staff</th>
-                                        <th>Email</th>
-                                        <th>Department</th>
-                                        <th>Status</th>
+                                        <th scope="col">Row</th>
+                                        <th scope="col">Staff</th>
+                                        <th scope="col">Email</th>
+                                        <th scope="col">Department</th>
+                                        <th scope="col">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="staffImportRows"></tbody>
@@ -340,7 +340,7 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-primary" id="editFromViewBtn">
-                    <i class="fas fa-pen me-1"></i>Edit Staff
+                    <i class="bi bi-pencil me-1"></i>Edit Staff
                 </button>
             </div>
         </div>

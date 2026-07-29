@@ -3,7 +3,6 @@
  * Complete ID card management system
  */
 
-console.log("student_id_cards.js loaded successfully");
 
 const StudentIdCardsController = {
     students: [],
@@ -23,10 +22,11 @@ const StudentIdCardsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("StudentIdCardsController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("StudentIdCardsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -41,7 +41,6 @@ const StudentIdCardsController = {
             await this.loadMetadata();
             await this.loadStudents();
 
-            console.log("StudentIdCardsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Student ID Cards Controller:", error);
             this.showError(error.message || "Failed to initialize ID cards page.");
@@ -254,7 +253,6 @@ const StudentIdCardsController = {
     loadMetadata: async function() {
         try {
             const response = await this.apiCall('/students/id-card-meta', 'GET');
-            console.log("ID card metadata response:", response);
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load metadata.");
@@ -284,7 +282,6 @@ const StudentIdCardsController = {
         try {
             const params = this.getFilterParams();
             const response = await this.apiCall(`/students/id-cards?${params.toString()}`, 'GET');
-            console.log("Students response:", response);
 
             if (response.success === false) {
                 if (response.message && response.message.includes("permission")) {
@@ -1279,16 +1276,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing student ID cards controller");
         window.StudentIdCardsController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

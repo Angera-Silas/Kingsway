@@ -339,12 +339,12 @@
             <thead>
                 <tr>
                     <th style="width: 40px;">#</th>
-                    <th>Staff No</th>
-                    <th>Name</th>
-                    <th>Department</th>
-                    <th>Subjects</th>
-                    <th>Class Assignments</th>
-                    <th>Status</th>
+                    <th scope="col">Staff No</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Department</th>
+                    <th scope="col">Subjects</th>
+                    <th scope="col">Class Assignments</th>
+                    <th scope="col">Status</th>
                     <th style="width: 90px;">Actions</th>
                 </tr>
             </thead>
@@ -911,13 +911,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_teachers.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof manageTeachersController !== 'undefined') {
-            manageTeachersController.init();
-        } else {
-            console.warn('[Manage Teachers] manageTeachersController not found in manage_teachers.js');
-        }
-    });
-</script>
+<script src="<?= $appBase ?>/js/pages/manage_teachers.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_teachers.js") ?>"></script>

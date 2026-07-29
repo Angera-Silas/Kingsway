@@ -10,6 +10,7 @@ const studentTimelineController = {
   _allStudents: [],
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) return;
     this._canTransfer = AuthContext.hasPermission('students.transfer') || AuthContext.hasPermission('academic.manage');
     this._modal = new bootstrap.Modal(document.getElementById('transferModal'));

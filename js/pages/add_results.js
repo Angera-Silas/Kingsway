@@ -33,6 +33,13 @@ const addResultsController = (() => {
   };
   let recentLog = [];
 
+  function escapeHtml(str) {
+    if (!str) return "";
+    const d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
   function calcGrade(m) {
     for (const [min, g, p] of gradeMap)
       if (m >= min) return { grade: g, points: p };
@@ -40,11 +47,12 @@ const addResultsController = (() => {
   }
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    await Promise.all([loadYears(), loadClasses(), loadSubjects()]);
+    await Promise.all([loadYears(), loadClasses(), loadSubjects(), loadTerms(), loadAssessmentTypes()]);
     document
       .getElementById("addResultForm")
       .addEventListener("submit", handleSubmit);
@@ -96,6 +104,69 @@ const addResultsController = (() => {
     } catch (e) {
       console.error("Load subjects:", e);
     }
+  }
+
+  async function loadTerms() {
+    const sel = document.getElementById("termSelect");
+    if (!sel) return;
+    try {
+      if (API?.academic?.getTerms) {
+        const res = await API.academic.getTerms();
+        const terms = res?.data || res || [];
+        const termList = Array.isArray(terms) ? terms : terms.terms || [];
+        if (termList.length) {
+          termList.forEach((t) => {
+            const o = document.createElement("option");
+            o.value = t.name || t.term_name || t;
+            o.textContent = t.name || t.term_name || t;
+            sel.appendChild(o);
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Load terms from API failed, using defaults:", e);
+    }
+    ["Term 1", "Term 2", "Term 3"].forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t;
+      o.textContent = t;
+      sel.appendChild(o);
+    });
+  }
+
+  async function loadAssessmentTypes() {
+    const sel = document.getElementById("assessmentType");
+    if (!sel) return;
+    try {
+      if (API?.academic?.getAssessmentTypes) {
+        const res = await API.academic.getAssessmentTypes();
+        const types = res?.data || res || [];
+        const typeList = Array.isArray(types) ? types : types.assessment_types || [];
+        if (typeList.length) {
+          typeList.forEach((t) => {
+            const o = document.createElement("option");
+            o.value = t.id || t.value || t;
+            o.textContent = t.name || t.label || t;
+            sel.appendChild(o);
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Load assessment types from API failed, using defaults:", e);
+    }
+    [
+      { value: "CAT", label: "CAT" },
+      { value: "Exam", label: "End of Term Exam" },
+      { value: "Assignment", label: "Assignment" },
+      { value: "Project", label: "Project" },
+    ].forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t.value;
+      o.textContent = t.label;
+      sel.appendChild(o);
+    });
   }
 
   async function loadStudents() {
@@ -201,8 +272,8 @@ const addResultsController = (() => {
         .map(
           (r) =>
             `<li class="list-group-item d-flex justify-content-between align-items-center py-2">
-                <div><strong>${r.student}</strong><br><small class="text-muted">${r.subject}</small></div>
-                <div class="text-end"><span class="badge bg-${gradeColors[r.grade] || "secondary"}">${r.marks} (${r.grade})</span><br><small class="text-muted">${r.time}</small></div>
+                <div><strong>${escapeHtml(r.student)}</strong><br><small class="text-muted">${escapeHtml(r.subject)}</small></div>
+                <div class="text-end"><span class="badge bg-${gradeColors[r.grade] || "secondary"}">${Number(r.marks)} (${escapeHtml(r.grade)})</span><br><small class="text-muted">${escapeHtml(r.time)}</small></div>
             </li>`,
         )
         .join("") +

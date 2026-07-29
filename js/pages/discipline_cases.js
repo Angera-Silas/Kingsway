@@ -16,8 +16,8 @@ const DisciplineCasesController = {
   ui: {},
 
   async init() {
-    console.log("DisciplineCasesController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -26,11 +26,8 @@ const DisciplineCasesController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("DisciplineCasesController: Loading metadata...");
     await this.loadMeta();
-    console.log("DisciplineCasesController: Loading cases...");
     await this.loadCases();
-    console.log("DisciplineCasesController: Initialization complete");
   },
 
   cacheDom() {
@@ -120,21 +117,14 @@ const DisciplineCasesController = {
 
   async loadMeta() {
     try {
-      console.log("DisciplineCasesController: Fetching discipline metadata...");
       const response = await this.api("/students/discipline-meta", "GET");
-      console.log("DisciplineCasesController: Metadata response:", response);
       const data = this.unwrap(response);
-      console.log("DisciplineCasesController: Unwrapped metadata:", data);
 
       this.state.classes = data.classes || [];
       this.state.streams = data.streams || [];
       this.state.academicYears = data.academic_years || [];
       this.state.terms = data.terms || [];
 
-      console.log("DisciplineCasesController: Loaded classes:", this.state.classes.length);
-      console.log("DisciplineCasesController: Loaded streams:", this.state.streams.length);
-      console.log("DisciplineCasesController: Loaded academic years:", this.state.academicYears.length);
-      console.log("DisciplineCasesController: Loaded terms:", this.state.terms.length);
 
       this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
       this.fillSelect(this.ui.termFilter, this.state.terms, "All Terms");
@@ -164,11 +154,8 @@ const DisciplineCasesController = {
 
     try {
       const params = this.getCaseParams();
-      console.log("DisciplineCasesController: Loading cases with params:", params.toString());
       const response = await this.api(`/students/discipline-cases?${params.toString()}`, "GET");
-      console.log("DisciplineCasesController: Cases response:", response);
       const cases = this.unwrap(response) || [];
-      console.log("DisciplineCasesController: Unwrapped cases:", cases.length);
 
       this.state.cases = cases;
       this.renderCases();

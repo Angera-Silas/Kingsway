@@ -238,7 +238,6 @@ const communicationsController = {
    * Reply to message
    */
   replyMessage: function (messageId) {
-    console.log("Reply feature coming soon");
   },
 
   /**

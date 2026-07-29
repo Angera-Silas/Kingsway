@@ -68,14 +68,14 @@
                             <table class="table table-hover" id="comparisonTable">
                                 <thead>
                                     <tr>
-                                        <th>Class</th>
-                                        <th>Subject</th>
-                                        <th>Students</th>
-                                        <th>Average Score</th>
-                                        <th>Highest Score</th>
-                                        <th>Lowest Score</th>
-                                        <th>Pass Rate</th>
-                                        <th>Grade Distribution</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Students</th>
+                                        <th scope="col">Average Score</th>
+                                        <th scope="col">Highest Score</th>
+                                        <th scope="col">Lowest Score</th>
+                                        <th scope="col">Pass Rate</th>
+                                        <th scope="col">Grade Distribution</th>
                                     </tr>
                                 </thead>
                                 <tbody id="comparisonTableBody">
@@ -94,4 +94,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_class_comparison.js"></script>
+<script src="js/pages/subject_class_comparison.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_class_comparison.js") ?>"></script>

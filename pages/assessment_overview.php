@@ -92,9 +92,9 @@
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
                 <tr>
-                  <th>Title</th><th>Type</th><th>Learning Area</th><th>Class</th>
-                  <th>Date</th><th>Max</th><th class="text-center">Graded</th>
-                  <th class="text-center">Avg %</th><th>Status</th><th class="text-end">Actions</th>
+                  <th scope="col">Title</th><th scope="col">Type</th><th scope="col">Learning Area</th><th scope="col">Class</th>
+                  <th scope="col">Date</th><th scope="col">Max</th><th class="text-center">Graded</th>
+                  <th class="text-center">Avg %</th><th scope="col">Status</th><th class="text-end">Actions</th>
                 </tr>
               </thead>
               <tbody id="aoFormativeBody">
@@ -116,10 +116,10 @@
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
                 <tr>
-                  <th>Title</th><th>Type</th><th>Learning Area</th><th>Class</th>
-                  <th>Exam Date</th><th>Max Marks</th>
+                  <th scope="col">Title</th><th scope="col">Type</th><th scope="col">Learning Area</th><th scope="col">Class</th>
+                  <th scope="col">Exam Date</th><th scope="col">Max Marks</th>
                   <th class="text-center">Graded</th><th class="text-center">Avg %</th>
-                  <th>Status</th><th class="text-end">Actions</th>
+                  <th scope="col">Status</th><th class="text-end">Actions</th>
                 </tr>
               </thead>
               <tbody id="aoSummativeBody">
@@ -150,7 +150,7 @@
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
                 <tr>
-                  <th>Learning Area</th><th>Class</th>
+                  <th scope="col">Learning Area</th><th scope="col">Class</th>
                   <th class="text-center">CA Count</th><th class="text-center">Exam Count</th>
                   <th class="text-center">CA Avg %</th><th class="text-center">Exam Avg %</th>
                   <th class="text-center">Overall Grade</th>
@@ -268,13 +268,13 @@
           <table class="table table-hover align-middle">
             <thead class="table-dark">
               <tr>
-                <th>#</th>
-                <th>Student Name</th>
-                <th>Adm No</th>
+                <th scope="col">#</th>
+                <th scope="col">Student Name</th>
+                <th scope="col">Adm No</th>
                 <th style="width:130px;">Marks <small id="aoMrkMax" class="fw-normal">/ ?</small></th>
                 <th class="text-center">%</th>
                 <th class="text-center">CBC Grade</th>
-                <th>Remarks</th>
+                <th scope="col">Remarks</th>
               </tr>
             </thead>
             <tbody id="aoMarksBody"></tbody>
@@ -292,5 +292,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/assessment_overview.js"></script>
+<script src="<?= $appBase ?>/js/pages/assessment_overview.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/assessment_overview.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => assessmentOverviewCtrl.init());</script>

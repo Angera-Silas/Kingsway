@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-envelope"></i> Email Management</h4>
+            <h4 class="mb-0"><i class="bi bi-envelope"></i> Email Management</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="composeEmailBtn" data-permission="email_send">
                     <i class="bi bi-plus-circle"></i> Compose Email
@@ -90,11 +90,11 @@
             <table class="table table-hover" id="emailTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Date/Time</th>
-                        <th>Recipients</th>
-                        <th>Subject</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Date/Time</th>
+                        <th scope="col">Recipients</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>

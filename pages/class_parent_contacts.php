@@ -57,13 +57,13 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Student</th>
-                <th>Parent / Guardian</th>
-                <th>Relationship</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Preferred Contact</th>
-                <th>Last Contacted</th>
+                <th scope="col">Student</th>
+                <th scope="col">Parent / Guardian</th>
+                <th scope="col">Relationship</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Email</th>
+                <th scope="col">Preferred Contact</th>
+                <th scope="col">Last Contacted</th>
               </tr>
             </thead>
             <tbody id="cpTableBody"></tbody>
@@ -78,4 +78,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/class_parent_contacts.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/class_parent_contacts.js"></script>

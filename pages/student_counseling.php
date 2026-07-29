@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-hands-helping me-2"></i>
+                        <i class="bi bi-hand-index-thumb me-2"></i>
                         Student Counseling
                     </h4>
                     <small id="scopeSubtitle">Track counseling cases, welfare concerns, interventions, and follow-ups</small>
@@ -121,7 +121,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, counselor, or case title">
@@ -130,13 +130,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-info w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -148,7 +148,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-folder-open"></i>
+                                    <i class="bi bi-folder-open"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Cases</small>
@@ -164,7 +164,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-folder-open"></i>
+                                    <i class="bi bi-folder-open"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Open Cases</small>
@@ -180,7 +180,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-clock"></i>
+                                    <i class="bi bi-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Follow-ups Due</small>
@@ -196,7 +196,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-check-circle"></i>
+                                    <i class="bi bi-check-lg-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Resolved</small>
@@ -212,7 +212,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">High Priority</small>
@@ -228,7 +228,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-calendar-alt"></i>
+                                    <i class="bi bi-calendar-alt"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">This Term</small>
@@ -242,20 +242,20 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="casesLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading counseling cases...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading counseling cases...
             </div>
 
             <div id="casesError" class="alert alert-danger d-none"></div>
 
             <div id="casesEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No counseling cases found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No counseling cases found for the selected filters.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="casesCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-info"></i>
+                        <i class="bi bi-list-ul me-2 text-info"></i>
                         Counseling Cases
                     </strong>
                 </div>
@@ -264,18 +264,18 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Case ID</th>
-                                <th>Student Name</th>
-                                <th>Adm No</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Case Type</th>
-                                <th>Priority</th>
-                                <th>Status</th>
-                                <th>Counselor</th>
-                                <th>Last Session</th>
-                                <th>Next Follow-up</th>
-                                <th>Actions</th>
+                                <th scope="col">Case ID</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Case Type</th>
+                                <th scope="col">Priority</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Counselor</th>
+                                <th scope="col">Last Session</th>
+                                <th scope="col">Next Follow-up</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="casesTableBody">
@@ -299,7 +299,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-info text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-hands-helping me-2"></i>
+                        <i class="bi bi-hand-index-thumb me-2"></i>
                         Counseling Case Details
                     </h5>
                     <small id="modalSubtitle">Case #<span id="modalCaseId"></span></small>
@@ -309,7 +309,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading case details...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading case details...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>

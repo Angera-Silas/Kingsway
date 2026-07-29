@@ -186,10 +186,7 @@ const SupervisionRosterController = (() => {
         } catch (e) { showNotification('Failed to delete', 'error'); }
     }
 
-    function showNotification(message, type) {
-        if (window.API?.showNotification) window.API.showNotification(message, type);
-        else alert((type === 'error' ? 'Error: ' : '') + message);
-    }
+    function showNotification(message, type) { window.showNotification(message, type); }
 
     function attachListeners() {
         document.getElementById('addSupervisionBtn')?.addEventListener('click', () => openModal());

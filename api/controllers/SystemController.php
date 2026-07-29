@@ -130,6 +130,9 @@ class SystemController extends BaseController
     // POST /api/system/logs/clear
     public function postLogsClear($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
         $result = $this->api->clearLogs();
         return $this->handleResponse($result);
     }
@@ -137,6 +140,9 @@ class SystemController extends BaseController
     // POST /api/system/logs/archive
     public function postLogsArchive($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
         $result = $this->api->archiveLogs();
         return $this->handleResponse($result);
     }
@@ -3473,12 +3479,25 @@ class SystemController extends BaseController
 
     private function fetchRows(string $table, int $limit = 100, string $orderBy = 'id DESC', string $columns = '*'): array
     {
-        if (!$this->tableExists($table)) {
+        $allowedTables = [
+            'users','roles','permissions','role_permissions','role_routes',
+            'routes','sidebar_menu_items','role_sidebar_menus','dashboards',
+            'staff','students','classes','class_streams','academic_years',
+            'academic_terms','departments','school_settings','school_configuration',
+            'audit_logs','audit_trail','login_attempts','failed_auth_attempts',
+            'refresh_tokens','auth_sessions','notifications','communications',
+            'blocked_ips','rate_limit_logs','system_events','system_policies',
+        ];
+
+        if (!in_array($table, $allowedTables, true)) {
             return [];
         }
 
+        $safeColumns = preg_replace('/[^a-zA-Z0-9_ ,\.\(\)]/', '', $columns);
+        $safeOrderBy = preg_replace('/[^a-zA-Z0-9_ ,\.]/', '', $orderBy);
         $limit = max(1, min($limit, 1000));
-        return $this->db->query("SELECT $columns FROM $table ORDER BY $orderBy LIMIT $limit", [])->fetchAll() ?? [];
+
+        return $this->db->query("SELECT {$safeColumns} FROM `{$table}` ORDER BY {$safeOrderBy} LIMIT {$limit}", [])->fetchAll() ?? [];
     }
 
     private function getSystemState(string $key, $default)

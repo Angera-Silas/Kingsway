@@ -16,15 +16,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-calendar-week me-2"></i>Timetable</h4>
+                    <h4 class="mb-1"><i class="bi bi-calendar-week me-2"></i>Timetable</h4>
                     <p class="text-muted mb-0">View and manage class and teacher timetables</p>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal">
-                        <i class="fas fa-magic me-1"></i> Generate
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal" data-permission="schedules_create">
+                        <i class="bi bi-magic me-1"></i> Generate
                     </button>
                     <button class="btn btn-outline-secondary" id="printTimetable">
-                        <i class="fas fa-print me-1"></i> Print
+                        <i class="bi bi-printer me-1"></i> Print
                     </button>
                 </div>
             </div>
@@ -63,7 +63,7 @@
                 </div>
                 <div class="col-md-3">
                     <button class="btn btn-primary w-100" id="loadTimetable">
-                        <i class="fas fa-eye me-1"></i> View Timetable
+                        <i class="bi bi-eye me-1"></i> View Timetable
                     </button>
                 </div>
             </div>
@@ -81,17 +81,17 @@
                     <thead>
                         <tr>
                             <th style="width: 100px;">Time</th>
-                            <th>Monday</th>
-                            <th>Tuesday</th>
-                            <th>Wednesday</th>
-                            <th>Thursday</th>
-                            <th>Friday</th>
+                            <th scope="col">Monday</th>
+                            <th scope="col">Tuesday</th>
+                            <th scope="col">Wednesday</th>
+                            <th scope="col">Thursday</th>
+                            <th scope="col">Friday</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
                             <td colspan="6" class="text-center text-muted">
-                                <i class="fas fa-calendar-alt fa-3x mb-2"></i>
+                                <i class="bi bi-calendar-alt fa-3x mb-2"></i>
                                 <p>Select a class or teacher to view the timetable</p>
                             </td>
                         </tr>
@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/timetable.js"></script>
+<script src="<?= $appBase ?>/js/pages/timetable.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/timetable.js") ?>"></script>

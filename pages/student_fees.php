@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-money-check-alt"></i> Student Fees Management</h4>
+            <h4 class="mb-0"><i class="bi bi-credit-card"></i> Student Fees Management</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="payments_create">
                     <i class="bi bi-plus-circle"></i> Record Payment
@@ -92,14 +92,14 @@
             <table class="table table-hover" id="feesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Admission No</th>
-                        <th>Student Name</th>
-                        <th>Class</th>
-                        <th>Expected (KES)</th>
-                        <th>Paid (KES)</th>
-                        <th>Balance (KES)</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Admission No</th>
+                        <th scope="col">Student Name</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Expected (KES)</th>
+                        <th scope="col">Paid (KES)</th>
+                        <th scope="col">Balance (KES)</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -163,9 +163,9 @@
                 <table class="table table-sm table-bordered mb-4">
                     <thead class="table-light">
                         <tr>
-                            <th>Fee Type</th>
-                            <th>Amount (KES)</th>
-                            <th>Status</th>
+                            <th scope="col">Fee Type</th>
+                            <th scope="col">Amount (KES)</th>
+                            <th scope="col">Status</th>
                         </tr>
                     </thead>
                     <tbody id="feeBreakdownBody">
@@ -178,11 +178,11 @@
                 <table class="table table-sm table-bordered">
                     <thead class="table-light">
                         <tr>
-                            <th>Date</th>
-                            <th>Receipt No</th>
-                            <th>Amount (KES)</th>
-                            <th>Method</th>
-                            <th>Received By</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Receipt No</th>
+                            <th scope="col">Amount (KES)</th>
+                            <th scope="col">Method</th>
+                            <th scope="col">Received By</th>
                         </tr>
                     </thead>
                     <tbody id="paymentHistoryBody">
@@ -256,18 +256,18 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fas fa-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>
+        <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="billingHistoryContent">
         <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" onclick="StudentFeesController.printFeeStatement()"><i class="fas fa-print me-1"></i>Print Statement</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="StudentFeesController.printFeeStatement()"><i class="bi bi-printer me-1"></i>Print Statement</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="<?= (defined('APP_BASE') ? APP_BASE : '/Kingsway') ?>/js/pages/student_fees.js"></script>
+<script src="<?= (defined("APP_BASE") ? APP_BASE : "/Kingsway") ?>/js/pages/student_fees.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_fees.js") ?>"></script>

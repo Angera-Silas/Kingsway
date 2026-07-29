@@ -345,6 +345,7 @@ const studentSubjectPerformanceCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -353,7 +354,6 @@ const studentSubjectPerformanceCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in student_subject_performance:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

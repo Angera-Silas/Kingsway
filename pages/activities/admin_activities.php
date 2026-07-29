@@ -16,8 +16,8 @@
 // Access session variables set by the parent
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/admin-theme.css">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/admin-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/admin-theme.css') ?>">
 
 <div class="admin-layout">
     <!-- Sidebar Navigation -->
@@ -230,17 +230,17 @@
                         <table class="admin-data-table" id="activitiesTable">
                             <thead>
                                 <tr>
-                                    <th><input type="checkbox" class="select-all" id="selectAll"></th>
+                                    <th scope="col"><input type="checkbox" class="select-all" id="selectAll"></th>
                                     <th data-sortable>ID</th>
                                     <th data-sortable>Activity Name</th>
                                     <th data-sortable>Category</th>
-                                    <th>Description</th>
+                                    <th scope="col">Description</th>
                                     <th data-sortable>Start Date</th>
                                     <th data-sortable>End Date</th>
                                     <th data-sortable>Participants</th>
                                     <th data-sortable>Status</th>
-                                    <th>Created By</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Created By</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="activitiesTableBody">
@@ -288,7 +288,7 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize role-based UI

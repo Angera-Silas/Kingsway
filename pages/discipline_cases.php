@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-gavel me-2"></i>
+                        <i class="bi bi-gavel me-2"></i>
                         Discipline Overview
                     </h4>
                     <small id="scopeSubtitle">Manage student discipline records</small>
@@ -96,7 +96,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, or case description">
@@ -105,13 +105,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-danger w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -123,7 +123,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-folder-open"></i>
+                                    <i class="bi bi-folder-open"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Cases</small>
@@ -139,7 +139,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-clock"></i>
+                                    <i class="bi bi-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Open/Pending</small>
@@ -155,7 +155,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-check-circle"></i>
+                                    <i class="bi bi-check-lg-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Resolved</small>
@@ -171,7 +171,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">High Severity</small>
@@ -187,7 +187,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-user-clock"></i>
+                                    <i class="bi bi-person-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Repeat Offenders</small>
@@ -203,7 +203,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-calendar-alt"></i>
+                                    <i class="bi bi-calendar-alt"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">This Term</small>
@@ -217,24 +217,24 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="casesLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading discipline cases...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading discipline cases...
             </div>
 
             <div id="casesError" class="alert alert-danger d-none"></div>
 
             <div id="casesEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No discipline cases found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No discipline cases found for the selected filters.
             </div>
 
             <div id="casesForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-lock me-2"></i> You do not have permission to view discipline cases.
+                <i class="bi bi-lock me-2"></i> You do not have permission to view discipline cases.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="casesCard">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <strong>
-                        <i class="fas fa-list me-2 text-danger"></i>
+                        <i class="bi bi-list-ul me-2 text-danger"></i>
                         Discipline Cases
                     </strong>
                 </div>
@@ -243,17 +243,17 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Case ID</th>
-                                <th>Student</th>
-                                <th>Adm No</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Incident</th>
-                                <th>Severity</th>
-                                <th>Status</th>
-                                <th>Incident Date</th>
-                                <th>Action Taken</th>
-                                <th>Actions</th>
+                                <th scope="col">Case ID</th>
+                                <th scope="col">Student</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Incident</th>
+                                <th scope="col">Severity</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Incident Date</th>
+                                <th scope="col">Action Taken</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="casesTableBody">
@@ -277,7 +277,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-danger text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-gavel me-2"></i>
+                        <i class="bi bi-gavel me-2"></i>
                         Discipline Case Details
                     </h5>
                     <small id="modalCaseSubtitle">Case #<span id="modalCaseId"></span></small>
@@ -288,7 +288,7 @@ if (!isset($appBase)) {
             <div class="modal-body">
 
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading case details...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading case details...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>
@@ -378,7 +378,7 @@ if (!isset($appBase)) {
                             </div>
                             <div class="mt-3">
                                 <button class="btn btn-success" id="updateCaseBtn">
-                                    <i class="fas fa-save me-1"></i> Update Case
+                                    <i class="bi bi-check-lg me-1"></i> Update Case
                                 </button>
                             </div>
                         </div>

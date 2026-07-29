@@ -69,13 +69,13 @@
     <table class="manager-data-table" id="studentsTable">
         <thead>
             <tr>
-                <th>Adm No</th>
-                <th>Name</th>
-                <th>Class</th>
-                <th>Gender</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Adm No</th>
+                <th scope="col">Name</th>
+                <th scope="col">Class</th>
+                <th scope="col">Gender</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="studentsTableBody">

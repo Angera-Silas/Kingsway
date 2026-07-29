@@ -4,6 +4,7 @@ namespace App\API\Router;
 
 use App\API\Middleware\CORSMiddleware;
 use App\API\Middleware\AuthMiddleware;
+use App\API\Middleware\CsrfMiddleware;
 use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\IpAccessControlMiddleware;
 use App\API\Middleware\RBACMiddleware;
@@ -36,10 +37,13 @@ class Router
             // 4. Auth (JWT) - Validate JWT token
             AuthMiddleware::handle();
 
-            // 5. RBAC - Resolve user permissions from database
+            // 5. CSRF - Validate CSRF token on state-changing requests
+            CsrfMiddleware::handle();
+
+            // 6. RBAC - Resolve user permissions from database
             RBACMiddleware::handle();
 
-            // 6. Route Authorization - Enforce DB route whitelist for registered API routes
+            // 7. Route Authorization - Enforce DB route whitelist for registered API routes
             $routeAuth = RouteAuthorization::enforceCurrentRequest();
             if (!$routeAuth['success']) {
                 http_response_code($routeAuth['http_code']);
@@ -53,7 +57,7 @@ class Router
                 ];
             }
 
-            // 7. Device - Log device fingerprint and check blacklist
+            // 8. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
             // ===== DELEGATE TO CONTROLLER ROUTER =====

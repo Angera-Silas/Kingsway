@@ -169,12 +169,16 @@ class BankPaymentWebhook
 
             if ($payment) {
                 // Record bank transaction details
+                // NOTE: status is 'recorded' (not 'processed') because
+                // sp_process_student_payment already credited the balance.
+                // Using 'processed' would fire trg_bank_payment_processed
+                // and double-credit the student.
                 $stmt = $this->db->prepare("
                     INSERT INTO bank_transactions (
                         student_id, transaction_ref, amount, transaction_date,
                         bank_name, account_number, narration, status,
                         webhook_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processed', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', ?)
                 ");
 
                 $stmt->execute([

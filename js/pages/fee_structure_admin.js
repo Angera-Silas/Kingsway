@@ -52,7 +52,6 @@ class FeeStructureAdminController {
     controller.loadDropdowns();
     controller.loadFeeStructures();
     controller.initializeCharts();
-    console.log("FeeStructureAdminController initialized");
   }
 
   /**

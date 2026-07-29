@@ -105,14 +105,14 @@
             <table class="table table-hover table-striped" id="assignmentsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>Class Teacher</th>
-                        <th>Teacher Email</th>
-                        <th>Assigned Date</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">Class Teacher</th>
+                        <th scope="col">Teacher Email</th>
+                        <th scope="col">Assigned Date</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -177,5 +177,5 @@
     </div>
 </div>
 
-<script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/assign_class_teachers.js"></script>
+<script src="js/pages/staff_access.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_access.js") ?>"></script>
+<script src="<?= $appBase ?>/js/pages/assign_class_teachers.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/assign_class_teachers.js") ?>"></script>

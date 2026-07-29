@@ -16,15 +16,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-users me-2"></i>Parents & Guardians</h4>
+                    <h4 class="mb-1"><i class="bi bi-people me-2"></i>Parents & Guardians</h4>
                     <p class="text-muted mb-0">Manage parent/guardian information and communications</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addParentModal">
-                        <i class="fas fa-plus me-1"></i> Add Parent
+                        <i class="bi bi-plus-lg me-1"></i> Add Parent
                     </button>
                     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#bulkMessageModal">
-                        <i class="fas fa-envelope me-1"></i> Send Message
+                        <i class="bi bi-envelope me-1"></i> Send Message
                     </button>
                 </div>
             </div>
@@ -81,7 +81,7 @@
                 </div>
                 <div class="col-md-2">
                     <button class="btn btn-outline-secondary w-100" id="exportParents">
-                        <i class="fas fa-download"></i> Export
+                        <i class="bi bi-download"></i> Export
                     </button>
                 </div>
             </div>
@@ -91,13 +91,13 @@
                 <table class="table table-hover" id="parentsTable">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Phone</th>
-                            <th>Email</th>
-                            <th>Children</th>
-                            <th>Fee Status</th>
-                            <th>Last Contact</th>
-                            <th>Actions</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Phone</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Children</th>
+                            <th scope="col">Fee Status</th>
+                            <th scope="col">Last Contact</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -111,4 +111,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/all_parents.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_parents.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/all_parents.js") ?>"></script>

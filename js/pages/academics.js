@@ -48,7 +48,6 @@ const academicsController = {
             return this;
         }
 
-        console.log('[AcademicsController] Initializing...');
 
         try {
             if (window.AuthContext?.ready) {
@@ -93,7 +92,6 @@ const academicsController = {
             }
 
             this.initialized = true;
-            console.log('[AcademicsController] Initialized successfully');
 
             return this;
         } catch (error) {
@@ -337,20 +335,15 @@ const academicsController = {
 
     async _loadTeachers() {
         try {
-            console.log('Loading teachers...');
-            console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
-            console.log('Is authenticated:', AuthContext.isAuthenticated());
             
             // Get teaching staff from the academic API. /users/index is only the
             // Users API health endpoint in this app and does not return user rows.
             const response = await window.API.academic.listTeachers({ limit: 200 });
-            console.log('Teachers API response:', response);
             
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
             this.state.teachers = data;
             
-            console.log('Processed teachers data:', this.state.teachers);
         } catch (error) {
             console.error('Error loading teachers:', error);
             console.error('Error message:', error.message);

@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-info text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-calculator"></i> Budget Overview</h4>
+            <h4 class="mb-0"><i class="bi bi-calculator"></i> Budget Overview</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="addBudgetBtn" data-permission="budget_create">
                     <i class="bi bi-plus-circle"></i> New Budget
@@ -113,14 +113,14 @@
                     <table class="table table-hover" id="budgetTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Category</th>
-                                <th>Department</th>
-                                <th>Allocated</th>
-                                <th>Spent</th>
-                                <th>Remaining</th>
-                                <th>% Used</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Department</th>
+                                <th scope="col">Allocated</th>
+                                <th scope="col">Spent</th>
+                                <th scope="col">Remaining</th>
+                                <th scope="col">% Used</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -198,4 +198,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/budget_overview.js"></script>
+<script src="<?= $appBase ?>/js/pages/budget_overview.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/budget_overview.js") ?>"></script>

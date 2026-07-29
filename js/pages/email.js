@@ -7,6 +7,7 @@ const emailController = {
   _data: [], _filtered: [], _page: 1, _perPage: 20, _modal: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._modal = new bootstrap.Modal(document.getElementById('emailModal'));
     this._bindEvents();

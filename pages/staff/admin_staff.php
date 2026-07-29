@@ -119,16 +119,16 @@
     <table class="admin-data-table" id="staffTable">
         <thead>
             <tr>
-                <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
-                <th>Photo</th>
-                <th>Staff ID</th>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Department</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th scope="col">Photo</th>
+                <th scope="col">Staff ID</th>
+                <th scope="col">Name</th>
+                <th scope="col">Role</th>
+                <th scope="col">Department</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Email</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="staffTableBody">

@@ -820,7 +820,7 @@ const RoleBasedUI = (() => {
       tableActions: [],
       headerActions: [],
       animations: "none",
-      cssFile: "/css/roles/viewer-theme.css",
+      cssFile: (window.APP_BASE || '') + "/css/roles/viewer-theme.css",
     },
   };
 
@@ -1382,6 +1382,24 @@ const RoleBasedUI = (() => {
   // ============== END LAYOUT & THEME CONFIGURATION ==============
 
   /**
+   * Re-process data-permission / data-role attributes on a container.
+   * Call this after ANY dynamic render (table rows, cards, modals).
+   *
+   * Usage in controllers:
+   *   this.renderTable();
+   *   RoleBasedUI.refreshPermissions();          // whole page
+   *   RoleBasedUI.refreshPermissions(tbody);     // just the table
+   */
+  function refreshPermissions(container) {
+    const target = container || document.body;
+    if (!target) return;
+    apply(target);
+    if (typeof window.API?.applyPermissionContract === "function") {
+      window.API.applyPermissionContract(target);
+    }
+  }
+
+  /**
    * Disable elements that user doesn't have permission for (instead of hiding)
    * @param {HTMLElement} container - Container element
    */
@@ -1449,6 +1467,9 @@ const RoleBasedUI = (() => {
 
     // Layout
     applyLayout,
+
+    // Permission refresh (call after dynamic renders)
+    refreshPermissions,
 
     // Debug
     debug,

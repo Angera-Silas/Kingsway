@@ -20,6 +20,7 @@ window.studentsManagementController = window.studentsManagementController || {
     }
     this.initialized = true;
 
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;

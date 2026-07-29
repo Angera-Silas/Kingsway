@@ -44,7 +44,7 @@
                 <span
                     class="app-notification-badge"
                     id="header-notification-count"
-                >3</span>
+                >0</span>
             </button>
 
             <div

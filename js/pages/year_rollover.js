@@ -47,6 +47,7 @@ const yearRolloverController = {
   ],
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) return;
     this._canRollover = AuthContext.hasPermission('academic.manage') || AuthContext.hasPermission('system.admin');
     await this._loadStatus();

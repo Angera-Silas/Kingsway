@@ -187,7 +187,6 @@ const AdmissionsController = {
     }
 
     this.state.isInitializing = true;
-    console.log("[AdmissionsController] Initializing...");
 
     try {
       // Get user role from session
@@ -212,8 +211,6 @@ const AdmissionsController = {
       this.switchTab(this.getDefaultTab());
 
       this.state.isInitialized = true;
-
-      console.log("[AdmissionsController] Initialized");
     } finally {
       this.state.isInitializing = false;
     }
@@ -532,7 +529,34 @@ const AdmissionsController = {
    * Load reference data for forms (parents, academic years)
    */
   async loadReferenceData() {
-    await Promise.all([this.loadParents(), this.loadAcademicYears()]);
+    await Promise.all([this.loadParents(), this.loadAcademicYears(), this.loadClassOptions()]);
+  },
+
+  async loadClassOptions() {
+    try {
+      let classes = [];
+      if (API?.admission?.getPlacementClasses) {
+        const response = await API.admission.getPlacementClasses();
+        classes = this.unwrapList(response, 'classes');
+      }
+      if (!classes.length && API?.academic?.listClasses) {
+        const response = await API.academic.listClasses({ limit: 200 });
+        classes = this.unwrapList(response);
+      }
+      const data = Array.isArray(classes) ? classes : [];
+      document.querySelectorAll('.grade-select-dynamic').forEach(sel => {
+        const currentVal = sel.value;
+        const firstOption = sel.querySelector('option:first-child');
+        const firstLabel = firstOption ? firstOption.textContent : 'Select Class';
+        const firstValue = firstOption ? firstOption.value : '';
+        let html = `<option value="${firstValue}">${firstLabel}</option>`;
+        html += data.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+        sel.innerHTML = html;
+        if (currentVal) sel.value = currentVal;
+      });
+    } catch (e) {
+      console.error('[AdmissionsController] Failed to load class options:', e);
+    }
   },
 
   async loadParents() {

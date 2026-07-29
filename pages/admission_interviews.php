@@ -268,7 +268,7 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/admission_interviews.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/admission_interviews.js"></script>
 <script>
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {

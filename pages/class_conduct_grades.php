@@ -72,12 +72,12 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Student</th>
-                <th>Conduct Grade</th>
-                <th>Key Strengths</th>
-                <th>Areas to Improve</th>
-                <th>Teacher Comments</th>
-                <th></th>
+                <th scope="col">Student</th>
+                <th scope="col">Conduct Grade</th>
+                <th scope="col">Key Strengths</th>
+                <th scope="col">Areas to Improve</th>
+                <th scope="col">Teacher Comments</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody id="cgTableBody"></tbody>
@@ -92,4 +92,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/class_conduct_grades.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/class_conduct_grades.js"></script>

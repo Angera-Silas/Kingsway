@@ -155,20 +155,8 @@ if ($appBase === '.')
             </div>
             <div class="col-md-3">
                 <label class="form-label small fw-semibold">Class Applied For</label>
-                <select id="filterClass" class="form-select">
+                <select id="filterClass" class="form-select grade-select-dynamic">
                     <option value="">All Classes</option>
-                    <option value="Playground">Playground</option>
-                    <option value="PP1">PP1</option>
-                    <option value="PP2">PP2</option>
-                    <option value="Grade1">Grade 1</option>
-                    <option value="Grade2">Grade 2</option>
-                    <option value="Grade3">Grade 3</option>
-                    <option value="Grade4">Grade 4</option>
-                    <option value="Grade5">Grade 5</option>
-                    <option value="Grade6">Grade 6</option>
-                    <option value="Grade7">Grade 7</option>
-                    <option value="Grade8">Grade 8</option>
-                    <option value="Grade9">Grade 9</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -197,15 +185,15 @@ if ($appBase === '.')
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
                             <tr>
-                                <th>Application No</th>
-                                <th>Applicant Name</th>
-                                <th>Gender</th>
-                                <th>Class Applied For</th>
-                                <th>Guardian Name</th>
-                                <th>Guardian Phone</th>
-                                <th>Status</th>
-                                <th>Submitted Date</th>
-                                <th>Actions</th>
+                                <th scope="col">Application No</th>
+                                <th scope="col">Applicant Name</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Class Applied For</th>
+                                <th scope="col">Guardian Name</th>
+                                <th scope="col">Guardian Phone</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Submitted Date</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="applicationsTableBody">
@@ -304,20 +292,8 @@ if ($appBase === '.')
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label fw-semibold">Grade Applying For <span class="text-danger">*</span></label>
-                                    <select name="grade_applying_for" id="gradeSelect" class="form-select" required>
+                                    <select name="grade_applying_for" id="gradeSelect" class="form-select grade-select-dynamic" required>
                                         <option value="">Select Grade</option>
-                                        <option value="Playground">Playground</option>
-                                        <option value="PP1">PP1</option>
-                                        <option value="PP2">PP2</option>
-                                        <option value="Grade1">Grade 1</option>
-                                        <option value="Grade2">Grade 2</option>
-                                        <option value="Grade3">Grade 3</option>
-                                        <option value="Grade4">Grade 4</option>
-                                        <option value="Grade5">Grade 5</option>
-                                        <option value="Grade6">Grade 6</option>
-                                        <option value="Grade7">Grade 7</option>
-                                        <option value="Grade8">Grade 8</option>
-                                        <option value="Grade9">Grade 9</option>
                                     </select>
                                 </div>
                                 <div class="col-md-4">
@@ -461,7 +437,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= filemtime(__DIR__ . '/js/pages/new_applications.js') ?>"
     onload="console.log('new_applications.js script tag loaded successfully')"
     onerror="console.error('FAILED to load new_applications.js. Check path:', this.src)">
 </script>

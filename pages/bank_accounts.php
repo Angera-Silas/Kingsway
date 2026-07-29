@@ -16,15 +16,15 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="fas fa-university me-2 text-dark"></i>Bank Accounts</h2>
+            <h2 class="mb-1"><i class="bi bi-bank me-2 text-dark"></i>Bank Accounts</h2>
             <p class="text-muted mb-0">Manage school bank accounts, balances and reconciliation</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="BankAccountsController.exportCSV()">
-                <i class="fas fa-download me-1"></i> Export CSV
+                <i class="bi bi-download me-1"></i> Export CSV
             </button>
             <button class="btn btn-dark" onclick="BankAccountsController.showCreateModal()">
-                <i class="fas fa-plus me-1"></i> Add Account
+                <i class="bi bi-plus-lg me-1"></i> Add Account
             </button>
         </div>
     </div>
@@ -36,7 +36,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-dark bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-university fa-lg text-dark"></i>
+                            <i class="bi bi-bank fa-lg text-dark"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Accounts</h6>
@@ -51,7 +51,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-coins fa-lg text-success"></i>
+                            <i class="bi bi-coin fa-lg text-success"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Combined Balance</h6>
@@ -66,7 +66,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-check-double fa-lg text-primary"></i>
+                            <i class="bi bi-check-lg-double fa-lg text-primary"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Active Accounts</h6>
@@ -81,7 +81,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-calendar-alt fa-lg text-warning"></i>
+                            <i class="bi bi-calendar-alt fa-lg text-warning"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Last Reconciled</h6>
@@ -126,7 +126,7 @@
                 </div>
                 <div class="col-md-2">
                     <button class="btn btn-outline-secondary w-100" onclick="BankAccountsController.clearFilters()">
-                        <i class="fas fa-times me-1"></i> Clear
+                        <i class="bi bi-x-lg me-1"></i> Clear
                     </button>
                 </div>
             </div>
@@ -141,13 +141,13 @@
                     <thead class="table-light">
                         <tr>
                             <th width="50">#</th>
-                            <th>Bank Name</th>
-                            <th>Account Name</th>
-                            <th>Account Number</th>
+                            <th scope="col">Bank Name</th>
+                            <th scope="col">Account Name</th>
+                            <th scope="col">Account Number</th>
                             <th class="text-center">Type</th>
                             <th class="text-end">Balance (KES)</th>
                             <th class="text-center">Status</th>
-                            <th>Last Transaction</th>
+                            <th scope="col">Last Transaction</th>
                             <th class="text-center" width="140">Actions</th>
                         </tr>
                     </thead>
@@ -177,7 +177,7 @@
         <div class="modal-content">
             <div class="modal-header bg-dark text-white">
                 <h5 class="modal-title" id="bankAccountModalLabel">
-                    <i class="fas fa-university me-2"></i> Add Bank Account
+                    <i class="bi bi-bank me-2"></i> Add Bank Account
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -219,14 +219,14 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-dark" onclick="BankAccountsController.saveAccount()">
-                    <i class="fas fa-save me-1"></i> Save Account
+                    <i class="bi bi-check-lg me-1"></i> Save Account
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/bank_accounts.js"></script>
+<script src="<?= $appBase ?>/js/pages/bank_accounts.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/bank_accounts.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankAccountsController !== 'undefined') {

@@ -12,7 +12,6 @@ const CurriculumCBCController = (() => {
         if (window.AcademicContext) {
             // Subscribe to context changes
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in curriculum_cbc:', event, data);
                 if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
                     loadData(1);
                 }
@@ -183,10 +182,7 @@ const CurriculumCBCController = (() => {
         } catch (e) { showNotification('Failed to delete', 'error'); }
     }
 
-    function showNotification(message, type) {
-        if (window.API?.showNotification) window.API.showNotification(message, type);
-        else alert((type === 'error' ? 'Error: ' : '') + message);
-    }
+    function showNotification(message, type) { window.showNotification(message, type); }
 
     function attachListeners() {
         document.getElementById('addCurriculumBtn')?.addEventListener('click', () => openModal());

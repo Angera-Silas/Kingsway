@@ -22,9 +22,7 @@
          */
         init: async function () {
             try {
-                console.log("Initializing PurchaseOrdersController...");
                 await this.loadData();
-                console.log("PurchaseOrdersController initialized successfully");
             } catch (error) {
                 console.error("Error initializing PurchaseOrdersController:", error);
                 this.showNotification("Failed to load purchase orders", "error");
@@ -196,7 +194,7 @@
                 var current = vendorFilter.value;
                 vendorFilter.innerHTML = '<option value="">All Vendors</option>';
                 vendors.forEach(function (v) {
-                    vendorFilter.innerHTML += '<option value="' + v + '">' + v + '</option>';
+                    vendorFilter.innerHTML += '<option value="' + self.escapeHtml(v) + '">' + self.escapeHtml(v) + '</option>';
                 });
                 vendorFilter.value = current || "";
             }
@@ -204,7 +202,7 @@
             if (vendorSelect) {
                 vendorSelect.innerHTML = '<option value="">Select Vendor</option>';
                 vendors.forEach(function (v) {
-                    vendorSelect.innerHTML += '<option value="' + v + '">' + v + '</option>';
+                    vendorSelect.innerHTML += '<option value="' + self.escapeHtml(v) + '">' + self.escapeHtml(v) + '</option>';
                 });
             }
         },

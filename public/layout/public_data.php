@@ -428,8 +428,24 @@ function kw_content(string $key, string $default = ''): string {
 function kw_table(string $table, string $where = 'is_active = 1', string $order = 'display_order ASC'): array {
     $db = kw_db();
     if (!$db) return [];
+
+    $allowedTables = [
+        'school_values', 'school_history', 'leadership_team', 'gallery_categories',
+        'gallery_images', 'testimonials', 'partners', 'departments',
+        'news_categories', 'news_articles', 'downloads', 'events',
+        'faqs', 'programs', 'advertisements', 'school_settings',
+    ];
+    if (!in_array($table, $allowedTables, true)) {
+        return [];
+    }
+
+    $cleanWhere = preg_replace('/[^a-zA-Z0-9_ .<>=!(),\'\"]/', '', $where);
+    $cleanOrder = preg_replace('/[^a-zA-Z0-9_ ,\.]/', '', $order);
+
     try {
-        $sql = "SELECT * FROM `{$table}`" . ($where ? " WHERE {$where}" : '') . ($order ? " ORDER BY {$order}" : '');
+        $sql = "SELECT * FROM `{$table}`"
+            . ($cleanWhere ? " WHERE {$cleanWhere}" : '')
+            . ($cleanOrder ? " ORDER BY {$cleanOrder}" : '');
         return $db->query($sql)->fetchAll() ?: [];
     } catch (\Throwable $e) { return []; }
 }

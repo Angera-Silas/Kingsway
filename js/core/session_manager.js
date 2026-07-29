@@ -149,12 +149,15 @@ const SessionManager = (() => {
   }
 
   async function logout() {
+    const userId = auth()?.getUser?.()?.id || null;
     try {
       if (window.API?.auth?.logout) {
         await window.API.auth.logout();
       }
     } finally {
       auth()?.clearUser?.();
+      try { window.DataStore?.clearAll?.(); } catch (_) {}
+      try { window.KingswayDB?.clearUserData?.(userId); } catch (_) {}
       expiryHandled = true;
       emit('LOGGED_OUT', {});
       broadcast('LOGGED_OUT', {});
@@ -205,13 +208,17 @@ const SessionManager = (() => {
   }
 
   function initCrossTab() {
+    const userId = auth()?.getUser?.()?.id || 'anonymous';
+    const channelName = `kingsway-session-${userId}`;
+
     if ('BroadcastChannel' in window) {
-      channel = new BroadcastChannel('kingsway-session');
+      channel = new BroadcastChannel(channelName);
       channel.onmessage = ({ data }) => handleRemoteMessage(data);
     }
 
+    const storageKey = `kingsway_session_event_${userId}`;
     window.addEventListener('storage', (event) => {
-      if (event.key === 'kingsway_session_event' && event.newValue) {
+      if (event.key === storageKey && event.newValue) {
         try {
           handleRemoteMessage(JSON.parse(event.newValue));
         } catch (_) {}
@@ -224,11 +231,10 @@ const SessionManager = (() => {
     channel?.postMessage(message);
 
     try {
-      localStorage.setItem(
-        'kingsway_session_event',
-        JSON.stringify(message)
-      );
-      localStorage.removeItem('kingsway_session_event');
+      const userId = auth()?.getUser?.()?.id || 'anonymous';
+      const storageKey = `kingsway_session_event_${userId}`;
+      localStorage.setItem(storageKey, JSON.stringify(message));
+      localStorage.removeItem(storageKey);
     } catch (_) {}
   }
 
@@ -254,9 +260,30 @@ const SessionManager = (() => {
   }
 
   function broadcastCacheInvalidation(keys) {
-    broadcast('CACHE_INVALIDATED', {
-      keys: Array.isArray(keys) ? keys : [keys],
-    });
+    const normalizedKeys = Array.isArray(keys) ? keys : [keys];
+    broadcast('CACHE_INVALIDATED', { keys: normalizedKeys });
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const cacheChannel = new BroadcastChannel('kingsway-cache');
+        cacheChannel.postMessage({
+          type: 'CACHE_INVALIDATED',
+          keys: normalizedKeys,
+          timestamp: Date.now(),
+        });
+        cacheChannel.close();
+      } catch (_) {}
+    }
+
+    try {
+      const CACHE_INVALIDATION_KEY = 'kingsway_cache_invalidation';
+      localStorage.setItem(CACHE_INVALIDATION_KEY, JSON.stringify({
+        type: 'CACHE_INVALIDATED',
+        keys: normalizedKeys,
+        timestamp: Date.now(),
+      }));
+      localStorage.removeItem(CACHE_INVALIDATION_KEY);
+    } catch (_) {}
   }
 
   async function monitorSession() {

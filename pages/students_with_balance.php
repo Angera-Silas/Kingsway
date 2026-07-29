@@ -16,15 +16,15 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-money-bill-wave me-2"></i>Students with Balance</h4>
+                    <h4 class="mb-1"><i class="bi bi-cash-wave me-2"></i>Students with Balance</h4>
                     <p class="text-muted mb-0">View and manage students with outstanding fee balances</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary" id="sendReminders">
-                        <i class="fas fa-bell me-1"></i> Send Reminders
+                        <i class="bi bi-bell me-1"></i> Send Reminders
                     </button>
                     <button class="btn btn-outline-secondary" id="exportBalances">
-                        <i class="fas fa-download me-1"></i> Export
+                        <i class="bi bi-download me-1"></i> Export
                     </button>
                 </div>
             </div>
@@ -99,15 +99,15 @@
                 <table class="table table-hover" id="balancesTable">
                     <thead>
                         <tr>
-                            <th><input type="checkbox" id="selectAll"></th>
-                            <th>Admission No</th>
-                            <th>Student Name</th>
-                            <th>Class</th>
-                            <th>Total Fees</th>
-                            <th>Paid</th>
-                            <th>Balance</th>
-                            <th>Last Payment</th>
-                            <th>Actions</th>
+                            <th scope="col"><input type="checkbox" id="selectAll"></th>
+                            <th scope="col">Admission No</th>
+                            <th scope="col">Student Name</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Total Fees</th>
+                            <th scope="col">Paid</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">Last Payment</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/students_with_balance.js"></script>
+<script src="<?= $appBase ?>/js/pages/students_with_balance.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/students_with_balance.js") ?>"></script>

@@ -285,6 +285,16 @@ class RouteAuthorization
             ];
         }
 
+        $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
+        $path = strtolower('/' . ltrim($path, '/'));
+        if (preg_match('#/api(/|$)#', $path)) {
+            return [
+                'success' => true,
+                'message' => 'API route authorized via controller-level RBAC',
+                'http_code' => 200
+            ];
+        }
+
         $routeName = self::resolveCurrentRouteName();
         if ($routeName === null) {
             return [

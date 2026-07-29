@@ -22,6 +22,14 @@ class SchedulesController extends BaseController
         $this->api = new SchedulesAPI();
     }
 
+    private function guardSchedules(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Schedules API is running']);
@@ -113,6 +121,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createTimetableEntry($data);
         return $this->handleResponse($result);
     }
@@ -122,6 +131,7 @@ class SchedulesController extends BaseController
      */
     public function putTimetableUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $entryId = $id ?? ($data['id'] ?? null);
         $result = $this->api->updateTimetableEntry($entryId, $data);
         return $this->handleResponse($result);
@@ -133,6 +143,7 @@ class SchedulesController extends BaseController
      */
     public function deleteTimetableDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->deleteTimetableEntry($id, $data);
         return $this->handleResponse($result);
     }
@@ -142,6 +153,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->deleteTimetableEntry($id, $data);
         return $this->handleResponse($result);
     }
@@ -160,6 +172,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableReportConflict($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         // Inject authenticated user if available
         if (!empty($this->user['id'])) {
             $data['reported_by'] = $this->user['id'];
@@ -195,6 +208,7 @@ class SchedulesController extends BaseController
      */
     public function postExamCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createExamSchedule($data);
         return $this->handleResponse($result);
     }
@@ -217,6 +231,7 @@ class SchedulesController extends BaseController
      */
     public function postEventsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createEvent($data);
         return $this->handleResponse($result);
     }
@@ -239,6 +254,7 @@ class SchedulesController extends BaseController
      */
     public function postActivityCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createActivitySchedule($data);
         return $this->handleResponse($result);
     }
@@ -261,6 +277,7 @@ class SchedulesController extends BaseController
      */
     public function postRoomsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createRoom($data);
         return $this->handleResponse($result);
     }
@@ -283,6 +300,7 @@ class SchedulesController extends BaseController
      */
     public function postReportsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createScheduledReport($data);
         return $this->handleResponse($result);
     }
@@ -305,6 +323,7 @@ class SchedulesController extends BaseController
      */
     public function postRouteCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createRouteSchedule($data);
         return $this->handleResponse($result);
     }
@@ -505,6 +524,7 @@ class SchedulesController extends BaseController
     // Term & Holiday Workflow Endpoints
     public function postDefineTermDates($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->defineTermDates($data);
         return $this->handleResponse($result);
     }
@@ -535,6 +555,7 @@ class SchedulesController extends BaseController
     }
     public function postDetectScheduleConflicts($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $entityType = $data['entity_type'] ?? null;
         $entityId = $data['entity_id'] ?? null;
         $proposedSchedule = $data['proposed_schedule'] ?? [];
@@ -558,11 +579,13 @@ class SchedulesController extends BaseController
     // Scheduling Workflow Methods
     public function postStartSchedulingWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->startSchedulingWorkflow($data);
         return $this->handleResponse($result);
     }
     public function postAdvanceSchedulingWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $workflowId = $data['workflow_id'] ?? null;
         $action = $data['action'] ?? null;
         $payload = $data['data'] ?? [];

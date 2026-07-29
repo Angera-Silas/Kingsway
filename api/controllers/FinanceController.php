@@ -6,6 +6,7 @@ use App\API\Modules\finance\PaymentReconciliationAPI;
 use App\API\Modules\finance\ExpenseManager;
 use App\API\Modules\finance\AllowanceTemplateAPI;
 use App\API\Services\StaffDomainAccessService;
+use App\API\Services\FinanceCrudService;
 use RuntimeException;
 use Exception;
 use App\Database\Database;
@@ -24,6 +25,7 @@ class FinanceController extends BaseController
     private ExpenseManager $expenseManager;
     private AllowanceTemplateAPI $allowanceTemplateApi;
     private $staffAccess;
+    private FinanceCrudService $crud;
 
     public function __construct() {
         parent::__construct();
@@ -31,6 +33,7 @@ class FinanceController extends BaseController
         $this->expenseManager = new ExpenseManager();
         $this->allowanceTemplateApi = new AllowanceTemplateAPI();
         $this->staffAccess = new StaffDomainAccessService($this->user);
+        $this->crud = new FinanceCrudService($this->db);
     }
 
     public function index()
@@ -1496,64 +1499,26 @@ class FinanceController extends BaseController
             return $this->badRequest('description, amount, expense_date are required');
         }
         $userId = $this->getUserId();
-        $expNo  = 'EXP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-        $this->db->query(
-            "INSERT INTO expenses (expense_number, category_id, description, amount, expense_date,
-                payment_method, reference_number, vendor_id, vendor_name, receipt_number,
-                budget_line_item_id, department_id, academic_year, term, notes, attachment_path,
-                status, created_by, created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,NOW())",
-            [
-                $expNo,
-                $data['category_id'] ?? null,
-                $data['description'],
-                $data['amount'],
-                $data['expense_date'],
-                $data['payment_method'] ?? 'cash',
-                $data['reference_number'] ?? null,
-                $data['vendor_id'] ?? null,
-                $data['vendor_name'] ?? null,
-                $data['receipt_number'] ?? null,
-                $data['budget_line_item_id'] ?? null,
-                $data['department_id'] ?? null,
-                $data['academic_year'] ?? date('Y'),
-                $data['term'] ?? null,
-                $data['notes'] ?? null,
-                $data['attachment_path'] ?? null,
-                $userId,
-            ]
-        );
-        $newId = $this->db->lastInsertId();
-        return $this->success(['id' => $newId, 'expense_number' => $expNo], 'Expense recorded successfully');
+        $result = $this->crud->createExpense($data, $userId);
+        return $this->success($result, 'Expense recorded successfully');
     }
 
     /** PUT /api/finance/expenses/{id} — update or change status */
     public function putExpenses($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Expense ID required');
-        $userId = $this->getUserId();
 
         if (isset($data['status'])) {
             if ($data['status'] === 'approved') return $this->postExpensesApprove($id, $data, $segments);
             if ($data['status'] === 'rejected')  return $this->postExpensesReject($id, $data, $segments);
             if ($data['status'] === 'pending_approval') {
-                $this->db->query("UPDATE expenses SET status='pending_approval', updated_at=NOW() WHERE id=?", [$id]);
+                $this->crud->setExpenseStatus($id, 'pending_approval');
                 return $this->success(null, 'Expense submitted for approval');
             }
         }
 
-        $fields = [];
-        $params = [];
-        $allowed = ['category_id','description','amount','expense_date','payment_method',
-                    'reference_number','vendor_id','vendor_name','receipt_number',
-                    'budget_line_item_id','department_id','academic_year','term','notes'];
-        foreach ($allowed as $f) {
-            if (array_key_exists($f, $data)) { $fields[] = "$f=?"; $params[] = $data[$f]; }
-        }
-        if (empty($fields)) return $this->badRequest('Nothing to update');
-        $fields[] = 'updated_at=NOW()';
-        $params[]  = $id;
-        $this->db->query("UPDATE expenses SET ".implode(',',$fields)." WHERE id=?", $params);
+        if (empty($data)) return $this->badRequest('Nothing to update');
+        $this->crud->updateExpense((int)$id, $data);
         return $this->success(null, 'Expense updated');
     }
 
@@ -1561,17 +1526,14 @@ class FinanceController extends BaseController
     public function deleteExpenses($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Expense ID required');
-        $this->db->query("UPDATE expenses SET deleted_at=NOW() WHERE id=?", [$id]);
+        $this->crud->softDeleteExpense((int)$id);
         return $this->success(null, 'Expense deleted');
     }
 
     /** GET /api/finance/expense-categories — list all expense categories */
     public function getExpenseCategories($id = null, $data = [], $segments = [])
     {
-        $rows = $this->db->query(
-            "SELECT * FROM expense_categories WHERE status='active' ORDER BY type, name"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listExpenseCategories());
     }
 
     // ========================================
@@ -1582,30 +1544,10 @@ class FinanceController extends BaseController
     public function getPettyCash($id = null, $data = [], $segments = [])
     {
         $fundId = $data['fund_id'] ?? 1;
-        $fund = $this->db->query("SELECT * FROM petty_cash_funds WHERE id=?", [$fundId])->fetch();
-        $where = ['fund_id = ?'];
-        $params = [$fundId];
-        if (!empty($data['type']))      { $where[] = 'type=?';                $params[] = $data['type']; }
-        if (!empty($data['date_from'])) { $where[] = 'transaction_date>=?';   $params[] = $data['date_from']; }
-        if (!empty($data['date_to']))   { $where[] = 'transaction_date<=?';   $params[] = $data['date_to']; }
-        if (!empty($data['category_id'])){ $where[] = 'category_id=?';       $params[] = $data['category_id']; }
-        $txns = $this->db->query(
-            "SELECT t.*, ec.name AS category_name, CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name
-             FROM petty_cash_transactions t
-             LEFT JOIN expense_categories ec ON ec.id = t.category_id
-             LEFT JOIN users u ON u.id = t.recorded_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY transaction_date DESC, id DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COALESCE(SUM(CASE WHEN type='expense' AND MONTH(transaction_date)=MONTH(CURDATE()) THEN amount END),0) AS expenses_this_month,
-                    COALESCE(SUM(CASE WHEN type='top_up' AND MONTH(transaction_date)=MONTH(CURDATE()) THEN amount END),0) AS topups_this_month
-             FROM petty_cash_transactions WHERE fund_id=?",
-            [$fundId]
-        )->fetch();
-
-        return $this->success(['fund' => $fund, 'transactions' => $txns, 'stats' => $stats]);
+        $fund = $this->crud->getPettyCashFund($fundId);
+        if (!$fund) return $this->notFound('Petty cash fund not found');
+        $result = $this->crud->listPettyCashTransactions($fundId, $data);
+        return $this->success(['fund' => $fund, 'transactions' => $result['transactions'], 'stats' => $result['stats']]);
     }
 
     /** POST /api/finance/petty-cash — record a petty cash transaction */
@@ -1615,26 +1557,13 @@ class FinanceController extends BaseController
             return $this->badRequest('type, amount, description are required');
         }
         $fundId = $data['fund_id'] ?? 1;
-        $userId = $this->getUserId();
-        $fund   = $this->db->query("SELECT current_balance FROM petty_cash_funds WHERE id=?", [$fundId])->fetch();
+        $fund = $this->crud->getPettyCashFund($fundId);
         if (!$fund) return $this->notFound('Petty cash fund not found');
-        $balanceAfter = ($data['type'] === 'expense')
-            ? $fund['current_balance'] - $data['amount']
-            : $fund['current_balance'] + $data['amount'];
-        if ($data['type'] === 'expense' && $balanceAfter < 0) {
+        if ($data['type'] === 'expense' && $fund['current_balance'] - $data['amount'] < 0) {
             return $this->badRequest('Insufficient petty cash balance');
         }
-        $this->db->query(
-            "INSERT INTO petty_cash_transactions (fund_id,type,category_id,description,amount,balance_after,
-              transaction_date,receipt_number,vendor_name,notes,recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            [
-                $fundId, $data['type'], $data['category_id'] ?? null, $data['description'],
-                $data['amount'], $balanceAfter,
-                $data['transaction_date'] ?? date('Y-m-d'),
-                $data['receipt_number'] ?? null, $data['vendor_name'] ?? null,
-                $data['notes'] ?? null, $userId
-            ]
-        );
+        $userId = $this->getUserId();
+        $balanceAfter = $this->crud->createPettyCashTransaction($data, $fundId, $userId);
         return $this->success(['balance_after' => $balanceAfter], 'Petty cash transaction recorded');
     }
 
@@ -1646,23 +1575,10 @@ class FinanceController extends BaseController
     public function getCashReconciliation($id = null, $data = [], $segments = [])
     {
         if (!empty($data['date'])) {
-            $session = $this->db->query(
-                "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                 FROM cash_reconciliation_sessions s
-                 LEFT JOIN users u ON u.id = s.cashier_id
-                 LEFT JOIN users a ON a.id = s.approved_by
-                 WHERE s.reconciliation_date=?",
-                [$data['date']]
-            )->fetch();
+            $session = $this->crud->getCashReconciliationByDate($data['date']);
             return $this->success($session ?: null);
         }
-        $rows = $this->db->query(
-            "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name
-             FROM cash_reconciliation_sessions s
-             LEFT JOIN users u ON u.id = s.cashier_id
-             ORDER BY s.reconciliation_date DESC LIMIT 60"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listCashReconciliationSessions());
     }
 
     /** POST /api/finance/cash-reconciliation — submit a daily cash count */
@@ -1672,24 +1588,8 @@ class FinanceController extends BaseController
             return $this->badRequest('reconciliation_date, system_cash_total, physical_cash_count are required');
         }
         $userId = $this->getUserId();
-        $existing = $this->db->query(
-            "SELECT id FROM cash_reconciliation_sessions WHERE reconciliation_date=? AND cashier_id=?",
-            [$data['reconciliation_date'], $userId]
-        )->fetch();
-        if ($existing) {
-            $this->db->query(
-                "UPDATE cash_reconciliation_sessions SET physical_cash_count=?, variance_reason=?, notes=?, status='draft' WHERE id=?",
-                [$data['physical_cash_count'], $data['variance_reason'] ?? null, $data['notes'] ?? null, $existing['id']]
-            );
-            return $this->success(['id' => $existing['id']], 'Reconciliation updated');
-        }
-        $this->db->query(
-            "INSERT INTO cash_reconciliation_sessions (reconciliation_date,system_cash_total,physical_cash_count,variance_reason,cashier_id,notes,status)
-             VALUES (?,?,?,?,?,'draft')",
-            [$data['reconciliation_date'], $data['system_cash_total'], $data['physical_cash_count'],
-             $data['variance_reason'] ?? null, $userId, $data['notes'] ?? null]
-        );
-        return $this->success(['id' => $this->db->lastInsertId()], 'Cash reconciliation submitted');
+        $result = $this->crud->upsertCashReconciliation($data, $userId);
+        return $this->success($result, isset($result['id']) ? 'Cash reconciliation submitted' : 'Reconciliation updated');
     }
 
     // ========================================
@@ -1699,30 +1599,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/adjustments — list all adjustments */
     public function getAdjustments($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['status']))     { $where[] = 'fa.status=?';       $params[] = $data['status']; }
-        if (!empty($data['student_id'])) { $where[] = 'fa.student_id=?';   $params[] = $data['student_id']; }
-        $rows = $this->db->query(
-            "SELECT fa.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS requested_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-             FROM financial_adjustments fa
-             LEFT JOIN students s ON s.id = fa.student_id
-             LEFT JOIN users u ON u.id = fa.requested_by
-             LEFT JOIN users a ON a.id = fa.approved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY fa.created_at DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(CASE WHEN status='pending' THEN 1 END) AS pending_count,
-                    COALESCE(SUM(CASE WHEN status='pending' THEN amount END),0) AS pending_amount,
-                    COUNT(CASE WHEN status='approved' AND MONTH(approved_at)=MONTH(CURDATE()) THEN 1 END) AS approved_this_month,
-                    COALESCE(SUM(CASE WHEN status='applied' THEN amount END),0) AS total_applied,
-                    COUNT(CASE WHEN status='rejected' THEN 1 END) AS rejected_count
-             FROM financial_adjustments"
-        )->fetch();
-        return $this->success(['adjustments' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listAdjustments($data));
     }
 
     /** POST /api/finance/adjustments — create adjustment */
@@ -1732,18 +1609,8 @@ class FinanceController extends BaseController
             return $this->badRequest('type, amount, reason are required');
         }
         $userId = $this->getUserId();
-        $adjNo  = 'ADJ-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-        $this->db->query(
-            "INSERT INTO financial_adjustments (adjustment_number,type,student_id,amount,reason,
-              reference_payment_id,academic_year,term,notes,status,requested_by,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,'pending',?,NOW())",
-            [
-                $adjNo, $data['type'], $data['student_id'] ?? null, $data['amount'], $data['reason'],
-                $data['reference_payment_id'] ?? null, $data['academic_year'] ?? date('Y'),
-                $data['term'] ?? null, $data['notes'] ?? null, $userId
-            ]
-        );
-        return $this->success(['id' => $this->db->lastInsertId(), 'adjustment_number' => $adjNo], 'Adjustment submitted');
+        $result = $this->crud->createAdjustment($data, $userId);
+        return $this->success($result, 'Adjustment submitted');
     }
 
     /** PUT /api/finance/adjustments/{id} — approve/reject/apply */
@@ -1753,18 +1620,12 @@ class FinanceController extends BaseController
         $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status === 'approved') {
-            $this->db->query(
-                "UPDATE financial_adjustments SET status='approved', approved_by=?, approved_at=NOW() WHERE id=?",
-                [$userId, $id]
-            );
+            $this->crud->setAdjustmentStatus((int)$id, 'approved', $userId);
             return $this->success(null, 'Adjustment approved');
         }
         if ($status === 'rejected') {
             if (empty($data['rejection_reason'])) return $this->badRequest('rejection_reason required');
-            $this->db->query(
-                "UPDATE financial_adjustments SET status='rejected', rejected_by=?, rejected_at=NOW(), rejection_reason=? WHERE id=?",
-                [$userId, $data['rejection_reason'], $id]
-            );
+            $this->crud->setAdjustmentStatus((int)$id, 'rejected', $userId, $data['rejection_reason']);
             return $this->success(null, 'Adjustment rejected');
         }
         return $this->badRequest('Unknown status: '.$status);
@@ -1777,26 +1638,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/exception-reports — list flagged exceptions */
     public function getExceptionReports($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['status']))   { $where[] = 'status=?';   $params[] = $data['status']; }
-        if (!empty($data['severity'])) { $where[] = 'severity=?'; $params[] = $data['severity']; }
-        $rows = $this->db->query(
-            "SELECT fe.*, CONCAT(u.first_name, ' ', u.last_name) AS resolved_by_name
-             FROM finance_exceptions fe
-             LEFT JOIN users u ON u.id = fe.resolved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY FIELD(severity,'critical','high','medium','low'), created_at DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total,
-                    COUNT(CASE WHEN status='open' THEN 1 END) AS open_count,
-                    COUNT(CASE WHEN severity='critical' AND status='open' THEN 1 END) AS critical_count,
-                    COUNT(CASE WHEN severity='high'     AND status='open' THEN 1 END) AS high_count
-             FROM finance_exceptions WHERE status != 'dismissed'"
-        )->fetch();
-        return $this->success(['exceptions' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listExceptionReports($data));
     }
 
     /** PUT /api/finance/exception-reports/{id} — update status */
@@ -1804,10 +1646,7 @@ class FinanceController extends BaseController
     {
         if (!$id) return $this->badRequest('Exception ID required');
         $userId = $this->getUserId();
-        $this->db->query(
-            "UPDATE finance_exceptions SET status=?, resolved_by=?, resolved_at=NOW(), resolution_notes=? WHERE id=?",
-            [$data['status'] ?? 'under_review', $userId, $data['resolution_notes'] ?? null, $id]
-        );
+        $this->crud->updateExceptionStatus((int)$id, $data['status'] ?? 'under_review', $userId, $data['resolution_notes'] ?? null);
         return $this->success(null, 'Exception status updated');
     }
 
@@ -1819,25 +1658,11 @@ class FinanceController extends BaseController
     public function getBudgets($id = null, $data = [], $segments = [])
     {
         if ($id) {
-            $budget = $this->db->query("SELECT * FROM budgets WHERE id=?", [$id])->fetch();
-            if (!$budget) return $this->notFound('Budget not found');
-            $lines  = $this->db->query(
-                "SELECT bl.*, ec.name AS category_name FROM budget_line_items bl
-                 LEFT JOIN expense_categories ec ON ec.id = bl.category_id WHERE bl.budget_id=?",
-                [$id]
-            )->fetchAll();
-            return $this->success(['budget' => $budget, 'line_items' => $lines]);
+            $result = $this->crud->getBudget((int)$id);
+            if (!$result) return $this->notFound('Budget not found');
+            return $this->success($result);
         }
-        $rows = $this->db->query(
-            "SELECT b.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
-                    COALESCE(SUM(bl.spent_amount),0) AS total_spent,
-                    COALESCE(SUM(bl.allocated_amount),0) AS total_allocated
-             FROM budgets b
-             LEFT JOIN users u ON u.id = b.created_by
-             LEFT JOIN budget_line_items bl ON bl.budget_id = b.id
-             GROUP BY b.id ORDER BY b.academic_year DESC, b.term"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listBudgets());
     }
 
     /** POST /api/finance/budgets — create budget */
@@ -1847,21 +1672,7 @@ class FinanceController extends BaseController
             return $this->badRequest('name and academic_year are required');
         }
         $userId = $this->getUserId();
-        $this->db->query(
-            "INSERT INTO budgets (name, academic_year, term, total_amount, description, status, created_by)
-             VALUES (?,?,?,?,?,'draft',?)",
-            [$data['name'], $data['academic_year'], $data['term'] ?? null,
-             $data['total_amount'] ?? 0, $data['description'] ?? null, $userId]
-        );
-        $budgetId = $this->db->lastInsertId();
-        if (!empty($data['line_items']) && is_array($data['line_items'])) {
-            foreach ($data['line_items'] as $li) {
-                $this->db->query(
-                    "INSERT INTO budget_line_items (budget_id, category_id, description, allocated_amount) VALUES (?,?,?,?)",
-                    [$budgetId, $li['category_id'] ?? null, $li['description'] ?? null, $li['allocated_amount'] ?? 0]
-                );
-            }
-        }
+        $budgetId = $this->crud->createBudget($data, $userId);
         return $this->success(['id' => $budgetId], 'Budget created');
     }
 
@@ -1872,21 +1683,10 @@ class FinanceController extends BaseController
         $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status) {
-            $extra = '';
-            $extraParams = [];
-            if ($status === 'submitted')   { $extra = ', submitted_by=?, submitted_at=NOW()'; $extraParams = [$userId]; }
-            if ($status === 'approved')    { $extra = ', approved_by=?, approved_at=NOW()';   $extraParams = [$userId]; }
-            if ($status === 'active')      { $extra = ', activated_at=NOW()'; }
-            $this->db->query(
-                "UPDATE budgets SET status=?$extra, updated_at=NOW() WHERE id=?",
-                array_merge([$status], $extraParams, [$id])
-            );
+            $this->crud->updateBudgetStatus((int)$id, $status, $userId);
             return $this->success(null, 'Budget status updated to '.$status);
         }
-        $this->db->query(
-            "UPDATE budgets SET name=?, total_amount=?, description=?, updated_at=NOW() WHERE id=?",
-            [$data['name'] ?? '', $data['total_amount'] ?? 0, $data['description'] ?? null, $id]
-        );
+        $this->crud->updateBudget((int)$id, $data);
         return $this->success(null, 'Budget updated');
     }
 
@@ -1897,29 +1697,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/fee-waivers — list all discounts/waivers */
     public function getFeeWaivers($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['student_id'])) { $where[] = 'fdw.student_id=?'; $params[] = $data['student_id']; }
-        if (!empty($data['status']))     { $where[] = 'fdw.status=?';     $params[] = $data['status']; }
-        if (!empty($data['academic_year'])){ $where[] = 'fdw.academic_year=?'; $params[] = $data['academic_year']; }
-        $rows = $this->db->query(
-            "SELECT fdw.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.admission_number, c.name AS class_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS approved_by_name
-             FROM fee_discounts_waivers fdw
-             JOIN students s ON s.id = fdw.student_id
-             LEFT JOIN classes c ON c.id = s.class_id
-             LEFT JOIN users u ON u.id = fdw.approved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY fdw.created_at DESC",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total, COUNT(CASE WHEN status='active' THEN 1 END) AS active_count,
-                    COALESCE(SUM(CASE WHEN status='active' THEN discount_value END),0) AS total_waived
-             FROM fee_discounts_waivers"
-        )->fetch();
-        return $this->success(['waivers' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listFeeWaivers($data));
     }
 
     /** POST /api/finance/fee-waivers — create waiver/discount */
@@ -1930,19 +1708,8 @@ class FinanceController extends BaseController
         }
         if (empty($data['reason'])) return $this->badRequest('reason is required');
         $userId = $this->getUserId();
-        $this->db->query(
-            "INSERT INTO fee_discounts_waivers (student_id, student_fee_obligation_id, discount_type, discount_value,
-              discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)
-             VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active',?)",
-            [
-                $data['student_id'], $data['obligation_id'] ?? null,
-                $data['discount_type'], $data['discount_value'],
-                $data['discount_percentage'] ?? null, $data['reason'],
-                $data['academic_year'] ?? date('Y'), $data['term_id'] ?? null,
-                $userId, $data['valid_until'] ?? null
-            ]
-        );
-        return $this->success(['id' => $this->db->lastInsertId()], 'Waiver created successfully');
+        $id = $this->crud->createFeeWaiver($data, $userId);
+        return $this->success(['id' => $id], 'Waiver created successfully');
     }
 
     // ========================================
@@ -1952,114 +1719,45 @@ class FinanceController extends BaseController
     /** GET /api/finance/sponsored-students — list sponsored students */
     public function getSponsoredStudents($id = null, $data = [], $segments = [])
     {
-        $rows = $this->db->query(
-            "SELECT s.id, s.admission_number, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.is_sponsored, s.sponsor_name, s.sponsor_type, s.sponsor_waiver_percentage,
-                    c.name AS class_name,
-                    COALESCE(SUM(o.amount_due),0) AS total_fees,
-                    COALESCE(SUM(o.amount_waived),0) AS total_waived,
-                    COALESCE(SUM(o.amount_paid),0) AS total_paid,
-                    COALESCE(SUM(o.balance),0) AS outstanding_balance
-             FROM students s
-             LEFT JOIN classes c ON c.id = s.class_id
-             LEFT JOIN student_fee_obligations o ON o.student_id = s.id
-                   AND o.academic_year = YEAR(CURDATE())
-             WHERE s.is_sponsored = 1 AND s.status = 'active'
-             GROUP BY s.id ORDER BY s.last_name, s.first_name"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listSponsoredStudents());
     }
 
     // ==================== FEE CREDIT NOTES ====================
 
     public function getFeeCredits($id = null, $data = [], $segments = [])
     {
-        $studentId = $_GET['student_id'] ?? null;
-        $status    = $_GET['status']     ?? null;
-        $where = ['1=1']; $params = [];
-
-        if ($studentId) { $where[] = 'fcn.student_id = ?'; $params[] = $studentId; }
-        if ($status)    { $where[] = 'fcn.status = ?';     $params[] = $status; }
-
-        $rows = $this->db->query(
-            "SELECT fcn.id, fcn.credit_number, fcn.academic_year,
-                    fcn.credit_amount, fcn.applied_amount, fcn.remaining_amount,
-                    fcn.credit_reason, fcn.status, fcn.expiry_date, fcn.created_at,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name, s.admission_no,
-                    t.name AS term_name, u.name AS created_by_name
-             FROM fee_credit_notes fcn
-             JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN academic_terms t ON t.id = fcn.term_id
-             LEFT JOIN users u ON u.id = fcn.created_by
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY fcn.created_at DESC",
-            $params
-        )->fetchAll();
-
-        $stats = [
-            'total_credits'    => array_sum(array_column($rows, 'credit_amount')),
-            'total_available'  => array_sum(array_column(array_filter($rows, fn($r) => in_array($r['status'], ['available','partially_applied'])), 'remaining_amount')),
-            'total_applied'    => array_sum(array_column($rows, 'applied_amount')),
-        ];
-        return $this->success(['credits' => $rows, 'stats' => $stats]);
+        $studentId = isset($_GET['student_id']) ? (int)$_GET['student_id'] : null;
+        $allowedStatuses = ['available', 'partially_applied', 'applied', 'expired'];
+        $status = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true) ? $_GET['status'] : null;
+        $filters = ['student_id' => $studentId, 'status' => $status];
+        return $this->success($this->crud->listFeeCredits($filters));
     }
 
     public function postFeeCredits($id = null, $data = [], $segments = [])
     {
-        $studentId = $data['student_id'] ?? null;
-        $amount    = $data['credit_amount'] ?? null;
-        if (!$studentId || !$amount) return $this->error('student_id and credit_amount required');
-
-        $creditNum = 'CRD-' . date('Ymd') . '-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
-        $this->db->query(
-            "INSERT INTO fee_credit_notes
-             (credit_number, student_id, academic_year, term_id, source_transaction_id,
-              credit_amount, credit_reason, expiry_date, notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(CURDATE(), INTERVAL 2 YEAR), ?, ?)",
-            [
-                $creditNum, $studentId,
-                $data['academic_year'] ?? date('Y'),
-                $data['term_id']       ?? null,
-                $data['source_transaction_id'] ?? null,
-                $amount,
-                $data['credit_reason'] ?? 'overpayment',
-                $data['notes']         ?? null,
-                $this->user['id']      ?? null,
-            ]
-        );
-        return $this->success(['credit_number' => $creditNum, 'id' => $this->db->lastInsertId()], 201);
+        if (empty($data['student_id']) || empty($data['credit_amount'])) {
+            return $this->error('student_id and credit_amount required');
+        }
+        $userId = $this->user['id'] ?? null;
+        $result = $this->crud->createFeeCredit($data, $userId);
+        return $this->success($result, 201);
     }
 
     public function putFeeCredits($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->error('id required');
         $action = $data['action'] ?? 'apply';
-        $credit = $this->db->query("SELECT * FROM fee_credit_notes WHERE id = ?", [$id])->fetch();
+        $credit = $this->crud->getFeeCredit((int)$id);
         if (!$credit) return $this->error('Credit note not found', 404);
 
         if ($action === 'refund') {
-            $this->db->query("UPDATE fee_credit_notes SET status = 'refunded' WHERE id = ?", [$id]);
+            $this->crud->refundFeeCredit((int)$id);
             return $this->success(['refunded' => true]);
         }
 
         $applyAmount = min((float)($data['apply_amount'] ?? 0), (float)$credit['remaining_amount']);
         if ($applyAmount <= 0) return $this->error('No credit remaining');
-
-        $this->db->query(
-            "UPDATE fee_credit_notes
-             SET applied_amount = applied_amount + ?,
-                 applied_to_year = ?, applied_to_term_id = ?, applied_at = NOW(),
-                 status = CASE WHEN (applied_amount + ?) >= credit_amount THEN 'fully_applied' ELSE 'partially_applied' END
-             WHERE id = ?",
-            [$applyAmount, $data['to_year'] ?? date('Y'), $data['to_term_id'] ?? null, $applyAmount, $id]
-        );
-
-        if (!empty($data['obligation_id'])) {
-            $this->db->query(
-                "UPDATE student_fee_obligations SET amount_waived = amount_waived + ? WHERE id = ?",
-                [$applyAmount, $data['obligation_id']]
-            );
-        }
+        $this->crud->applyFeeCredit((int)$id, $applyAmount, $data);
         return $this->success(['applied' => $applyAmount]);
     }
 
@@ -2067,35 +1765,11 @@ class FinanceController extends BaseController
 
     public function getSalaryAdvances($id = null, $data = [], $segments = [])
     {
-        $staffId = $_GET['staff_id'] ?? null;
-        $status  = $_GET['status']   ?? null;
-        $where = ['1=1']; $params = [];
-
-        if ($staffId) { $where[] = 'sa.staff_id = ?'; $params[] = $staffId; }
-        if ($status)  { $where[] = 'sa.status = ?';   $params[] = $status; }
-
-        $rows = $this->db->query(
-            "SELECT sa.id, sa.advance_number, sa.requested_amount, sa.approved_amount,
-                    sa.request_date, sa.deduction_schedule, sa.deduction_start_month,
-                    sa.amount_per_deduction, sa.amount_deducted, sa.balance_remaining,
-                    sa.status, sa.approval_date, sa.reason,
-                    CONCAT(s.first_name,' ',s.last_name) AS staff_name, s.employee_number,
-                    u.name AS approved_by_name
-             FROM staff_salary_advances sa
-             JOIN staff s ON s.id = sa.staff_id
-             LEFT JOIN users u ON u.id = sa.approved_by
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY sa.request_date DESC",
-            $params
-        )->fetchAll();
-
-        $stats = [
-            'total_advances'    => count($rows),
-            'total_issued'      => array_sum(array_column(array_filter($rows, fn($r) => $r['approved_amount']), 'approved_amount')),
-            'total_outstanding' => array_sum(array_column(array_filter($rows, fn($r) => $r['status'] === 'active'), 'balance_remaining')),
-            'pending_approval'  => count(array_filter($rows, fn($r) => $r['status'] === 'pending')),
-        ];
-        return $this->success(['advances' => $rows, 'stats' => $stats]);
+        $staffId = isset($_GET['staff_id']) ? (int)$_GET['staff_id'] : null;
+        $allowedStatuses = ['pending', 'approved', 'rejected', 'active', 'fully_deducted'];
+        $status = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true) ? $_GET['status'] : null;
+        $filters = ['staff_id' => $staffId, 'status' => $status];
+        return $this->success($this->crud->listSalaryAdvances($filters));
     }
 
     public function postSalaryAdvances($id = null, $data = [], $segments = [])
@@ -2104,14 +1778,8 @@ class FinanceController extends BaseController
         $amount  = $data['requested_amount'] ?? null;
         if (!$staffId || !$amount) return $this->error('staff_id and requested_amount required');
 
-        // GUARD: Cannot exceed 1 month salary and no active advance allowed simultaneously
-        $existing = (float)$this->db->query(
-            "SELECT COALESCE(SUM(balance_remaining),0) FROM staff_salary_advances
-             WHERE staff_id = ? AND status = 'active'",
-            [$staffId]
-        )->fetchColumn();
-
-        $salary = (float)($this->db->query("SELECT basic_salary FROM staff WHERE id = ?", [$staffId])->fetchColumn() ?? 0);
+        $existing = (float)$this->crud->getActiveAdvanceBalance((int)$staffId);
+        $salary = (float) $this->db->query("SELECT basic_salary FROM staff WHERE id = " . (int)$staffId)->fetchColumn();
         if ($salary > 0 && ($existing + (float)$amount) > $salary) {
             return $this->error(
                 "Advance exceeds limit. Active balance: KES " . number_format($existing, 2) .
@@ -2119,14 +1787,8 @@ class FinanceController extends BaseController
             );
         }
 
-        $advNum = 'ADV-' . date('Ymd') . '-' . str_pad(rand(1, 999), 3, '0', STR_PAD_LEFT);
-        $this->db->query(
-            "INSERT INTO staff_salary_advances
-             (advance_number, staff_id, requested_amount, request_date, reason, deduction_schedule, status)
-             VALUES (?, ?, ?, CURDATE(), ?, ?, 'pending')",
-            [$advNum, $staffId, $amount, $data['reason'] ?? null, $data['deduction_schedule'] ?? 'single_month']
-        );
-        return $this->success(['advance_number' => $advNum, 'id' => $this->db->lastInsertId()], 201);
+        $advId = $this->crud->createSalaryAdvance($data);
+        return $this->success(['id' => $advId], 201);
     }
 
     public function putSalaryAdvances($id = null, $data = [], $segments = [])
@@ -2134,8 +1796,7 @@ class FinanceController extends BaseController
         if (!$id) return $this->error('id required');
         $action = $data['action'] ?? null;
         $userId = $this->user['id'] ?? null;
-
-        $advance = $this->db->query("SELECT * FROM staff_salary_advances WHERE id = ?", [$id])->fetch();
+        $advance = $this->crud->getSalaryAdvance((int)$id);
         if (!$advance) return $this->error('Advance not found', 404);
 
         if ($action === 'approve') {
@@ -2143,85 +1804,47 @@ class FinanceController extends BaseController
             $months   = ['single_month' => 1, 'two_months' => 2, 'three_months' => 3][$advance['deduction_schedule']] ?? 1;
             $perDed   = round($approved / $months, 2);
             $start    = $data['deduction_start_month'] ?? date('Y-m-01', strtotime('first day of next month'));
-            $this->db->query(
-                "UPDATE staff_salary_advances
-                 SET status = 'active', approved_amount = ?, amount_per_deduction = ?,
-                     deduction_start_month = ?, balance_remaining = ?, approved_by = ?, approval_date = NOW()
-                 WHERE id = ?",
-                [$approved, $perDed, $start, $approved, $userId, $id]
-            );
+            $this->crud->approveSalaryAdvance((int)$id, $approved, $perDed, $start, $userId);
             return $this->success(['approved' => true, 'per_deduction' => $perDed]);
         }
-
         if ($action === 'reject') {
-            $this->db->query(
-                "UPDATE staff_salary_advances SET status = 'rejected', rejection_reason = ? WHERE id = ?",
-                [$data['reason'] ?? null, $id]
-            );
+            $this->crud->rejectSalaryAdvance((int)$id, $data['reason'] ?? null);
             return $this->success(['rejected' => true]);
         }
-
         if ($action === 'record_deduction') {
             $amt        = min((float)($data['amount'] ?? $advance['amount_per_deduction']), (float)$advance['balance_remaining']);
             $newBalance = max(0, (float)$advance['balance_remaining'] - $amt);
             $newStatus  = $newBalance <= 0 ? 'fully_deducted' : 'active';
-            $this->db->query(
-                "UPDATE staff_salary_advances
-                 SET amount_deducted = amount_deducted + ?, balance_remaining = ?, status = ?
-                 WHERE id = ?",
-                [$amt, $newBalance, $newStatus, $id]
-            );
+            $this->crud->recordSalaryAdvanceDeduction((int)$id, $amt, $newBalance, $newStatus);
             return $this->success(['deducted' => $amt, 'remaining' => $newBalance]);
         }
-
         return $this->error('Unknown action');
     }
 
     /**
      * GET /api/finance/unmatched-payments
-     * List payments that have not been matched to student fee obligations.
      */
     public function getUnmatchedPayments($id = null, $data = [], $segments = [])
     {
         try {
             $page  = max(1, (int) ($_GET['page']  ?? $data['page']  ?? 1));
             $limit = max(1, min(200, (int) ($_GET['limit'] ?? $data['limit'] ?? 50)));
-            $offset = ($page - 1) * $limit;
-
-            $sql = "SELECT
-                        p.id, p.receipt_number, p.reference_number,
-                        p.amount, p.payment_date, p.payment_method,
-                        p.status, p.notes,
-                        CONCAT(u.first_name, ' ', u.last_name) AS payer_name,
-                        u.email AS payer_email
-                    FROM payments p
-                    LEFT JOIN users u ON u.id = p.user_id
-                    WHERE p.status IN ('unmatched', 'pending')
-                      AND p.deleted_at IS NULL
-                    ORDER BY p.payment_date DESC
-                    LIMIT ? OFFSET ?";
-
-            $rows = $this->db->query($sql, [$limit, $offset])->fetchAll();
-
-            $total = (int) $this->db->query(
-                "SELECT COUNT(*) FROM payments WHERE status IN ('unmatched','pending') AND deleted_at IS NULL"
-            )->fetchColumn();
-
+            $result = $this->crud->listUnmatchedPayments($page, $limit);
             return $this->success([
-                'data'       => $rows,
-                'total'      => $total,
-                'page'       => $page,
-                'per_page'   => $limit,
-                'total_pages'=> (int) ceil($total / $limit),
+                'data'        => $result['data'],
+                'total'       => $result['total'],
+                'page'        => $page,
+                'per_page'    => $limit,
+                'total_pages' => (int) ceil($result['total'] / $limit),
             ]);
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch unmatched payments: ' . $e->getMessage());
+            error_log('getUnmatchedPayments: ' . $e->getMessage());
+            return $this->error('Failed to fetch unmatched payments');
         }
     }
 
     /**
      * POST /api/finance/unmatched-payments/match
-     * Manually match an unmatched payment to a student obligation.
      */
     public function postUnmatchedPaymentsMatch($id = null, $data = [], $segments = [])
     {
@@ -2234,13 +1857,11 @@ class FinanceController extends BaseController
         }
 
         try {
-            $this->db->query(
-                "UPDATE payments SET status = 'matched', student_id = ?, obligation_id = ?, updated_at = NOW() WHERE id = ?",
-                [$studentId, $obligationId, $paymentId]
-            );
+            $this->crud->matchPayment((int)$paymentId, $studentId ? (int)$studentId : null, $obligationId ? (int)$obligationId : null);
             return $this->success(null, 'Payment matched successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to match payment: ' . $e->getMessage());
+            error_log('postUnmatchedPaymentsMatch: ' . $e->getMessage());
+            return $this->error('Failed to match payment');
         }
     }
 }

@@ -138,9 +138,17 @@ class Config
     /**
      * Set configuration value at runtime
      */
+    private static array $immutableKeys = [
+        'JWT_SECRET', 'JWT_EXPIRY', 'JWT_ISSUER', 'JWT_AUDIENCE',
+        'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASS',
+    ];
+
     public static function set(string $key, $value)
     {
         self::init();
+        if (in_array($key, self::$immutableKeys, true) && self::isProduction()) {
+            throw new \RuntimeException("Cannot mutate {$key} at runtime in production");
+        }
         self::$config[$key] = $value;
     }
 

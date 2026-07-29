@@ -24,6 +24,14 @@ class CateringController extends BaseController
         $this->reports = new MealReportManager();
     }
 
+    private function guardCatering(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     public function index($id = null, $data = [], $segments = [])
     {
         return $this->success(['message' => 'Catering API is running']);

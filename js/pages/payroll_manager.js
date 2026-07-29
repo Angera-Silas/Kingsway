@@ -24,8 +24,6 @@ const PayrollManagerController = {
    */
   init: async function () {
     try {
-      console.log("🚀 Initializing Payroll Manager...");
-
       if (window.StaffAccess) {
         await StaffAccess.init();
         this.accessReady = true;
@@ -59,7 +57,6 @@ const PayrollManagerController = {
         this.loadStaffList(),
       ]);
 
-      console.log("✅ Payroll Manager initialized");
     } catch (error) {
       console.error("❌ Error initializing Payroll Manager:", error);
       this.showError("Failed to initialize payroll manager");

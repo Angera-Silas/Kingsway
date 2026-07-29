@@ -131,7 +131,7 @@ $escape = static function ($value): string {
                                     <thead>
                                         <tr>
                                             <?php foreach (($table['columns'] ?? []) as $column): ?>
-                                                <th><?= $escape($column) ?></th>
+                                                <th scope="col"><?= $escape($column) ?></th>
                                             <?php endforeach; ?>
                                         </tr>
                                     </thead>

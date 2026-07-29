@@ -1,6 +1,6 @@
 <?php /** System-domain school provisioning wizard. */ ?>
 <div class="container-fluid py-4" id="schoolProvisioningApp">
-  <div class="d-flex justify-content-between align-items-start mb-4"><div><h3><i class="fas fa-school me-2"></i>Initialize School</h3><p class="text-muted">Provision configuration only. No staff, students, finance or attendance records are created.</p></div><span class="badge bg-primary" id="provisionStepBadge">Step 1 of 10</span></div>
+  <div class="d-flex justify-content-between align-items-start mb-4"><div><h3><i class="bi bi-building me-2"></i>Initialize School</h3><p class="text-muted">Provision configuration only. No staff, students, finance or attendance records are created.</p></div><span class="badge bg-primary" id="provisionStepBadge">Step 1 of 10</span></div>
   <div id="provisionAlert" class="alert d-none" role="alert"></div>
   <div class="card shadow-sm border-0"><div class="card-body">
     <div class="progress mb-4" style="height:8px"><div class="progress-bar" id="provisionProgress" style="width:10%"></div></div>
@@ -19,4 +19,4 @@
     <div class="d-flex justify-content-between mt-4"><button class="btn btn-outline-secondary" id="provisionPrevious" disabled>Previous</button><div><button class="btn btn-outline-primary me-2" id="provisionSave">Save progress</button><button class="btn btn-primary" id="provisionNext">Next</button></div></div>
   </div></div>
 </div>
-<script src="<?= $appBase ?>/js/pages/system/school_initialization.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/system/school_initialization.js"></script>

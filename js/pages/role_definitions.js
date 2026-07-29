@@ -24,18 +24,17 @@ const RoleDefinitionsController = {
     init: async function() {
         try {
             // Check authentication
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
-            console.log('🚀 Initializing Role Definitions Controller...');
             
             this.setupEventListeners();
             await this.loadRoles();
             await this.loadPermissions();
             
-            console.log('✅ Role Definitions Controller initialized');
         } catch (error) {
             console.error('❌ Error initializing Role Definitions:', error);
             this.showError('Failed to initialize role definitions');

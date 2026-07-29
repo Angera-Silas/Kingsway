@@ -481,6 +481,11 @@
       `${window.APP_BASE || ""}/home.php?route=profile`;
   }
 
+  function goToAccountSettings() {
+    window.location.href =
+      `${window.APP_BASE || ""}/home.php?route=account_settings`;
+  }
+
   function handleDocumentClick(event) {
     const sidebarToggle = event.target.closest(
       ".sidebar-toggle"
@@ -571,6 +576,11 @@
     document.addEventListener(
       "click",
       handleDocumentClick
+    );
+
+    document.getElementById("account-settings-button")?.addEventListener(
+      "click",
+      goToAccountSettings
     );
 
     document.addEventListener(
@@ -669,6 +679,7 @@
   window.handleLogout = showLogoutModal;
   window.executeLogout = executeLogout;
   window.goToProfile = goToProfile;
+  window.goToAccountSettings = goToAccountSettings;
 
   if (document.readyState === "loading") {
     document.addEventListener(

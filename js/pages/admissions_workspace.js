@@ -13,10 +13,11 @@ const admissionsWorkspaceController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("admissionsWorkspaceController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("admissionsWorkspaceController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -37,7 +38,6 @@ const admissionsWorkspaceController = {
                 });
             }
 
-            console.log("admissionsWorkspaceController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Admissions Workspace Controller:", error);
             this.showError("Failed to load admissions data");
@@ -166,7 +166,6 @@ const admissionsWorkspaceController = {
                         endpoint: '/admission/queues',
                         forceRefresh: false
                     });
-                    console.log("Admissions data from DataStore:", queueData);
                 } catch (dataStoreError) {
                     console.warn("DataStore failed, falling back to API:", dataStoreError);
                 }
@@ -175,7 +174,6 @@ const admissionsWorkspaceController = {
             // Fallback to direct API call
             if (!queueData) {
                 const response = await this.apiCall('/admission/queues', 'GET');
-                console.log("Admissions workspace response:", response);
 
                 if (!this.isSuccessfulResponse(response)) {
                     throw new Error(response?.message || "Failed to load admissions data.");
@@ -193,7 +191,6 @@ const admissionsWorkspaceController = {
             }
 
             this.queueData = queueData;
-            console.log("Queue data loaded:", this.queueData);
 
             this.updateSummaryCards();
             this.updateTabBadges();
@@ -953,7 +950,6 @@ const admissionsWorkspaceController = {
                         endpoint: `/admission/application/${applicationId}`,
                         params: { id: applicationId }
                     });
-                    console.log("Application data from DataStore:", payload);
                 } catch (dataStoreError) {
                     console.warn("DataStore failed, falling back to API:", dataStoreError);
                 }
@@ -2531,7 +2527,6 @@ const admissionsWorkspaceController = {
             };
 
             await KingswayDB.add('offline_drafts', draft);
-            console.log("[Admissions] Draft saved:", draft.id);
             this.notify("info", "Draft saved automatically");
         } catch (error) {
             console.error("[Admissions] Failed to save draft:", error);
@@ -2549,7 +2544,6 @@ const admissionsWorkspaceController = {
             
             if (userDrafts.length > 0) {
                 const latestDraft = userDrafts.sort((a, b) => b.updated_at - a.updated_at)[0];
-                console.log("[Admissions] Found draft:", latestDraft.id);
                 return latestDraft;
             }
             
@@ -2563,7 +2557,6 @@ const admissionsWorkspaceController = {
     // ========== Conflict Resolution (Phase 4) ==========
     
     handleConflict: function(conflict) {
-        console.log("[Admissions] Conflict detected:", conflict);
         
         // Show conflict resolution UI
         const conflictMessage = `
@@ -2650,11 +2643,13 @@ const admissionsWorkspaceController = {
         });
     },
 
-    getCurrentUserId: function() {
+    getCurrentUserId: async function() {
+        await window.AuthContext?.ready();
         if (typeof SessionManager !== 'undefined' && SessionManager.isAuthenticated()) {
             const user = SessionManager.getCurrentUser();
             return user ? user.id : null;
         }
+        await window.AuthContext?.ready();
         if (window.AuthContext && window.AuthContext.isAuthenticated()) {
             const user = window.AuthContext.getUser();
             return user ? user.id : null;
@@ -2674,16 +2669,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing admissions workspace controller");
         window.admissionsWorkspaceController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

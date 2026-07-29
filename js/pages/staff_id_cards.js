@@ -51,7 +51,6 @@ const StaffSecurityPassesController = {
             return this;
         }
 
-        console.log('[StaffSecurityPassesController] Initializing...');
 
         if (window.AuthContext?.ready) {
             await window.AuthContext.ready();
@@ -85,7 +84,6 @@ const StaffSecurityPassesController = {
         });
 
         this.initialized = true;
-        console.log('[StaffSecurityPassesController] Initialized successfully');
 
         return this;
     },

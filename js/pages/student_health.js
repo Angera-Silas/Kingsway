@@ -14,8 +14,8 @@ const StudentHealthController = {
   ui: {},
 
   async init() {
-    console.log("StudentHealthController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -24,11 +24,8 @@ const StudentHealthController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentHealthController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentHealthController: Loading records...");
     await this.loadRecords();
-    console.log("StudentHealthController: Initialization complete");
   },
 
   cacheDom() {

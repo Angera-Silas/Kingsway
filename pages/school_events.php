@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-calendar-alt me-2"></i>School Events</h4>
+                    <h4 class="mb-1"><i class="bi bi-calendar-alt me-2"></i>School Events</h4>
                     <p class="text-muted mb-0">Plan and manage school events and activities</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
-                    <i class="fas fa-plus me-1"></i> New Event
+                    <i class="bi bi-plus-lg me-1"></i> New Event
                 </button>
             </div>
         </div>
@@ -83,13 +83,13 @@
                 <table class="table table-hover" id="eventsTable">
                     <thead>
                         <tr>
-                            <th>Event Name</th>
-                            <th>Type</th>
-                            <th>Date</th>
-                            <th>Time</th>
-                            <th>Venue</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Event Name</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Time</th>
+                            <th scope="col">Venue</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/school_events.js"></script>
+<script src="<?= $appBase ?>/js/pages/school_events.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/school_events.js") ?>"></script>

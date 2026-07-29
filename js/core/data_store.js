@@ -329,6 +329,34 @@ const DataStore = (() => {
     emit('CLEARED', {});
   }
 
+  const CACHE_INVALIDATION_KEY = 'kingsway_cache_invalidation';
+
+  function initCrossTabInvalidation() {
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const channel = new BroadcastChannel('kingsway-cache');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'CACHE_INVALIDATED' && Array.isArray(event.data?.keys)) {
+            event.data.keys.forEach((key) => invalidate(key));
+          }
+        };
+      } catch (_) {}
+    }
+
+    window.addEventListener('storage', (event) => {
+      if (event.key === CACHE_INVALIDATION_KEY && event.newValue) {
+        try {
+          const message = JSON.parse(event.newValue);
+          if (message?.type === 'CACHE_INVALIDATED' && Array.isArray(message?.keys)) {
+            message.keys.forEach((key) => invalidate(key));
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  initCrossTabInvalidation();
+
   return {
     get, getOrFetch, fetchPage, peek, set, invalidate, invalidateMany,
     invalidateRelated, subscribe,

@@ -66,5 +66,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/teaching_materials.js"></script>
+<script src="<?= $appBase ?>/js/pages/teaching_materials.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/teaching_materials.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => teachingMaterialsController.init());</script>

@@ -495,4 +495,4 @@ if (!isset($appBase)) {
 })();
 </script>
 
-<script src="<?= $appBase ?>/js/pages/admissions.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/admissions.js"></script>

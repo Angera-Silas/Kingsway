@@ -152,7 +152,6 @@ const internScheduleController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in intern_schedule:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload schedule when academic year or term changes
           loadSchedule();

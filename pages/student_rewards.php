@@ -86,12 +86,12 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Student</th>
-              <th>Class</th>
-              <th>Award Type</th>
-              <th>Description</th>
-              <th>Awarded By</th>
-              <th>Date</th>
+              <th scope="col">Student</th>
+              <th scope="col">Class</th>
+              <th scope="col">Award Type</th>
+              <th scope="col">Description</th>
+              <th scope="col">Awarded By</th>
+              <th scope="col">Date</th>
               <th class="text-center">Points</th>
               <th class="text-end">Actions</th>
             </tr>
@@ -166,5 +166,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_rewards.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/student_rewards.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => studentRewardsController.init());</script>

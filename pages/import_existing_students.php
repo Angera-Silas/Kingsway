@@ -54,4 +54,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/import_existing_students.js"></script>
+<script src="<?= $appBase ?>/js/pages/import_existing_students.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/import_existing_students.js") ?>"></script>

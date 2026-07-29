@@ -294,12 +294,60 @@ class AuthAPI extends BaseAPI
     // Login user
     public function login($data)
     {
+        // If this is a 2FA-verified login (frontend sends user_id + 2fa_verified),
+        // skip password check and go straight to token issuance.
+        if (!empty($data['2fa_verified']) && !empty($data['user_id'])) {
+            return $this->complete2FALogin((int) $data['user_id'], $data);
+        }
+
         // UsersAPI owns credential verification and telemetry. AuthAPI remains
         // the single token/session issuer for the canonical /auth/login path.
         $result = $this->usersApi->login($data, false);
         if ($result['success']) {
             // Extract user data - it's nested in $result['data']['user']
             $userData = $result['data']['user'] ?? $result['data'];
+
+            // ── 2FA gate ──────────────────────────────────────────────────
+            // If the user has 2FA enabled (or policy mandates it), pause the
+            // login and return a challenge response. The frontend will show a
+            // verification modal, call POST /api/2fa/challenge, then POST
+            // /api/2fa/verify, and finally re-submit login with
+            // {2fa_verified: true, user_id: <id>}.
+            $tfa = new \App\API\Services\TwoFactorService();
+            $userId = (int) ($userData['id'] ?? 0);
+            $requiredMethod = $tfa->getRequiredMethod($userId);
+            $policyForced   = $tfa->is2FARequiredByPolicy($userId);
+
+            if ($requiredMethod || $policyForced) {
+                // For policy-forced users who haven't set up 2FA yet,
+                // return 'setup_required' so the frontend can redirect them.
+                if (!$requiredMethod && $policyForced) {
+                    return [
+                        'success' => true,
+                        'status' => 'success',
+                        'data' => [
+                            'user_id' => $userId,
+                            'requires_2fa' => true,
+                            'requires_2fa_setup' => true,
+                            'setup_required' => true,
+                            'method' => null,
+                        ],
+                        'message' => 'Two-factor authentication must be enabled before you can sign in.',
+                    ];
+                }
+
+                return [
+                    'success' => true,
+                    'status' => 'success',
+                    'data' => [
+                        'user_id' => $userId,
+                        'requires_2fa' => true,
+                        'method' => $requiredMethod,
+                    ],
+                    'message' => 'Two-factor verification required.',
+                ];
+            }
+            // ── end 2FA gate ──────────────────────────────────────────────
 
             // DO NOT put permissions in token - they're already in userData
             // Token should only contain authentication info (who you are)
@@ -345,25 +393,30 @@ class AuthAPI extends BaseAPI
             // Use database-driven config if available, otherwise fall back to file-based
             if ($this->useDatabaseConfig) {
                 $loginData = $this->buildLoginResponseFromDatabase(
-                    $userData,
-                    $primaryRoleId,
-                    $roleIds,
-                    $token,
-                    filter_var(
-                        $data['remember_me'] ?? false,
-                        FILTER_VALIDATE_BOOLEAN
-                    )
-                );
-            } else {
-                $loginData = $this->buildLoginResponseFromFiles(
-                    $userData,
-                    $primaryRole,
-                    $primaryRoleId,
-                    $roleIds,
-                    $token,
-                    filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN)
-                );
-            }
+                     $userData,
+                     $primaryRoleId,
+                     $roleIds,
+                     $token,
+                     filter_var(
+                         $data['remember_me'] ?? false,
+                         FILTER_VALIDATE_BOOLEAN
+                     )
+                 );
+             } else {
+                 $loginData = $this->buildLoginResponseFromFiles(
+                     $userData,
+                     $primaryRole,
+                     $primaryRoleId,
+                     $roleIds,
+                     $token,
+                     filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                 );
+             }
+
+             // Add CSRF token for frontend mutating requests
+             $loginData['data']['csrf_token'] = $this->generateCsrfToken(
+                 (int) $userData['id']
+             );
 
             try {
                 if (!empty($userData['force_password_change'])) {
@@ -384,11 +437,13 @@ class AuthAPI extends BaseAPI
                     ];
                 }
 
-                return $this->attachTrackedSession(
+                $result = $this->attachTrackedSession(
                     $loginData,
                     (int) $userData['id'],
                     $token
                 );
+                unset($result['data']['refresh_token']);
+                return $result;
             } catch (\Throwable $error) {
                 error_log(
                     'Authenticated session creation failed: ' .
@@ -425,6 +480,79 @@ class AuthAPI extends BaseAPI
                 'debug' => $result
             ]
         ];
+    }
+
+    /**
+     * Complete a login that has already passed 2FA verification.
+     * Called when the frontend re-submits login with {2fa_verified: true, user_id: int}.
+     */
+    private function complete2FALogin(int $userId, array $data): array
+    {
+        // Fetch the full user record
+        $userLookup = $this->usersApi->get($userId);
+        $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
+
+        if (!$userData || empty($userData['id'])) {
+            return ['status' => 'error', 'message' => 'User not found', 'data' => null];
+        }
+
+        // Fetch roles/permissions (same as normal login)
+        $roleIds = [];
+        $primaryRoleId = null;
+        $primaryRole = null;
+
+        $rolesResult = $this->userRoleManager->getUserRoles($userId);
+        $userData['roles'] = $rolesResult['data'] ?? [];
+        $permissionsResult = $this->userPermissionManager->getEffectivePermissions($userId);
+        $userData['permissions'] = $permissionsResult['data'] ?? [];
+
+        foreach ($userData['roles'] as $role) {
+            $rid = is_array($role) ? ($role['id'] ?? $role['role_id'] ?? null) : $role;
+            if ($rid) $roleIds[] = (int) $rid;
+            if ($primaryRole === null && is_array($role)) {
+                $primaryRoleId = $rid;
+                $primaryRole = $role['name'] ?? null;
+            }
+        }
+        $roleIds = array_values(array_unique($roleIds));
+
+        $token = $this->generateToken([
+            'user_id' => $userData['id'],
+            'username' => $userData['username'],
+            'email' => $userData['email'],
+            'roles' => $userData['roles'],
+            'display_name' => trim(($userData['first_name'] ?? '') . ' ' . ($userData['last_name'] ?? '')),
+        ]);
+
+        $rememberMe = filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if ($this->useDatabaseConfig) {
+            $loginData = $this->buildLoginResponseFromDatabase($userData, $primaryRoleId, $roleIds, $token, $rememberMe);
+        } else {
+            $loginData = $this->buildLoginResponseFromFiles($userData, $primaryRole, $primaryRoleId, $roleIds, $token, $rememberMe);
+        }
+
+        try {
+            if (!empty($userData['force_password_change'])) {
+                $setupToken = $this->createPasswordSetupInvitation($userId);
+                $loginData['data']['password_setup_required'] = true;
+                $loginData['data']['password_setup_url'] = $this->passwordSetupUrl($setupToken);
+                $loginData['data']['dashboard'] = ['key' => 'reset_default_password', 'url' => $loginData['data']['password_setup_url'], 'label' => 'Create Password'];
+            } elseif ($this->staffProfileCompletionRequired($userId)) {
+                $loginData['data']['profile_completion_required'] = true;
+                $loginData['data']['dashboard'] = ['key' => 'complete_staff_profile', 'url' => 'complete_staff_profile', 'label' => 'Complete Staff Profile'];
+            }
+
+            $loginData['data']['two_factor_verified'] = true;
+            $loginData['data']['csrf_token'] = $this->generateCsrfToken($userId);
+
+            $result = $this->attachTrackedSession($loginData, $userId, $token);
+            unset($result['data']['refresh_token']);
+            return $result;
+        } catch (\Throwable $error) {
+            error_log('2FA login session creation failed: ' . $error->getMessage());
+            return ['status' => 'error', 'message' => 'Session could not be established', 'data' => null];
+        }
     }
 
     /**
@@ -589,7 +717,7 @@ class AuthAPI extends BaseAPI
             // Create a refresh token only for a new login. A refresh exchange
             // reuses its existing token so one browser session remains one
             // auth_sessions record instead of spawning a new row per refresh.
-            $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+            $maxAge = $rememberMe ? (14 * 24 * 60 * 60) : 0;
             $refreshToken = $existingRefreshToken
                 ?? $this->generateRefreshToken(
                     $userId,
@@ -846,7 +974,7 @@ class AuthAPI extends BaseAPI
         $userData = $this->normalizeUserPermissions($userData);
 
         // Create only on login; refresh exchanges retain the current token.
-        $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+        $maxAge = $rememberMe ? (14 * 24 * 60 * 60) : 0;
         $refreshToken = $existingRefreshToken
             ?? $this->generateRefreshToken(
                 $userData['id'],
@@ -1056,14 +1184,15 @@ class AuthAPI extends BaseAPI
                 }
             }
 
-            // Generate new access token
+            // Generate new access token — same compact format as login().
+            // Permissions are NOT included in the JWT (they live in localStorage)
+            // to keep the token small and avoid "Request Header Too Large" errors.
             $newToken = $this->generateToken([
                 'user_id' => $userData['id'],
                 'username' => $userData['username'],
                 'email' => $userData['email'],
                 'roles' => $userData['roles'] ?? [],
                 'display_name' => $userData['first_name'] . ' ' . $userData['last_name'],
-                'permissions' => $permissionCodes
             ]);
 
             // Reuse the same proven envelope builder as login so the SPA can
@@ -1115,12 +1244,32 @@ class AuthAPI extends BaseAPI
                 );
             }
 
-            return $this->attachTrackedSession(
+            // Override the dashboard key when profile completion is required.
+            // This matches the login-time check at lines 422–438 so the
+            // client-side AppRouteAccess.authorizeRoute() still sees the
+            // correct dashboard key after a page refresh (when only the
+            // HttpOnly refresh cookie survives, not localStorage).
+            if ($this->staffProfileCompletionRequired((int) $userData['id'])) {
+                $loginData['data']['profile_completion_required'] = true;
+                $loginData['data']['dashboard'] = [
+                    'key'   => 'complete_staff_profile',
+                    'url'   => 'complete_staff_profile',
+                    'label' => 'Complete Staff Profile',
+                ];
+            }
+
+            $loginData['data']['csrf_token'] = $this->generateCsrfToken(
+                (int) $userData['id']
+            );
+
+            $refreshResult = $this->attachTrackedSession(
                 $loginData,
                 (int) $userData['id'],
                 $newToken,
                 $result
             );
+            unset($refreshResult['data']['refresh_token']);
+            return $refreshResult;
         } catch (\Exception $e) {
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [
@@ -1274,9 +1423,9 @@ class AuthAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare('
-                SELECT
-                    COALESCE(sop.profile_completed, 0) AS profile_completed,
-                    COALESCE(sop.communication_completed, 0) AS communication_completed
+                SELECT s.id AS staff_id, s.phone, s.gender, s.marital_status,
+                       s.date_of_birth, s.address,
+                       sop.profile_completed, sop.communication_completed
                 FROM staff s
                 LEFT JOIN staff_onboarding_progress sop ON sop.staff_id = s.id
                 WHERE s.user_id = ?
@@ -1288,8 +1437,49 @@ class AuthAPI extends BaseAPI
                 return false;
             }
 
-            return (int)$row['profile_completed'] !== 1
-                || (int)$row['communication_completed'] !== 1;
+            $staffId = (int)$row['staff_id'];
+            $hasProfile = !empty($row['profile_completed']);
+            $hasComm    = !empty($row['communication_completed']);
+
+            if ($hasProfile && $hasComm) {
+                return false;
+            }
+
+            $hasStaffData = !empty($row['phone'])
+                && !empty($row['gender'])
+                && !empty($row['marital_status'])
+                && !empty($row['date_of_birth'])
+                && !empty($row['address']);
+
+            if ($hasStaffData) {
+                if (!$row['profile_completed'] || !$row['communication_completed']) {
+                    $this->db->prepare('
+                        INSERT INTO staff_onboarding_progress
+                            (staff_id, user_id, profile_completed, communication_completed,
+                             onboarding_status, completed_at, created_at, updated_at)
+                        VALUES (?, ?, 1, 1, ?, NOW(), NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE
+                            profile_completed = 1,
+                            communication_completed = 1,
+                            onboarding_status = "completed",
+                            completed_at = NOW(),
+                            updated_at = NOW()
+                    ')->execute([$staffId, $userId, 'completed']);
+                }
+                return false;
+            }
+
+            if (!$row['profile_completed']) {
+                $this->db->prepare('
+                    INSERT INTO staff_onboarding_progress
+                        (staff_id, user_id, profile_completed, communication_completed,
+                         onboarding_status, created_at, updated_at)
+                    VALUES (?, ?, 0, 0, "profile_pending", NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE updated_at = NOW()
+                ')->execute([$staffId, $userId]);
+            }
+
+            return true;
         } catch (\Throwable $error) {
             error_log('Staff profile completion check failed: ' . $error->getMessage());
             return false;
@@ -1525,5 +1715,28 @@ class AuthAPI extends BaseAPI
             $normalized[] = $it;
         }
         return $normalized;
+    }
+
+    /**
+     * Generate a CSRF token for the frontend to include in mutating requests.
+     * Must match CsrfMiddleware::validateToken().
+     */
+    private function generateCsrfToken(int $userId): string
+    {
+        $tokenData = [
+            'user_id' => $userId,
+            'timestamp' => time(),
+            'random' => bin2hex(random_bytes(16)),
+        ];
+        $tokenData['signature'] = hash_hmac(
+            'sha256',
+            json_encode([
+                'user_id'   => $tokenData['user_id'],
+                'timestamp' => $tokenData['timestamp'],
+                'random'    => $tokenData['random'],
+            ]),
+            JWT_SECRET
+        );
+        return base64_encode(json_encode($tokenData));
     }
 }

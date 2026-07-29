@@ -2,6 +2,7 @@
  * Manage Teachers Page Controller
  * Full CRUD for teaching staff with assignments, subjects, and class management
  * Uses window.API namespace from api.js
+ * Page: pages/manage_teachers.php
  */
 
 const manageTeachersController = {
@@ -16,6 +17,7 @@ const manageTeachersController = {
   statusFilter: "",
   subjectFilter: "",
   editingId: null,
+  viewingId: null,
 
   // ── Helpers ──────────────────────────────────────────
   extractList(response) {
@@ -50,28 +52,39 @@ const manageTeachersController = {
   },
 
   toast(message, type = "success") {
-    const toastEl = document.getElementById("academicToast");
+    const toastEl = document.getElementById("teacherToast");
+    const icon = document.getElementById("toastIcon");
     const title = document.getElementById("toastTitle");
     const body = document.getElementById("toastBody");
     if (!toastEl || !body) {
       alert(message);
       return;
     }
+    if (icon) {
+      icon.className =
+        type === "success"
+          ? "bi bi-check-circle-fill me-2 text-success"
+          : type === "danger"
+            ? "bi bi-exclamation-circle-fill me-2 text-danger"
+            : type === "warning"
+              ? "bi bi-exclamation-triangle-fill me-2 text-warning"
+              : "bi bi-info-circle-fill me-2 text-info";
+    }
     title.textContent =
       type === "success" ? "Success" : type === "danger" ? "Error" : "Notice";
     body.textContent = message;
-    toastEl.classList.remove(
-      "bg-success",
-      "bg-danger",
-      "bg-warning",
-      "bg-info",
-    );
-    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
-    toast.show();
+    const bsToast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    bsToast.show();
+  },
+
+  setVal(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value || "";
   },
 
   // ── Init ─────────────────────────────────────────────
   init: async function () {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -87,52 +100,80 @@ const manageTeachersController = {
   },
 
   bindEvents: function () {
-    // Search
-    const searchInput = document.getElementById("teacherSearch");
+    const searchInput = document.getElementById("searchTeachers");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
         this.searchTerm = e.target.value.toLowerCase();
+        this.pagination.page = 1;
         this.applyFilters();
       });
     }
 
-    // Filters
-    const deptFilter = document.getElementById("departmentFilter");
+    const deptFilter = document.getElementById("filterDepartment");
     if (deptFilter) {
       deptFilter.addEventListener("change", (e) => {
         this.departmentFilter = e.target.value;
+        this.pagination.page = 1;
         this.applyFilters();
       });
     }
 
-    const statusFilter = document.getElementById("statusFilter");
+    const statusFilter = document.getElementById("filterStatus");
     if (statusFilter) {
       statusFilter.addEventListener("change", (e) => {
         this.statusFilter = e.target.value;
+        this.pagination.page = 1;
         this.applyFilters();
       });
     }
 
-    const subjectFilter = document.getElementById("subjectFilter");
+    const subjectFilter = document.getElementById("filterSubject");
     if (subjectFilter) {
       subjectFilter.addEventListener("change", (e) => {
         this.subjectFilter = e.target.value;
+        this.pagination.page = 1;
         this.applyFilters();
       });
     }
 
-    // Form submit
-    const form = document.getElementById("teacherForm");
-    if (form) {
-      form.addEventListener("submit", (e) => this.saveTeacher(e));
+    const clearBtn = document.getElementById("btnClearFilters");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => this.clearFilters());
     }
 
-    // Save button in modal
-    const saveBtn = document.getElementById("saveTeacherBtn");
+    const addBtn = document.getElementById("btnAddTeacher");
+    if (addBtn) {
+      addBtn.addEventListener("click", () => this.showCreateForm());
+    }
+
+    const exportBtn = document.getElementById("btnExportTeachers");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => this.exportTeachers());
+    }
+
+    const printBtn = document.getElementById("btnPrintTeachers");
+    if (printBtn) {
+      printBtn.addEventListener("click", () => this.printTeachers());
+    }
+
+    const saveBtn = document.getElementById("btnSaveTeacher");
     if (saveBtn) {
-      saveBtn.addEventListener("click", () => {
-        document.getElementById("teacherForm")?.requestSubmit();
-      });
+      saveBtn.addEventListener("click", () => this.saveTeacher());
+    }
+
+    const confirmDeleteBtn = document.getElementById("btnConfirmDelete");
+    if (confirmDeleteBtn) {
+      confirmDeleteBtn.addEventListener("click", () => this.confirmDelete());
+    }
+
+    const editFromViewBtn = document.getElementById("btnEditFromView");
+    if (editFromViewBtn) {
+      editFromViewBtn.addEventListener("click", () => this.editFromView());
+    }
+
+    const printProfileBtn = document.getElementById("btnPrintProfile");
+    if (printProfileBtn) {
+      printProfileBtn.addEventListener("click", () => this.printProfile());
     }
   },
 
@@ -150,7 +191,6 @@ const manageTeachersController = {
           (s.staff_type_name || "").toLowerCase().includes("teaching") ||
           (s.department_name || "").toLowerCase() === "academics",
       );
-      // If filtering produced no results, show all (may not have staff_type set)
       if (this.allTeachers.length === 0 && all.length > 0) {
         this.allTeachers = all;
       }
@@ -176,7 +216,6 @@ const manageTeachersController = {
     } catch (e) {
       console.warn("Could not load stats:", e);
     }
-    // Set subjects covered from learning areas
     document.getElementById("statSubjectsCovered").textContent =
       this.learningAreas.length || 0;
   },
@@ -190,18 +229,18 @@ const manageTeachersController = {
       this.departments = this.unwrap(response) || [];
       if (!Array.isArray(this.departments)) this.departments = [];
       this.populateSelect(
-        "departmentFilter",
+        "filterDepartment",
         this.departments,
         "name",
         "id",
         "All Departments",
       );
       this.populateSelect(
-        "teacherDepartment",
+        "formDepartment",
         this.departments,
         "name",
         "id",
-        "Select Department",
+        "-- Select Department --",
       );
     } catch (e) {
       console.warn("Could not load departments:", e);
@@ -213,6 +252,12 @@ const manageTeachersController = {
       const response = await window.API.academic.listClasses();
       this.classes = this.unwrap(response) || [];
       if (!Array.isArray(this.classes)) this.classes = [];
+      this.populateMultiSelect(
+        "formClassAssignments",
+        this.classes,
+        "name",
+        "id",
+      );
     } catch (e) {
       console.warn("Could not load classes:", e);
     }
@@ -224,11 +269,17 @@ const manageTeachersController = {
       this.learningAreas = this.unwrap(response) || [];
       if (!Array.isArray(this.learningAreas)) this.learningAreas = [];
       this.populateSelect(
-        "subjectFilter",
+        "filterSubject",
         this.learningAreas,
         "name",
         "id",
         "All Subjects",
+      );
+      this.populateMultiSelect(
+        "formSubjectAssignments",
+        this.learningAreas,
+        "name",
+        "id",
       );
     } catch (e) {
       console.warn("Could not load learning areas:", e);
@@ -243,6 +294,26 @@ const manageTeachersController = {
       const label = item[labelKey] || item.name || item;
       const value = item[valueKey] || item.id || label;
       el.innerHTML += `<option value="${value}">${this.esc(String(label))}</option>`;
+    });
+  },
+
+  populateMultiSelect: function (elementId, items, labelKey, valueKey) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.innerHTML = "";
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      const label = item[labelKey] || item.name || item;
+      const value = item[valueKey] || item.id || label;
+      el.innerHTML += `<option value="${value}">${this.esc(String(label))}</option>`;
+    });
+  },
+
+  setMultiSelectValues: function (elementId, values) {
+    const el = document.getElementById(elementId);
+    if (!el || !values) return;
+    const valArr = Array.isArray(values) ? values.map(String) : [];
+    Array.from(el.options).forEach((opt) => {
+      opt.selected = valArr.includes(String(opt.value));
     });
   },
 
@@ -279,19 +350,40 @@ const manageTeachersController = {
       );
     }
 
+    if (this.subjectFilter) {
+      list = list.filter((s) => {
+        const subjects = s.subjects || s.subject_names || "";
+        if (Array.isArray(subjects)) {
+          return subjects.some(
+            (sub) =>
+              String(sub.id || sub) === String(this.subjectFilter) ||
+              (sub.name || "").toLowerCase().includes(this.subjectFilter.toLowerCase()),
+          );
+        }
+        return String(subjects).includes(String(this.subjectFilter));
+      });
+    }
+
     this.filteredTeachers = list;
     this.pagination.total = list.length;
     this.renderTable(list);
-    this.updateStats(list);
   },
 
-  updateStats: function (list) {
-    const total = list.length;
-    const active = list.filter(
-      (s) => (s.status || "").toLowerCase() === "active",
-    ).length;
-    document.getElementById("statTotalTeachers").textContent = total;
-    document.getElementById("statActiveTeachers").textContent = active;
+  clearFilters: function () {
+    this.searchTerm = "";
+    this.departmentFilter = "";
+    this.statusFilter = "";
+    this.subjectFilter = "";
+    this.pagination.page = 1;
+    const searchEl = document.getElementById("searchTeachers");
+    if (searchEl) searchEl.value = "";
+    const deptEl = document.getElementById("filterDepartment");
+    if (deptEl) deptEl.value = "";
+    const statusEl = document.getElementById("filterStatus");
+    if (statusEl) statusEl.value = "";
+    const subjectEl = document.getElementById("filterSubject");
+    if (subjectEl) subjectEl.value = "";
+    this.applyFilters();
   },
 
   // ── Render Table ─────────────────────────────────────
@@ -315,8 +407,14 @@ const manageTeachersController = {
         const name =
           `${s.first_name || ""} ${s.last_name || ""}`.trim() || s.name || "—";
         const dept = s.department_name || s.department || "—";
-        const statusClass =
-          (s.status || "").toLowerCase() === "active" ? "success" : "secondary";
+        const subjects = Array.isArray(s.subjects)
+          ? s.subjects.map((x) => x.name || x).join(", ")
+          : s.subject_name || "—";
+        const classes = Array.isArray(s.classes)
+          ? s.classes.map((x) => x.name || x).join(", ")
+          : s.class_name || "—";
+        const status = (s.status || "").toLowerCase();
+        const statusClass = status === "active" ? "success" : status === "on_leave" ? "warning" : "secondary";
 
         return `
           <tr>
@@ -324,30 +422,28 @@ const manageTeachersController = {
             <td><span class="fw-semibold">${this.esc(s.staff_no || "—")}</span></td>
             <td>
               <div class="d-flex align-items-center">
-                <div class="rounded-circle bg-success bg-opacity-10 text-success d-flex align-items-center justify-content-center me-2" style="width:36px;height:36px;">
-                  <i class="bi bi-person-fill"></i>
-                </div>
-                <div>
+                <div class="teacher-avatar">${this.esc((s.first_name || "?")[0])}</div>
+                <div class="ms-2">
                   <div class="fw-semibold">${this.esc(name)}</div>
                   <small class="text-muted">${this.esc(s.email || "")}</small>
                 </div>
               </div>
             </td>
             <td>${this.esc(dept)}</td>
-            <td><small class="text-muted">${this.esc(s.tsc_no || "—")}</small></td>
-            <td>—</td>
+            <td><small>${this.esc(subjects)}</small></td>
+            <td><small>${this.esc(classes)}</small></td>
             <td><span class="badge bg-${statusClass}">${this.esc(s.status || "unknown")}</span></td>
             <td>
-              <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-info" onclick="manageTeachersController.viewTeacher(${s.id})" title="View">
-                  <i class="bi bi-eye"></i>
+              <div class="action-dropdown dropdown">
+                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                  <i class="bi bi-three-dots-vertical"></i>
                 </button>
-                <button class="btn btn-outline-warning" onclick="manageTeachersController.showEditForm(${s.id})" title="Edit">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-outline-danger" onclick="manageTeachersController.deleteTeacher(${s.id})" title="Delete">
-                  <i class="bi bi-trash"></i>
-                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><a class="dropdown-item" href="#" onclick="manageTeachersController.viewTeacher(${s.id}); return false;"><i class="bi bi-eye me-2"></i>View</a></li>
+                  <li><a class="dropdown-item" href="#" onclick="manageTeachersController.showEditForm(${s.id}); return false;"><i class="bi bi-pencil me-2"></i>Edit</a></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li><a class="dropdown-item text-danger" href="#" onclick="manageTeachersController.deleteTeacher(${s.id}); return false;"><i class="bi bi-trash me-2"></i>Delete</a></li>
+                </ul>
               </div>
             </td>
           </tr>`;
@@ -359,12 +455,16 @@ const manageTeachersController = {
   },
 
   updatePaginationInfo: function (from, to, total) {
-    const el = document.getElementById("teacherPaginationInfo");
-    if (el) el.textContent = `Showing ${from} to ${to} of ${total} teachers`;
+    const fromEl = document.getElementById("showingFrom");
+    const toEl = document.getElementById("showingTo");
+    const totalEl = document.getElementById("totalRecords");
+    if (fromEl) fromEl.textContent = total > 0 ? from : 0;
+    if (toEl) toEl.textContent = to;
+    if (totalEl) totalEl.textContent = total;
   },
 
   renderPagination: function (total) {
-    const container = document.getElementById("teacherPagination");
+    const container = document.getElementById("teachersPagination");
     if (!container) return;
 
     const totalPages = Math.ceil(total / this.pagination.limit);
@@ -377,6 +477,12 @@ const manageTeachersController = {
       <a class="page-link" href="#" onclick="manageTeachersController.goToPage(${this.pagination.page - 1}); return false;">&laquo;</a></li>`;
 
     for (let i = 1; i <= totalPages; i++) {
+      if (totalPages > 7 && i > 3 && i < totalPages - 1 && Math.abs(i - this.pagination.page) > 1) {
+        if (i === 4 || i === totalPages - 2) {
+          html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
+        continue;
+      }
       html += `<li class="page-item ${i === this.pagination.page ? "active" : ""}">
         <a class="page-link" href="#" onclick="manageTeachersController.goToPage(${i}); return false;">${i}</a></li>`;
     }
@@ -399,18 +505,22 @@ const manageTeachersController = {
   // ── CRUD Operations ──────────────────────────────────
   showCreateForm: function () {
     this.editingId = null;
-    document.getElementById("teacherModalLabel").textContent =
-      "Add New Teacher";
+    document.getElementById("teacherFormModalLabel").innerHTML =
+      '<i class="bi bi-mortarboard me-2"></i>Add Teacher';
     const form = document.getElementById("teacherForm");
     if (form) form.reset();
+    document.getElementById("formTeacherId").value = "";
 
-    // Reset tab to first
-    const firstTab = document.querySelector(
-      '#teacherModal .nav-link[data-bs-target="#tabPersonal"]',
-    );
+    const summary = document.getElementById("currentAssignmentsSummary");
+    if (summary) summary.style.display = "none";
+
+    this.populateMultiSelect("formSubjectAssignments", this.learningAreas, "name", "id");
+    this.populateMultiSelect("formClassAssignments", this.classes, "name", "id");
+
+    const firstTab = document.getElementById("tab-personal");
     if (firstTab) new bootstrap.Tab(firstTab).show();
 
-    const modal = new bootstrap.Modal(document.getElementById("teacherModal"));
+    const modal = new bootstrap.Modal(document.getElementById("teacherFormModal"));
     modal.show();
   },
 
@@ -424,40 +534,70 @@ const manageTeachersController = {
       }
 
       this.editingId = id;
-      document.getElementById("teacherModalLabel").textContent = "Edit Teacher";
+      document.getElementById("teacherFormModalLabel").innerHTML =
+        '<i class="bi bi-mortarboard me-2"></i>Edit Teacher';
+      document.getElementById("formTeacherId").value = id;
 
-      // Personal tab
-      this.setVal("teacherFirstName", staff.first_name);
-      this.setVal("teacherLastName", staff.last_name);
-      this.setVal("teacherEmail", staff.email);
-      this.setVal("teacherPhone", staff.phone);
-      this.setVal("teacherGender", staff.gender);
-      this.setVal("teacherDOB", staff.date_of_birth);
-      this.setVal("teacherMaritalStatus", staff.marital_status);
-      this.setVal("teacherAddress", staff.address);
+      this.setVal("formFirstName", staff.first_name);
+      this.setVal("formLastName", staff.last_name);
+      this.setVal("formEmail", staff.email);
+      this.setVal("formPhone", staff.phone);
+      this.setVal("formGender", staff.gender);
+      this.setVal("formDob", staff.date_of_birth);
+      this.setVal("formMaritalStatus", staff.marital_status);
+      this.setVal("formAddress", staff.address);
 
-      // Professional tab
-      this.setVal("teacherTSC", staff.tsc_no);
-      this.setVal("teacherStaffNo", staff.staff_no);
-      this.setVal("teacherDepartment", staff.department_id);
-      this.setVal("teacherPosition", staff.position);
-      this.setVal("teacherEmployDate", staff.employment_date);
-      this.setVal("teacherContractType", staff.contract_type);
+      this.setVal("formTscNo", staff.tsc_no);
+      this.setVal("formStaffNo", staff.staff_no);
+      this.setVal("formDepartment", staff.department_id);
+      this.setVal("formPosition", staff.position);
+      this.setVal("formEmploymentDate", staff.employment_date);
+      this.setVal("formContractType", staff.contract_type);
+      this.setVal("formQualifications", staff.qualifications);
 
-      // Statutory tab
-      this.setVal("teacherKRA", staff.kra_pin);
-      this.setVal("teacherNHIF", staff.nhif_no);
-      this.setVal("teacherNSSF", staff.nssf_no);
-      this.setVal("teacherBank", staff.bank_account);
+      this.setVal("formKraPin", staff.kra_pin);
+      this.setVal("formNhifNo", staff.nhif_no);
+      this.setVal("formNssfNo", staff.nssf_no);
+      this.setVal("formBankAccount", staff.bank_account);
 
-      // Reset to first tab
-      const firstTab = document.querySelector(
-        '#teacherModal .nav-link[data-bs-target="#tabPersonal"]',
+      this.populateMultiSelect("formSubjectAssignments", this.learningAreas, "name", "id");
+      const subjectIds = (staff.subjects || staff.subject_ids || []).map(
+        (s) => (typeof s === "object" ? s.id || s.learning_area_id : s),
       );
+      this.setMultiSelectValues("formSubjectAssignments", subjectIds);
+
+      this.populateMultiSelect("formClassAssignments", this.classes, "name", "id");
+      const classIds = (staff.classes || staff.class_ids || []).map(
+        (c) => (typeof c === "object" ? c.id || c.class_id : c),
+      );
+      this.setMultiSelectValues("formClassAssignments", classIds);
+
+      const summary = document.getElementById("currentAssignmentsSummary");
+      const list = document.getElementById("assignmentsList");
+      if (summary && list) {
+        const allAssigned = [...subjectIds, ...classIds];
+        if (allAssigned.length > 0) {
+          summary.style.display = "block";
+          const items = [];
+          subjectIds.forEach((sid) => {
+            const la = this.learningAreas.find((l) => String(l.id) === String(sid));
+            items.push(`<li class="list-group-item"><i class="bi bi-book me-2 text-success"></i>${this.esc(la?.name || sid)}</li>`);
+          });
+          classIds.forEach((cid) => {
+            const cls = this.classes.find((c) => String(c.id) === String(cid));
+            items.push(`<li class="list-group-item"><i class="bi bi-building me-2 text-primary"></i>${this.esc(cls?.name || cid)}</li>`);
+          });
+          list.innerHTML = items.join("");
+        } else {
+          summary.style.display = "none";
+        }
+      }
+
+      const firstTab = document.getElementById("tab-personal");
       if (firstTab) new bootstrap.Tab(firstTab).show();
 
       const modal = new bootstrap.Modal(
-        document.getElementById("teacherModal"),
+        document.getElementById("teacherFormModal"),
       );
       modal.show();
     } catch (error) {
@@ -466,47 +606,66 @@ const manageTeachersController = {
     }
   },
 
-  setVal: function (id, value) {
-    const el = document.getElementById(id);
-    if (el) el.value = value || "";
-  },
-
   saveTeacher: async function (e) {
     if (e) e.preventDefault();
 
-    const data = {
-      first_name: document.getElementById("teacherFirstName")?.value?.trim(),
-      last_name: document.getElementById("teacherLastName")?.value?.trim(),
-      email: document.getElementById("teacherEmail")?.value?.trim() || null,
-      phone: document.getElementById("teacherPhone")?.value?.trim() || null,
-      gender: document.getElementById("teacherGender")?.value || null,
-      date_of_birth: document.getElementById("teacherDOB")?.value || null,
-      marital_status:
-        document.getElementById("teacherMaritalStatus")?.value || null,
-      address: document.getElementById("teacherAddress")?.value?.trim() || null,
-      tsc_no: document.getElementById("teacherTSC")?.value?.trim() || null,
-      department_id:
-        document.getElementById("teacherDepartment")?.value || null,
-      position:
-        document.getElementById("teacherPosition")?.value?.trim() || "Teacher",
-      employment_date:
-        document.getElementById("teacherEmployDate")?.value || null,
-      contract_type:
-        document.getElementById("teacherContractType")?.value || "permanent",
-      kra_pin: document.getElementById("teacherKRA")?.value?.trim() || null,
-      nhif_no: document.getElementById("teacherNHIF")?.value?.trim() || null,
-      nssf_no: document.getElementById("teacherNSSF")?.value?.trim() || null,
-      bank_account:
-        document.getElementById("teacherBank")?.value?.trim() || null,
-      staff_type_id: 1, // Teaching staff
-    };
+    const firstName = document.getElementById("formFirstName")?.value?.trim();
+    const lastName = document.getElementById("formLastName")?.value?.trim();
 
-    if (!data.first_name || !data.last_name) {
+    if (!firstName || !lastName) {
       this.toast("First name and last name are required", "danger");
       return;
     }
 
+    const deptVal = document.getElementById("formDepartment")?.value;
+
+    const subjectSelect = document.getElementById("formSubjectAssignments");
+    const subjectIds = subjectSelect
+      ? Array.from(subjectSelect.selectedOptions).map((o) => o.value)
+      : [];
+
+    const classSelect = document.getElementById("formClassAssignments");
+    const classIds = classSelect
+      ? Array.from(classSelect.selectedOptions).map((o) => o.value)
+      : [];
+
+    const data = {
+      first_name: firstName,
+      last_name: lastName,
+      email: document.getElementById("formEmail")?.value?.trim() || null,
+      phone: document.getElementById("formPhone")?.value?.trim() || null,
+      gender: document.getElementById("formGender")?.value || null,
+      date_of_birth: document.getElementById("formDob")?.value || null,
+      marital_status:
+        document.getElementById("formMaritalStatus")?.value || null,
+      address: document.getElementById("formAddress")?.value?.trim() || null,
+      tsc_no: document.getElementById("formTscNo")?.value?.trim() || null,
+      department_id: deptVal || null,
+      position:
+        document.getElementById("formPosition")?.value?.trim() || "Teacher",
+      employment_date:
+        document.getElementById("formEmploymentDate")?.value || null,
+      contract_type:
+        document.getElementById("formContractType")?.value || "permanent",
+      qualifications:
+        document.getElementById("formQualifications")?.value?.trim() || null,
+      kra_pin: document.getElementById("formKraPin")?.value?.trim() || null,
+      nhif_no: document.getElementById("formNhifNo")?.value?.trim() || null,
+      nssf_no: document.getElementById("formNssfNo")?.value?.trim() || null,
+      bank_account:
+        document.getElementById("formBankAccount")?.value?.trim() || null,
+      subject_ids: subjectIds,
+      class_ids: classIds,
+      staff_type: "teaching",
+    };
+
     try {
+      const saveBtn = document.getElementById("btnSaveTeacher");
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Saving...';
+      }
+
       if (this.editingId) {
         await window.API.apiCall(`/staff/${this.editingId}`, "PUT", data);
         this.toast("Teacher updated successfully!");
@@ -516,13 +675,19 @@ const manageTeachersController = {
       }
 
       bootstrap.Modal.getInstance(
-        document.getElementById("teacherModal"),
+        document.getElementById("teacherFormModal"),
       )?.hide();
       await this.loadTeachers();
       await this.loadStats();
     } catch (error) {
       console.error("Error saving teacher:", error);
       this.toast(error.message || "Failed to save teacher", "danger");
+    } finally {
+      const saveBtn = document.getElementById("btnSaveTeacher");
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-circle me-1"></i>Save Teacher';
+      }
     }
   },
 
@@ -535,85 +700,91 @@ const manageTeachersController = {
         return;
       }
 
+      this.viewingId = id;
       const name = `${s.first_name || ""} ${s.last_name || ""}`.trim() || "—";
-      const content = document.getElementById("viewTeacherContent");
-      if (!content) return;
+      const initials = `${(s.first_name || "?")[0]}${(s.last_name || "?")[0]}`.toUpperCase();
+      const status = (s.status || "").toLowerCase();
 
-      content.innerHTML = `
-        <div class="row">
-          <div class="col-md-3 text-center">
-            <div class="rounded-circle bg-success bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width:100px;height:100px;">
-              <i class="bi bi-person-fill text-success fs-1"></i>
-            </div>
-            <h5 class="mb-1">${this.esc(name)}</h5>
-            <p class="text-muted mb-1">${this.esc(s.staff_no || "")}</p>
-            <span class="badge bg-${(s.status || "").toLowerCase() === "active" ? "success" : "secondary"} mb-2">${this.esc(s.status || "unknown")}</span>
-          </div>
-          <div class="col-md-9">
-            <ul class="nav nav-tabs mb-3">
-              <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#vtPersonal">Personal</a></li>
-              <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#vtProfessional">Professional</a></li>
-              <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#vtAssignments">Assignments</a></li>
-              <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#vtStatutory">Statutory</a></li>
-            </ul>
-            <div class="tab-content">
-              <div class="tab-pane fade show active" id="vtPersonal">
-                <div class="row">
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">Email</td><td>${this.esc(s.email || "—")}</td></tr>
-                      <tr><td class="text-muted">Phone</td><td>${this.esc(s.phone || "—")}</td></tr>
-                      <tr><td class="text-muted">Gender</td><td>${this.esc(s.gender || "—")}</td></tr>
-                    </table>
-                  </div>
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">Date of Birth</td><td>${this.esc(s.date_of_birth || "—")}</td></tr>
-                      <tr><td class="text-muted">Marital Status</td><td>${this.esc(s.marital_status || "—")}</td></tr>
-                      <tr><td class="text-muted">Address</td><td>${this.esc(s.address || "—")}</td></tr>
-                    </table>
-                  </div>
-                </div>
-              </div>
-              <div class="tab-pane fade" id="vtProfessional">
-                <div class="row">
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">TSC No</td><td>${this.esc(s.tsc_no || "—")}</td></tr>
-                      <tr><td class="text-muted">Department</td><td>${this.esc(s.department_name || "—")}</td></tr>
-                      <tr><td class="text-muted">Position</td><td>${this.esc(s.position || "—")}</td></tr>
-                    </table>
-                  </div>
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">Employment Date</td><td>${this.esc(s.employment_date || "—")}</td></tr>
-                      <tr><td class="text-muted">Contract Type</td><td><span class="badge bg-info">${this.esc(s.contract_type || "—")}</span></td></tr>
-                    </table>
-                  </div>
-                </div>
-              </div>
-              <div class="tab-pane fade" id="vtAssignments">
-                <p class="text-muted">Assignments will be loaded from staff assignments API.</p>
-              </div>
-              <div class="tab-pane fade" id="vtStatutory">
-                <div class="row">
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">KRA PIN</td><td>${this.esc(s.kra_pin || "—")}</td></tr>
-                      <tr><td class="text-muted">NHIF No</td><td>${this.esc(s.nhif_no || "—")}</td></tr>
-                    </table>
-                  </div>
-                  <div class="col-md-6">
-                    <table class="table table-sm table-borderless">
-                      <tr><td class="text-muted" style="width:40%">NSSF No</td><td>${this.esc(s.nssf_no || "—")}</td></tr>
-                      <tr><td class="text-muted">Bank Account</td><td>${this.esc(s.bank_account || "—")}</td></tr>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>`;
+      document.getElementById("viewAvatar").textContent = initials;
+      document.getElementById("viewFullName").textContent = name;
+      document.getElementById("viewStaffNo").textContent = s.staff_no || "—";
+      document.getElementById("viewPosition").textContent = s.position || "—";
+      document.getElementById("viewDepartment").textContent =
+        s.department_name || s.department || "—";
+
+      const badge = document.getElementById("viewStatusBadge");
+      if (badge) {
+        badge.textContent = s.status || "—";
+        badge.className =
+          "badge " +
+          (status === "active"
+            ? "bg-success"
+            : status === "on_leave"
+              ? "bg-warning text-dark"
+              : "bg-secondary");
+      }
+
+      document.getElementById("viewFirstName").textContent = s.first_name || "—";
+      document.getElementById("viewLastName").textContent = s.last_name || "—";
+      document.getElementById("viewEmail").textContent = s.email || "—";
+      document.getElementById("viewPhone").textContent = s.phone || "—";
+      document.getElementById("viewGender").textContent = s.gender || "—";
+      document.getElementById("viewDob").textContent = s.date_of_birth || "—";
+      document.getElementById("viewMaritalStatus").textContent =
+        s.marital_status || "—";
+      document.getElementById("viewAddress").textContent = s.address || "—";
+
+      document.getElementById("viewTscNo").textContent = s.tsc_no || "—";
+      document.getElementById("viewStaffNoDetail").textContent =
+        s.staff_no || "—";
+      document.getElementById("viewDeptDetail").textContent =
+        s.department_name || "—";
+      document.getElementById("viewPositionDetail").textContent =
+        s.position || "—";
+      document.getElementById("viewEmploymentDate").textContent =
+        s.employment_date || "—";
+      document.getElementById("viewContractType").textContent =
+        s.contract_type || "—";
+      document.getElementById("viewQualifications").textContent =
+        s.qualifications || "—";
+
+      document.getElementById("viewKraPin").textContent = s.kra_pin || "—";
+      document.getElementById("viewNhifNo").textContent = s.nhif_no || "—";
+      document.getElementById("viewNssfNo").textContent = s.nssf_no || "—";
+      document.getElementById("viewBankAccount").textContent =
+        s.bank_account || "—";
+
+      const subjectContainer = document.getElementById("viewSubjectAssignments");
+      if (subjectContainer) {
+        const subjects = s.subjects || [];
+        if (Array.isArray(subjects) && subjects.length > 0) {
+          subjectContainer.innerHTML = subjects
+            .map(
+              (sub) =>
+                `<span class="badge bg-success bg-opacity-10 text-success me-1 mb-1">${this.esc(sub.name || sub)}</span>`,
+            )
+            .join("");
+        } else {
+          subjectContainer.innerHTML =
+            '<p class="text-muted">No subject assignments found.</p>';
+        }
+      }
+
+      const classContainer = document.getElementById("viewClassAssignments");
+      if (classContainer) {
+        const classes = s.classes || [];
+        if (Array.isArray(classes) && classes.length > 0) {
+          classContainer.innerHTML = classes
+            .map(
+              (cls) =>
+                `<span class="badge bg-primary bg-opacity-10 text-primary me-1 mb-1">${this.esc(cls.name || cls)}</span>`,
+            )
+            .join("");
+        } else {
+          classContainer.innerHTML =
+            '<p class="text-muted">No class assignments found.</p>';
+        }
+      }
 
       const modal = new bootstrap.Modal(
         document.getElementById("viewTeacherModal"),
@@ -625,92 +796,154 @@ const manageTeachersController = {
     }
   },
 
-  deleteTeacher: async function (id) {
-    if (
-      !confirm(
-        "Are you sure you want to delete this teacher? This action cannot be undone.",
-      )
-    )
-      return;
+  deleteTeacher: function (id) {
+    const teacher = this.allTeachers.find((t) => t.id === id);
+    if (!teacher) return;
+
+    document.getElementById("deleteTeacherId").value = id;
+    document.getElementById("deleteTeacherName").textContent =
+      `${teacher.first_name || ""} ${teacher.last_name || ""}`.trim() ||
+      "—";
+
+    const modal = new bootstrap.Modal(
+      document.getElementById("deleteTeacherModal"),
+    );
+    modal.show();
+  },
+
+  confirmDelete: async function () {
+    const id = document.getElementById("deleteTeacherId")?.value;
+    if (!id) return;
 
     try {
+      const btn = document.getElementById("btnConfirmDelete");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Deleting...';
+      }
+
       await window.API.apiCall(`/staff/${id}`, "DELETE");
+
+      bootstrap.Modal.getInstance(
+        document.getElementById("deleteTeacherModal"),
+      )?.hide();
       this.toast("Teacher deleted successfully!");
       await this.loadTeachers();
       await this.loadStats();
     } catch (error) {
       console.error("Error deleting teacher:", error);
       this.toast("Failed to delete teacher", "danger");
+    } finally {
+      const btn = document.getElementById("btnConfirmDelete");
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash me-1"></i>Delete';
+      }
     }
   },
 
-  // ── Export ───────────────────────────────────────────
+  editFromView: function () {
+    const id = this.viewingId;
+    if (!id) return;
+    bootstrap.Modal.getInstance(
+      document.getElementById("viewTeacherModal"),
+    )?.hide();
+    setTimeout(() => this.showEditForm(id), 400);
+  },
+
+  printProfile: function () {
+    if (!this.viewingId) return;
+    if (window.PrintManager) {
+      window.PrintManager.printElement("viewTeacherBody", {
+        title: "Teacher Profile",
+        subtitle: new Date().toLocaleDateString(),
+      });
+    } else {
+      window.print();
+    }
+  },
+
+  // ── Export / Print ───────────────────────────────────
   exportTeachers: function () {
     const teachers = this.filteredTeachers;
     if (!teachers.length) {
-      this.toast("No data to export", "danger");
+      this.toast("No data to export", "warning");
       return;
     }
 
     let csv =
-      "Staff No,Name,Email,Department,TSC No,Position,Contract,Status\n";
+      "Staff No,First Name,Last Name,Email,Phone,Department,Subjects,Position,Status\n";
     teachers.forEach((s) => {
-      const name = `${s.first_name || ""} ${s.last_name || ""}`.trim();
-      csv += `"${s.staff_no || ""}","${name}","${s.email || ""}","${s.department_name || ""}","${s.tsc_no || ""}","${s.position || ""}","${s.contract_type || ""}","${s.status || ""}"\n`;
+      const subjects = Array.isArray(s.subjects)
+        ? s.subjects.map((x) => x.name || x).join("; ")
+        : s.subject_name || "";
+      csv += [
+        s.staff_no || "",
+        s.first_name || "",
+        s.last_name || "",
+        s.email || "",
+        s.phone || "",
+        s.department_name || "",
+        subjects,
+        s.position || "",
+        s.status || "",
+      ]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(",");
+      csv += "\n";
     });
 
-    KingswayFileLifecycle.exportText(csv, `teachers_export_${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
+    if (window.KingswayFileLifecycle) {
+      KingswayFileLifecycle.exportText(
+        csv,
+        `teachers_export_${new Date().toISOString().split("T")[0]}.csv`,
+        "text/csv",
+      );
+    } else {
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `teachers_export_${new Date().toISOString().split("T")[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   },
 
   printTeachers: function () {
-    if (!this.state.teachers || this.state.teachers.length === 0) {
-      this.notify("No teacher data to print", "warning");
+    const teachers = this.filteredTeachers;
+    if (!teachers.length) {
+      this.toast("No teacher data to print", "warning");
       return;
     }
 
-    const department = document.getElementById("departmentFilter")?.options[document.getElementById("departmentFilter").selectedIndex]?.text || 'All';
-    const subject = document.getElementById("subjectFilter")?.options[document.getElementById("subjectFilter").selectedIndex]?.text || 'All';
-
-    const filters = {
-      'Department': department,
-      'Subject': subject
-    };
-
-    // Remove empty filters
-    Object.keys(filters).forEach(key => {
-      if (filters[key] === 'All' || !filters[key]) {
-        delete filters[key];
-      }
-    });
-
-    const columns = [
-      { key: 'staff_no', label: 'Staff No' },
-      { key: 'full_name', label: 'Teacher Name' },
-      { key: 'department_name', label: 'Department' },
-      { key: 'subject_name', label: 'Subject' },
-      { key: 'phone', label: 'Phone' },
-      { key: 'email', label: 'Email' },
-      { key: 'status', label: 'Status' }
-    ];
-
-    window.PrintManager.printTable({
-      title: 'Teachers List',
-      subtitle: 'School Teaching Staff',
-      columns: columns,
-      rows: this.state.teachers,
-      summary: {
-        'Total Teachers': this.state.teachers.length,
-        'Generated Date': new Date().toLocaleDateString()
-      },
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'TCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-      signatureSection: [
-        { label: 'HR Manager' },
-        { label: 'Principal' }
-      ]
-    });
+    if (window.PrintManager) {
+      window.PrintManager.printTable({
+        title: "Teachers List",
+        subtitle: "School Teaching Staff",
+        columns: [
+          { key: "staff_no", label: "Staff No" },
+          { key: "full_name", label: "Teacher Name" },
+          { key: "department_name", label: "Department" },
+          { key: "position", label: "Position" },
+          { key: "phone", label: "Phone" },
+          { key: "email", label: "Email" },
+          { key: "status", label: "Status" },
+        ],
+        rows: teachers.map((s) => ({
+          ...s,
+          full_name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
+        })),
+        summary: {
+          "Total Teachers": teachers.length,
+          "Generated Date": new Date().toLocaleDateString(),
+        },
+        orientation: "landscape",
+        paperSize: "A4",
+      });
+    } else {
+      window.print();
+    }
   },
 };
 

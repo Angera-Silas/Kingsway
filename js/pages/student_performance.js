@@ -30,10 +30,11 @@ const StudentPerformanceController = {
   ui: {},
 
   init: async function () {
-    console.log("StudentPerformanceController: Initializing...");
 
     // 1. Check authentication safely if AuthContext exists
+    await window.AuthContext?.ready();
     if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+      await window.AuthContext?.ready();
       if (!window.AuthContext.isAuthenticated()) {
         console.warn("StudentPerformanceController: Not authenticated, redirecting to login");
         window.location.href = (window.APP_BASE || "") + "/index.php";
@@ -46,12 +47,9 @@ const StudentPerformanceController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentPerformanceController: Loading metadata...");
     // 2. Load meta first, then overview immediately
     await this.loadMeta();
-    console.log("StudentPerformanceController: Loading overview...");
     await this.loadOverview();
-    console.log("StudentPerformanceController: Initialization complete");
   },
 
   cacheDom: function () {
@@ -167,21 +165,14 @@ const StudentPerformanceController = {
 
   loadMeta: async function () {
     try {
-      console.log("StudentPerformanceController: Fetching performance metadata...");
       const response = await this.api("/students/performance-meta", "GET");
-      console.log("StudentPerformanceController: Metadata response:", response);
       const data = this.unwrap(response);
-      console.log("StudentPerformanceController: Unwrapped metadata:", data);
 
       this.state.classes = data.classes || [];
       this.state.streams = data.streams || [];
       this.state.academicYears = data.academic_years || [];
       this.state.terms = data.terms || [];
 
-      console.log("StudentPerformanceController: Loaded classes:", this.state.classes.length);
-      console.log("StudentPerformanceController: Loaded streams:", this.state.streams.length);
-      console.log("StudentPerformanceController: Loaded academic years:", this.state.academicYears.length);
-      console.log("StudentPerformanceController: Loaded terms:", this.state.terms.length);
 
       // Fill overview filters
       this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
@@ -220,11 +211,8 @@ const StudentPerformanceController = {
 
     try {
       const params = this.getOverviewParams();
-      console.log("StudentPerformanceController: Loading overview with params:", params.toString());
       const response = await this.api(`/students/performance-overview?${params.toString()}`, "GET");
-      console.log("StudentPerformanceController: Overview response:", response);
       const rows = this.unwrap(response) || [];
-      console.log("StudentPerformanceController: Unwrapped rows:", rows.length);
 
       this.state.overviewRows = rows;
       this.renderOverview();

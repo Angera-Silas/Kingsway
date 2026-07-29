@@ -2,6 +2,7 @@ const CurrentAcademicYearController = (() => {
     let allData = [];
     let yearInfo = {};
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         await loadData(); setupEventListeners();
     }

@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-handshake me-2"></i>Parent Meetings</h4>
+                    <h4 class="mb-1"><i class="bi bi-handshake me-2"></i>Parent Meetings</h4>
                     <p class="text-muted mb-0">Schedule and manage parent-teacher meetings</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleMeetingModal">
-                    <i class="fas fa-plus me-1"></i> Schedule Meeting
+                    <i class="bi bi-plus-lg me-1"></i> Schedule Meeting
                 </button>
             </div>
         </div>
@@ -48,13 +48,13 @@
                         <table class="table table-hover" id="upcomingMeetingsTable">
                             <thead>
                                 <tr>
-                                    <th>Date & Time</th>
-                                    <th>Type</th>
-                                    <th>Title</th>
-                                    <th>Participants</th>
-                                    <th>Venue</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Date & Time</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Title</th>
+                                    <th scope="col">Participants</th>
+                                    <th scope="col">Venue</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody></tbody>
@@ -72,11 +72,11 @@
                         <table class="table" id="pastMeetingsTable">
                             <thead>
                                 <tr>
-                                    <th>Date</th>
-                                    <th>Title</th>
-                                    <th>Attendance</th>
-                                    <th>Minutes</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Title</th>
+                                    <th scope="col">Attendance</th>
+                                    <th scope="col">Minutes</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody></tbody>
@@ -149,4 +149,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/parent_meetings.js"></script>
+<script src="<?= $appBase ?>/js/pages/parent_meetings.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/parent_meetings.js") ?>"></script>

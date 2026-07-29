@@ -4,33 +4,54 @@
  * API: /payments/collections, /finance/cash-reconciliation
  */
 
+const DENOMINATIONS = [
+  { label: 'KES 1,000 notes', value: 1000 },
+  { label: 'KES 500 notes',   value: 500  },
+  { label: 'KES 200 notes',   value: 200  },
+  { label: 'KES 100 notes',   value: 100  },
+  { label: 'KES 50 coins',    value: 50   },
+  { label: 'KES 20 coins',    value: 20   },
+  { label: 'KES 10 coins',    value: 10   },
+  { label: 'KES 5 coins',     value: 5    },
+  { label: 'KES 1 coins',     value: 1    },
+];
+
 const cashReconcController = {
 
   _systemTotal: 0,
   _viewModal: null,
-
-  _denominations: [
-    { id: 'crDenom1000', sub: 'crSub1000', value: 1000 },
-    { id: 'crDenom500',  sub: 'crSub500',  value: 500  },
-    { id: 'crDenom200',  sub: 'crSub200',  value: 200  },
-    { id: 'crDenom100',  sub: 'crSub100',  value: 100  },
-    { id: 'crDenom50',   sub: 'crSub50',   value: 50   },
-    { id: 'crDenom20',   sub: 'crSub20',   value: 20   },
-    { id: 'crDenom10',   sub: 'crSub10',   value: 10   },
-    { id: 'crDenom5',    sub: 'crSub5',    value: 5    },
-    { id: 'crDenom1',    sub: 'crSub1',    value: 1    },
-  ],
+  _denominations: [],
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
     this._viewModal = new bootstrap.Modal(document.getElementById('crViewModal'));
+    this.renderDenominations();
     const today = new Date().toISOString().split('T')[0];
     const dateEl = document.getElementById('crDate');
     if (dateEl) dateEl.value = today;
     await Promise.all([this.loadDay(today), this._loadHistory()]);
+  },
+
+  renderDenominations: function () {
+    const tbody = document.getElementById('denominationsBody');
+    if (!tbody) return;
+    this._denominations = DENOMINATIONS.map(d => {
+      const val = d.value;
+      const id  = 'crDenom' + val;
+      const sub = 'crSub' + val;
+      return { id, sub, value: val };
+    });
+    tbody.innerHTML = this._denominations.map(d =>
+      `<tr>
+        <td>${DENOMINATIONS.find(n => n.value === d.value).label}</td>
+        <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="${d.id}" oninput="cashReconcController.computePhysicalTotal()"></td>
+        <td class="text-end" id="${d.sub}">0.00</td>
+      </tr>`
+    ).join('');
   },
 
   loadDay: async function (date) {

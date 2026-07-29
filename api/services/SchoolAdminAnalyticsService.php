@@ -588,7 +588,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Admission',
-                    'icon' => 'fas fa-user-plus',
+                    'icon' => 'bi bi-person-plus',
                     'description' => 'Admission Applications In Pipeline',
                     'count' => (int) $result['count'],
                     'priority' => 'high',
@@ -604,7 +604,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Leave Request',
-                    'icon' => 'fas fa-calendar-times',
+                    'icon' => 'bi bi-calendar-times',
                     'description' => 'Staff Leave Requests Pending',
                     'count' => (int) $result['count'],
                     'priority' => 'medium',
@@ -623,7 +623,7 @@ class SchoolAdminAnalyticsService
             if ($unmarked > 0) {
                 $items[] = [
                     'type' => 'Attendance',
-                    'icon' => 'fas fa-clipboard-check',
+                    'icon' => 'bi bi-clipboard-check',
                     'description' => 'Students Attendance Not Marked',
                     'count' => $unmarked,
                     'priority' => $unmarked > ($activeStudents / 2) ? 'high' : 'medium',
@@ -643,7 +643,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Announcement',
-                    'icon' => 'fas fa-bullhorn',
+                    'icon' => 'bi bi-megaphone',
                     'description' => 'Announcements Expiring Soon',
                     'count' => (int) $result['count'],
                     'priority' => 'low',

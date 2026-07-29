@@ -187,5 +187,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/formative_assessments.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/formative_assessments.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>

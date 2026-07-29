@@ -10,6 +10,7 @@ const ClubsSocietiesController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -276,12 +277,7 @@ const ClubsSocietiesController = {
     this.showNotification(msg, "error");
   },
   showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
+    window.showNotification(msg, type);
   },
   showModal(title, bodyHtml) {
     let modal = document.getElementById("dynamicModal");

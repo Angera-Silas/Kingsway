@@ -121,18 +121,18 @@
     <table class="admin-data-table" id="feesTable">
         <thead>
             <tr>
-                <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
-                <th>Admission No.</th>
-                <th>Student Name</th>
-                <th>Class</th>
-                <th>Term</th>
-                <th>Year</th>
+                <th scope="col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th scope="col">Admission No.</th>
+                <th scope="col">Student Name</th>
+                <th scope="col">Class</th>
+                <th scope="col">Term</th>
+                <th scope="col">Year</th>
                 <th class="text-end">Expected</th>
                 <th class="text-end">Paid</th>
                 <th class="text-end">Balance</th>
-                <th>Status</th>
-                <th>Last Payment</th>
-                <th>Actions</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last Payment</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="feesTableBody">

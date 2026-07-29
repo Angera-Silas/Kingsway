@@ -17,8 +17,8 @@ const StudentWelfareController = {
   ui: {},
 
   async init() {
-    console.log("StudentWelfareController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,11 +27,8 @@ const StudentWelfareController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentWelfareController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentWelfareController: Loading cases...");
     await this.loadCases();
-    console.log("StudentWelfareController: Initialization complete");
   },
 
   cacheDom() {

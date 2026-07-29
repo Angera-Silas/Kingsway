@@ -47,6 +47,7 @@ const reportCardsCtrl = (() => {
     /* ─── Init ───────────────────────────────────────────────── */
     async function init() {
         try {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
@@ -56,7 +57,6 @@ const reportCardsCtrl = (() => {
             if (window.AcademicContext) {
                 // Subscribe to context changes
                 window.AcademicContext.subscribe((context, event, data) => {
-                    console.log('AcademicContext changed in report_cards:', event, data);
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload years, terms, and data when academic year or term changes
                         loadYears();

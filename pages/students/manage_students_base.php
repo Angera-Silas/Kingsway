@@ -158,14 +158,14 @@
             <table class="table table-hover table-striped">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Admission No.</th>
-                        <th>Name</th>
-                        <th>Class/Stream</th>
-                        <th>Gender</th>
-                        <th>Guardian Contact</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Admission No.</th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Class/Stream</th>
+                        <th scope="col">Gender</th>
+                        <th scope="col">Guardian Contact</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="studentsTableBody">

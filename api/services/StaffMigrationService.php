@@ -294,11 +294,48 @@ final class StaffMigrationService
 
     public function onboardingForUser(int $userId): array
     {
-        $stmt=$this->db->prepare("SELECT s.id staff_id,s.staff_no,s.first_name,s.last_name,s.profile_pic_url,s.phone,s.address,
-            sop.password_completed,sop.profile_completed,sop.communication_completed,sop.onboarding_status,
-            sep.position,sep.department_id,sep.employment_date,sep.contract_type
-            FROM staff s JOIN staff_onboarding_progress sop ON sop.staff_id=s.id LEFT JOIN staff_employment_profiles sep ON sep.staff_id=s.id WHERE s.user_id=?");
-        $stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Staff onboarding profile not found.');return $row;
+        $stmt=$this->db->prepare("
+            SELECT
+                s.id AS staff_id, s.staff_no, s.first_name, s.last_name,
+                s.profile_pic_url, s.phone, s.address, s.gender, s.marital_status,
+                s.date_of_birth, s.position, s.employment_date, s.contract_type,
+                s.department_id, s.supervisor_id,
+                s.nssf_no, s.kra_pin, s.nhif_no, s.bank_name, s.bank_account,
+                s.salary, s.tsc_no,
+                s.work_start_time, s.work_end_time, s.late_threshold_minutes,
+                s.status, s.staff_type_id, s.staff_category_id,
+                s.documents_folder, s.created_at, s.updated_at,
+                COALESCE(scp.primary_email,          '') AS communication_email,
+                COALESCE(scp.primary_phone,           '') AS communication_phone,
+                COALESCE(scp.emergency_contact_name,  '') AS emergency_contact_name,
+                COALESCE(scp.emergency_contact_phone, '') AS emergency_contact_phone,
+                COALESCE(sop.password_completed, 0)      AS password_completed,
+                COALESCE(sop.profile_completed, 0)       AS profile_completed,
+                COALESCE(sop.communication_completed, 0) AS communication_completed,
+                COALESCE(sop.onboarding_status, 'invited') AS onboarding_status,
+                d.name  AS department_name,
+                st.name AS staff_type_name,
+                sc.category_name AS staff_category_name,
+                CONCAT(su.first_name, ' ', su.last_name) AS supervisor_name
+            FROM staff s
+            LEFT JOIN staff_onboarding_progress sop ON sop.staff_id = s.id
+            LEFT JOIN staff_communication_profiles scp ON scp.staff_id = s.id
+            LEFT JOIN departments d ON d.id = s.department_id
+            LEFT JOIN staff_types st ON st.id = s.staff_type_id
+            LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
+            LEFT JOIN users su ON su.id = s.supervisor_id
+            WHERE s.user_id = ?
+        ");
+        $stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
+        if(!$row)throw new RuntimeException('Staff onboarding profile not found.');
+        $sid=(int)$row['staff_id'];
+        if(!$row['communication_email']){
+            $eus=$this->db->prepare("SELECT email FROM users WHERE id=?");
+            $eus->execute([$userId]);$row['communication_email']=$eus->fetchColumn()?:'';
+        }
+        $this->db->prepare("INSERT IGNORE INTO staff_onboarding_progress(staff_id,user_id,password_completed,profile_completed,communication_completed,onboarding_status,created_at,updated_at) VALUES(?,?,0,0,0,'invited',NOW(),NOW())")->execute([$sid,$userId]);
+        $this->db->prepare("INSERT IGNORE INTO staff_communication_profiles(staff_id,created_at,updated_at) VALUES(?,NOW(),NOW())")->execute([$sid]);
+        return $row;
     }
 
     public function completeProfile(int $userId,array $data): array
@@ -308,10 +345,10 @@ final class StaffMigrationService
         $this->db->beginTransaction();try{
             $this->db->prepare("UPDATE staff SET phone=?,address=?,gender=?,marital_status=?,date_of_birth=?,updated_at=NOW() WHERE id=?")
                 ->execute([$data['phone'],$data['address'],$data['gender'],$data['marital_status'],$data['date_of_birth'],$sid]);
-            $this->db->prepare("UPDATE staff_communication_profiles SET primary_email=?,primary_phone=?,emergency_contact_name=?,emergency_contact_phone=?,updated_at=NOW() WHERE staff_id=?")
-                ->execute([$data['communication_email']??null,$data['phone'],$data['emergency_contact_name']??null,$data['emergency_contact_phone']??null,$sid]);
-            $this->db->prepare("UPDATE staff_onboarding_progress SET profile_completed=1,communication_completed=1,onboarding_status='completed',completed_at=NOW(),updated_at=NOW() WHERE staff_id=?")
-                ->execute([$sid]);
+            $this->db->prepare("INSERT INTO staff_communication_profiles(staff_id,primary_email,primary_phone,emergency_contact_name,emergency_contact_phone,created_at,updated_at) VALUES(?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE primary_email=VALUES(primary_email),primary_phone=VALUES(primary_phone),emergency_contact_name=VALUES(emergency_contact_name),emergency_contact_phone=VALUES(emergency_contact_phone),updated_at=NOW()")
+                ->execute([$sid,$data['communication_email']??null,$data['communication_phone']??$data['phone'],$data['emergency_contact_name']??null,$data['emergency_contact_phone']??null]);
+            $this->db->prepare("INSERT INTO staff_onboarding_progress(staff_id,user_id,profile_completed,communication_completed,onboarding_status,completed_at,created_at,updated_at) VALUES(?,?,1,1,'completed',NOW(),NOW(),NOW()) ON DUPLICATE KEY UPDATE profile_completed=1,communication_completed=1,onboarding_status='completed',completed_at=NOW(),updated_at=NOW()")
+                ->execute([$sid,$userId]);
             $this->audit($userId,'staff_profile_completed','staff',$sid);$this->db->commit();return $this->onboardingForUser($userId);
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw$e;}
     }

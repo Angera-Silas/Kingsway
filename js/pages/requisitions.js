@@ -7,6 +7,7 @@ const requisitionsController = {
   _data: [], _filtered: [], _page: 1, _perPage: 20, _modal: null, _itemCount: 0,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._modal = new bootstrap.Modal(document.getElementById('requisitionModal'));
     this._bindEvents();

@@ -21,6 +21,25 @@ class InventoryController extends BaseController
         $this->api = new InventoryAPI();
     }
 
+    private function guardInventory(string $permission = 'inventory.view'): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
+    private function guardInventoryWrite(string $permission = 'inventory.manage'): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny([$permission, 'inventory.admin', 'system administrator'])) {
+            return $this->forbidden('You do not have permission for this action');
+        }
+        return null;
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Inventory API is running']);
@@ -55,6 +74,9 @@ class InventoryController extends BaseController
      */
     public function postInventory($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id !== null) {
             $data['id'] = $id;
         }
@@ -73,6 +95,9 @@ class InventoryController extends BaseController
      */
     public function putInventory($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null) {
             return $this->badRequest('Inventory item ID is required for update');
         }
@@ -91,6 +116,9 @@ class InventoryController extends BaseController
      */
     public function deleteInventory($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null) {
             return $this->badRequest('Inventory item ID is required for deletion');
         }
@@ -201,6 +229,9 @@ class InventoryController extends BaseController
      */
     public function postCategoriesCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->createCategory($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -210,6 +241,9 @@ class InventoryController extends BaseController
      */
     public function putCategoriesUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -227,6 +261,9 @@ class InventoryController extends BaseController
      */
     public function deleteCategoriesDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -274,6 +311,9 @@ class InventoryController extends BaseController
      */
     public function postLocationsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->createLocation($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -283,6 +323,9 @@ class InventoryController extends BaseController
      */
     public function putLocationsUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -300,6 +343,9 @@ class InventoryController extends BaseController
      */
     public function deleteLocationsDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -347,6 +393,9 @@ class InventoryController extends BaseController
      */
     public function postSuppliersCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->createSupplier($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -356,6 +405,9 @@ class InventoryController extends BaseController
      */
     public function putSuppliersUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -373,6 +425,9 @@ class InventoryController extends BaseController
      */
     public function deleteSuppliersDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -420,6 +475,9 @@ class InventoryController extends BaseController
      */
     public function postPurchaseOrdersCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->createPurchaseOrder($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -429,6 +487,9 @@ class InventoryController extends BaseController
      */
     public function putPurchaseOrdersUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -446,6 +507,9 @@ class InventoryController extends BaseController
      */
     public function postPurchaseOrdersReceive($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -493,6 +557,9 @@ class InventoryController extends BaseController
      */
     public function postRequisitionsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->createRequisition($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -502,6 +569,9 @@ class InventoryController extends BaseController
      */
     public function putRequisitionsUpdateStatus($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -526,6 +596,9 @@ class InventoryController extends BaseController
      */
     public function deleteRequisitionsDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -565,6 +638,9 @@ class InventoryController extends BaseController
      */
     public function postMovementsAdjustStock($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->adjustStock($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -574,6 +650,9 @@ class InventoryController extends BaseController
      */
     public function postMovementsRecord($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->recordMovement($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -587,6 +666,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementInitiate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->initiateProcurement($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -596,6 +678,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementVerifyBudget($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -613,6 +698,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementRequestQuotations($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -630,6 +718,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementEvaluateQuotations($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -647,6 +738,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementApprove($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -664,6 +758,9 @@ class InventoryController extends BaseController
      */
     public function postProcurementCreatePo($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -685,6 +782,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalInitiate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->initiateDisposal($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -694,6 +794,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalAssessCondition($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -711,6 +814,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalPerformValuation($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -728,6 +834,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalSelectMethod($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -745,6 +854,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalApprove($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -762,6 +874,9 @@ class InventoryController extends BaseController
      */
     public function postDisposalExecute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -783,6 +898,9 @@ class InventoryController extends BaseController
      */
     public function postTransferInitiate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->initiateTransfer($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -792,6 +910,9 @@ class InventoryController extends BaseController
      */
     public function postTransferApprove($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -809,6 +930,9 @@ class InventoryController extends BaseController
      */
     public function postTransferPickStock($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -826,6 +950,9 @@ class InventoryController extends BaseController
      */
     public function postTransferQualityCheck($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -843,6 +970,9 @@ class InventoryController extends BaseController
      */
     public function postTransferDispatch($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -860,6 +990,9 @@ class InventoryController extends BaseController
      */
     public function postTransferReceive($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -877,6 +1010,9 @@ class InventoryController extends BaseController
      */
     public function postTransferInspect($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -898,6 +1034,9 @@ class InventoryController extends BaseController
      */
     public function postAuditInitiate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $result = $this->api->initiateAudit($data, $this->getCurrentUserId());
         return $this->handleResponse($result);
     }
@@ -907,6 +1046,9 @@ class InventoryController extends BaseController
      */
     public function postAuditSchedule($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -924,6 +1066,9 @@ class InventoryController extends BaseController
      */
     public function postAuditPrepareCount($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -941,6 +1086,9 @@ class InventoryController extends BaseController
      */
     public function postAuditPerformCount($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -958,6 +1106,9 @@ class InventoryController extends BaseController
      */
     public function postAuditVerifyCount($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -975,6 +1126,9 @@ class InventoryController extends BaseController
      */
     public function postAuditAnalyzeVariances($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -992,6 +1146,9 @@ class InventoryController extends BaseController
      */
     public function postAuditApproveAdjustments($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -1009,6 +1166,9 @@ class InventoryController extends BaseController
      */
     public function postAuditPostAdjustments($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null && isset($data['workflow_id'])) {
             $id = $data['workflow_id'];
         }
@@ -1180,6 +1340,9 @@ class InventoryController extends BaseController
      */
     public function postUniformSales($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $student_id = $data['student_id'] ?? null;
         $item_id = $data['item_id'] ?? null;
 
@@ -1211,6 +1374,9 @@ class InventoryController extends BaseController
      */
     public function putUniformSalesPayment($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null) {
             return $this->badRequest('Sale ID is required');
         }
@@ -1247,6 +1413,9 @@ class InventoryController extends BaseController
      */
     public function putUniformStudentProfile($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null) {
             return $this->badRequest('Student ID is required');
         }
@@ -1285,6 +1454,9 @@ class InventoryController extends BaseController
      */
     public function postUniformRestock($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
         $result = $uniformsApi->restockUniformSize($data);
         return $this->handleResponse($result);
@@ -1315,6 +1487,9 @@ class InventoryController extends BaseController
      */
     public function deleteUniformSales($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if ($id === null) {
             return $this->badRequest('Sale ID is required');
         }
@@ -1353,6 +1528,9 @@ class InventoryController extends BaseController
      */
     public function postUniformSalesRecordPayment($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if (!$id) return $this->badRequest('sale_id required');
         $amountPaid  = (float)($data['amount_paid']    ?? 0);
         $method      = $data['payment_method'] ?? 'cash';
@@ -1544,6 +1722,9 @@ class InventoryController extends BaseController
     /** POST /api/inventory/assets — register a new fixed asset */
     public function postAssets($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if (empty($data['name']) || empty($data['category_id']) || empty($data['purchase_date']) || empty($data['purchase_price'])) {
             return $this->badRequest('name, category_id, purchase_date, purchase_price are required');
         }
@@ -1578,6 +1759,9 @@ class InventoryController extends BaseController
     /** PUT /api/inventory/assets/{id} — update asset or record disposal */
     public function putAssets($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+
+
         if (!$id) return $this->badRequest('Asset ID required');
         $userId = $this->getCurrentUserId();
 

@@ -93,14 +93,14 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>#</th>
-              <th>Date</th>
-              <th>Description</th>
-              <th>Category</th>
-              <th>Type</th>
+              <th scope="col">#</th>
+              <th scope="col">Date</th>
+              <th scope="col">Description</th>
+              <th scope="col">Category</th>
+              <th scope="col">Type</th>
               <th class="text-end">Amount (KES)</th>
               <th class="text-end">Balance After</th>
-              <th>Recorded By</th>
+              <th scope="col">Recorded By</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -180,4 +180,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/petty_cash.js"></script>
+<script src="<?= $appBase ?>/js/pages/petty_cash.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/petty_cash.js") ?>"></script>

@@ -177,16 +177,16 @@
         <table class="table table-hover table-academic" id="examScheduleTable">
             <thead>
                 <tr>
-                    <th>Exam Name</th>
-                    <th>Subject</th>
-                    <th>Class</th>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Duration</th>
-                    <th>Venue</th>
-                    <th>Supervisor</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th scope="col">Exam Name</th>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Time</th>
+                    <th scope="col">Duration</th>
+                    <th scope="col">Venue</th>
+                    <th scope="col">Supervisor</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -308,4 +308,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/exam_schedule.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/exam_schedule.js"></script>

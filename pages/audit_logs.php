@@ -83,14 +83,14 @@
         <table class="table table-sm table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Timestamp</th>
-              <th>User</th>
-              <th>Action</th>
-              <th>Entity</th>
-              <th>Reference</th>
-              <th>Amount</th>
-              <th>Details</th>
-              <th>IP Address</th>
+              <th scope="col">Timestamp</th>
+              <th scope="col">User</th>
+              <th scope="col">Action</th>
+              <th scope="col">Entity</th>
+              <th scope="col">Reference</th>
+              <th scope="col">Amount</th>
+              <th scope="col">Details</th>
+              <th scope="col">IP Address</th>
             </tr>
           </thead>
           <tbody id="alTableBody">
@@ -119,5 +119,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/audit_logs.js"></script>
+<script src="<?= $appBase ?>/js/pages/audit_logs.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/audit_logs.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => auditLogsController.init());</script>

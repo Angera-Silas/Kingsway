@@ -1896,13 +1896,14 @@ const academicsManager = {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Wait for AuthContext to be available and token to be set
-    const initWhenReady = () => {
+    const initWhenReady = async () => {
         if (typeof AuthContext === 'undefined') {
             console.warn('AuthContext not loaded yet, waiting...');
             setTimeout(initWhenReady, 100);
             return;
         }
         
+        await window.AuthContext?.ready();
         if (!AuthContext.isAuthenticated()) {
             console.error('User not authenticated - cannot initialize academicsManager');
             return;
@@ -1914,7 +1915,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        console.log('✓ AuthContext ready, token present - initializing academicsManager');
         academicsManager.init();
     };
     

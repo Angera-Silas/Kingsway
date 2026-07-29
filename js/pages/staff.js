@@ -956,6 +956,13 @@ const staffManagementController = {
     );
   },
 
+  escapeHtml: function (str) {
+    if (!str) return "";
+    var d = document.createElement("div");
+    d.textContent = str;
+    return d.innerHTML;
+  },
+
   exportCsv: function (rows, filename) {
     if (!Array.isArray(rows) || !rows.length) {
       this.showError("No data to export");
@@ -1618,19 +1625,19 @@ const staffManagementController = {
         <div class="border p-4">
           <div class="text-center mb-3">
             <h4>Kingsway Academy</h4>
-            <h6 class="text-muted">Payslip for ${this.getMonthName(month)} ${year}</h6>
+            <h6 class="text-muted">Payslip for ${this.escapeHtml(this.getMonthName(month))} ${this.escapeHtml(String(year))}</h6>
           </div>
           <hr>
           <div class="row mb-3">
             <div class="col-md-6">
-              <p><strong>Name:</strong> ${payslip.first_name || payslip.staff_name || ""} ${payslip.last_name || ""}</p>
-              <p><strong>Staff No:</strong> ${payslip.staff_no || "-"}</p>
-              <p><strong>Department:</strong> ${payslip.department_name || "-"}</p>
+              <p><strong>Name:</strong> ${this.escapeHtml(payslip.first_name || payslip.staff_name || "")} ${this.escapeHtml(payslip.last_name || "")}</p>
+              <p><strong>Staff No:</strong> ${this.escapeHtml(payslip.staff_no || "-")}</p>
+              <p><strong>Department:</strong> ${this.escapeHtml(payslip.department_name || "-")}</p>
             </div>
             <div class="col-md-6 text-end">
-              <p><strong>KRA PIN:</strong> ${payslip.kra_pin || "-"}</p>
-              <p><strong>NHIF:</strong> ${payslip.nhif_no || "-"}</p>
-              <p><strong>NSSF:</strong> ${payslip.nssf_no || "-"}</p>
+              <p><strong>KRA PIN:</strong> ${this.escapeHtml(payslip.kra_pin || "-")}</p>
+              <p><strong>NHIF:</strong> ${this.escapeHtml(payslip.nhif_no || "-")}</p>
+              <p><strong>NSSF:</strong> ${this.escapeHtml(payslip.nssf_no || "-")}</p>
             </div>
           </div>
           <table class="table table-bordered">
@@ -1728,7 +1735,8 @@ const staffManagementController = {
   },
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await window.AuthContext?.ready();
   if (!AuthContext.isAuthenticated()) {
     window.location.href = (window.APP_BASE || "") + "/index.php";
     return;

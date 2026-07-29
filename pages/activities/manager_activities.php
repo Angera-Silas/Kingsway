@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/manager-theme.css">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/manager-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/manager-theme.css') ?>">
 
 <div class="manager-layout">
     <!-- Compact Sidebar -->
@@ -142,13 +142,13 @@
                     <table class="manager-data-table" id="activitiesTable">
                         <thead>
                             <tr>
-                                <th>ID</th>
-                                <th>Activity Name</th>
-                                <th>Category</th>
-                                <th>Date</th>
-                                <th>Participants</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th scope="col">ID</th>
+                                <th scope="col">Activity Name</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Participants</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="activitiesTableBody">
@@ -169,7 +169,7 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

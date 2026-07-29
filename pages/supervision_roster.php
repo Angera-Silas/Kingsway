@@ -98,14 +98,14 @@
                 <table class="table table-hover table-bordered" id="rosterTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Date</th>
-                            <th>Time</th>
-                            <th>Exam / Activity</th>
-                            <th>Venue</th>
-                            <th>Supervisor</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Time</th>
+                            <th scope="col">Exam / Activity</th>
+                            <th scope="col">Venue</th>
+                            <th scope="col">Supervisor</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="rosterTableBody">

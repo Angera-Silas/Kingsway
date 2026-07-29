@@ -154,15 +154,15 @@
     <table class="admin-data-table" id="financeTable">
         <thead>
             <tr>
-                <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Category</th>
-                <th>Description</th>
-                <th>Amount</th>
-                <th>Recorded By</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th scope="col">Date</th>
+                <th scope="col">Type</th>
+                <th scope="col">Category</th>
+                <th scope="col">Description</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Recorded By</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="financeTableBody">

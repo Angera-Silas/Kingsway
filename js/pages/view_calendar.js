@@ -203,10 +203,7 @@ const ViewCalendarController = (() => {
         loadData();
     }
 
-    function showNotification(message, type) {
-        if (window.API?.showNotification) window.API.showNotification(message, type);
-        else alert((type === 'error' ? 'Error: ' : '') + message);
-    }
+    function showNotification(message, type) { window.showNotification(message, type); }
 
     function initYearDropdown() {
         const select = document.getElementById('yearFilter');

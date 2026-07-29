@@ -10,15 +10,15 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="fas fa-boxes me-2 text-primary"></i>Asset Purchases</h2>
+            <h2 class="mb-1"><i class="bi bi-boxes me-2 text-primary"></i>Asset Purchases</h2>
             <p class="text-muted mb-0">Capital expenditure log — track all school asset acquisitions</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="assetPurchasesController.exportCSV()">
-                <i class="fas fa-download me-1"></i> Export CSV
+                <i class="bi bi-download me-1"></i> Export CSV
             </button>
             <button class="btn btn-primary" onclick="assetPurchasesController.showModal()">
-                <i class="fas fa-plus me-1"></i> Add Purchase
+                <i class="bi bi-plus-lg me-1"></i> Add Purchase
             </button>
         </div>
     </div>
@@ -30,7 +30,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-layer-group fa-lg text-primary"></i>
+                            <i class="bi bi-layers fa-lg text-primary"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Assets</h6>
@@ -45,7 +45,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-coins fa-lg text-success"></i>
+                            <i class="bi bi-coin fa-lg text-success"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Value (KES)</h6>
@@ -60,7 +60,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-calendar-alt fa-lg text-info"></i>
+                            <i class="bi bi-calendar-alt fa-lg text-info"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">This Year Value</h6>
@@ -75,7 +75,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-truck fa-lg text-warning"></i>
+                            <i class="bi bi-truck fa-lg text-warning"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Pending Delivery</h6>
@@ -125,7 +125,7 @@
                 </div>
                 <div class="col-md-1">
                     <button class="btn btn-outline-secondary w-100" onclick="assetPurchasesController._clearFilters()" title="Clear filters">
-                        <i class="fas fa-times"></i>
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
             </div>
@@ -139,14 +139,14 @@
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th>Asset No</th>
-                            <th>Asset Name</th>
-                            <th>Category</th>
-                            <th>Vendor</th>
-                            <th>Purchase Date</th>
+                            <th scope="col">Asset No</th>
+                            <th scope="col">Asset Name</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Vendor</th>
+                            <th scope="col">Purchase Date</th>
                             <th class="text-end">Cost (KES)</th>
-                            <th>Condition</th>
-                            <th>Location</th>
+                            <th scope="col">Condition</th>
+                            <th scope="col">Location</th>
                             <th class="text-center">Status</th>
                             <th class="text-center" width="110">Actions</th>
                         </tr>
@@ -173,7 +173,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title" id="apModalTitle"><i class="fas fa-boxes me-2"></i>Add Asset Purchase</h5>
+                <h5 class="modal-title" id="apModalTitle"><i class="bi bi-boxes me-2"></i>Add Asset Purchase</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -252,7 +252,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="assetPurchasesController.saveAsset()">
-                    <i class="fas fa-save me-1"></i> Save Asset
+                    <i class="bi bi-check-lg me-1"></i> Save Asset
                 </button>
             </div>
         </div>
@@ -264,7 +264,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title"><i class="fas fa-trash me-2"></i>Dispose Asset</h5>
+                <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Dispose Asset</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -299,11 +299,11 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-danger" onclick="assetPurchasesController.confirmDispose()">
-                    <i class="fas fa-trash me-1"></i> Confirm Disposal
+                    <i class="bi bi-trash me-1"></i> Confirm Disposal
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/asset_purchases.js"></script>
+<script src="<?= $appBase ?>/js/pages/asset_purchases.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/asset_purchases.js") ?>"></script>

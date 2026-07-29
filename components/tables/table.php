@@ -5,10 +5,10 @@ function renderTable(array $headers, array $rows, array $actions = [], string $i
     <thead class="table-light">
         <tr>
             <?php foreach($headers as $header): ?>
-                <th><?= htmlspecialchars($header) ?></th>
+                <th scope="col"><?= htmlspecialchars($header) ?></th>
             <?php endforeach; ?>
             <?php if(!empty($actions)): ?>
-                <th>Actions</th>
+                <th scope="col">Actions</th>
             <?php endif; ?>
         </tr>
     </thead>

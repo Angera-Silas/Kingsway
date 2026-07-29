@@ -86,5 +86,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/past_papers.js"></script>
+<script src="<?= $appBase ?>/js/pages/past_papers.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/past_papers.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => pastPapersController.init());</script>

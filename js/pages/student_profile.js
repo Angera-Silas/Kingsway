@@ -12,6 +12,7 @@ let profileTabNav = null;
 let studentData = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
         window.location.href = (window.APP_BASE || '') + '/index.php';
         return;

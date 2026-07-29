@@ -293,16 +293,16 @@
             <table class="table table-bordered table-hover table-sa" id="attendanceTable">
                 <thead>
                     <tr>
-                        <th>Staff Name</th>
-                        <th>Department</th>
-                        <th>Duty Type</th>
-                        <th>Present</th>
-                        <th>Absent</th>
-                        <th>Late</th>
-                        <th>Leave</th>
-                        <th>Off Days</th>
-                        <th>Attendance %</th>
-                        <th>Actions</th>
+                        <th scope="col">Staff Name</th>
+                        <th scope="col">Department</th>
+                        <th scope="col">Duty Type</th>
+                        <th scope="col">Present</th>
+                        <th scope="col">Absent</th>
+                        <th scope="col">Late</th>
+                        <th scope="col">Leave</th>
+                        <th scope="col">Off Days</th>
+                        <th scope="col">Attendance %</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="attendanceTableBody">
@@ -327,8 +327,8 @@
             <table class="table table-sm table-bordered table-sa" id="dailyBreakdownTable">
                 <thead>
                     <tr id="dailyHeaders">
-                        <th>Staff</th>
-                        <th>Duty</th>
+                        <th scope="col">Staff</th>
+                        <th scope="col">Duty</th>
                         <!-- JS adds dynamic date columns -->
                     </tr>
                 </thead>
@@ -429,11 +429,11 @@
                     <table class="table table-hover table-sm" id="markStaffTable">
                         <thead class="table-light sticky-top">
                             <tr>
-                                <th>Staff</th>
-                                <th>Department</th>
-                                <th>Check-in Time</th>
-                                <th>Status</th>
-                                <th>Mark</th>
+                                <th scope="col">Staff</th>
+                                <th scope="col">Department</th>
+                                <th scope="col">Check-in Time</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Mark</th>
                             </tr>
                         </thead>
                         <tbody id="markStaffTableBody">
@@ -493,11 +493,11 @@
                     <table class="table table-sm table-bordered">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Check In</th>
-                                <th>Check Out</th>
-                                <th>Notes</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Check In</th>
+                                <th scope="col">Check Out</th>
+                                <th scope="col">Notes</th>
                             </tr>
                         </thead>
                         <tbody id="staffDetailsBody">
@@ -517,4 +517,4 @@
 ========================================================= -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/staff_attendance.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/staff_attendance.js"></script>

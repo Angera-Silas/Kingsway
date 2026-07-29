@@ -341,7 +341,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_workspace.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_workspace.js"
     onload="console.log('admissions_workspace.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_workspace.js. Check path:', this.src)">
 </script>

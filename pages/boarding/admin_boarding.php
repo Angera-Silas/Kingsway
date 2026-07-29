@@ -152,14 +152,14 @@ $roleCategory = 'admin';
             <table class="table table-hover mb-0" id="dormitoriesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Dormitory Name</th>
-                        <th>Gender</th>
-                        <th>Capacity</th>
-                        <th>Occupied</th>
-                        <th>Available</th>
-                        <th>Matron/Patron</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Dormitory Name</th>
+                        <th scope="col">Gender</th>
+                        <th scope="col">Capacity</th>
+                        <th scope="col">Occupied</th>
+                        <th scope="col">Available</th>
+                        <th scope="col">Matron/Patron</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -249,13 +249,13 @@ $roleCategory = 'admin';
                     <table class="table table-sm" id="leaveRequestsTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Student</th>
-                                <th>Dormitory</th>
-                                <th>Leave Type</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th>Reason</th>
-                                <th>Actions</th>
+                                <th scope="col">Student</th>
+                                <th scope="col">Dormitory</th>
+                                <th scope="col">Leave Type</th>
+                                <th scope="col">From</th>
+                                <th scope="col">To</th>
+                                <th scope="col">Reason</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>

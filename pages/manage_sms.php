@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-info text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-sms"></i> SMS Management</h4>
+            <h4 class="mb-0"><i class="bi bi-chat-dots"></i> SMS Management</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="composeSMSBtn" data-permission="sms_send">
                     <i class="bi bi-plus-circle"></i> Compose SMS
@@ -90,13 +90,13 @@
             <table class="table table-hover" id="smsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Date/Time</th>
-                        <th>Recipient Type</th>
-                        <th>Recipients</th>
-                        <th>Message</th>
-                        <th>Status</th>
-                        <th>Cost</th>
-                        <th>Actions</th>
+                        <th scope="col">Date/Time</th>
+                        <th scope="col">Recipient Type</th>
+                        <th scope="col">Recipients</th>
+                        <th scope="col">Message</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Cost</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>

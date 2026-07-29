@@ -10,7 +10,7 @@ if (!function_exists('renderStudentsTable')) {
     ?>
         <div class="mb-3">
             <button class="btn btn-primary" onclick="window.location.href='?route=new_admission'">
-                <i class="fas fa-plus"></i> New Admission
+                <i class="bi bi-plus-lg"></i> New Admission
             </button>
         </div>
         <?php

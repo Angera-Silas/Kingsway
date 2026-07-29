@@ -1278,10 +1278,13 @@ const schoolAdminDashboardController = {
   },
 };
 
-// Initialize on DOM ready
-document.addEventListener("DOMContentLoaded", () => {
+if (window.__APP_BOOTED__) {
   schoolAdminDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    schoolAdminDashboardController.init();
+  }, { once: true });
+}
 
 // Also support legacy name for backward compatibility
 const adminOfficerDashboardController = schoolAdminDashboardController;

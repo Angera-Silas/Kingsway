@@ -1346,6 +1346,7 @@ const examSetupController = (() => {
        INITIALISATION
     ================================================================= */
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -1355,7 +1356,6 @@ const examSetupController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in exam_setup:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload exams when academic year or term changes
           loadExams();

@@ -759,50 +759,53 @@ class AttendanceController extends BaseController
                 );
             }
 
-            $attendanceJoin = " AND sa.date BETWEEN ? AND ?";
-            $params = [$dateFrom, $dateTo];
-            if ($sessionId) {
-                $attendanceJoin .= " AND sa.session_id = ?";
-                $params[] = (int) $sessionId;
+            $studentStreamFilter = "";
+            $studentStreamParams = [];
+            if ($streamId && !$streamScope['empty']) {
+                $studentStreamFilter = " AND student_id IN (SELECT id FROM students WHERE stream_id = ?)";
+                $studentStreamParams = [(int) $streamId];
+            } elseif ($scope['restricted'] && !empty($scope['stream_ids'])) {
+                $placeholders = implode(',', array_fill(0, count($scope['stream_ids']), '?'));
+                $studentStreamFilter = " AND student_id IN (SELECT id FROM students WHERE stream_id IN ({$placeholders}))";
+                $studentStreamParams = array_map('intval', $scope['stream_ids']);
             }
 
             $sql = "
                 SELECT
-                    s.id AS student_id,
-                    s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    c.name AS class_name,
-                    cs.stream_name,
-                    st.name AS student_type,
-                    st.code AS student_type_code,
-                    COUNT(sa.id) AS total_days,
-                    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present,
-                    SUM(CASE WHEN sa.status = 'absent' AND COALESCE(sa.absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
-                    SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS late,
-                    SUM(CASE WHEN sa.absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
-                    MAX(CASE WHEN sa.status = 'absent' OR sa.absence_reason = 'permission' THEN sa.date END) AS last_absent_date
-                FROM students s
-                JOIN class_streams cs ON cs.id = s.stream_id
-                JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN student_types st ON st.id = s.student_type_id
-                LEFT JOIN student_attendance sa ON sa.student_id = s.id {$attendanceJoin}
-                WHERE s.status = 'active' {$streamScope['sql']}
-                GROUP BY
-                    s.id,
-                    s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    s.middle_name,
-                    c.name,
-                    cs.stream_name,
-                    st.name,
-                    st.code
-                ORDER BY c.name, cs.stream_name, s.last_name, s.first_name
+                    student_id,
+                    student_name,
+                    admission_no,
+                    class_name,
+                    student_type,
+                    COUNT(*) AS total_days,
+                    SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present,
+                    SUM(CASE WHEN status = 'absent' AND COALESCE(absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
+                    SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late,
+                    SUM(CASE WHEN absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
+                    MAX(CASE WHEN status = 'absent' OR absence_reason = 'permission' THEN date END) AS last_absent_date
+                FROM vw_student_attendance_summary
+                WHERE date BETWEEN ? AND ?
+                {$studentStreamFilter}
+            ";
+            $params = [$dateFrom, $dateTo];
+
+            if ($sessionId) {
+                $sql .= " AND student_id IN (
+                    SELECT sa2.student_id FROM student_attendance sa2
+                    WHERE sa2.date BETWEEN ? AND ? AND sa2.session_id = ?
+                )";
+                $params[] = $dateFrom;
+                $params[] = $dateTo;
+                $params[] = (int) $sessionId;
+            }
+
+            $params = array_merge($params, $studentStreamParams);
+
+            $sql .= "
+                GROUP BY student_id, student_name, admission_no, class_name, student_type
+                ORDER BY class_name, student_name
             ";
 
-            $params = array_merge($params, $streamScope['params']);
             $students = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
 
             $students = array_map(static function (array $row): array {
@@ -823,26 +826,32 @@ class AttendanceController extends BaseController
 
             $trendSql = "
                 SELECT
-                    sa.date,
-                    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present,
-                    SUM(CASE WHEN sa.status = 'absent' AND COALESCE(sa.absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
-                    SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS late,
-                    SUM(CASE WHEN sa.absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
-                    COUNT(sa.id) AS total
-                FROM student_attendance sa
-                JOIN students s ON s.id = sa.student_id
-                WHERE sa.date BETWEEN ? AND ? {$streamScope['sql']}
+                    date,
+                    SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present,
+                    SUM(CASE WHEN status = 'absent' AND COALESCE(absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
+                    SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late,
+                    SUM(CASE WHEN absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
+                    COUNT(*) AS total
+                FROM vw_student_attendance_summary
+                WHERE date BETWEEN ? AND ?
+                {$studentStreamFilter}
             ";
             $trendParams = [$dateFrom, $dateTo];
+
             if ($sessionId) {
-                $trendSql .= " AND sa.session_id = ?";
+                $trendSql .= " AND student_id IN (
+                    SELECT sa2.student_id FROM student_attendance sa2
+                    WHERE sa2.date BETWEEN ? AND ? AND sa2.session_id = ?
+                )";
+                $trendParams[] = $dateFrom;
+                $trendParams[] = $dateTo;
                 $trendParams[] = (int) $sessionId;
             }
+
             $trendSql .= "
-                GROUP BY sa.date
-                ORDER BY sa.date ASC
+                GROUP BY date
+                ORDER BY date ASC
             ";
-            $trendParams = array_merge($trendParams, $streamScope['params']);
             $trend = $this->db->query($trendSql, $trendParams)->fetchAll(\PDO::FETCH_ASSOC);
 
             $trend = array_map(static function (array $row): array {
@@ -1578,55 +1587,44 @@ class AttendanceController extends BaseController
                 ], 'Staff attendance retrieved');
             }
 
-            $where = ["st.status = 'active'"];
-            $params = [$date, $date, $date];
+            $where = ["1=1"];
+            $params = [$date];
 
             if ($departmentId) {
-                $where[] = "st.department_id = ?";
+                $where[] = "v.department_id = ?";
                 $params[] = (int) $departmentId;
             }
 
             if ($scope['restricted']) {
                 $placeholders = implode(',', array_fill(0, count($scope['staff_ids']), '?'));
-                $where[] = "st.id IN ({$placeholders})";
+                $where[] = "v.staff_id IN ({$placeholders})";
                 $params = array_merge($params, array_map('intval', $scope['staff_ids']));
             }
 
             $sql = "
-                SELECT 
-                    st.id AS staff_id,
-                    st.id,
-                    st.staff_no,
-                    st.first_name,
-                    st.last_name,
-                    st.position,
-                    d.name AS department_name,
-                    d.name AS department,
-                    sa.status AS attendance_status,
-                    sa.status AS current_status,
-                    sa.check_in_time,
-                    sa.check_out_time,
-                    sl.id as leave_id, lt.name as leave_type, sl.status as leave_status,
-                    sdr.id as duty_id, sdt.id as duty_type_id, sdt.name as duty_type, sdt.code as duty_type_code,
-                    CASE 
-                        WHEN sl.id IS NOT NULL AND sl.status = 'approved' THEN 'on_leave'
-                        WHEN sdt.code IN ('OFF', 'WEEKEND_OFF') THEN 'off_day'
-                        WHEN sa.status IS NULL THEN 'not_marked'
-                        ELSE sa.status
-                    END as effective_status,
-                    CASE WHEN sl.id IS NOT NULL AND sl.status = 'approved' THEN 1 ELSE 0 END as is_on_leave,
-                    CASE WHEN sdt.code IN ('OFF', 'WEEKEND_OFF') THEN 1 ELSE 0 END as is_off_day
-                FROM staff st
-                LEFT JOIN departments d ON st.department_id = d.id
-                LEFT JOIN staff_attendance sa ON st.id = sa.staff_id AND sa.date = ?
-                LEFT JOIN staff_leaves sl ON st.id = sl.staff_id 
-                    AND ? BETWEEN sl.start_date AND sl.end_date
-                LEFT JOIN leave_types lt ON sl.leave_type_id = lt.id
-                LEFT JOIN staff_duty_roster sdr ON st.id = sdr.staff_id AND sdr.date = ?
-                LEFT JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-            ";
-            $sql .= " WHERE " . implode(' AND ', $where);
-            $sql .= " ORDER BY d.name, st.last_name, st.first_name";
+                SELECT
+                    v.staff_id,
+                    v.staff_id AS id,
+                    v.staff_no,
+                    v.first_name,
+                    v.last_name,
+                    v.position,
+                    v.department_name,
+                    v.department_name AS department,
+                    v.marked_status AS attendance_status,
+                    v.marked_status AS current_status,
+                    v.check_in_time,
+                    v.check_out_time,
+                    v.leave_id, v.leave_type, v.leave_status,
+                    v.duty_roster_id AS duty_id, v.duty_code AS duty_type_id,
+                    v.duty_name AS duty_type, v.duty_code AS duty_type_code,
+                    v.effective_status,
+                    CASE WHEN v.leave_id IS NOT NULL AND v.leave_status = 'approved' THEN 1 ELSE 0 END as is_on_leave,
+                    CASE WHEN v.duty_code IN ('OFF', 'WEEKEND_OFF') THEN 1 ELSE 0 END as is_off_day
+                FROM vw_staff_daily_register v
+                WHERE v.date = ?
+                    AND " . implode(' AND ', $where) . "
+                ORDER BY v.department_name, v.last_name, v.first_name";
 
             $result = $this->db->query($sql, $params);
             $staff = $result->fetchAll(\PDO::FETCH_ASSOC);
@@ -1813,9 +1811,8 @@ class AttendanceController extends BaseController
             $shift        = $_GET['shift']         ?? 'full_day';
 
             $dayName   = date('l', strtotime($date));
-            $dayNumber = (int)date('N', strtotime($date)); // 1=Mon 7=Sun
+            $dayNumber = (int)date('N', strtotime($date));
 
-            // Calendar check
             $calEntry = $this->db->query(
                 "SELECT day_type, title, affects_day_students, affects_boarders FROM school_calendar WHERE date = ?",
                 [$date]
@@ -1825,67 +1822,30 @@ class AttendanceController extends BaseController
             $eventName = $calEntry['title']    ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
 
             $isWorkingDay = !in_array($dayType, ['public_holiday','school_holiday']);
-            // On public holidays, only staff on explicit duty roster work
             $onlyRosterStaff = in_array($dayType, ['public_holiday']);
 
-            $where  = ["s.status = 'active'"];
-            $params = [$date, $date, $date, $dayName, $date, $date];
+            $where  = [];
+            $params = [$date];
 
-            if ($departmentId) { $where[] = "s.department_id = ?"; $params[] = (int)$departmentId; }
+            if ($departmentId) { $where[] = "v.department_id = ?"; $params[] = (int)$departmentId; }
 
             $sql = "SELECT
-              s.id AS staff_id, s.staff_no,
-              CONCAT(s.first_name,' ',s.last_name) AS staff_name,
-              s.position, s.work_start_time, s.late_threshold_minutes,
-              d.id AS department_id, d.name AS department_name,
-              sc.category_name AS staff_category,
-              -- Attendance record for this date+shift
-              sa.id AS attendance_id, sa.status AS marked_status,
-              sa.shift AS marked_shift,
-              sa.check_in_time, sa.expected_check_in, sa.check_out_time,
-              sa.absence_reason, sa.notes AS attendance_notes,
-              -- Leave
-              sl.id AS leave_id, lt.name AS leave_type,
-              sl.start_date AS leave_start, sl.end_date AS leave_end,
-              CONCAT(rs.first_name,' ',rs.last_name) AS relief_staff_name,
-              -- Duty roster assignment today
-              sdr.id AS roster_id, sdt.code AS duty_code, sdt.name AS duty_name,
-              sdr.shift AS duty_shift, sdr.start_time AS duty_start, sdr.end_time AS duty_end,
-              sdr.location AS duty_location,
-              -- Off-day pattern
-              sop.id AS pattern_off_id,
-              -- Effective status
-              CASE
-                WHEN sl.id IS NOT NULL AND sl.status='approved'     THEN 'on_leave'
-                WHEN sdr.id IS NOT NULL AND sdt.code IN ('OFF','WEEKEND_OFF') THEN 'off_day'
-                WHEN sop.id IS NOT NULL                             THEN 'off_day'
-                WHEN sa.status IS NOT NULL                          THEN sa.status
-                ELSE 'not_marked'
-              END AS effective_status,
-              -- Can be manually overridden? (no, if on leave/off_day)
-              CASE
-                WHEN sl.id IS NOT NULL AND sl.status='approved'     THEN 0
-                WHEN sdr.id IS NOT NULL AND sdt.code IN ('OFF','WEEKEND_OFF') THEN 0
-                WHEN sop.id IS NOT NULL                             THEN 0
-                ELSE 1
-              END AS can_mark
-            FROM staff s
-            LEFT JOIN departments d ON d.id = s.department_id
-            LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-            LEFT JOIN staff_attendance sa ON sa.staff_id = s.id AND sa.date = ? AND sa.shift = '$shift'
-            LEFT JOIN staff_leaves sl ON sl.staff_id = s.id
-              AND ? BETWEEN sl.start_date AND sl.end_date AND sl.status = 'approved'
-            LEFT JOIN leave_types lt ON lt.id = sl.leave_type_id
-            LEFT JOIN staff rs ON rs.id = sl.relief_staff_id
-            LEFT JOIN staff_duty_roster sdr ON sdr.staff_id = s.id AND sdr.date = ?
-            LEFT JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id
-            LEFT JOIN staff_off_day_patterns sop ON sop.staff_id = s.id
-              AND sop.day_of_week = ?
-              AND sop.is_off = 1
-              AND ? >= sop.effective_from
-              AND (sop.effective_to IS NULL OR ? <= sop.effective_to)
-            WHERE " . implode(' AND ', $where) . "
-            ORDER BY d.name, s.last_name, s.first_name";
+              v.staff_id, v.staff_no, v.staff_name,
+              v.position, v.work_start_time, v.late_threshold_minutes,
+              v.department_id, v.department_name, v.staff_category,
+              v.attendance_id, v.marked_status, v.shift AS marked_shift,
+              v.check_in_time, v.expected_check_in, v.check_out_time,
+              v.absence_reason, v.attendance_notes,
+              v.leave_id, v.leave_type, v.leave_start, v.leave_end,
+              v.relief_staff_name,
+              v.duty_roster_id AS roster_id, v.duty_code, v.duty_name,
+              v.duty_shift, v.duty_start, v.duty_end, v.duty_location,
+              v.pattern_off_id,
+              v.effective_status,
+              v.can_mark
+            FROM vw_staff_daily_register v
+            WHERE v.date = ?" . ($where ? ' AND ' . implode(' AND ', $where) : '') . "
+            ORDER BY v.department_name, v.staff_name";
 
             $staff = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -2032,69 +1992,53 @@ class AttendanceController extends BaseController
             $dateKeys = $this->buildDateRangeArray($dateFrom, $dateTo);
             $staffPlaceholders = implode(',', array_fill(0, count($staffIds), '?'));
 
-            $attendanceRows = $this->db->query(
+            $viewRows = $this->db->query(
                 "SELECT
-                    sa.staff_id,
-                    sa.date,
-                    sa.status,
-                    sa.check_in_time,
-                    sa.check_out_time,
-                    sa.notes,
-                    sa.absence_reason,
-                    sa.duty_type_id,
-                    sdt.name AS duty_type,
-                    sdt.code AS duty_type_code
-                 FROM staff_attendance sa
-                 LEFT JOIN staff_duty_types sdt ON sa.duty_type_id = sdt.id
-                 WHERE sa.date BETWEEN ? AND ?
-                   AND sa.staff_id IN ({$staffPlaceholders})",
-                array_merge([$dateFrom, $dateTo], $staffIds)
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $leaveRows = $this->db->query(
-                "SELECT
-                    sl.staff_id,
-                    sl.start_date,
-                    sl.end_date,
-                    sl.reason,
-                    lt.name AS leave_type
-                 FROM staff_leaves sl
-                 LEFT JOIN leave_types lt ON sl.leave_type_id = lt.id
-                 WHERE sl.status = 'approved'
-                   AND sl.end_date >= ?
-                   AND sl.start_date <= ?
-                   AND sl.staff_id IN ({$staffPlaceholders})",
-                array_merge([$dateFrom, $dateTo], $staffIds)
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $rosterRows = $this->db->query(
-                "SELECT
-                    sdr.staff_id,
-                    sdr.date,
-                    sdt.id AS duty_type_id,
-                    sdt.name AS duty_type,
-                    sdt.code AS duty_type_code
-                 FROM staff_duty_roster sdr
-                 JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-                 WHERE sdr.date BETWEEN ? AND ?
-                   AND sdr.staff_id IN ({$staffPlaceholders})",
+                    v.staff_id,
+                    v.date,
+                    v.marked_status AS status,
+                    v.check_in_time,
+                    v.check_out_time,
+                    v.attendance_notes AS notes,
+                    v.absence_reason,
+                    v.duty_code AS duty_type_code,
+                    v.duty_name AS duty_type,
+                    v.leave_id,
+                    v.leave_type,
+                    v.leave_start,
+                    v.leave_end,
+                    v.effective_status
+                 FROM vw_staff_daily_register v
+                 WHERE v.date BETWEEN ? AND ?
+                   AND v.staff_id IN ({$staffPlaceholders})",
                 array_merge([$dateFrom, $dateTo], $staffIds)
             )->fetchAll(\PDO::FETCH_ASSOC);
 
             $attendanceMap = [];
-            foreach ($attendanceRows as $row) {
-                $attendanceMap[(int) $row['staff_id']][$row['date']] = $row;
-            }
-
             $leaveMap = [];
-            foreach ($leaveRows as $row) {
-                $leaveMap[(int) $row['staff_id']][] = $row;
+            $rosterMap = [];
+            foreach ($viewRows as $row) {
+                $sid = (int) $row['staff_id'];
+                $d = $row['date'];
+                $attendanceMap[$sid][$d] = $row;
+                if (!isset($leaveMap[$sid]) && !empty($row['leave_id'])) {
+                    $leaveMap[$sid][] = [
+                        'start_date' => $row['leave_start'],
+                        'end_date'   => $row['leave_end'],
+                        'leave_type' => $row['leave_type'],
+                    ];
+                }
+                if (!empty($row['duty_type_code'])) {
+                    $rosterMap[$sid][$d] = [
+                        'duty_type_id'   => null,
+                        'duty_type'      => $row['duty_type'],
+                        'duty_type_code' => $row['duty_type_code'],
+                    ];
+                }
             }
 
-            $rosterMap = [];
-            foreach ($rosterRows as $row) {
-                $rosterMap[(int) $row['staff_id']][$row['date']] = $row;
-            }
+            $leaveRows = [];
+            $rosterRows = [];
 
             $staffData = [];
             foreach ($staffRows as $staff) {

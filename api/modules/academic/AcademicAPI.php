@@ -558,6 +558,9 @@ class AcademicAPI extends BaseAPI
         try {
             [$search, $sort, $order] = $this->getSearchParams();
 
+            $allowedSortColumns = ['id', 'name', 'code', 'created_at', 'updated_at'];
+            $sort = in_array($sort, $allowedSortColumns, true) ? $sort : 'id';
+
             $where = '';
             $bindings = [];
             if (!empty($search)) {

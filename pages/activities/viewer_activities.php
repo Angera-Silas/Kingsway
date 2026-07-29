@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/viewer-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/viewer-theme.css') ?>">
 
 <div class="viewer-layout">
     <!-- Header -->
@@ -77,7 +77,7 @@
     </footer>
 </div>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

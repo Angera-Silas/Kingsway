@@ -16,6 +16,7 @@ const admissionInterviewsController = {
     if (this._initialized) return;
     this._initialized = true;
 
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;

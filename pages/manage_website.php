@@ -97,7 +97,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Image</th><th>Title</th><th>Category</th><th>Status</th><th>Views</th><th>Date</th><th class="text-end">Actions</th>
+          <th scope="col">Image</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Status</th><th scope="col">Views</th><th scope="col">Date</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="newsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -117,7 +117,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Date</th><th>Title</th><th>Category</th><th>Location</th><th>Status</th><th class="text-end">Actions</th>
+          <th scope="col">Date</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Location</th><th scope="col">Status</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="eventsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -148,7 +148,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Title</th><th>Category</th><th>Type</th><th>Size</th><th>Active</th><th class="text-end">Actions</th>
+          <th scope="col">Title</th><th scope="col">Category</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Active</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="downloadsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -166,7 +166,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Title</th><th>Department</th><th>Type</th><th>Deadline</th><th>Status</th><th class="text-end">Actions</th>
+          <th scope="col">Title</th><th scope="col">Department</th><th scope="col">Type</th><th scope="col">Deadline</th><th scope="col">Status</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="jobsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -197,7 +197,7 @@ if ($appBase === '.') $appBase = '';
       <div class="bg-white border rounded-3 overflow-hidden">
         <table class="table table-hover ws-table mb-0">
           <thead class="table-light"><tr>
-            <th>Ref</th><th>Child</th><th>Grade</th><th>Parent</th><th>Phone</th><th>Boarding</th><th>Status</th><th>Date</th><th class="text-end">Actions</th>
+            <th scope="col">Ref</th><th scope="col">Child</th><th scope="col">Grade</th><th scope="col">Parent</th><th scope="col">Phone</th><th scope="col">Boarding</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
           </tr></thead>
           <tbody id="appsTableBody"><tr><td colspan="9" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
         </table>
@@ -207,7 +207,7 @@ if ($appBase === '.') $appBase = '';
       <div class="bg-white border rounded-3 overflow-hidden">
         <table class="table table-hover ws-table mb-0">
           <thead class="table-light"><tr>
-            <th>Name</th><th>Position</th><th>Email</th><th>Phone</th><th>TSC No.</th><th>Status</th><th>Date</th>
+            <th scope="col">Name</th><th scope="col">Position</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">TSC No.</th><th scope="col">Status</th><th scope="col">Date</th>
           </tr></thead>
           <tbody id="jobAppsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
         </table>
@@ -220,7 +220,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Name</th><th>Email</th><th>Phone</th><th>Subject</th><th>Message</th><th>Status</th><th>Date</th><th class="text-end">Actions</th>
+          <th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Subject</th><th scope="col">Message</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="inquiriesTableBody"><tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -491,4 +491,4 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_website.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_website.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_website.js") ?>"></script>

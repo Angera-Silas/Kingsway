@@ -101,7 +101,7 @@
           <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
-                <tr><th>Class</th><th>Subject</th><th>Periods/Wk</th><th>Students</th></tr>
+                <tr><th scope="col">Class</th><th scope="col">Subject</th><th scope="col">Periods/Wk</th><th scope="col">Students</th></tr>
               </thead>
               <tbody id="ssClassesBody">
                 <tr><td colspan="4" class="text-center py-4">
@@ -123,7 +123,7 @@
           <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
               <thead class="table-light">
-                <tr><th>Date</th><th>Type</th><th>Time</th><th>Location</th></tr>
+                <tr><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Time</th><th scope="col">Location</th></tr>
               </thead>
               <tbody id="ssDutiesBody">
                 <tr><td colspan="4" class="text-center py-4">
@@ -156,5 +156,5 @@
 .ss-free-cell  { color: #adb5bd; font-size: 11px; text-align:center; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/staff_schedule.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_schedule.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_schedule.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => staffScheduleController.init());</script>

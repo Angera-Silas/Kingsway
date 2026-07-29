@@ -69,13 +69,13 @@
     <table class="manager-data-table" id="staffTable">
         <thead>
             <tr>
-                <th>Photo</th>
-                <th>Staff ID</th>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Photo</th>
+                <th scope="col">Staff ID</th>
+                <th scope="col">Name</th>
+                <th scope="col">Role</th>
+                <th scope="col">Phone</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="staffTableBody">
@@ -110,7 +110,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/all_staff.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_staff.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/all_staff.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof StaffController !== 'undefined') {

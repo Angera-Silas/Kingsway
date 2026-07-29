@@ -22,6 +22,7 @@ const managePaymentsController = {
   isSaving: false,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated?.()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -272,7 +273,7 @@ const managePaymentsController = {
             <td>${this.escapeHtml(this.formatMethod(payment.payment_method))}</td>
             <td><span class="badge bg-${statusClass}">${this.escapeHtml(status)}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="managePaymentsController.viewPayment(${Number(payment.id)})">
+              <button class="btn btn-sm btn-outline-primary" onclick="managePaymentsController.viewPayment(${Number(payment.id)})" data-permission="finance_view">
                 <i class="bi bi-eye"></i>
               </button>
             </td>
@@ -280,6 +281,10 @@ const managePaymentsController = {
         `;
       })
       .join("");
+
+    if (window.RoleBasedUI) {
+      RoleBasedUI.refreshPermissions(tbody);
+    }
   },
 
   renderPagination: function () {

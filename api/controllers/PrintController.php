@@ -20,6 +20,13 @@ use function App\API\Includes\formatResponse;
  */
 class PrintController extends BaseController
 {
+    private function guardPrint(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
     
     /**
      * Generate PDF from table data
@@ -43,6 +50,7 @@ class PrintController extends BaseController
      */
     public function postTable($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -108,6 +116,7 @@ class PrintController extends BaseController
      */
     public function postRecord($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -162,6 +171,7 @@ class PrintController extends BaseController
      */
     public function postCertificate($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -216,6 +226,7 @@ class PrintController extends BaseController
      */
     public function postExportCsv($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 

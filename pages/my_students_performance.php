@@ -68,14 +68,14 @@
                             <table class="table table-hover" id="performanceTable">
                                 <thead>
                                     <tr>
-                                        <th>Student</th>
-                                        <th>Adm No</th>
-                                        <th>Class</th>
-                                        <th>Overall Average</th>
-                                        <th>Best Subject</th>
-                                        <th>Needs Improvement</th>
-                                        <th>Trend</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Student</th>
+                                        <th scope="col">Adm No</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Overall Average</th>
+                                        <th scope="col">Best Subject</th>
+                                        <th scope="col">Needs Improvement</th>
+                                        <th scope="col">Trend</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="performanceTableBody">
@@ -94,4 +94,4 @@
     </div>
 </div>
 
-<script src="js/pages/my_students_performance.js"></script>
+<script src="js/pages/my_students_performance.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/my_students_performance.js") ?>"></script>

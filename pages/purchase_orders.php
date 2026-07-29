@@ -16,15 +16,15 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="fas fa-file-invoice me-2 text-primary"></i>Purchase Orders</h2>
+            <h2 class="mb-1"><i class="bi bi-file-invoice me-2 text-primary"></i>Purchase Orders</h2>
             <p class="text-muted mb-0">Create and manage purchase orders for vendors and suppliers</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="PurchaseOrdersController.exportCSV()">
-                <i class="fas fa-download me-1"></i> Export CSV
+                <i class="bi bi-download me-1"></i> Export CSV
             </button>
             <button class="btn btn-primary" onclick="PurchaseOrdersController.showCreateModal()">
-                <i class="fas fa-plus me-1"></i> New Purchase Order
+                <i class="bi bi-plus-lg me-1"></i> New Purchase Order
             </button>
         </div>
     </div>
@@ -36,7 +36,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-file-invoice fa-lg text-primary"></i>
+                            <i class="bi bi-file-invoice fa-lg text-primary"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total POs</h6>
@@ -51,7 +51,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-clock fa-lg text-warning"></i>
+                            <i class="bi bi-clock fa-lg text-warning"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Pending Approval</h6>
@@ -66,7 +66,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-check-circle fa-lg text-success"></i>
+                            <i class="bi bi-check-lg-circle fa-lg text-success"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Approved</h6>
@@ -81,7 +81,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-money-bill-wave fa-lg text-info"></i>
+                            <i class="bi bi-cash-wave fa-lg text-info"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Value (KES)</h6>
@@ -128,7 +128,7 @@
                 </div>
                 <div class="col-md-1">
                     <button class="btn btn-outline-secondary w-100" onclick="PurchaseOrdersController.clearFilters()">
-                        <i class="fas fa-times"></i>
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
             </div>
@@ -143,10 +143,10 @@
                     <thead class="table-light">
                         <tr>
                             <th width="50">#</th>
-                            <th>PO Number</th>
-                            <th>Date</th>
-                            <th>Vendor</th>
-                            <th>Description</th>
+                            <th scope="col">PO Number</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Vendor</th>
+                            <th scope="col">Description</th>
                             <th class="text-center">Items Count</th>
                             <th class="text-end">Total (KES)</th>
                             <th class="text-center">Status</th>
@@ -179,7 +179,7 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="purchaseOrderModalLabel">
-                    <i class="fas fa-file-invoice me-2"></i> New Purchase Order
+                    <i class="bi bi-file-invoice me-2"></i> New Purchase Order
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -221,13 +221,13 @@
                                     </div>
                                     <div class="col-md-1">
                                         <button type="button" class="btn btn-outline-danger btn-sm" onclick="PurchaseOrdersController.removeItemRow(this)" title="Remove">
-                                            <i class="fas fa-trash"></i>
+                                            <i class="bi bi-trash"></i>
                                         </button>
                                     </div>
                                 </div>
                             </div>
                             <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="PurchaseOrdersController.addItemRow()">
-                                <i class="fas fa-plus me-1"></i> Add Item
+                                <i class="bi bi-plus-lg me-1"></i> Add Item
                             </button>
                         </div>
 
@@ -246,14 +246,14 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="PurchaseOrdersController.savePO()">
-                    <i class="fas fa-save me-1"></i> Save Purchase Order
+                    <i class="bi bi-check-lg me-1"></i> Save Purchase Order
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/purchase_orders.js"></script>
+<script src="<?= $appBase ?>/js/pages/purchase_orders.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/purchase_orders.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof PurchaseOrdersController !== 'undefined') {

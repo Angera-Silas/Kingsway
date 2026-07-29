@@ -13,8 +13,8 @@ const FamilyGroupsController = {
   ui: {},
 
   async init() {
-    console.log("FamilyGroupsController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -23,11 +23,8 @@ const FamilyGroupsController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("FamilyGroupsController: Loading metadata...");
     await this.loadMeta();
-    console.log("FamilyGroupsController: Loading families...");
     await this.loadFamilies();
-    console.log("FamilyGroupsController: Initialization complete");
   },
 
   cacheDom() {

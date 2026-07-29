@@ -77,5 +77,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/competencies_sheet.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/competencies_sheet.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => compCtrl.init());</script>

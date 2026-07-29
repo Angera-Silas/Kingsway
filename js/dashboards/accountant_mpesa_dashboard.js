@@ -242,6 +242,10 @@ const accountantMpesaDashboardController = Object.assign(
   }
 );
 
-document.addEventListener("DOMContentLoaded", function () {
+if (window.__APP_BOOTED__) {
   accountantMpesaDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    accountantMpesaDashboardController.init();
+  }, { once: true });
+}

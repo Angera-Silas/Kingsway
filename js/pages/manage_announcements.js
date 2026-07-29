@@ -16,8 +16,21 @@
     init: async function () {
       if (!this.pageExists()) return;
 
+      await window.AuthContext?.ready();
       if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
         window.location.href = (window.APP_BASE || "") + "/index.php";
+        return;
+      }
+
+      if (
+        typeof PageShell !== "undefined" &&
+        !PageShell.hasAny(["communications_view", "announcements_view", "communications_manage"])
+      ) {
+        document.getElementById("announcementsList").innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to view announcements." +
+          "</div>";
         return;
       }
 

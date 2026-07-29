@@ -14,7 +14,8 @@ const boardingController = {
 
   // ── ENTRY POINT ────────────────────────────────────────────────────
 
-  init: function (role) {
+  init: async function (role) {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -355,6 +356,8 @@ const boardingController = {
     const assign  = document.getElementById('assignRoomBtn');
     const search  = document.getElementById('searchStudent');
     const confirm = document.getElementById('confirmAssignBtn');
+    const healthCard = document.getElementById('healthCard');
+    const reportHealthBtn = document.getElementById('reportHealthBtn');
 
     if (refresh) refresh.addEventListener('click', () => this._initManager());
     if (assign)  assign.addEventListener('click', () => {
@@ -363,6 +366,8 @@ const boardingController = {
     });
     if (search)  search.addEventListener('input', () => this._renderStudentsTable());
     if (confirm) confirm.addEventListener('click', () => this._saveAssignment());
+    if (healthCard) healthCard.addEventListener('click', () => this._loadHealthIssueModal());
+    if (reportHealthBtn) reportHealthBtn.addEventListener('click', () => this._saveHealthIssue());
   },
 
   _saveAssignment: async function () {
@@ -376,6 +381,47 @@ const boardingController = {
       await this._loadStudents();
     } catch (e) {
       showNotification('Failed: ' + (e.message || e), 'error');
+    }
+  },
+
+  _loadHealthIssueModal: function (studentId) {
+    const form = document.getElementById('healthIssueForm');
+    if (!form) return;
+    form.reset();
+
+    const sel = form.querySelector('[name=student_id]');
+    if (sel) {
+      sel.innerHTML = '<option value="">Select Student</option>' +
+        this._students.map(s => '<option value="' + s.id + '">' + this._esc(s.student_name) + ' (' + this._esc(s.admission_no || '') + ')</option>').join('');
+      if (studentId) sel.value = studentId;
+    }
+
+    const modal = document.getElementById('healthIssueModal');
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
+  },
+
+  _saveHealthIssue: async function () {
+    const form = document.getElementById('healthIssueForm');
+    if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+
+    const issueType = form.querySelector('[name=issue_type]').value;
+    const severity  = form.querySelector('[name=severity]').value;
+    const data = {
+      student_id:      form.querySelector('[name=student_id]').value,
+      complaint:       form.querySelector('[name=description]').value.trim(),
+      treatment_given: form.querySelector('[name=action_taken]').value.trim() || null,
+      notes:           '[' + issueType + '] Severity: ' + severity,
+      status:          'active',
+    };
+
+    try {
+      await callAPI('/health/sick-bay', 'POST', data);
+      showNotification('Health issue reported', 'success');
+      const modal = document.getElementById('healthIssueModal');
+      if (modal) bootstrap.Modal.getInstance(modal)?.hide();
+      await this._loadStats();
+    } catch (e) {
+      showNotification('Failed to report: ' + (e.message || e), 'error');
     }
   },
 

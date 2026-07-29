@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-bus me-2"></i>
+                        <i class="bi bi-bus-front me-2"></i>
                         My Passengers
                     </h4>
                     <small id="scopeSubtitle">View assigned route passengers, pickup/drop-off points, and transport status</small>
@@ -128,7 +128,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by name, admission number, pickup point, guardian phone">
@@ -137,13 +137,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-primary w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -155,7 +155,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Passengers</small>
@@ -171,7 +171,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-calendar-check"></i>
+                                    <i class="bi bi-calendar-check"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Expected Today</small>
@@ -187,7 +187,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-arrow-up"></i>
+                                    <i class="bi bi-arrow-up"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Picked Up</small>
@@ -203,7 +203,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-arrow-down"></i>
+                                    <i class="bi bi-arrow-down"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Dropped Off</small>
@@ -219,7 +219,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-user-times"></i>
+                                    <i class="bi bi-person-times"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Absent / Not Riding</small>
@@ -235,7 +235,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-clock"></i>
+                                    <i class="bi bi-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Pending Pickup</small>
@@ -251,7 +251,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Emergency Alerts</small>
@@ -267,7 +267,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-dark text-white p-3">
-                                    <i class="fas fa-route"></i>
+                                    <i class="bi bi-signpost"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Route / Vehicle</small>
@@ -281,24 +281,24 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="passengersLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading passengers...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading passengers...
             </div>
 
             <div id="passengersError" class="alert alert-danger d-none"></div>
 
             <div id="passengersForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-exclamation-triangle me-2"></i> You do not have permission to access transport data.
+                <i class="bi bi-exclamation-triangle me-2"></i> You do not have permission to access transport data.
             </div>
 
             <div id="passengersEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No passengers found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No passengers found for the selected filters.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="passengersCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-primary"></i>
+                        <i class="bi bi-list-ul me-2 text-primary"></i>
                         Passengers
                     </strong>
                 </div>
@@ -307,18 +307,18 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Adm No</th>
-                                <th>Student Name</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Gender</th>
-                                <th>Route</th>
-                                <th>Vehicle</th>
-                                <th>Pickup Point</th>
-                                <th>Drop-off Point</th>
-                                <th>Guardian Contact</th>
-                                <th>Today Status</th>
-                                <th>Actions</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Route</th>
+                                <th scope="col">Vehicle</th>
+                                <th scope="col">Pickup Point</th>
+                                <th scope="col">Drop-off Point</th>
+                                <th scope="col">Guardian Contact</th>
+                                <th scope="col">Today Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="passengersTableBody">
@@ -342,7 +342,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-primary text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-user me-2"></i>
+                        <i class="bi bi-person me-2"></i>
                         Passenger Profile
                     </h5>
                     <small id="modalSubtitle">Transport passenger details</small>
@@ -352,7 +352,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading passenger profile...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading passenger profile...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>
@@ -389,7 +389,7 @@ if (!isset($appBase)) {
 
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title mb-0">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <i class="bi bi-exclamation-triangle me-2"></i>
                     Report Transport Incident
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>

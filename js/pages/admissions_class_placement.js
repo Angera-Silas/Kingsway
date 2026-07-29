@@ -13,10 +13,10 @@ const classPlacementController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("classPlacementController: Initializing...");
-
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("classPlacementController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -31,7 +31,6 @@ const classPlacementController = {
             await this.loadClasses();
             await this.loadPlacements();
 
-            console.log("classPlacementController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Class Placement Controller:", error);
             this.showError("classesGrid", error.message || "Failed to initialize class placement page.");
@@ -135,7 +134,6 @@ const classPlacementController = {
     loadClasses: async function() {
         try {
             const response = await this.apiCall('/admission/placement-classes', 'GET');
-            console.log("Class placement response:", response);
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load classes.");
@@ -144,7 +142,6 @@ const classPlacementController = {
             const payload = this.unwrapPayload(response);
             // Handle both response.data.classes and response.classes
             this.classes = payload?.classes || response?.classes || [];
-            console.log("Classes loaded:", this.classes);
 
             this.renderClassesGrid();
             this.renderCapacityGrid();
@@ -158,7 +155,6 @@ const classPlacementController = {
     loadPlacements: async function() {
         try {
             const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Placements response:", response);
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load placements.");
@@ -181,7 +177,6 @@ const classPlacementController = {
             }
 
             this.placements = placementApplications;
-            console.log("Placements loaded:", this.placements);
             this.renderPlacementsTable();
         } catch (error) {
             console.error('Failed to load placements:', error);
@@ -676,16 +671,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing class placement controller");
         window.classPlacementController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

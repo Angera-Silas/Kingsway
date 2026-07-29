@@ -57,7 +57,9 @@ class DashboardController extends BaseController
             // Returns: { announcements: [...], expiring_notices: [...] }
             return $this->success($result, 'Latest announcements retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch announcements: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch announcements: ');
         }
     }
 
@@ -77,7 +79,9 @@ class DashboardController extends BaseController
                 'total_payroll' => $total
             ], 'Payroll summary retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch payroll summary: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch payroll summary: ');
         }
     }
 
@@ -122,7 +126,9 @@ class DashboardController extends BaseController
             ], 'Director summary retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch Director summary: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch Director summary: ');
         }
     }
 
@@ -144,7 +150,9 @@ class DashboardController extends BaseController
             ], 'Financial trends retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch financial trends: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch financial trends: ');
         }
     }
 
@@ -166,7 +174,9 @@ class DashboardController extends BaseController
             ], 'Revenue sources retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch revenue sources: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch revenue sources: ');
         }
     }
 
@@ -192,7 +202,9 @@ class DashboardController extends BaseController
             return $this->success($trends, 'Attendance trends retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance trends: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance trends: ');
         }
     }
 
@@ -213,7 +225,9 @@ class DashboardController extends BaseController
                 'data' => $report
             ], 'Fees by class × term retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch fees by class × term: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch fees by class × term: ');
         }
     }
 
@@ -234,7 +248,9 @@ class DashboardController extends BaseController
                 'data' => $rows
             ], 'Academic KPIs table retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch academic KPIs table: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch academic KPIs table: ');
         }
     }
 
@@ -252,7 +268,9 @@ class DashboardController extends BaseController
             $rows = $analytics->getStudentDistribution();
             return $this->success(['data' => $rows], 'Student distribution retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch student distribution: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch student distribution: ');
         }
     }
 
@@ -270,7 +288,9 @@ class DashboardController extends BaseController
             $rows = $analytics->getStaffDeployment();
             return $this->success(['data' => $rows], 'Staff deployment retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch staff deployment: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch staff deployment: ');
         }
     }
 
@@ -291,7 +311,9 @@ class DashboardController extends BaseController
             return $this->success($risks, 'Operational risks retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch operational risks: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch operational risks: ');
         }
     }
 
@@ -312,7 +334,9 @@ class DashboardController extends BaseController
             $result = $service->getAuthEvents();
             return $this->success($result, 'Auth events retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch auth events: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch auth events: ');
         }
     }
 
@@ -330,7 +354,9 @@ class DashboardController extends BaseController
             $result = $service->getActiveSessions();
             return $this->success($result, 'Active sessions retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch active sessions: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch active sessions: ');
         }
     }
 
@@ -348,7 +374,9 @@ class DashboardController extends BaseController
             $result = $service->getUptime();
             return $this->success($result, 'System runtime health retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch uptime: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch uptime: ');
         }
     }
 
@@ -366,7 +394,9 @@ class DashboardController extends BaseController
             $result = $service->getHealthErrors();
             return $this->success($result, 'Health errors retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch health errors: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch health errors: ');
         }
     }
 
@@ -384,7 +414,9 @@ class DashboardController extends BaseController
             $result = $service->getHealthWarnings();
             return $this->success($result, 'Health warnings retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch health warnings: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch health warnings: ');
         }
     }
 
@@ -402,7 +434,9 @@ class DashboardController extends BaseController
             $result = $service->getApiLoad();
             return $this->success($result, 'API load retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch API load: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch API load: ');
         }
     }
 
@@ -425,7 +459,9 @@ class DashboardController extends BaseController
                 'data' => $enrollment
             ], 'Enrollment stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch enrollment: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch enrollment: ');
         }
     }
 
@@ -446,7 +482,9 @@ class DashboardController extends BaseController
                 'data' => $staffStats
             ], 'Staff stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch staff stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch staff stats: ');
         }
     }
 
@@ -467,7 +505,9 @@ class DashboardController extends BaseController
                 'data' => $financeStats
             ], 'Finance stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch finance stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch finance stats: ');
         }
     }
 
@@ -488,7 +528,9 @@ class DashboardController extends BaseController
                 'data' => $attendanceStats
             ], 'Attendance stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance stats: ');
         }
     }
 
@@ -516,7 +558,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Headteacher dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch dashboard data: ');
         }
     }
 
@@ -536,7 +580,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Deputy Academic dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch deputy academic dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch deputy academic dashboard data: ');
         }
     }
 
@@ -554,7 +600,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Deputy Discipline dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch deputy discipline dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch deputy discipline dashboard data: ');
         }
     }
 
@@ -574,7 +622,9 @@ class DashboardController extends BaseController
                 'data' => $overview
             ], 'Headteacher overview retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch overview: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch overview: ');
         }
     }
 
@@ -594,7 +644,9 @@ class DashboardController extends BaseController
                 'data' => $attendance
             ], 'Attendance data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance: ');
         }
     }
 
@@ -614,7 +666,9 @@ class DashboardController extends BaseController
                 'data' => $schedules
             ], 'Schedules retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch schedules: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch schedules: ');
         }
     }
 
@@ -634,7 +688,9 @@ class DashboardController extends BaseController
                 'data' => $admissions
             ], 'Admissions data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch admissions: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch admissions: ');
         }
     }
 
@@ -654,7 +710,9 @@ class DashboardController extends BaseController
                 'data' => $discipline
             ], 'Discipline data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch discipline: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch discipline: ');
         }
     }
 
@@ -674,7 +732,9 @@ class DashboardController extends BaseController
                 'data' => $communications
             ], 'Communications data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch communications: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch communications: ');
         }
     }
 
@@ -694,7 +754,9 @@ class DashboardController extends BaseController
                 'data' => $assessments
             ], 'Assessments data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch assessments: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch assessments: ');
         }
     }
 
@@ -714,7 +776,9 @@ class DashboardController extends BaseController
                 'data' => $performance
             ], 'Performance data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch performance: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch performance: ');
         }
     }
 
@@ -742,12 +806,13 @@ class DashboardController extends BaseController
             $reporting = $financeService->getReportingManager();
 
             // Check if pivot parameter is provided
-            $pivotType = $filters['pivot'] ?? null;
+            $allowedPivots = ['pivot-class', 'pivot-type', 'pivot-method', 'pivot-fee-type', 'pivot-daily', 'top-defaulters'];
+            $pivotType = isset($filters['pivot']) && in_array($filters['pivot'], $allowedPivots, true) ? $filters['pivot'] : null;
 
             if ($pivotType) {
                 // Return pivot table data
-                $academicYear = $filters['academic_year'] ?? date('Y');
-                $termId = $filters['term_id'] ?? null;
+                $academicYear = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+                $termId = isset($filters['term_id']) ? (int)$filters['term_id'] : null;
 
                 switch ($pivotType) {
                     case 'pivot-class':
@@ -781,7 +846,9 @@ class DashboardController extends BaseController
             }
 
             // Standard financial dashboard
-            $result = $reporting->getFinancialDashboard($filters);
+            $safeFilters = [];
+            $safeFilters['academic_year'] = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+            $result = $reporting->getFinancialDashboard($safeFilters);
 
             if (isset($result['status']) && $result['status'] === 'error') {
                 return $this->serverError($result['message'] ?? 'Failed to generate financial dashboard');
@@ -790,7 +857,9 @@ class DashboardController extends BaseController
             // Return the raw data payload (ReportingManager returns formatResponse-style array)
             return $this->success($result['data'] ?? $result, $result['message'] ?? 'Financial dashboard retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch accountant financial data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch accountant financial data: ');
         }
     }
 
@@ -808,8 +877,17 @@ class DashboardController extends BaseController
             $financeService = new \App\API\Modules\finance\FinanceService();
             $reporting = $financeService->getReportingManager();
 
+            // Sanitize date filters to YYYY-MM-DD format only
+            $safeFilters = [];
+            if (!empty($filters['date_from']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['date_from'])) {
+                $safeFilters['date_from'] = $filters['date_from'];
+            }
+            if (!empty($filters['date_to']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters['date_to'])) {
+                $safeFilters['date_to'] = $filters['date_to'];
+            }
+
             // Trends
-            $trends = $reporting->getFeeCollectionTrends($filters);
+            $trends = $reporting->getFeeCollectionTrends($safeFilters);
             if (isset($trends['status']) && $trends['status'] === 'error') {
                 return $this->serverError($trends['message'] ?? 'Failed to fetch payments trends');
             }
@@ -829,7 +907,9 @@ class DashboardController extends BaseController
 
             return $this->success($payload, 'Payments data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch accountant payments data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch accountant payments data: ');
         }
     }
 
@@ -850,7 +930,9 @@ class DashboardController extends BaseController
                 'total' => $pendingAdmissions['total']
             ], 'Pending admissions retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch pending admissions: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch pending admissions: ');
         }
     }
 
@@ -871,7 +953,9 @@ class DashboardController extends BaseController
                 'total' => $disciplineCases['total']
             ], 'Discipline cases retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch discipline cases: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch discipline cases: ');
         }
     }
 
@@ -892,7 +976,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Subject Teacher dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch dashboard data: ');
         }
     }
 
@@ -912,7 +998,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Classes data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch classes: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch classes: ');
         }
     }
 
@@ -932,7 +1020,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Sections data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch sections: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch sections: ');
         }
     }
 
@@ -952,7 +1042,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Assessments due retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch assessments due: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch assessments due: ');
         }
     }
 
@@ -972,7 +1064,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Graded data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch graded data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch graded data: ');
         }
     }
 
@@ -992,7 +1086,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Exams data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch exams: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch exams: ');
         }
     }
 
@@ -1012,7 +1108,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Lesson plans data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch lesson plans: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch lesson plans: ');
         }
     }
 
@@ -1033,7 +1131,9 @@ class DashboardController extends BaseController
                 'total' => $result['total']
             ], 'Pending assessments retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch pending assessments: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch pending assessments: ');
         }
     }
 
@@ -1054,7 +1154,9 @@ class DashboardController extends BaseController
                 'total' => $result['total']
             ], 'Exam schedule retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch exam schedule: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch exam schedule: ');
         }
     }
 
@@ -1075,7 +1177,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Class Teacher dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch dashboard data: ');
         }
     }
 
@@ -1093,7 +1197,9 @@ class DashboardController extends BaseController
             $result = $service->getMyStudentsStats();
             return $this->success($result, 'My class data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch class data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch class data: ');
         }
     }
 
@@ -1111,7 +1217,9 @@ class DashboardController extends BaseController
             $result = $service->getTodayAttendanceStats();
             return $this->success($result, 'Attendance data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance: ');
         }
     }
 
@@ -1129,7 +1237,9 @@ class DashboardController extends BaseController
             $result = $service->getPendingAssessmentsStats();
             return $this->success($result, 'Assessments data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch assessments: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch assessments: ');
         }
     }
 
@@ -1147,7 +1257,9 @@ class DashboardController extends BaseController
             $result = $service->getLessonPlansStats();
             return $this->success($result, 'Lesson plans data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch lesson plans: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch lesson plans: ');
         }
     }
 
@@ -1165,7 +1277,9 @@ class DashboardController extends BaseController
             $result = $service->getStudentRoster();
             return $this->success(['data' => $result], 'Student roster retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch students: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch students: ');
         }
     }
 
@@ -1190,7 +1304,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Class data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch class data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch class data: ');
         }
     }
 
@@ -1210,7 +1326,9 @@ class DashboardController extends BaseController
                 'data' => $result
             ], 'Attendance data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance: ');
         }
     }
 
@@ -1227,7 +1345,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'School Admin dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch dashboard data: ');
         }
     }
 
@@ -1246,7 +1366,9 @@ class DashboardController extends BaseController
                 'class_distribution' => $classDistribution
             ], 'Student stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch student stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch student stats: ');
         }
     }
 
@@ -1264,7 +1386,9 @@ class DashboardController extends BaseController
                 'leaves' => $service->getStaffLeavesStats()
             ], 'Staff stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch staff stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch staff stats: ');
         }
     }
 
@@ -1281,7 +1405,9 @@ class DashboardController extends BaseController
                 'trend' => $service->getWeeklyAttendanceTrend(4)
             ], 'Attendance stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance stats: ');
         }
     }
 
@@ -1295,7 +1421,9 @@ class DashboardController extends BaseController
             $service = new SchoolAdminAnalyticsService();
             return $this->success($service->getStudentAdmissionsStats(), 'Admission stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch admission stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch admission stats: ');
         }
     }
 
@@ -1312,7 +1440,9 @@ class DashboardController extends BaseController
                 'today' => $service->getTodaySchedule()
             ], 'Timetable stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch timetable stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch timetable stats: ');
         }
     }
 
@@ -1326,7 +1456,9 @@ class DashboardController extends BaseController
             $service = new SchoolAdminAnalyticsService();
             return $this->success($service->getAnnouncementsStats(), 'Announcement stats retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch announcement stats: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch announcement stats: ');
         }
     }
 
@@ -1344,7 +1476,9 @@ class DashboardController extends BaseController
                 'total' => count($items)
             ], 'Pending items retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch pending items: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch pending items: ');
         }
     }
 
@@ -1355,7 +1489,7 @@ class DashboardController extends BaseController
     public function getSchoolAdminStaffDirectory($id = null, $data = [], $segments = [])
     {
         try {
-            $search = $_GET['search'] ?? '';
+            $search = preg_replace('/[^a-zA-Z0-9 ]/', '', $_GET['search'] ?? '');
             $service = new SchoolAdminAnalyticsService();
             $directory = $service->getStaffDirectory($search);
             return $this->success([
@@ -1363,7 +1497,9 @@ class DashboardController extends BaseController
                 'total' => count($directory)
             ], 'Staff directory retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch staff directory: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch staff directory: ');
         }
     }
 
@@ -1374,11 +1510,13 @@ class DashboardController extends BaseController
     public function getSchoolAdminClassDistribution($id = null, $data = [], $segments = [])
     {
         try {
-            $filter = $_GET['filter'] ?? 'all';
+            $filter = preg_replace('/[^a-zA-Z0-9 ]/', '', $_GET['filter'] ?? 'all');
             $service = new SchoolAdminAnalyticsService();
             return $this->success($service->getClassDistributionChart($filter), 'Class distribution retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch class distribution: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch class distribution: ');
         }
     }
 
@@ -1393,7 +1531,9 @@ class DashboardController extends BaseController
             $service = new SchoolAdminAnalyticsService();
             return $this->success($service->getWeeklyAttendanceTrend($weeks), 'Attendance trend retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch attendance trend: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch attendance trend: ');
         }
     }
 
@@ -1407,7 +1547,9 @@ class DashboardController extends BaseController
             $service = new SchoolAdminAnalyticsService();
             return $this->success($service->getSystemStatus(), 'System status retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch system status: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch system status: ');
         }
     }
 
@@ -1427,7 +1569,9 @@ class DashboardController extends BaseController
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Intern Teacher dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch dashboard data: ');
         }
     }
 
@@ -1445,7 +1589,9 @@ class DashboardController extends BaseController
             $result = $service->getAssignedClassesStats();
             return $this->success($result, 'Assigned classes retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch classes: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch classes: ');
         }
     }
 
@@ -1463,7 +1609,9 @@ class DashboardController extends BaseController
             $result = $service->getLessonObservationsStats();
             return $this->success($result, 'Observations retrieved');
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch observations: ' . $e->getMessage());
+            error_log('Dashboard error: ' . $e->getMessage());
+
+            return $this->serverError('Failed to fetch observations: ');
         }
     }
 

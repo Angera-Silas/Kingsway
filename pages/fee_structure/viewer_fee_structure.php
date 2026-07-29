@@ -109,15 +109,15 @@
             <table class="table table-hover" id="feeStructuresTable">
                 <thead>
                     <tr>
-                        <th>Academic Year</th>
-                        <th>Level</th>
-                        <th>Student Type</th>
-                        <th>Term</th>
-                        <th>Total Fees</th>
-                        <th>Students</th>
-                        <th>Expected Revenue</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Academic Year</th>
+                        <th scope="col">Level</th>
+                        <th scope="col">Student Type</th>
+                        <th scope="col">Term</th>
+                        <th scope="col">Total Fees</th>
+                        <th scope="col">Students</th>
+                        <th scope="col">Expected Revenue</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="feeStructuresBody">
@@ -228,7 +228,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/fee_structure_viewer.js"></script>
+<script src="<?= $appBase ?>/js/pages/fee_structure_viewer.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_viewer.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof window.FeeStructureViewerController !== 'undefined') {

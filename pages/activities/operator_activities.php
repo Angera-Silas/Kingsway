@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/operator-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/operator-theme.css') ?>">
 
 <div class="operator-layout">
     <!-- Mini Sidebar -->
@@ -75,10 +75,10 @@
                 <table class="operator-data-table" id="activitiesTable">
                     <thead>
                         <tr>
-                            <th>Activity</th>
-                            <th>Category</th>
-                            <th>Date</th>
-                            <th>Action</th>
+                            <th scope="col">Activity</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Action</th>
                         </tr>
                     </thead>
                     <tbody id="activitiesTableBody">
@@ -90,7 +90,7 @@
     </main>
 </div>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

@@ -52,7 +52,6 @@ class FeeStructureAccountantController {
     controller.loadDropdowns();
     controller.loadFeeStructures();
     controller.initializeCharts();
-    console.log("FeeStructureAccountantController initialized");
   }
 
   /**
@@ -1478,7 +1477,6 @@ class FeeStructureAccountantController {
   }
 
   viewPaymentHistory() {
-    console.log("View payment history");
   }
 
   showDuplicateModal() {
@@ -1502,7 +1500,6 @@ class FeeStructureAccountantController {
   }
 
   exportReconciliation() {
-    console.log("Export reconciliation");
   }
 
   exportCsv(rows, filename) {
@@ -1562,11 +1559,9 @@ class FeeStructureAccountantController {
   }
 
   generateInvoices() {
-    console.log("Generate invoices");
   }
 
   sendReminders() {
-    console.log("Send payment reminders");
   }
 
   toggleSidebar() {

@@ -12,11 +12,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-tasks me-2"></i>Teacher Workload</h4>
+                    <h4 class="mb-1"><i class="bi bi-list-check me-2"></i>Teacher Workload</h4>
                     <p class="text-muted mb-0">View and balance teacher workload across subjects and classes</p>
                 </div>
                 <button class="btn btn-outline-primary" id="exportWorkload" data-permission-module="staff" data-permission-action="export">
-                    <i class="fas fa-download me-1"></i> Export Report
+                    <i class="bi bi-download me-1"></i> Export Report
                 </button>
             </div>
         </div>
@@ -95,13 +95,13 @@
                 <table class="table table-hover" id="workloadTable">
                     <thead>
                         <tr>
-                            <th>Teacher</th>
-                            <th>Department</th>
-                            <th>Subjects</th>
-                            <th>Classes</th>
-                            <th>Lessons/Week</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Department</th>
+                            <th scope="col">Subjects</th>
+                            <th scope="col">Classes</th>
+                            <th scope="col">Lessons/Week</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -111,4 +111,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/teacher_workload.js"></script>
+<script src="<?= $appBase ?>/js/pages/teacher_workload.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/teacher_workload.js") ?>"></script>

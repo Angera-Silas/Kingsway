@@ -116,4 +116,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/learning_goals.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/learning_goals.js"></script>

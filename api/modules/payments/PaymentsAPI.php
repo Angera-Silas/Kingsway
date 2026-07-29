@@ -791,7 +791,11 @@ class PaymentsAPI extends BaseAPI
                     $transDateTime = new \DateTime();
                 }
                 $transDateFormatted = $transDateTime->format('Y-m-d H:i:s');
-                $insertQuery = "INSERT INTO bank_transactions (transaction_ref, student_id, amount, transaction_date, bank_name, account_number, narration, status, webhook_data, created_at) VALUES (:transaction_ref, :student_id, :amount, :transaction_date, 'KCB Bank', :account_number, :narration, 'processed', :webhook_data, NOW())";
+                // NOTE: status is 'recorded' (not 'processed') because
+                // sp_process_student_payment already credited the balance.
+                // Using 'processed' would fire trg_bank_payment_processed
+                // and double-credit the student.
+                $insertQuery = "INSERT INTO bank_transactions (transaction_ref, student_id, amount, transaction_date, bank_name, account_number, narration, status, webhook_data, created_at) VALUES (:transaction_ref, :student_id, :amount, :transaction_date, 'KCB Bank', :account_number, :narration, 'recorded', :webhook_data, NOW())";
                 $insertStmt = $this->db->prepare($insertQuery);
                 $insertStmt->execute([
                     'transaction_ref' => $transactionReference,

@@ -15,6 +15,7 @@ const compCtrl = {
   // ── INIT ──────────────────────────────────────────────────────────────
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;

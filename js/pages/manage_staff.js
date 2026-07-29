@@ -3,7 +3,8 @@
  * Kept for backward compatibility with old includes.
  */
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  await window.AuthContext?.ready();
   if (!AuthContext.isAuthenticated()) {
     window.location.href = (window.APP_BASE || "") + "/index.php";
     return;

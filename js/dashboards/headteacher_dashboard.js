@@ -48,8 +48,20 @@ const headteacherDashboardController = {
     refreshInterval: 1800000, // 30 minutes
   },
 
-  init: function () {
+  init: async function () {
     console.log("🚀 Headteacher Dashboard initializing...");
+
+    // Ensure authentication is settled before making API calls.
+    // Without this guard the DOMContentLoaded handler can fire before the
+    // auth-state bootstrap promise has resolved, causing apiCall to see a
+    // null in-memory token and throw a premature "not authenticated" error.
+    if (window.AuthContext?.ready) {
+      try {
+        await AuthContext.ready();
+      } catch (_) {
+        // ready() can throw if bootstrap fails — continue with fallback.
+      }
+    }
 
     // Check API availability
     if (
@@ -687,7 +699,10 @@ const headteacherDashboardController = {
   },
 };
 
-// Auto-initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+if (window.__APP_BOOTED__) {
     headteacherDashboardController.init();
-});
+} else {
+    window.addEventListener('kingsway:ready', () => {
+        headteacherDashboardController.init();
+    }, { once: true });
+}

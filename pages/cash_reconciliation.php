@@ -73,8 +73,8 @@
               <table class="table table-hover table-sm align-middle mb-0">
                 <thead class="table-light">
                   <tr>
-                    <th>Time</th>
-                    <th>Description</th>
+                    <th scope="col">Time</th>
+                    <th scope="col">Description</th>
                     <th class="text-end">Amount (KES)</th>
                   </tr>
                 </thead>
@@ -98,62 +98,20 @@
               <table class="table table-sm align-middle mb-3">
                 <thead class="table-light">
                   <tr>
-                    <th>Denomination</th>
+                    <th scope="col">Denomination</th>
                     <th style="width:120px;">Count</th>
                     <th class="text-end">Subtotal (KES)</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr>
-                    <td>KES 1,000 notes</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom1000" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub1000">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 500 notes</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom500" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub500">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 200 notes</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom200" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub200">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 100 notes</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom100" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub100">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 50 coins</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom50" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub50">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 20 coins</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom20" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub20">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 10 coins</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom10" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub10">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 5 coins</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom5" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub5">0.00</td>
-                  </tr>
-                  <tr>
-                    <td>KES 1 coins</td>
-                    <td><input type="number" min="0" value="0" class="form-control form-control-sm" id="crDenom1" oninput="cashReconcController.computePhysicalTotal()"></td>
-                    <td class="text-end" id="crSub1">0.00</td>
-                  </tr>
+                <tbody id="denominationsBody">
+                  <!-- Populated dynamically by cash_reconciliation.js -->
+                </tbody>
+                <tfoot>
                   <tr class="table-success fw-bold">
                     <td colspan="2">Physical Total</td>
                     <td class="text-end" id="crPhysicalTotalRow">0.00</td>
                   </tr>
-                </tbody>
+                </tfoot>
               </table>
             </div>
 
@@ -183,12 +141,12 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Date</th>
+              <th scope="col">Date</th>
               <th class="text-end">System Total</th>
               <th class="text-end">Physical Count</th>
               <th class="text-end">Variance</th>
               <th class="text-center">Status</th>
-              <th>Submitted By</th>
+              <th scope="col">Submitted By</th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
@@ -222,4 +180,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/cash_reconciliation.js"></script>
+<script src="<?= $appBase ?>/js/pages/cash_reconciliation.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/cash_reconciliation.js") ?>"></script>

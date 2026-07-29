@@ -309,14 +309,14 @@
                 <thead>
                     <tr>
                         <th style="width:36px"><input type="checkbox" id="selectAll"></th>
-                        <th>Student</th>
-                        <th>Admission No</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>CBC Grade</th>
-                        <th>Overall %</th>
-                        <th>Position</th>
-                        <th>Status</th>
+                        <th scope="col">Student</th>
+                        <th scope="col">Admission No</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">CBC Grade</th>
+                        <th scope="col">Overall %</th>
+                        <th scope="col">Position</th>
+                        <th scope="col">Status</th>
                         <th style="width:120px">Actions</th>
                     </tr>
                 </thead>
@@ -345,4 +345,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/term_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/term_reports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/term_reports.js") ?>"></script>

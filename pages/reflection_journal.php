@@ -104,4 +104,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/reflection_journal.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/reflection_journal.js"></script>

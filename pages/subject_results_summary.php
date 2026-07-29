@@ -74,13 +74,13 @@
                             <table class="table table-hover" id="resultsTable">
                                 <thead>
                                     <tr>
-                                        <th>Student</th>
-                                        <th>Adm No</th>
-                                        <th>Class</th>
-                                        <th>Subject</th>
-                                        <th>Marks</th>
-                                        <th>Grade</th>
-                                        <th>Remarks</th>
+                                        <th scope="col">Student</th>
+                                        <th scope="col">Adm No</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Marks</th>
+                                        <th scope="col">Grade</th>
+                                        <th scope="col">Remarks</th>
                                     </tr>
                                 </thead>
                                 <tbody id="resultsTableBody">
@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_results_summary.js"></script>
+<script src="js/pages/subject_results_summary.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_results_summary.js") ?>"></script>

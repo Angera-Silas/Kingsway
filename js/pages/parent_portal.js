@@ -20,8 +20,8 @@
   // ============================================================
 
   function init() {
-    var stored  = localStorage.getItem('pp_token');
-    var expires = localStorage.getItem('pp_expires');
+    var stored  = sessionStorage.getItem('pp_token');
+    var expires = sessionStorage.getItem('pp_expires');
     if (stored && expires && new Date(expires) > new Date()) {
       state.token = stored;
       showView('dashboard');
@@ -390,8 +390,8 @@
 
   function storeAuth(token, expiresAt, parent) {
     state.token = token;
-    localStorage.setItem('pp_token',   token);
-    localStorage.setItem('pp_expires', expiresAt || '');
+    sessionStorage.setItem('pp_token',   token);
+    sessionStorage.setItem('pp_expires', expiresAt || '');
     if (parent) {
       var nameEl = document.getElementById('parentName');
       if (nameEl) nameEl.textContent = parent.first_name || 'Parent';
@@ -400,8 +400,8 @@
 
   function clearAuth() {
     state.token = null;
-    localStorage.removeItem('pp_token');
-    localStorage.removeItem('pp_expires');
+    sessionStorage.removeItem('pp_token');
+    sessionStorage.removeItem('pp_expires');
   }
 
   function setLoading(on) {

@@ -81,12 +81,12 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>#</th>
-                <th>Milestone</th>
-                <th>Category</th>
-                <th>Due Date</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th scope="col">#</th>
+                <th scope="col">Milestone</th>
+                <th scope="col">Category</th>
+                <th scope="col">Due Date</th>
+                <th scope="col">Status</th>
+                <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody id="dpTableBody"></tbody>
@@ -101,4 +101,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/development_progress.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/development_progress.js"></script>

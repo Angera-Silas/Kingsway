@@ -11,11 +11,28 @@ const libraryController = {
 
   // ── INIT ───────────────────────────────────────────────────────────
 
-  init: function () {
+  init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+
+    if (
+      typeof PageShell !== "undefined" &&
+      !PageShell.hasAny(["library_view", "library.manage", "library.view", "library_create"])
+    ) {
+      const container = document.querySelector(".container-fluid");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to access the library." +
+          "</div>";
+      }
+      return;
+    }
+
     const canManage = AuthContext.hasPermission('library.manage') ||
                       AuthContext.hasPermission('library.issue')  ||
                       AuthContext.hasPermission('library.create');

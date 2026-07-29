@@ -22,9 +22,7 @@
          */
         init: async function () {
             try {
-                console.log("Initializing MpesaSettlementsController...");
                 await this.loadData();
-                console.log("MpesaSettlementsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing MpesaSettlementsController:", error);
                 this.showNotification("Failed to load M-Pesa settlements", "error");

@@ -17,8 +17,8 @@ const TransportPassengersController = {
   ui: {},
 
   async init() {
-    console.log("TransportPassengersController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,13 +29,9 @@ const TransportPassengersController = {
 
     this.ui.dateFilter.value = this.state.selectedDate;
 
-    console.log("TransportPassengersController: Loading metadata...");
     await this.loadMeta();
-    console.log("TransportPassengersController: Loading summary...");
     await this.loadSummary();
-    console.log("TransportPassengersController: Loading passengers...");
     await this.loadPassengers();
-    console.log("TransportPassengersController: Initialization complete");
   },
 
   cacheDom() {

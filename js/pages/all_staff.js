@@ -47,7 +47,6 @@ const StaffController = (() => {
   // ── Init ─────────────────────────────────────────────
   async function init(options = {}) {
     view = options.view || "admin";
-    console.log(`StaffController initialized – view: ${view}`);
     bindEvents();
     await loadData();
   }

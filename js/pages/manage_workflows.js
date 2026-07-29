@@ -104,6 +104,7 @@
         statCardEls: [],   // first 4 h3 elements inside stat cards
 
         init: async function () {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;

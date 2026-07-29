@@ -555,20 +555,20 @@ if ($appBase === '.')
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
                             <tr>
-                                <th><input type="checkbox" id="headerCheckbox"></th>
-                                <th>Photo</th>
-                                <th>Adm No</th>
-                                <th>Student Name</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Gender</th>
-                                <th>ID Card No</th>
-                                <th>QR Status</th>
-                                <th>ID Status</th>
-                                <th>Issue Date</th>
-                                <th>Expiry Year</th>
-                                <th>Last Action</th>
-                                <th>Actions</th>
+                                <th scope="col"><input type="checkbox" id="headerCheckbox"></th>
+                                <th scope="col">Photo</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">ID Card No</th>
+                                <th scope="col">QR Status</th>
+                                <th scope="col">ID Status</th>
+                                <th scope="col">Issue Date</th>
+                                <th scope="col">Expiry Year</th>
+                                <th scope="col">Last Action</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="tableBody">
@@ -871,7 +871,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/student_id_cards.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/student_id_cards.js"
     onload="console.log('student_id_cards.js script tag loaded successfully')"
     onerror="console.error('FAILED to load student_id_cards.js. Check path:', this.src)">
 </script>

@@ -222,15 +222,15 @@
                 <thead>
                     <tr>
                         <th style="width:36px"><input type="checkbox" id="selectAll"></th>
-                        <th>Student Name</th>
-                        <th>Admission No</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>CBC Grade</th>
-                        <th>Overall %</th>
-                        <th>Rank</th>
-                        <th>Card Status</th>
-                        <th>Term</th>
+                        <th scope="col">Student Name</th>
+                        <th scope="col">Admission No</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">CBC Grade</th>
+                        <th scope="col">Overall %</th>
+                        <th scope="col">Rank</th>
+                        <th scope="col">Card Status</th>
+                        <th scope="col">Term</th>
                         <th style="width:130px">Actions</th>
                     </tr>
                 </thead>
@@ -296,4 +296,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/report_cards.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/report_cards.js"></script>

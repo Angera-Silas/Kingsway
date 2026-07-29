@@ -33,7 +33,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-chart-line me-2"></i>
+                        <i class="bi bi-graph-up me-2"></i>
                         Student Performance Overview
                     </h4>
                     <small>Analyze performance by student, class, stream, term, month, or whole school.</small>
@@ -110,7 +110,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search Student</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="studentSearch"
                                placeholder="Search by name, admission number, student ID, or UPI">
@@ -119,13 +119,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-6 d-flex align-items-end">
                     <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-6 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -137,7 +137,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Students</small>
@@ -153,7 +153,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-percentage"></i>
+                                    <i class="bi bi-percent"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Average Score</small>
@@ -169,7 +169,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-trophy"></i>
+                                    <i class="bi bi-trophy"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Top Performer</small>
@@ -185,7 +185,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-school"></i>
+                                    <i class="bi bi-building"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Best Class / Stream</small>
@@ -199,20 +199,20 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="overviewLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading performance records...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading performance records...
             </div>
 
             <div id="overviewError" class="alert alert-danger d-none"></div>
 
             <div id="overviewEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No performance records found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No performance records found for the selected filters.
             </div>
 
             <!-- Overview Table -->
             <div class="card border-0 shadow-sm" id="overviewCard">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <strong>
-                        <i class="fas fa-list me-2 text-success"></i>
+                        <i class="bi bi-list-ul me-2 text-success"></i>
                         Performance Records
                     </strong>
                     <span class="badge bg-success" id="viewModeBadge">Students View</span>
@@ -242,7 +242,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-success text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-user-graduate me-2"></i>
+                        <i class="bi bi-mortarboard me-2"></i>
                         Individual Student Performance Report
                     </h5>
                     <small id="modalStudentSubtitle">Student full school profile</small>
@@ -275,7 +275,7 @@ if (!isset($appBase)) {
 
                             <div class="col-md-12 text-end">
                                 <button class="btn btn-success" id="reloadStudentReportBtn">
-                                    <i class="fas fa-sync-alt me-1"></i> Reload Report
+                                    <i class="bi bi-arrow-clockwise me-1"></i> Reload Report
                                 </button>
                             </div>
                         </div>
@@ -283,7 +283,7 @@ if (!isset($appBase)) {
                 </div>
 
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading student report...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading student report...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>
@@ -441,13 +441,13 @@ if (!isset($appBase)) {
                                 <table class="table table-bordered table-hover">
                                     <thead class="table-light">
                                     <tr>
-                                        <th>Subject</th>
-                                        <th>Score</th>
-                                        <th>Grade</th>
-                                        <th>Class Average</th>
-                                        <th>Position</th>
-                                        <th>Teacher</th>
-                                        <th>Remarks</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Score</th>
+                                        <th scope="col">Grade</th>
+                                        <th scope="col">Class Average</th>
+                                        <th scope="col">Position</th>
+                                        <th scope="col">Teacher</th>
+                                        <th scope="col">Remarks</th>
                                     </tr>
                                     </thead>
                                     <tbody id="subjectsTableBody"></tbody>

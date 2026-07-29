@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-dark">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-bullhorn"></i> Announcements Management</h4>
+            <h4 class="mb-0"><i class="bi bi-megaphone"></i> Announcements Management</h4>
             <div class="btn-group">
                 <button class="btn btn-dark btn-sm" id="createAnnouncementBtn" data-permission="announcements_create">
                     <i class="bi bi-plus-circle"></i> New Announcement

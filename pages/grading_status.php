@@ -183,14 +183,14 @@
         <table class="table table-hover table-academic" id="gradingStatusTable">
             <thead>
                 <tr>
-                    <th>Subject</th>
-                    <th>Teacher</th>
-                    <th>Class</th>
-                    <th>Total Students</th>
-                    <th>Graded</th>
-                    <th>Pending</th>
-                    <th>Completion</th>
-                    <th>Status</th>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Teacher</th>
+                    <th scope="col">Class</th>
+                    <th scope="col">Total Students</th>
+                    <th scope="col">Graded</th>
+                    <th scope="col">Pending</th>
+                    <th scope="col">Completion</th>
+                    <th scope="col">Status</th>
                 </tr>
             </thead>
             <tbody>
@@ -224,4 +224,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/grading_status.js"></script>
+<script src="<?= $appBase ?>/js/pages/grading_status.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/grading_status.js") ?>"></script>

@@ -52,7 +52,7 @@
             </div>
             <div class="col-md-4 text-end">
                 <button class="btn btn-primary" onclick="showAddRouteModal()">
-                    <i class="fas fa-plus me-1"></i> Add Route
+                    <i class="bi bi-plus-lg me-1"></i> Add Route
                 </button>
             </div>
         </div>
@@ -62,7 +62,7 @@
 <!-- Routes Table -->
 <div class="card shadow-sm">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <h6 class="mb-0"><i class="fas fa-route me-2"></i>Transport Routes</h6>
+        <h6 class="mb-0"><i class="bi bi-signpost me-2"></i>Transport Routes</h6>
         <span class="text-muted small">Showing <span id="showingCount">0</span> routes</span>
     </div>
     <div class="card-body p-0">
@@ -70,12 +70,12 @@
             <table class="table table-hover mb-0" id="routesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Route</th>
-                        <th>Vehicle</th>
-                        <th>Driver</th>
-                        <th>Students</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Route</th>
+                        <th scope="col">Vehicle</th>
+                        <th scope="col">Driver</th>
+                        <th scope="col">Students</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="routesTableBody">
@@ -181,8 +181,8 @@
                 <td>${r.student_count || 0}</td>
                 <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${esc(status)}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="viewRoute(${r.id})"><i class="fas fa-eye"></i></button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="editRoute(${r.id})"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="viewRoute(${r.id})"><i class="bi bi-eye"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editRoute(${r.id})"><i class="bi bi-pencil"></i></button>
                 </td>
             </tr>`;
         }).join('');

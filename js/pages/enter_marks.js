@@ -426,6 +426,7 @@ const enterMarksCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -434,7 +435,6 @@ const enterMarksCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in enter_marks:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

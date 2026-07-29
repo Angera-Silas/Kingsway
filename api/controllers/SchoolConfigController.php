@@ -58,6 +58,12 @@ class SchoolConfigController extends BaseController
     // POST /api/school-config/logs/clear
     public function postLogsClear($id = null, $data = [], $segments = [])
     {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasRole('System Administrator') && !$this->userHasPermission('*')) {
+            return $this->forbidden('System Administrator access required');
+        }
         $result = $this->systemApi->clearLogs();
         return $this->handleResponse($result);
     }
@@ -65,6 +71,12 @@ class SchoolConfigController extends BaseController
     // POST /api/school-config/logs/archive
     public function postLogsArchive($id = null, $data = [], $segments = [])
     {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasRole('System Administrator') && !$this->userHasPermission('*')) {
+            return $this->forbidden('System Administrator access required');
+        }
         $result = $this->systemApi->archiveLogs();
         return $this->handleResponse($result);
     }

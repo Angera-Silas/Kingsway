@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="js/pages/create_subject_cat.js"></script>
+<script src="js/pages/create_subject_cat.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/create_subject_cat.js") ?>"></script>

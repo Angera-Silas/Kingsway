@@ -145,8 +145,8 @@
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th><th>Student</th><th>Item</th><th>Size</th>
-                                <th>Qty</th><th>Amount</th><th>Status</th><th>Actions</th>
+                                <th scope="col">Date</th><th scope="col">Student</th><th scope="col">Item</th><th scope="col">Size</th>
+                                <th scope="col">Qty</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="salesTableBody">
@@ -174,7 +174,7 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
-                            <tr><th>Item</th><th>Size</th><th>Available</th><th>Sold</th><th>Unit Price</th><th>Status</th><th>Action</th></tr>
+                            <tr><th scope="col">Item</th><th scope="col">Size</th><th scope="col">Available</th><th scope="col">Sold</th><th scope="col">Unit Price</th><th scope="col">Status</th><th scope="col">Action</th></tr>
                         </thead>
                         <tbody id="lowStockTableBody">
                             <tr><td colspan="7" class="text-center py-4">Loading...</td></tr>
@@ -386,4 +386,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/uniform_sales.js"></script>
+<script src="<?= $appBase ?>/js/pages/uniform_sales.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/uniform_sales.js") ?>"></script>

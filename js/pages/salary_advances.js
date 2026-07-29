@@ -9,6 +9,7 @@ const salaryAdvancesController = {
   _canApprove: false, _canCreate: false,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) return;
     this._canCreate  = AuthContext.hasPermission('finance.create') || AuthContext.hasPermission('payroll.create');
     this._canApprove = AuthContext.hasPermission('finance.approve') || AuthContext.hasPermission('payroll.approve');

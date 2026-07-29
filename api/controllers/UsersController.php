@@ -661,6 +661,6 @@ class UsersController extends BaseController
      */
     private function getCurrentUserId()
     {
-        return $this->user['id'] ?? null;
+        return $this->user['user_id'] ?? $this->user['id'] ?? null;
     }
 }

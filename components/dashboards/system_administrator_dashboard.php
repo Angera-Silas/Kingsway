@@ -10,7 +10,7 @@
   <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
     <div>
       <h2 class="h3 mb-1" id="systemAdministratorDashboardTitle">
-        <i class="fas fa-shield-alt me-2" aria-hidden="true"></i>
+        <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>
         System Administrator Dashboard
       </h2>
       <p class="text-muted mb-0">
@@ -24,7 +24,7 @@
         id="refreshSystemAdministratorDashboardBtn"
         type="button"
       >
-        <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>
+        <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>
         Refresh
       </button>
       <small class="text-muted" id="systemAdministratorGeneratedAt"></small>

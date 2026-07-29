@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-utensils me-2"></i>
+                        <i class="bi bi-cup-hot me-2"></i>
                         Boarding Meal Planning
                     </h4>
                     <small id="scopeSubtitle">Daily boarding student meal counts, special diets, food quantities, and catering planning</small>
@@ -126,7 +126,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, or UPI">
@@ -135,13 +135,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-warning w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -153,7 +153,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-bed"></i>
+                                    <i class="bi bi-hospital"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Boarders</small>
@@ -169,7 +169,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-sun"></i>
+                                    <i class="bi bi-sun"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Breakfast</small>
@@ -185,7 +185,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-cloud-sun"></i>
+                                    <i class="bi bi-cloud-sun"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Lunch</small>
@@ -201,7 +201,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-moon"></i>
+                                    <i class="bi bi-moon"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Supper</small>
@@ -217,7 +217,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-utensils"></i>
+                                    <i class="bi bi-cup-hot"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Special Diet</small>
@@ -233,7 +233,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-user-clock"></i>
+                                    <i class="bi bi-person-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Absent/Leave</small>
@@ -249,7 +249,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-procedures"></i>
+                                    <i class="bi bi-hospital"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Sick Bay</small>
@@ -265,7 +265,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-box-open"></i>
+                                    <i class="bi bi-box-seam"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Store Items</small>
@@ -279,24 +279,24 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="studentsLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading boarding students...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading boarding students...
             </div>
 
             <div id="studentsError" class="alert alert-danger d-none"></div>
 
             <div id="studentsForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-exclamation-triangle me-2"></i> You do not have permission to access catering/boarding data.
+                <i class="bi bi-exclamation-triangle me-2"></i> You do not have permission to access catering/boarding data.
             </div>
 
             <div id="studentsEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No boarding students found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No boarding students found for the selected filters.
             </div>
 
             <!-- Breakdown Section -->
             <div class="card border-0 shadow-sm mb-4" id="breakdownCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-chart-pie me-2 text-warning"></i>
+                        <i class="bi bi-pie-chart me-2 text-warning"></i>
                         Meal Count Breakdown
                     </strong>
                 </div>
@@ -322,7 +322,7 @@ if (!isset($appBase)) {
             <div class="card border-0 shadow-sm" id="studentsCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-warning"></i>
+                        <i class="bi bi-list-ul me-2 text-warning"></i>
                         Boarding Meal Students
                     </strong>
                 </div>
@@ -331,20 +331,20 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Adm No</th>
-                                <th>Student Name</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Gender</th>
-                                <th>Dormitory</th>
-                                <th>Boarding Status</th>
-                                <th>Breakfast</th>
-                                <th>Lunch</th>
-                                <th>Supper</th>
-                                <th>Diet Type</th>
-                                <th>Restriction</th>
-                                <th>Today's Status</th>
-                                <th>Actions</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Dormitory</th>
+                                <th scope="col">Boarding Status</th>
+                                <th scope="col">Breakfast</th>
+                                <th scope="col">Lunch</th>
+                                <th scope="col">Supper</th>
+                                <th scope="col">Diet Type</th>
+                                <th scope="col">Restriction</th>
+                                <th scope="col">Today's Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="studentsTableBody">
@@ -368,7 +368,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-warning text-dark">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-utensils me-2"></i>
+                        <i class="bi bi-cup-hot me-2"></i>
                         Meal Profile
                     </h5>
                     <small id="modalSubtitle">Student meal planning details</small>
@@ -378,7 +378,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading meal profile...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading meal profile...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>
@@ -409,7 +409,7 @@ if (!isset($appBase)) {
 
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title mb-0">
-                    <i class="fas fa-calendar-check me-2"></i>
+                    <i class="bi bi-calendar-check me-2"></i>
                     Plan Today's Meals
                 </h5>
                 <button type="button" class="btn-close btn-close-dark" data-bs-dismiss="modal"></button>
@@ -470,13 +470,13 @@ if (!isset($appBase)) {
 <div class="card border-0 shadow-sm mb-4" id="foodStoreCard">
     <div class="card-header bg-white">
         <strong>
-            <i class="fas fa-box-open me-2 text-warning"></i>
+            <i class="bi bi-box-seam me-2 text-warning"></i>
             Food Store Requisition
         </strong>
     </div>
     <div class="card-body">
         <div id="foodStoreLoading" class="alert alert-info d-none">
-            <i class="fas fa-spinner fa-spin me-2"></i> Loading food store data...
+            <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading food store data...
         </div>
         <div id="foodStoreContent">
             <p class="text-muted">Select date and meal to view requisition requirements.</p>

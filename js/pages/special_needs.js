@@ -17,8 +17,8 @@ const SpecialNeedsController = {
   ui: {},
 
   async init() {
-    console.log("SpecialNeedsController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -36,11 +36,8 @@ const SpecialNeedsController = {
       this.updateForBoardingRole();
     }
 
-    console.log("SpecialNeedsController: Loading metadata...");
     await this.loadMeta();
-    console.log("SpecialNeedsController: Loading IEPs...");
     await this.loadIEPs();
-    console.log("SpecialNeedsController: Initialization complete");
   },
 
   cacheDom() {
@@ -152,21 +149,14 @@ const SpecialNeedsController = {
 
   async loadMeta() {
     try {
-      console.log("SpecialNeedsController: Fetching special needs metadata...");
       const response = await this.api("/students/special-needs-meta", "GET");
-      console.log("SpecialNeedsController: Metadata response:", response);
       const data = this.unwrap(response);
-      console.log("SpecialNeedsController: Unwrapped metadata:", data);
 
       this.state.classes = data.classes || [];
       this.state.streams = data.streams || [];
       this.state.academicYears = data.academic_years || [];
       this.state.dormitories = data.dormitories || [];
 
-      console.log("SpecialNeedsController: Loaded classes:", this.state.classes.length);
-      console.log("SpecialNeedsController: Loaded streams:", this.state.streams.length);
-      console.log("SpecialNeedsController: Loaded academic years:", this.state.academicYears.length);
-      console.log("SpecialNeedsController: Loaded dormitories:", this.state.dormitories.length);
 
       this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
       this.fillSelect(this.ui.classFilter, this.state.classes, "All Classes");
@@ -196,11 +186,8 @@ const SpecialNeedsController = {
 
     try {
       const params = this.getIepParams();
-      console.log("SpecialNeedsController: Loading IEPs with params:", params.toString());
       const response = await this.api(`/students/special-needs-ieps?${params.toString()}`, "GET");
-      console.log("SpecialNeedsController: IEPs response:", response);
       const ieps = this.unwrap(response) || [];
-      console.log("SpecialNeedsController: Unwrapped IEPs:", ieps.length);
 
       this.state.ieps = ieps;
       this.renderIEPs();
