@@ -29,7 +29,8 @@ class AlertsController extends BaseController
 
             return $this->success(['alerts' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch alerts: ' . $e->getMessage());
+            error_log('[AlertsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

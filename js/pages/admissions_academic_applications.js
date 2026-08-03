@@ -415,14 +415,10 @@ const academicApplicationsController = {
             ...placementData
         })
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Class placement recorded successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('classPlacementModal')).hide();
-                    document.getElementById('classPlacementForm').reset();
-                    this.loadApplications();
-                } else {
-                    showNotification('error', response.message || 'Failed to record placement');
-                }
+                showNotification('success', 'Class placement recorded successfully');
+                bootstrap.Modal.getInstance(document.getElementById('classPlacementModal')).hide();
+                document.getElementById('classPlacementForm').reset();
+                this.loadApplications();
             })
             .catch(error => {
                 console.error('Failed to submit placement:', error);

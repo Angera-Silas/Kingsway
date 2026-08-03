@@ -128,7 +128,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to fetch parents: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -170,7 +170,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to search family groups: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -212,7 +212,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get parent details: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -239,7 +239,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get parent children: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -301,7 +301,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to create parent: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -364,7 +364,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to update parent: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -416,7 +416,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to link parent to student: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -455,7 +455,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to unlink parent from student: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -495,7 +495,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get students without parents: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -541,7 +541,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get available students: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -604,7 +604,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get statistics: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -656,7 +656,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to get family groups view: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -685,7 +685,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to load family groups metadata: ' . $e->getMessage(),
+                'message' => 'An internal error occurred.',
             ];
         }
     }
@@ -735,7 +735,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to load family groups: ' . $e->getMessage(),
+                'message' => 'An internal error occurred.',
             ];
         }
     }
@@ -787,7 +787,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to load linked children: ' . $e->getMessage(),
+                'message' => 'An internal error occurred.',
             ];
         }
     }
@@ -819,7 +819,7 @@ class FamilyGroupsManager
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to delete parent: ' . $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }

@@ -107,11 +107,11 @@ const DetailedPayslipController = {
         year
       );
 
-      if (response?.success) {
-        this.data.currentPayslip = response.data;
-        this.renderPayslip(response.data);
+      if (response) {
+        this.data.currentPayslip = response;
+        this.renderPayslip(response);
       } else {
-        this.showError(response?.message || "Failed to generate payslip");
+        this.showError("Failed to generate payslip");
         this.showEmptyState();
       }
     } catch (error) {

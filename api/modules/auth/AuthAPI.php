@@ -1723,20 +1723,10 @@ class AuthAPI extends BaseAPI
      */
     private function generateCsrfToken(int $userId): string
     {
-        $tokenData = [
-            'user_id' => $userId,
-            'timestamp' => time(),
-            'random' => bin2hex(random_bytes(16)),
-        ];
-        $tokenData['signature'] = hash_hmac(
-            'sha256',
-            json_encode([
-                'user_id'   => $tokenData['user_id'],
-                'timestamp' => $tokenData['timestamp'],
-                'random'    => $tokenData['random'],
-            ]),
-            JWT_SECRET
-        );
-        return base64_encode(json_encode($tokenData));
+        $timestamp = time();
+        $random = bin2hex(random_bytes(16));
+        $plaintext = $userId . ':' . $timestamp . ':' . $random;
+        $signature = hash_hmac('sha256', $plaintext, JWT_SECRET);
+        return base64_encode($plaintext . ':' . $signature);
     }
 }

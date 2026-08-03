@@ -73,18 +73,15 @@ const MySchemesOfWorkController = {
 
   async loadAcademicYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        const years = res.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -112,15 +109,9 @@ const MySchemesOfWorkController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/my-schemes', 'GET', params);
-      
-      if (res?.success) {
-        this.state.schemes = res.data || [];
-        this.renderSchemesTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load schemes of work', 'error');
-      }
+      this.state.schemes = await window.API.apiCall('/academic/my-schemes', 'GET', params) || [];
+      this.renderSchemesTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading schemes of work:', error);
       this.showNotification('Failed to load schemes of work', 'error');
@@ -215,13 +206,9 @@ const MySchemesOfWorkController = {
     if (!confirm('Submit this scheme for approval?')) return;
     
     try {
-      const res = await window.API.apiCall('/academic/schemes-of-work/' + id, 'PUT', { status: 'pending' });
-      if (res?.success) {
-        this.showNotification('Scheme submitted for approval', 'success');
-        await this.loadSchemes();
-      } else {
-        this.showNotification('Failed to submit scheme', 'error');
-      }
+      await window.API.apiCall('/academic/schemes-of-work/' + id, 'PUT', { status: 'pending' });
+      this.showNotification('Scheme submitted for approval', 'success');
+      await this.loadSchemes();
     } catch (error) {
       console.error('Error submitting scheme:', error);
       this.showNotification('Failed to submit scheme', 'error');

@@ -62,7 +62,7 @@ const ChapelServicesController = {
           .getCustom({ action: "chapel-services" })
           .catch(() => null));
 
-      this.state.allServices = res?.success ? res.data || [] : [];
+      this.state.allServices = res || [];
       this.state.services = [...this.state.allServices];
       this.updateStats();
       this.renderTable();

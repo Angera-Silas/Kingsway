@@ -26,10 +26,8 @@ const KingswayBootstrap = (() => {
       }, true);
 
       if (!window.AuthContext?.isAuthenticated?.()) {
-        if (localStorage.getItem('dev_bypass_auth') !== 'true') {
-          location.replace(`${window.APP_BASE || ''}/index.php`);
-          return { redirected: true };
-        }
+        location.replace(`${window.APP_BASE || ''}/index.php`);
+        return { redirected: true };
       }
 
       await safe('session', () => window.SessionManager?.initialize?.());

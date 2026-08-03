@@ -40,12 +40,8 @@ const AllClassesController = {
         window.API.academic.listStreams(),
       ]);
 
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-      }
-      if (streamsRes?.success) {
-        this.state.streams = streamsRes.data || [];
-      }
+      this.state.classes = classesRes || [];
+      this.state.streams = streamsRes || [];
 
       this.updateStats();
       this.renderClassesGrid();
@@ -181,10 +177,8 @@ const AllClassesController = {
 
   async viewClass(classId) {
     try {
-      const res = await window.API.academic.getClass(classId);
-      if (res?.success && res.data) {
-        const cls = res.data;
-        const content = `
+      const cls = await window.API.academic.getClass(classId);
+      const content = `
                     <div class="row">
                         <div class="col-md-6">
                             <p><strong>Class Name:</strong> ${this.escapeHtml(cls.name || "")}</p>
@@ -197,8 +191,7 @@ const AllClassesController = {
                             <p><strong>Streams:</strong> ${cls.stream_count || 0}</p>
                         </div>
                     </div>`;
-        this.showModal("Class Details - " + (cls.name || ""), content);
-      }
+      this.showModal("Class Details - " + (cls.name || ""), content);
     } catch (error) {
       console.error("Error viewing class:", error);
       this.showError("Failed to load class details");

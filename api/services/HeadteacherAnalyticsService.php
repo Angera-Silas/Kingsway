@@ -51,8 +51,8 @@ class HeadteacherAnalyticsService
 
     public function getSchedules()
     {
-        // Uses class_schedules table - count today's sessions based on day_of_week
-        $today = date('l'); // Get today's day name (Monday, Tuesday, etc.)
+        // Count today's timetable sessions based on day_of_week (1=Mon..7=Sun)
+        $today = date('N');
         $currentTime = date('H:i:s');
 
         $stmt = $this->db->query("SELECT 
@@ -60,8 +60,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN start_time <= ? AND end_time >= ? THEN 1 ELSE 0 END) as in_progress,
             SUM(CASE WHEN end_time < ? THEN 1 ELSE 0 END) as completed,
             SUM(CASE WHEN start_time > ? THEN 1 ELSE 0 END) as upcoming
-            FROM class_schedules 
-            WHERE day_of_week = ? AND status = 'active'",
+            FROM vw_timetable_entries 
+            WHERE day_of_week = ? AND status = 'scheduled'",
             [$currentTime, $currentTime, $currentTime, $currentTime, $today]
         );
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -70,8 +70,20 @@ class HeadteacherAnalyticsService
             'in_progress' => (int) ($row['in_progress'] ?? 0),
             'completed' => (int) ($row['completed'] ?? 0),
             'upcoming' => (int) ($row['upcoming'] ?? 0),
+            'total' => (int) ($row['total_sessions'] ?? 0),
+            'unassigned' => $this->countUnassignedLessons(),
             'card_type' => 'schedules'
         ];
+    }
+
+    private function countUnassignedLessons(): int
+    {
+        try {
+            $stmt = $this->db->query("SELECT COUNT(*) FROM vw_timetable_entries WHERE status = 'scheduled' AND (teacher_id IS NULL OR teacher_id = 0)");
+            return (int) $stmt->fetchColumn();
+        } catch (Exception $e) {
+            return 0;
+        }
     }
 
     public function getAdmissionsStats()

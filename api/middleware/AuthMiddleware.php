@@ -193,6 +193,13 @@ class AuthMiddleware
                 new Key(JWT_SECRET, 'HS256')
             );
 
+            if (!isset($decoded->iss) || $decoded->iss !== JWT_ISSUER) {
+                self::deny(401, 'Invalid token issuer');
+            }
+            if (!isset($decoded->aud) || $decoded->aud !== JWT_AUDIENCE) {
+                self::deny(401, 'Invalid token audience');
+            }
+
             $authUser = self::normalizeDecodedUser((array) $decoded);
             $userId = (int) (
                 $authUser['user_id'] ?? $authUser['id'] ?? 0

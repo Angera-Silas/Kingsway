@@ -462,14 +462,10 @@ const admissionDecisionsController = {
                 assigned_class_id: decisionData.recommended_class
             })
                 .then(response => {
-                    if (response.success) {
-                        showNotification('success', 'Admission decision recorded successfully');
-                        bootstrap.Modal.getInstance(document.getElementById('makeDecisionModal')).hide();
-                        document.getElementById('makeDecisionForm').reset();
-                        this.loadApplications();
-                    } else {
-                        showNotification('error', response.message || 'Failed to record decision');
-                    }
+                    showNotification('success', 'Admission decision recorded successfully');
+                    bootstrap.Modal.getInstance(document.getElementById('makeDecisionModal')).hide();
+                    document.getElementById('makeDecisionForm').reset();
+                    this.loadApplications();
                 })
                 .catch(error => {
                     console.error('Failed to submit decision:', error);

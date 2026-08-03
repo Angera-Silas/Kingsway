@@ -54,7 +54,7 @@ const FoodStoreController = {
           .getCustom({ action: "food-store" })
           .catch(() => null));
 
-      this.state.allItems = res?.success ? res.data || [] : [];
+      this.state.allItems = res || [];
       this.state.items = [...this.state.allItems];
       this.updateStats();
       this.renderTable();

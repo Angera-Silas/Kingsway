@@ -1693,13 +1693,9 @@ const staffManagementController = {
     if (!confirm(`Generate payslip for ${this.getMonthName(month)} ${year}?`)) return;
 
     try {
-      const response = await window.API.staff.generateDetailedPayslip(staffId, month, year);
-      if (response?.success || response?.data) {
-        showNotification("Payslip generated successfully", "success");
-        this.viewPayslip(staffId, month, year);
-      } else {
-        showNotification(response?.message || "Failed to generate payslip", "error");
-      }
+      await window.API.staff.generateDetailedPayslip(staffId, month, year);
+      showNotification("Payslip generated successfully", "success");
+      this.viewPayslip(staffId, month, year);
     } catch (error) {
       console.error("Error generating payslip:", error);
       showNotification("Failed to generate payslip: " + (error.message || "Unknown error"), "error");

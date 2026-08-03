@@ -44,6 +44,8 @@ const StudentPerformanceController = {
       console.warn("StudentPerformanceController: AuthContext not available");
     }
 
+    await GradingScale.preload();
+
     this.cacheDom();
     this.attachEvents();
 
@@ -843,6 +845,14 @@ const StudentPerformanceController = {
 
   groupBySubject: function (records) {
     return records || [];
+  },
+
+  gradeFromScore: function (score) {
+    return GradingScale.grade(score) || "-";
+  },
+
+  remarkFromScore: function (score) {
+    return GradingScale.remarks(score) || "";
   },
 
   buildTrendData: function (records) {

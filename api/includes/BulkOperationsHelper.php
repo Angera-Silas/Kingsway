@@ -62,7 +62,7 @@ class BulkOperationsHelper
         } catch (Exception $e) {
             return [
                 'status' => 'error',
-                'message' => $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }

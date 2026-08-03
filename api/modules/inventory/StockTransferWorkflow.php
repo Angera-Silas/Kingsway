@@ -656,7 +656,8 @@ class StockTransferWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            error_log('[StockTransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

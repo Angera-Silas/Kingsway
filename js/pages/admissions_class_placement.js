@@ -54,36 +54,6 @@ const classPlacementController = {
         throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
     },
 
-    isSuccessfulResponse: function(response) {
-        // Accept responses with success === true OR responses with data
-        return (response && response.success === true) || (response && (response.data || response.classes || response.queues));
-    },
-
-    unwrapPayload: function(response) {
-        // Handle both response.data and direct response objects
-        if (response && response.data) {
-            return response.data;
-        }
-        return response || {};
-    },
-
-    extractList: function(response) {
-        const payload = this.unwrapPayload(response);
-        if (Array.isArray(payload)) {
-            return payload;
-        }
-        if (payload.data && Array.isArray(payload.data)) {
-            return payload.data;
-        }
-        if (payload.items && Array.isArray(payload.items)) {
-            return payload.items;
-        }
-        if (payload.list && Array.isArray(payload.list)) {
-            return payload.list;
-        }
-        return [];
-    },
-
     notify: function(type, message) {
         if (typeof window.showNotification === "function") {
             window.showNotification(type, message);
@@ -133,15 +103,8 @@ const classPlacementController = {
     
     loadClasses: async function() {
         try {
-            const response = await this.apiCall('/admission/placement-classes', 'GET');
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load classes.");
-            }
-
-            const payload = this.unwrapPayload(response);
-            // Handle both response.data.classes and response.classes
-            this.classes = payload?.classes || response?.classes || [];
+            const result = await this.apiCall('/admission/placement-classes', 'GET');
+            this.classes = result?.classes || [];
 
             this.renderClassesGrid();
             this.renderCapacityGrid();
@@ -154,15 +117,9 @@ const classPlacementController = {
     
     loadPlacements: async function() {
         try {
-            const response = await this.apiCall('/admission/queues', 'GET');
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load placements.");
-            }
-
-            const payload = this.unwrapPayload(response);
+            const result = await this.apiCall('/admission/queues', 'GET');
+            const queues = result?.queues || {};
             const placementApplications = [];
-            const queues = payload?.queues || response?.queues || {};
 
             // Get applications from placement and payment queues
             if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
@@ -426,18 +383,18 @@ const classPlacementController = {
         if (this._projectionOptionsLoaded) return;
         try {
             const years = await this.apiCall("/academic/years/list", "GET");
-            if (years && years.success) {
+            if (years) {
                 this.dom.projectionYear.innerHTML =
                     '<option value="">Select Year</option>' +
-                    (years.data || []).map(y =>
+                    (Array.isArray(years) ? years : years.data || []).map(y =>
                         `<option value="${y.id}">${this.escapeHtml(y.year_name || y.year_code || y.id)}</option>`
                     ).join("");
             }
             const classes = await this.apiCall("/academic/classes-list", "GET");
-            if (classes && classes.success) {
+            if (classes) {
                 this.dom.projectionClass.innerHTML =
                     '<option value="">Select Class</option>' +
-                    (classes.data || []).map(c =>
+                    (Array.isArray(classes) ? classes : classes.data || []).map(c =>
                         `<option value="${c.id}">${this.escapeHtml(c.name || c.id)}</option>`
                     ).join("");
             }
@@ -457,8 +414,8 @@ const classPlacementController = {
                 `/academic/streams-list?class_id=${classId}`,
                 "GET"
             );
-            if (res && res.success) {
-                (res.data || []).forEach(s => {
+            if (res) {
+                (Array.isArray(res) ? res : res.data || []).forEach(s => {
                     this.dom.projectionStream.insertAdjacentHTML(
                         "beforeend",
                         `<option value="${s.id}">${this.escapeHtml(s.stream_name || s.name || s.id)}</option>`
@@ -494,11 +451,11 @@ const classPlacementController = {
 
         try {
             const res = await this.apiCall("/academic/cohort-capacity", "GET", null, params);
-            if (!res || !res.success) {
-                this.renderProjectionError(res && res.message ? res.message : "Projection failed.");
+            if (!res) {
+                this.renderProjectionError("Projection failed.");
                 return;
             }
-            this.renderProjection(res.data || res);
+            this.renderProjection(res);
         } catch (err) {
             this.renderProjectionError(err.message || "Projection request failed.");
         } finally {
@@ -623,14 +580,10 @@ const classPlacementController = {
             ...placementData
         })
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Placement updated successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('editPlacementModal')).hide();
-                    document.getElementById('editPlacementForm').reset();
-                    this.loadPlacements();
-                } else {
-                    showNotification('error', response.message || 'Failed to update placement');
-                }
+                showNotification('success', 'Placement updated successfully');
+                bootstrap.Modal.getInstance(document.getElementById('editPlacementModal')).hide();
+                document.getElementById('editPlacementForm').reset();
+                this.loadPlacements();
             })
             .catch(error => {
                 console.error('Failed to update placement:', error);

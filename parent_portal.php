@@ -186,6 +186,11 @@ if ($appBase === '.') $appBase = '';
         <li class="nav-item"><button class="nav-link active" data-tab="fees">Fee History</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="payments">Payments</button></li>
         <li class="nav-item"><button class="nav-link" data-tab="statement">Statement</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="attendance">Attendance</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="performance">Performance</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="report-card">Report Card</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="messages">Messages</button></li>
+        <li class="nav-item"><button class="nav-link" data-tab="portfolio">Portfolio</button></li>
       </ul>
     </div>
     <div class="card-body" id="studentDetailContent">
@@ -194,7 +199,46 @@ if ($appBase === '.') $appBase = '';
   </div>
 </div>
 
+<!-- M-Pesa Payment Modal -->
+<div class="modal fade" id="mpesaPaymentModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow rounded-4">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title"><i class="bi bi-phone me-2"></i>M-Pesa Payment</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div id="mpesaPaymentForm">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Amount (KES)</label>
+            <input type="number" id="mpesaAmount" class="form-control" min="1" step="any">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">M-Pesa Phone Number</label>
+            <input type="tel" id="mpesaPhone" class="form-control" placeholder="2547XXXXXXXX">
+            <div class="form-text">Enter the phone number registered with M-Pesa</div>
+          </div>
+          <div id="mpesaError" class="alert alert-danger d-none"></div>
+          <button class="btn btn-success w-100 py-2 fw-semibold" id="btnMpesaPay">
+            <span class="spinner-border spinner-border-sm me-2 d-none" id="mpesaSpinner"></span>
+            <i class="bi bi-send me-2"></i>Pay with M-Pesa
+          </button>
+        </div>
+        <div id="mpesaWaiting" class="text-center py-4" style="display:none">
+          <div class="spinner-border text-success mb-3" style="width:3rem;height:3rem"></div>
+          <h6>STK Push Sent!</h6>
+          <p class="text-muted small">Please check your phone and enter your M-Pesa PIN to complete the payment.</p>
+          <div id="mpesaPollingStatus" class="text-muted small">Waiting for confirmation...</div>
+          <button class="btn btn-outline-secondary btn-sm mt-3" id="btnMpesaDone"><i class="bi bi-check-lg me-1"></i>I've Completed the Payment</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script src="<?= $appBase ?>/js/pages/parent_portal.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/parent_portal.js") ?>"></script>
+<script src="<?= $appBase ?>/js/api.js?v=<?= filemtime(__DIR__ . "/js/api.js") ?>"></script>
+<script src="<?= $appBase ?>/js/core/grading_scale.js?v=<?= filemtime(__DIR__ . "/js/core/grading_scale.js") ?>"></script>
+<script src="<?= $appBase ?>/js/pages/parent_portal.js?v=<?= filemtime(__DIR__ . "/js/pages/parent_portal.js") ?>"></script>
 </body>
 </html>

@@ -166,10 +166,9 @@ final class StaffMigrationController extends BaseController
     {
         try {
             return $callback();
-        } catch (RuntimeException $e) {
-            return $this->unprocessable($e->getMessage());
-        } catch (Throwable $e) {
-            return $this->serverError($e->getMessage());
+        } catch (RuntimeException $e) { error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (Throwable $e) {
+            error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 

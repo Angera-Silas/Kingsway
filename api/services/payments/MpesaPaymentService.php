@@ -36,6 +36,26 @@ class MpesaPaymentService
         $this->businessShortCode = MPESA_SHORTCODE ?? '174379';
         $this->passkey = MPESA_PASSKEY ?? '';
         $this->environment = MPESA_ENVIRONMENT ?? 'sandbox';
+
+        $this->validateCredentials();
+    }
+
+    /**
+     * Validate M-Pesa credentials — warn if placeholders still in use.
+     * Logs warnings instead of throwing so dev/staging can function with sandbox.
+     */
+    private function validateCredentials(): void
+    {
+        $placeholders = ['your_mpesa_shortcode', 'your_mpesa_passkey', 'your_initiator_name', 'your_initiator_password'];
+        if (in_array($this->businessShortCode, $placeholders, true)) {
+            error_log('[MpesaPaymentService] WARNING: MPESA_SHORTCODE is still a placeholder. Set production values in config/.env');
+        }
+        if (in_array($this->passkey, $placeholders, true)) {
+            error_log('[MpesaPaymentService] WARNING: MPESA_PASSKEY is still a placeholder. Set production values in config/.env');
+        }
+        if ($this->environment === 'production' && (strpos($this->consumerKey, 'your_') !== false || empty($this->consumerKey))) {
+            error_log('[MpesaPaymentService] CRITICAL: Production mode with placeholder/empty consumer key!');
+        }
     }
 
     /**
@@ -85,9 +105,9 @@ class MpesaPaymentService
         try {
             // Validate admission number and get student
             $stmt = $this->db->prepare("
-                SELECT id, first_name, last_name, current_class_id, academic_year
+                SELECT id, first_name, last_name, stream_id
                 FROM students 
-                WHERE admission_number = ?
+                WHERE admission_no = ?
             ");
             $stmt->execute([$admissionNumber]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -173,7 +193,8 @@ class MpesaPaymentService
 
         } catch (Exception $e) {
             error_log("M-Pesa STK Push Error: " . $e->getMessage());
-            return formatResponse(false, null, 'M-Pesa payment initiation failed: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -358,7 +379,8 @@ class MpesaPaymentService
                 $this->db->rollBack();
             }
             error_log("M-Pesa Callback Error: " . $e->getMessage());
-            return formatResponse(false, null, 'Failed to process callback: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -446,7 +468,8 @@ class MpesaPaymentService
             return formatResponse(true, $responseData);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to query status: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -499,7 +522,8 @@ class MpesaPaymentService
 
             return formatResponse(true, $result);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'C2B URL registration failed: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -769,14 +793,14 @@ class MpesaPaymentService
         $query = "
             SELECT 
                 s.id,
-                s.admission_number,
+                s.admission_no AS admission_number,
                 s.first_name,
                 s.last_name,
                 s.status,
                 COALESCE(sfb.balance, 0) as current_balance
             FROM students s
             LEFT JOIN student_fee_balances sfb ON s.id = sfb.student_id
-            WHERE s.admission_number = :admission_number
+            WHERE s.admission_no = :admission_number
             LIMIT 1
         ";
 
@@ -824,12 +848,12 @@ class MpesaPaymentService
                 mt.transaction_date,
                 mt.phone_number,
                 mt.status,
-                s.admission_number,
+                s.admission_no AS admission_number,
                 s.first_name,
                 s.last_name
             FROM mpesa_transactions mt
             INNER JOIN students s ON mt.student_id = s.id
-            WHERE s.admission_number = :admission_number
+            WHERE s.admission_no = :admission_number
             ORDER BY mt.transaction_date DESC
             LIMIT :limit
         ";

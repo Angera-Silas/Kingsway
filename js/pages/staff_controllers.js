@@ -285,7 +285,11 @@ const manageStaffController = {
         this.showNotification("Staff updated successfully", "success");
       } else {
         // Add default password for new staff
-        payload.password = "Kingsway@" + Math.random().toString(36).slice(-8);
+        // Temporary setup password — must be changed on first login
+        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=";
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        payload.password = Array.from(array, (byte) => chars[byte % chars.length]).join("");
         await API.staff.create(payload);
         this.showNotification("Staff created successfully", "success");
       }

@@ -80,22 +80,13 @@ const AssignClassTeachersController = {
   async loadReferenceData() {
     try {
       // Load classes
-      const classesRes = await window.API.apiCall('/academic/classes', 'GET');
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-      }
+      this.state.classes = await window.API.apiCall('/academic/classes', 'GET') || [];
 
       // Load teachers
-      const teachersRes = await window.API.apiCall('/staff/teachers', 'GET');
-      if (teachersRes?.success) {
-        this.state.teachers = teachersRes.data || [];
-      }
+      this.state.teachers = await window.API.apiCall('/staff/teachers', 'GET') || [];
 
       // Load academic years
-      const yearsRes = await window.API.apiCall('/academic/years', 'GET');
-      if (yearsRes?.success) {
-        this.state.academicYears = yearsRes.data || [];
-      }
+      this.state.academicYears = await window.API.apiCall('/academic/years', 'GET') || [];
 
       // Populate dropdowns
       this.populateDropdowns();
@@ -139,15 +130,9 @@ const AssignClassTeachersController = {
       const academicYearId = this.state.currentAcademicYear;
       const params = academicYearId ? { academic_year_id: academicYearId } : {};
       
-      const res = await window.API.apiCall('/academic/class-teachers', 'GET', params);
-      
-      if (res?.success) {
-        this.state.assignments = res.data || [];
-        this.renderAssignmentsTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load assignments', 'error');
-      }
+      this.state.assignments = await window.API.apiCall('/academic/class-teachers', 'GET', params) || [];
+      this.renderAssignmentsTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading assignments:', error);
       this.showNotification('Failed to load assignments', 'error');
@@ -244,16 +229,12 @@ const AssignClassTeachersController = {
         res = await window.API.apiCall('/academic/class-teachers', 'POST', data);
       }
 
-      if (res?.success) {
-        this.showNotification(editId ? 'Assignment updated' : 'Assignment created', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'));
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadAssignments();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification(editId ? 'Assignment updated' : 'Assignment created', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'));
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadAssignments();
     } catch (error) {
       console.error('Error saving assignment:', error);
       this.showNotification('Failed to save assignment', 'error');
@@ -262,20 +243,17 @@ const AssignClassTeachersController = {
 
   async editAssignment(assignmentId) {
     try {
-      const res = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'GET');
-      if (res?.success && res.data) {
-        const assignment = res.data;
-        const form = document.getElementById('assignTeacherForm');
-        if (form) {
-          form.dataset.editId = assignmentId;
-          document.getElementById('assignmentClassId').value = assignment.class_id || '';
-          document.getElementById('assignmentStreamId').value = assignment.stream_id || '';
-          document.getElementById('assignmentTeacherId').value = assignment.teacher_id || '';
-          document.getElementById('assignmentAcademicYearId').value = assignment.academic_year_id || '';
-          
-          const modal = new bootstrap.Modal(document.getElementById('assignTeacherModal'));
-          modal.show();
-        }
+      const assignment = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'GET');
+      const form = document.getElementById('assignTeacherForm');
+      if (form) {
+        form.dataset.editId = assignmentId;
+        document.getElementById('assignmentClassId').value = assignment.class_id || '';
+        document.getElementById('assignmentStreamId').value = assignment.stream_id || '';
+        document.getElementById('assignmentTeacherId').value = assignment.teacher_id || '';
+        document.getElementById('assignmentAcademicYearId').value = assignment.academic_year_id || '';
+
+        const modal = new bootstrap.Modal(document.getElementById('assignTeacherModal'));
+        modal.show();
       }
     } catch (error) {
       console.error('Error loading assignment for edit:', error);
@@ -285,13 +263,9 @@ const AssignClassTeachersController = {
   async removeAssignment(assignmentId) {
     if (!confirm('Are you sure you want to remove this class teacher assignment?')) return;
     try {
-      const res = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
-      if (res?.success) {
-        this.showNotification('Assignment removed', 'success');
-        await this.loadAssignments();
-      } else {
-        this.showNotification(res?.message || 'Failed to remove', 'error');
-      }
+      await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
+      this.showNotification('Assignment removed', 'success');
+      await this.loadAssignments();
     } catch (error) {
       console.error('Error removing assignment:', error);
       this.showNotification('Failed to remove assignment', 'error');

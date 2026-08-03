@@ -274,7 +274,7 @@ class SessionController extends BaseAPI
             } catch (\Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Invalid token: ' . $e->getMessage()
+                    'message' => 'An internal error occurred.'
                 ];
             }
 
@@ -292,19 +292,11 @@ class SessionController extends BaseAPI
      */
     private function generateCsrfToken($userId)
     {
-        $tokenData = [
-            'user_id' => $userId,
-            'timestamp' => time(),
-            'random' => bin2hex(random_bytes(16))
-        ];
-
-        $tokenData['signature'] = hash_hmac('sha256', json_encode([
-            'user_id'   => $tokenData['user_id'],
-            'timestamp' => $tokenData['timestamp'],
-            'random'    => $tokenData['random'],
-        ]), JWT_SECRET);
-
-        return base64_encode(json_encode($tokenData));
+        $timestamp = time();
+        $random = bin2hex(random_bytes(16));
+        $plaintext = $userId . ':' . $timestamp . ':' . $random;
+        $signature = hash_hmac('sha256', $plaintext, JWT_SECRET);
+        return base64_encode($plaintext . ':' . $signature);
     }
 
     /**
@@ -321,26 +313,27 @@ class SessionController extends BaseAPI
             return false;
         }
 
-        $payload = json_decode($decoded, true);
-        if (!is_array($payload) || !isset($payload['user_id'], $payload['timestamp'], $payload['random'], $payload['signature'])) {
+        $parts = explode(':', $decoded);
+        if (count($parts) !== 4) {
             return false;
         }
 
-        if ((int) $payload['user_id'] !== (int) $userId) {
+        $tokenUserId = $parts[0];
+        $timestamp   = $parts[1];
+        $random      = $parts[2];
+        $signature   = $parts[3];
+
+        if ((int) $tokenUserId !== (int) $userId) {
             return false;
         }
 
-        $ts = (int) $payload['timestamp'];
+        $ts = (int) $timestamp;
         if ($ts < 1 || abs(time() - $ts) > 3600) {
             return false;
         }
 
-        $expected = hash_hmac('sha256', json_encode([
-            'user_id'   => $payload['user_id'],
-            'timestamp' => $payload['timestamp'],
-            'random'    => $payload['random'],
-        ]), JWT_SECRET);
+        $expected = hash_hmac('sha256', $tokenUserId . ':' . $timestamp . ':' . $random, JWT_SECRET);
 
-        return hash_equals($expected, $payload['signature']);
+        return hash_equals($expected, $signature);
     }
 }

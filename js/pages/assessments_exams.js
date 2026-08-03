@@ -51,10 +51,7 @@ const assessExamsCtrl = (() => {
   function deriveCBCGrade(percentage) {
     const n = Number(percentage);
     if (!Number.isFinite(n)) return "—";
-    if (n >= 80) return "EE";
-    if (n >= 50) return "ME";
-    if (n >= 25) return "AE";
-    return "BE";
+    return GradingScale.grade(n) || "—";
   }
 
   function gradeBadge(grade) {
@@ -1004,6 +1001,8 @@ const assessExamsCtrl = (() => {
         window.location.href = (window.APP_BASE || "") + "/index.php";
         return;
       }
+
+      await GradingScale.preload();
 
       await loadReferenceData();
       bindTabListeners();

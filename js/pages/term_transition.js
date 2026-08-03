@@ -1,7 +1,7 @@
 /**
  * Term Transition Controller
  * Wizard to close Term 1, roll over timetable, and activate Term 2.
- * API: /academic/terms, /schedules/timetable-get, /schedules/timetable-create
+ * API: /academic/term-transition/context, /academic/term-transition/execute
  */
 const termTransitionController = {
 
@@ -25,15 +25,18 @@ const termTransitionController = {
   // ── Load data ─────────────────────────────────────────────────────────────
   _loadTerms: async function () {
     try {
-      const r = await callAPI('/academic/terms-list', 'GET');
-      this._allTerms = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      this._currentTerm = this._allTerms.find(t => (t.status || '').toLowerCase() === 'current');
-      this._nextTerm    = this._allTerms.find(t => (t.status || '').toLowerCase() === 'upcoming' &&
-                          Number(t.term_number) === Number(this._currentTerm?.term_number || 0) + 1);
+      const r = await callAPI('/academic/term-transition/context', 'GET');
+      const payload = r?.data || r || {};
+      this._allTerms = Array.isArray(payload.terms) ? payload.terms : [];
+      this._currentTerm = payload.current_term || this._allTerms.find(t => (t.status || '').toLowerCase() === 'current');
+      this._nextTerm = payload.next_term || this._allTerms.find(t =>
+        (t.status || '').toLowerCase() === 'upcoming' &&
+        Number(t.term_id) === Number(this._currentTerm?.term_id || 0) + 1
+      );
 
       const badge = document.getElementById('ttCurrentTermBadge');
       if (badge && this._currentTerm) {
-        badge.textContent = `Current: ${this._currentTerm.name} ${this._currentTerm.year || ''}`;
+        badge.textContent = `Current: ${this._currentTerm.name} ${this._currentTerm.academic_year_id || ''}`;
       }
       const closeBtn = document.getElementById('ttCloseTermBtn');
       if (closeBtn && this._currentTerm) {
@@ -59,10 +62,11 @@ const termTransitionController = {
       const params = this._currentTerm
         ? new URLSearchParams({ term_id: this._currentTerm.id }).toString()
         : '';
-      const r = await callAPI('/schedules/timetable-get' + (params ? '?' + params : ''), 'GET');
-      this._timetableSlots = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const classes  = [...new Set(this._timetableSlots.map(s => s.class_id))].length;
-      const teachers = [...new Set(this._timetableSlots.map(s => s.teacher_id).filter(Boolean))].length;
+      const r = await callAPI('/academic/timetable-stats' + (params ? '?' + params : ''), 'GET');
+      const payload = r?.data || r || {};
+      this._timetableSlots = Array.isArray(payload.slots) ? payload.slots : [];
+      const classes  = payload.class_count ?? [...new Set(this._timetableSlots.map(s => s.class_id))].length;
+      const teachers = payload.teacher_count ?? [...new Set(this._timetableSlots.map(s => s.teacher_id).filter(Boolean))].length;
       this._set('ttSlotCount',   this._timetableSlots.length);
       this._set('ttClassCount',  classes);
       this._set('ttTeacherCount',teachers);
@@ -177,9 +181,8 @@ const termTransitionController = {
     if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Closing…'; }
 
     try {
-      await callAPI('/academic/terms-update/' + this._currentTerm.id, 'PUT', { status: 'completed' });
-      this._currentTerm.status = 'completed';
-      showNotification(`${this._currentTerm.name} closed successfully.`, 'success');
+      this._currentTerm.status = 'pending_close';
+      showNotification(`${this._currentTerm.name} will be closed atomically during final activation.`, 'info');
       this.goStep(3);
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to close term.'; errEl.classList.remove('d-none'); }
@@ -191,51 +194,14 @@ const termTransitionController = {
   // ── STEP 3: Rollover timetable ────────────────────────────────────────────
   rolloverTimetable: async function () {
     if (!this._nextTerm) {
-      showNotification('Term 2 must exist in the database before rolling over the timetable.', 'warning');
+      showNotification('The next term must exist before rolling over the timetable.', 'warning');
       return;
     }
-    if (!this._timetableSlots.length) {
-      showNotification('No timetable slots found in Term 1 to roll over.', 'warning');
-      this.goStep(4);
-      return;
-    }
-    const keepTeachers = document.getElementById('ttKeepTeachers')?.checked ?? true;
-    const keepRooms    = document.getElementById('ttKeepRooms')?.checked ?? true;
-    const errEl        = document.getElementById('ttRolloverError');
+    const errEl = document.getElementById('ttRolloverError');
     if (errEl) errEl.classList.add('d-none');
-
-    this._set('ttRolloverStatus', 'Working…');
-
-    try {
-      // Create new class_schedule entries for Term 2 from Term 1 entries
-      let created = 0; let failed = 0;
-      for (const slot of this._timetableSlots) {
-        const newSlot = {
-          class_id:        slot.class_id,
-          day_of_week:     slot.day_of_week,
-          start_time:      slot.start_time,
-          end_time:        slot.end_time,
-          subject_id:      slot.subject_id,
-          teacher_id:      keepTeachers ? slot.teacher_id : null,
-          room_id:         keepRooms    ? slot.room_id    : null,
-          academic_year_id:slot.academic_year_id,
-          term_id:         this._nextTerm.id,
-          period_number:   slot.period_number,
-          status:          'active',
-        };
-        try {
-          await callAPI('/schedules/timetable-create', 'POST', newSlot);
-          created++;
-        } catch { failed++; }
-      }
-
-      this._set('ttRolloverStatus', `Done (${created} slots)`);
-      showNotification(`Timetable rolled over: ${created} slots created${failed ? `, ${failed} failed` : ''}.`, 'success');
-      this.goStep(4);
-    } catch (e) {
-      this._set('ttRolloverStatus', 'Failed');
-      if (errEl) { errEl.textContent = e.message || 'Rollover failed.'; errEl.classList.remove('d-none'); }
-    }
+    this._set('ttRolloverStatus', 'Ready for atomic transition');
+    showNotification('Timetable rollover will run atomically during final activation.', 'info');
+    this.goStep(4);
   },
 
   // ── STEP 4: Term 2 setup ──────────────────────────────────────────────────
@@ -244,10 +210,10 @@ const termTransitionController = {
     if (!cl) return;
     const term2 = this._nextTerm;
     const checks = [
-      { label: 'Term 2 dates configured',    done: !!(term2?.start_date && term2?.end_date) },
-      { label: 'Timetable rolled over',       done: true }, // assumed since we just did it
+      { label: 'Next term dates configured', done: !!(term2?.start_date && term2?.end_date) },
+      { label: 'Timetable rollover selected', done: !!document.getElementById('ttKeepTeachers') || !!document.getElementById('ttKeepRooms') },
       { label: 'Exam schedule (set after activation)', done: false },
-      { label: 'Schemes of work due',         done: false },
+      { label: 'Schemes of work due', done: false },
     ];
     cl.innerHTML = checks.map(c => `
       <div class="col-md-6">
@@ -261,8 +227,6 @@ const termTransitionController = {
   saveTerm2Setup: async function () {
     const start = document.getElementById('ttTerm2Start')?.value;
     const end   = document.getElementById('ttTerm2End')?.value;
-    const mbs   = document.getElementById('ttMidtermStart')?.value;
-    const mbe   = document.getElementById('ttMidtermEnd')?.value;
     const errEl = document.getElementById('ttSetupError');
 
     if (!start || !end) {
@@ -272,20 +236,9 @@ const termTransitionController = {
     if (errEl) errEl.classList.add('d-none');
 
     if (this._nextTerm) {
-      try {
-        await callAPI('/academic/terms-update/' + this._nextTerm.id, 'PUT', {
-          start_date: start, end_date: end,
-          midterm_break_start: mbs || null, midterm_break_end: mbe || null,
-        });
-        if (this._nextTerm) {
-          this._nextTerm.start_date = start;
-          this._nextTerm.end_date   = end;
-        }
-        showNotification('Term 2 dates saved.', 'success');
-      } catch (e) {
-        if (errEl) { errEl.textContent = e.message || 'Save failed.'; errEl.classList.remove('d-none'); }
-        return;
-      }
+      this._nextTerm.start_date = start;
+      this._nextTerm.end_date = end;
+      showNotification('Next-term dates will be saved atomically during activation.', 'info');
     }
     this.goStep(5);
   },
@@ -317,8 +270,21 @@ const termTransitionController = {
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      await callAPI('/academic/terms-update/' + this._nextTerm.id, 'PUT', { status: 'current' });
-      showNotification('Term 2 is now active!', 'success');
+      const keepTeachers = document.getElementById('ttKeepTeachers')?.checked ?? true;
+      const keepRooms = document.getElementById('ttKeepRooms')?.checked ?? true;
+      await callAPI('/academic/term-transition/execute', 'POST', {
+        from_term_id: this._currentTerm.id,
+        to_term_id: this._nextTerm.id,
+        academic_year_id: this._nextTerm.academic_year_id,
+        rollover_timetable: this._timetableSlots.length > 0,
+        keep_teachers: keepTeachers,
+        keep_rooms: keepRooms,
+        dates: {
+          start_date: this._nextTerm.start_date,
+          end_date: this._nextTerm.end_date,
+        },
+      });
+      showNotification(`${this._nextTerm.name} is now active!`, 'success');
       this.goStep('done');
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Activation failed.'; errEl.classList.remove('d-none'); }

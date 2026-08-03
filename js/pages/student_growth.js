@@ -22,6 +22,7 @@ const studentGrowthCtrl = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    await GradingScale.preload();
     await Promise.all([this._loadTerms(), this._loadClasses()]);
 
     // Check for ?student_id= in URL
@@ -230,7 +231,12 @@ const studentGrowthCtrl = {
       const pathEl = document.getElementById('sgPathwayBadge');
       if (pathEl) {
         const pathMap = { excelling:'success', on_track:'primary', support_needed:'warning' };
-        const path    = d.pathway_classification || (yearAvg >= 75 ? 'excelling' : yearAvg >= 60 ? 'on_track' : 'support_needed');
+        const path    = d.pathway_classification || (function () {
+            const level = (GradingScale.performanceLevel(yearAvg) || '').toLowerCase();
+            if (level.indexOf('exceed') !== -1 || level.indexOf('meet') !== -1) return 'excelling';
+            if (level.indexOf('approach') !== -1) return 'on_track';
+            return 'support_needed';
+        })();
         pathEl.textContent = path.replace('_',' ').replace(/\b\w/g, l => l.toUpperCase());
         pathEl.className   = `badge fs-6 py-2 px-3 bg-${pathMap[path] || 'secondary'}`;
       }
@@ -336,8 +342,14 @@ const studentGrowthCtrl = {
     const strEl  = document.getElementById('sgStrengthsList');
     const wkEl   = document.getElementById('sgWeaknessesList');
 
-    const strengths  = perfData.filter(r => ['EE','ME'].includes(r.overall_grade || this._cbcGrade(Number(r.overall_percentage || 0))));
-    const weaknesses = perfData.filter(r => ['AE','BE'].includes(r.overall_grade || this._cbcGrade(Number(r.overall_percentage || 0))));
+    const strengths  = perfData.filter(r => {
+        const g = r.overall_grade || this._cbcGrade(Number(r.overall_percentage || 0));
+        return ['EE','ME'].includes(GradingScale.band(g));
+    });
+    const weaknesses = perfData.filter(r => {
+        const g = r.overall_grade || this._cbcGrade(Number(r.overall_percentage || 0));
+        return ['AE','BE'].includes(GradingScale.band(g));
+    });
 
     if (strEl) {
       strEl.innerHTML = strengths.length
@@ -408,12 +420,9 @@ const studentGrowthCtrl = {
 
   // ── Utilities ─────────────────────────────────────────────────────────────
   _cbcGrade: function (pct) {
-    if (pct >= 75) return 'EE';
-    if (pct >= 60) return 'ME';
-    if (pct >= 40) return 'AE';
-    return 'BE';
+    return GradingScale.grade(pct) || '';
   },
-  _gradeColor: g => ({ EE:'success', ME:'primary', AE:'warning', BE:'danger' })[g] || 'secondary',
+  _gradeColor: g => ({ EE:'success', ME:'primary', AE:'warning', BE:'danger' })[GradingScale.band(g)] || 'secondary',
   _gradeCls: function (v) {
     const n = Number(v);
     if (isNaN(n) || n === 0) return '';

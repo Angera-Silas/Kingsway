@@ -121,8 +121,15 @@ class WorkflowHandler extends BaseAPI
      */
     public function startWorkflow($reference_type, $reference_id, $initial_data = [], $userId = null)
     {
+        $startedTransaction = false;
         try {
-            $this->db->beginTransaction();
+            // Only manage the transaction when the caller did not already open one
+            // (callers such as StudentPromotionWorkflow::defineCriteria start their
+            // own transaction to keep batch creation + workflow start atomic).
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $startedTransaction = true;
+            }
 
             // Get first stage
             $first_stage = $this->getFirstStage();
@@ -158,14 +165,18 @@ class WorkflowHandler extends BaseAPI
             // Send notifications
             $this->sendStageNotifications($instance_id, $first_stage, 'stage_entry');
 
-            $this->db->commit();
+            if ($startedTransaction) {
+                $this->db->commit();
+            }
 
             $this->logAction('workflow_started', $instance_id, 
                 "Started workflow instance for {$reference_type} ID {$reference_id}");
 
             return $instance_id;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($startedTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('workflow_start_failed', $e->getMessage());
             throw $e;
         }
@@ -276,8 +287,12 @@ class WorkflowHandler extends BaseAPI
      */
     public function cancelWorkflow($instance_id, $reason)
     {
+        $startedTransaction = false;
         try {
-            $this->db->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $startedTransaction = true;
+            }
 
             $sql = "UPDATE workflow_instances 
                     SET status = 'cancelled',
@@ -292,13 +307,17 @@ class WorkflowHandler extends BaseAPI
 
             $this->logStageEntry($instance_id, 'cancelled', "Cancelled: {$reason}");
 
-            $this->db->commit();
+            if ($startedTransaction) {
+                $this->db->commit();
+            }
 
             $this->logAction('workflow_cancelled', $instance_id, "Workflow cancelled: {$reason}");
 
             return true;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($startedTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('workflow_cancel_failed', $e->getMessage());
             throw $e;
         }

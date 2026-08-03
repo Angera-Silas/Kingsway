@@ -1492,6 +1492,8 @@ class FeeStructureAdminController {
     alert("Error: " + message);
   }
 
+  _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
   debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -1540,7 +1542,7 @@ class FeeStructureAdminController {
           </td>
         </tr>`).join('');
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${e.message || ''}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${this._esc(e.message || '')}</td></tr>`;
     }
   }
 

@@ -77,79 +77,12 @@ class KcbFundsTransferService
             }
 
         } catch (Exception $e) {
-            $this->logError("KCB Transfer failed: " . $e->getMessage());
-            return [
-                'status' => 'failed',
-                'message' => $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Check KCB account balance
-     */
-    public function checkAccountBalance()
-    {
-        try {
-            $accessToken = $this->getAccessToken();
-
-            // KCB Account Balance API
-            $url = $this->baseUrl . '/fundstransfer/1.0.0/balance';
-
-            $payload = [
-                'accountNumber' => $this->debitAccount
-            ];
-
-            $response = $this->makeRequest($url, $payload, $accessToken);
-
-            if (isset($response['balance'])) {
-                return (float) $response['balance'];
-            }
-
-            return 0;
-
-        } catch (Exception $e) {
-            $this->logError("Balance check failed: " . $e->getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * Get OAuth access token from KCB
-     */
-    private function getAccessToken()
-    {
-        $url = KCB_TOKEN_ENDPOINT;
-
-        $payload = [
-            'grant_type' => 'client_credentials'
-        ];
-
-        $credentials = base64_encode($this->consumerKey . ':' . $this->consumerSecret);
-
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Basic ' . $credentials,
-            'Content-Type: application/x-www-form-urlencoded'
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200) {
-            throw new Exception("Failed to get access token. HTTP Code: $httpCode");
-        }
-
-        $result = json_decode($response, true);
-
-        if (!isset($result['access_token'])) {
-            throw new Exception("Access token not found in response");
-        }
+    error_log('[KcbFundsTransferService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    return $this->logError('An internal error occurred.');
+} catch (Exception $e) {
+    error_log('[KcbFundsTransferService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    return $this->logError('An internal error occurred.');
+}
 
         return $result['access_token'];
     }

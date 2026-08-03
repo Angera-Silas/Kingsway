@@ -174,7 +174,7 @@ class PromotionManager
                 $results['failed']++;
                 $results['errors'][] = [
                     'student_id' => $studentId,
-                    'error' => $e->getMessage()
+                    'error' => 'An internal error occurred.'
                 ];
             }
         }
@@ -262,7 +262,7 @@ class PromotionManager
                     $results['failed']++;
                     $results['errors'][] = [
                         'student_id' => $student['student_id'],
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -441,7 +441,7 @@ class PromotionManager
                     $results['failed']++;
                     $results['errors'][] = [
                         'student_id' => $student['student_id'],
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }

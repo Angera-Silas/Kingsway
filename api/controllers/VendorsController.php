@@ -26,7 +26,8 @@ class VendorsController extends BaseController
             $rows = $stmt ? $stmt->fetchAll() : [];
             return $this->success(['vendors' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch vendors: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -61,7 +62,8 @@ class VendorsController extends BaseController
             );
             return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Vendor created');
         } catch (Exception $e) {
-            return $this->error('Failed to create vendor: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -81,7 +83,8 @@ class VendorsController extends BaseController
             $rows = $stmt ? $stmt->fetchAll() : [];
             return $this->success(['purchase_orders' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch purchase orders: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -109,7 +112,8 @@ class VendorsController extends BaseController
             );
             return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Purchase order created');
         } catch (Exception $e) {
-            return $this->error('Failed to create purchase order: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -138,7 +142,8 @@ class VendorsController extends BaseController
             $this->db->query('UPDATE suppliers SET ' . implode(', ', $setClauses) . ', updated_at=NOW() WHERE id=?', $params);
             return $this->success(['id' => $id], 'Vendor updated');
         } catch (Exception $e) {
-            return $this->error('Failed to update vendor: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -155,7 +160,8 @@ class VendorsController extends BaseController
             $this->db->query('UPDATE suppliers SET status=\'inactive\', updated_at=NOW() WHERE id=?', [$id]);
             return $this->success(['id' => $id], 'Vendor deactivated');
         } catch (Exception $e) {
-            return $this->error('Failed to delete vendor: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -177,7 +183,8 @@ class VendorsController extends BaseController
             $stmt = $this->db->query($sql);
             return $this->success(['outstanding' => $stmt ? $stmt->fetchAll() : []]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch outstanding liabilities: ' . $e->getMessage());
+            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

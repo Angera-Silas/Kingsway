@@ -27,8 +27,20 @@ $activePage = $activePage ?? 'home';
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="<?= $appBase ?>/public/css/public.css?v=<?= filemtime(__DIR__ . '/../css/public.css') ?>">
+  <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css"></noscript>
 </head>
 <body>
+
+<noscript>
+  <div class="noscript-overlay">
+    <div class="noscript-card">
+      <span class="icon">⚠️</span>
+      <h2>JavaScript Required</h2>
+      <p>Kingsway Preparatory School requires JavaScript for full functionality. Please enable JavaScript in your browser settings and reload the page.</p>
+      <span class="badge">Kingsway Preparatory School</span>
+    </div>
+  </div>
+</noscript>
 
 <!-- ═══ NAVBAR ═══════════════════════════════════════════════════════════════ -->
 <nav class="site-nav navbar navbar-expand-lg">

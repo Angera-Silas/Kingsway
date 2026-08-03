@@ -218,9 +218,12 @@ const SessionManager = (() => {
 
     const storageKey = `kingsway_session_event_${userId}`;
     window.addEventListener('storage', (event) => {
-      if (event.key === storageKey && event.newValue) {
+      if (event.key === storageKey && typeof event.newValue === 'string') {
         try {
-          handleRemoteMessage(JSON.parse(event.newValue));
+          const parsed = JSON.parse(event.newValue);
+          if (parsed && typeof parsed === 'object') {
+            handleRemoteMessage(parsed);
+          }
         } catch (_) {}
       }
     });
@@ -239,7 +242,7 @@ const SessionManager = (() => {
   }
 
   function handleRemoteMessage(message) {
-    if (!message?.type) return;
+    if (!message?.type || typeof message.type !== 'string') return;
 
     if (message.type === 'LOGGED_OUT') {
       expiryHandled = true;
@@ -256,7 +259,7 @@ const SessionManager = (() => {
       auth()?.initialize?.();
     }
 
-    emit(message.type, message.data || {});
+    emit(message.type, typeof message.data === 'object' && message.data !== null ? message.data : {});
   }
 
   function broadcastCacheInvalidation(keys) {

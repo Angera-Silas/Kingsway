@@ -79,6 +79,9 @@ const PrintManager = (() => {
     endpoints: {
       tableReport: "/api/print/table",
       recordReport: "/api/print/record",
+      htmlReport: "/api/print/html",
+      portfolioReport: "/api/print/portfolio",
+      reportCard: "/api/print/report-card",
       certificate: "/api/print/certificate",
       studentIdCards: "/api/students/id-cards/print",
       receipt: "/api/print/receipt",
@@ -777,6 +780,107 @@ const PrintManager = (() => {
     }
   }
 
+  async function printHtml(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.html) {
+      notify("warning", "No HTML content provided.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      html: config.html,
+      isFullDocument: Boolean(config.isFullDocument),
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.htmlReport,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the PDF.");
+      throw error;
+    }
+  }
+
+  async function printPortfolio(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.student_id) {
+      notify("warning", "No student ID provided.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      student_id: config.student_id,
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.portfolioReport,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the portfolio PDF.");
+      throw error;
+    }
+  }
+
+  async function printReportCard(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.level) {
+      notify("warning", "No CBC level provided. Use: PP, LowerPrimary, UpperPrimary, or JuniorSecondary.");
+      return null;
+    }
+
+    if (!config.student) {
+      notify("warning", "No student data provided.");
+      return null;
+    }
+
+    const validLevels = new Set(["PP", "LowerPrimary", "UpperPrimary", "JuniorSecondary"]);
+    if (!validLevels.has(config.level)) {
+      notify("warning", "Invalid level. Use: PP, LowerPrimary, UpperPrimary, or JuniorSecondary.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      level: config.level,
+      student: config.student,
+      term: config.term || {},
+      scores: Array.isArray(config.scores) ? config.scores : [],
+      competencies: Array.isArray(config.competencies) ? config.competencies : [],
+      values: Array.isArray(config.values) ? config.values : [],
+      attendance: config.attendance || {},
+      comments: config.comments || {},
+      kjseaSummary: config.kjseaSummary || undefined,
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.reportCard,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the report card PDF.");
+      throw error;
+    }
+  }
+
   function sanitizeContentHtml(html) {
     const container = document.createElement("div");
     container.innerHTML = html || "";
@@ -1378,6 +1482,9 @@ const PrintManager = (() => {
   return {
     printTable,
     printRecord,
+    printHtml,
+    printPortfolio,
+    printReportCard,
     printModal,
     printElement,
     printReportHtml,

@@ -55,8 +55,7 @@ const ConductReportsController = {
         window.API.academic.listClasses(),
       ]);
 
-      if (yearsRes?.success) {
-        this.state.years = yearsRes.data || [];
+      this.state.years = yearsRes || [];
         const yearSel =
           document.getElementById("selectYear") ||
           document.getElementById("academicYear");
@@ -78,10 +77,9 @@ const ConductReportsController = {
             this.state.selectedYear = e.target.value;
             this.loadTerms(e.target.value);
           });
-      }
 
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
+      if (classesRes) {
+        this.state.classes = classesRes || [];
         const clsSel = document.getElementById("selectClass");
         if (clsSel) {
           clsSel.innerHTML =
@@ -101,8 +99,7 @@ const ConductReportsController = {
   async loadTerms(yearId) {
     try {
       const res = await window.API.academic.listTerms(yearId);
-      if (res?.success) {
-        this.state.terms = res.data || [];
+      this.state.terms = res || [];
         const termSel = document.getElementById("selectTerm");
         if (termSel) {
           termSel.innerHTML =
@@ -116,7 +113,6 @@ const ConductReportsController = {
           this.state.selectedTerm =
             this.state.terms.find((t) => t.is_current)?.id || "";
         }
-      }
     } catch (error) {
       console.error("Error loading terms:", error);
     }
@@ -146,12 +142,12 @@ const ConductReportsController = {
         })
         .catch(() => null);
 
-      if (res?.success) {
-        this.state.allReports = res.data || [];
+      if (res) {
+        this.state.allReports = res || [];
       } else {
         // Generate sample conduct data from student list
         const studRes = await window.API.students.get().catch(() => null);
-        if (studRes?.success) {
+        if (studRes) {
           const ratings = [
             "Excellent",
             "Very Good",
@@ -159,7 +155,7 @@ const ConductReportsController = {
             "Satisfactory",
             "Needs Improvement",
           ];
-          this.state.allReports = (studRes.data || []).map((s) => ({
+          this.state.allReports = (studRes || []).map((s) => ({
             id: s.id,
             student_name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
             class_name: s.class_name || s.form || "",

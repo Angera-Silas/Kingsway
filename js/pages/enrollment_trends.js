@@ -65,16 +65,16 @@ const EnrollmentTrendsController = {
         })
         .catch(() => null);
 
-      if (res?.success) {
-        this.state.data = res.data || [];
+      if (res) {
+        this.state.data = res || [];
       } else {
         // Fallback: use years & classes data
         const [yearsRes, classesRes] = await Promise.all([
           window.API.academic.getAllAcademicYears(),
           window.API.academic.listClasses(),
         ]);
-        const years = yearsRes?.data || [];
-        const classes = classesRes?.data || [];
+        const years = yearsRes || [];
+        const classes = classesRes || [];
         this.state.data = years.map((y) => ({
           year: y.name,
           total_students:

@@ -89,30 +89,23 @@ const MySyllabusController = {
 
       // Load teacher's assigned subjects
       const params = { teacher_id: user.id };
-      const res = await window.API.apiCall('/academic/my-subjects', 'GET', params);
-      
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        const subjectSelect = document.getElementById('subjectSelect');
-        if (subjectSelect) {
-          subjectSelect.innerHTML = '<option value="">Select Subject</option>' + 
-            this.state.subjects.map(subject => `<option value="${subject.subject_id}">${subject.subject_name}</option>`).join('');
-        }
+      this.state.subjects = await window.API.apiCall('/academic/my-subjects', 'GET', params) || [];
+      const subjectSelect = document.getElementById('subjectSelect');
+      if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">Select Subject</option>' + 
+          this.state.subjects.map(subject => `<option value="${subject.subject_id}">${subject.subject_name}</option>`).join('');
       }
 
       // Load academic years
-      const yearsRes = await window.API.apiCall('/academic/years', 'GET');
-      if (yearsRes?.success) {
-        const years = yearsRes.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -144,15 +137,9 @@ const MySyllabusController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/my-syllabus', 'GET', params);
-      
-      if (res?.success) {
-        this.state.syllabus = res.data || [];
-        this.renderSyllabusTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load syllabus', 'error');
-      }
+      this.state.syllabus = await window.API.apiCall('/academic/my-syllabus', 'GET', params) || [];
+      this.renderSyllabusTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading syllabus:', error);
       this.showNotification('Failed to load syllabus', 'error');
@@ -238,14 +225,9 @@ const MySyllabusController = {
     if (!confirm('Mark this syllabus entry as complete?')) return;
     
     try {
-      const res = await window.API.apiCall(`/academic/syllabus/${entryId}`, 'PUT', { status: 'completed' });
-      
-      if (res?.success) {
-        this.showNotification('Syllabus entry marked as complete', 'success');
-        await this.loadSyllabus();
-      } else {
-        this.showNotification(res?.message || 'Failed to update', 'error');
-      }
+      await window.API.apiCall(`/academic/syllabus/${entryId}`, 'PUT', { status: 'completed' });
+      this.showNotification('Syllabus entry marked as complete', 'success');
+      await this.loadSyllabus();
     } catch (error) {
       console.error('Error marking complete:', error);
       this.showNotification('Failed to update', 'error');

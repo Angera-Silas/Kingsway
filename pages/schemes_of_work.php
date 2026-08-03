@@ -27,6 +27,10 @@
                             data-role="class_teacher,subject_teacher,headteacher,admin">
                         <i class="bi bi-upload me-1"></i> Upload Scheme
                     </button>
+                    <button class="btn btn-success btn-sm" id="generateSchemeBtn"
+                            data-role="class_teacher,subject_teacher,headteacher,admin">
+                        <i class="bi bi-magic me-1"></i> Auto-Generate
+                    </button>
                     <button class="btn btn-outline-primary btn-sm" id="exportSchemesBtn"
                             data-role="headteacher,admin">
                         <i class="bi bi-download me-1"></i> Export
@@ -211,6 +215,69 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveSchemeBtn">Save Scheme</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Auto-Generate Schemes Modal -->
+<div class="modal fade" id="generateSchemeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-magic me-1"></i>Auto-Generate Schemes of Work</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small">
+                    Generates weekly scheme-of-work entries from the CBC curriculum strands and sub-strands.
+                    Existing entries for the same class, subject and term are skipped.
+                </div>
+                <form id="generateSchemeForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Class*</label>
+                            <select class="form-select" id="genClass" required>
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Subject / Learning Area*</label>
+                            <select class="form-select" id="genLearningArea" required>
+                                <option value="">Select Subject</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Term*</label>
+                            <select class="form-select" id="genTerm" required>
+                                <option value="">Select Term</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Strand (optional)</label>
+                            <select class="form-select" id="genStrand">
+                                <option value="">All Strands</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sub-Strand (optional)</label>
+                        <select class="form-select" id="genSubStrand">
+                            <option value="">All Sub-Strands</option>
+                        </select>
+                    </div>
+                    <div class="form-text">
+                        Leave strand and sub-strand empty to generate the full curriculum for the subject.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmGenerateBtn">
+                    <i class="bi bi-magic me-1"></i> Generate
+                </button>
             </div>
         </div>
     </div>

@@ -119,7 +119,7 @@ const activitiesController = {
 
       this.populateActivitySelects(list);
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load activities: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load activities: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -255,7 +255,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      if (container) container.innerHTML = `<div class="alert alert-danger">Failed to load categories: ${e.message}</div>`;
+      if (container) container.innerHTML = `<div class="alert alert-danger">Failed to load categories: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -368,7 +368,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load participants: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load participants: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -458,7 +458,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load schedules: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load schedules: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -569,7 +569,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load resources: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load resources: ${this.esc(e.message)}</div>`;
     }
   },
 

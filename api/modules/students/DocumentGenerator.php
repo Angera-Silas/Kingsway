@@ -99,7 +99,8 @@ class DocumentGenerator extends BaseAPI
 
         } catch (Exception $e) {
             $this->logError('generateLeavingCertificate', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate leaving certificate: ' . $e->getMessage());
+            error_log('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -165,7 +166,8 @@ class DocumentGenerator extends BaseAPI
 
         } catch (Exception $e) {
             $this->logError('generateClearanceForm', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate clearance form: ' . $e->getMessage());
+            error_log('[DocumentGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

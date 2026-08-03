@@ -10,6 +10,10 @@ use App\API\Modules\system\MediaManager;
 use App\API\Modules\students\FamilyGroupsManager;
 use App\API\Modules\students\PromotionManager;
 use App\API\Modules\students\StudentInsightsService;
+use App\API\Modules\students\StudentIDCardService;
+use App\API\Modules\students\StudentTransferService;
+use App\API\Modules\students\StudentPromotionService;
+use App\API\Modules\students\StudentParentService;
 use App\API\Modules\academic\AcademicYearManager;
 use Exception;
 
@@ -25,6 +29,10 @@ class StudentsController extends BaseController
     private FamilyGroupsManager $familyGroupsManager;
     private PromotionManager $promotionManager;
     private StudentInsightsService $studentInsightsService;
+    private StudentIDCardService $idCardService;
+    private StudentTransferService $transferService;
+    private StudentPromotionService $promotionService;
+    private StudentParentService $parentService;
     private const STUDENT_VIEW_PERMS = [
         'students_view',
         'students_view_all',
@@ -125,9 +133,13 @@ class StudentsController extends BaseController
         $this->promotionManager = new PromotionManager($connection, new AcademicYearManager($connection));
         $this->studentInsightsService = new StudentInsightsService($connection, $this->studentService);
         $this->api = new StudentsAPI();
+        $this->idCardService = new StudentIDCardService($this->api, $this->studentService);
+        $this->transferService = new StudentTransferService($this->api);
+        $this->promotionService = new StudentPromotionService($this->api, $this->promotionManager);
+        $this->parentService = new StudentParentService($this->api, $this->familyGroupsManager);
     }
 
-    private function authorizeStudents(array $permissions, string $message = 'Insufficient permissions')
+    public function authorizeStudents(array $permissions, string $message = 'Insufficient permissions')
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
@@ -420,6 +432,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/id-card-generate-legacy
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateLegacy($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -440,6 +453,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/id-card-generate-class
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateClass($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -461,6 +475,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/id-card-get/{id}
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardGet($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -481,6 +496,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/id-card-statistics-get
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardStatisticsGet($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -501,6 +517,7 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-meta
      * Returns academic years, classes, streams, card statuses, school settings, permissions
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardMeta($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -518,6 +535,7 @@ class StudentsController extends BaseController
      * GET /api/students/id-cards
      * Returns students with ID card status, accepts filters
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCards($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -536,6 +554,7 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-details/{studentId}
      * Returns full student card preview data including school profile, QR payload, card history
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardDetails($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -562,6 +581,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-printed/{cardId}
      * Mark card as printed
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkPrinted($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -584,6 +604,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-lost/{cardId}
      * Mark card as lost
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkLost($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -607,6 +628,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-cards/print
      * Canonical single and bulk student ID-card PDF endpoint.
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardsPrint(
         $id = null,
         $data = [],
@@ -652,33 +674,14 @@ class StudentsController extends BaseController
      */
     public function postIdCardGenerate($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(
-            self::STUDENT_ID_CARD_GENERATE_PERMS,
-            'Insufficient permission to generate ID cards'
-        )) {
-            return $auth;
-        }
-
-        $studentId = $data['student_id'] ?? null;
-        if (!$studentId) {
-            return $this->badRequest('Student ID is required');
-        }
-
-        $result = $this->studentService->generateIdCard((int) $studentId, $this->user['id'] ?? null);
-        if (($result['success'] ?? false) && !empty($data['generate_qr'])) {
-            $qrResult = $this->api->generateQRCodeEnhanced((int) $studentId);
-            if (($qrResult['status'] ?? false) === true) {
-                $result['qr_code_path'] = $qrResult['data']['qr_code_path'] ?? null;
-            }
-        }
-
-        return $this->handleResponse($result);
+        return $this->idCardService->postIdCardGenerate($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/students/id-card/generate-bulk
      * Bulk generate cards for selected students
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateBulk($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -715,6 +718,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/generate-bulk-pdf
      * Generate bulk PDF for selected students with A4 layout
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -743,6 +747,7 @@ class StudentsController extends BaseController
      * Returns renderer HTML (CR80, QR as data URI, front|back side-by-side)
      * which the frontend opens in a print window.
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -769,6 +774,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/{cardId}/generate-qr
      * Generate QR code for a card
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardGenerateQr($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -791,6 +797,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-mark-issued/{cardId}
      * Mark card as issued
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardMarkIssued($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -813,6 +820,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-renew/{cardId}
      * Renew expired card (create new card, mark old as replaced)
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardRenew($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -835,6 +843,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card-replace/{cardId}
      * Replace lost/damaged card (create new card, mark old as replaced)
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardReplace($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -858,6 +867,7 @@ class StudentsController extends BaseController
      * POST /api/students/id-card/{cardId}/revoke
      * Revoke a card
      */
+    // TODO: Delegate to StudentIDCardService
     public function postIdCardRevoke($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -881,6 +891,7 @@ class StudentsController extends BaseController
      * GET /api/students/id-card-history/{studentId}
      * Get card history for a student
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(
@@ -903,6 +914,7 @@ class StudentsController extends BaseController
      * GET /api/students/id-card/verify/{cardNumber}
      * Verify card by number
      */
+    // TODO: Delegate to StudentIDCardService
     public function getIdCardVerify($id = null, $data = [], $segments = [])
     {
         // Public endpoint - no auth required for verification
@@ -928,17 +940,13 @@ class StudentsController extends BaseController
      */
     public function postTransferStartWorkflow($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to initiate student transfers')) {
-            return $auth;
-        }
-
-        $result = $this->api->startTransferWorkflow($data);
-        return $this->handleResponse($result);
+        return $this->transferService->postTransferStartWorkflow($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/students/transfer/verify-eligibility
      */
+    // TODO: Delegate to StudentTransferService
     public function postTransferVerifyEligibility($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to verify student transfers')) {
@@ -952,6 +960,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/transfer/approve
      */
+    // TODO: Delegate to StudentTransferService
     public function postTransferApprove($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to approve student transfers')) {
@@ -965,6 +974,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/transfer/execute
      */
+    // TODO: Delegate to StudentTransferService
     public function postTransferExecute($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_TRANSFER_PERMS, 'Insufficient permission to execute student transfers')) {
@@ -978,6 +988,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/transfer/workflow-status
      */
+    // TODO: Delegate to StudentTransferService
     public function getTransferWorkflowStatus($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view transfer status')) {
@@ -997,6 +1008,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/transfer/history/{id}
      */
+    // TODO: Delegate to StudentTransferService
     public function getTransferHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view transfer history')) {
@@ -1022,17 +1034,13 @@ class StudentsController extends BaseController
      */
     public function postPromotionSingle($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
-            return $auth;
-        }
-
-        $result = $this->api->promoteSingleStudent($data);
-        return $this->handleResponse($result);
+        return $this->promotionService->postPromotionSingle($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/students/promotion/multiple
      */
+    // TODO: Delegate to StudentPromotionService
     public function postPromotionMultiple($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1046,6 +1054,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/entire-class
      */
+    // TODO: Delegate to StudentPromotionService
     public function postPromotionEntireClass($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1059,6 +1068,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/multiple-classes
      */
+    // TODO: Delegate to StudentPromotionService
     public function postPromotionMultipleClasses($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to promote students')) {
@@ -1072,6 +1082,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/promotion/graduate-grade9
      */
+    // TODO: Delegate to StudentPromotionService
     public function postPromotionGraduateGrade9($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to graduate students')) {
@@ -1085,6 +1096,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/promotion/batches
      */
+    // TODO: Delegate to StudentPromotionService
     public function getPromotionBatches($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotion batches')) {
@@ -1098,6 +1110,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/promotion/history/{id}
      */
+    // TODO: Delegate to StudentPromotionService
     public function getPromotionHistory($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view promotion history')) {
@@ -1382,6 +1395,32 @@ class StudentsController extends BaseController
     }
 
     /**
+     * POST /api/students/alumni-update
+     */
+    public function postAlumniUpdate($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update alumni')) {
+            return $auth;
+        }
+
+        $result = $this->api->updateAlumni($data);
+        return $this->success($result);
+    }
+
+    /**
+     * POST /api/students/alumni-delete
+     */
+    public function postAlumniDelete($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_PROMOTE_PERMS, 'Insufficient permission to delete alumni')) {
+            return $auth;
+        }
+
+        $result = $this->api->deleteAlumni($data);
+        return $this->success($result);
+    }
+
+    /**
      * GET /api/students/enrollment-current
      */
     public function getEnrollmentCurrent($id = null, $data = [], $segments = [])
@@ -1404,30 +1443,13 @@ class StudentsController extends BaseController
      */
     public function getParentsGet($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
-            return $auth;
-        }
-
-        $parentId = $data['parent_id'] ?? null;
-        if ($parentId !== null) {
-            return $this->handleResponse(
-                $this->familyGroupsManager->getParentDetails((int) $parentId)
-            );
-        }
-
-        $studentId = $id ?? $data['student_id'] ?? null;
-
-        if ($studentId === null) {
-            return $this->badRequest('Student ID is required');
-        }
-
-        $result = $this->api->getStudentParentsInfo($studentId);
-        return $this->handleResponse($result);
+        return $this->parentService->getParentsGet($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/students/parents/list
      */
+    // TODO: Delegate to StudentParentService
     public function getParentsList($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
@@ -1442,6 +1464,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/parents/children
      */
+    // TODO: Delegate to StudentParentService
     public function getParentsChildren($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
@@ -1464,6 +1487,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/add
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsAdd($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to link parent records')) {
@@ -1477,6 +1501,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/create
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsCreate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(array_merge(self::STUDENT_EDIT_PERMS, self::STUDENT_CREATE_PERMS), 'Insufficient permission to create parent records')) {
@@ -1491,6 +1516,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/update
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsUpdate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update parent records')) {
@@ -1510,6 +1536,7 @@ class StudentsController extends BaseController
     /**
      * PUT /api/students/parents/update/{id}
      */
+    // TODO: Delegate to StudentParentService
     public function putParentsUpdate($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update parent records')) {
@@ -1529,6 +1556,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/remove
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsRemove($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to unlink parent records')) {
@@ -1542,6 +1570,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/delete
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsDelete($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to delete parent records')) {
@@ -1561,6 +1590,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/link-child
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsLinkChild($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to link parent/child records')) {
@@ -1585,6 +1615,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students/parents/unlink-child
      */
+    // TODO: Delegate to StudentParentService
     public function postParentsUnlinkChild($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to unlink parent/child records')) {
@@ -1606,6 +1637,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/parents/available-students
      */
+    // TODO: Delegate to StudentParentService
     public function getParentsAvailableStudents($id = null, $data = [], $segments = [])
     {
         $parentId = $data['parent_id'] ?? $id ?? null;
@@ -1893,34 +1925,16 @@ class StudentsController extends BaseController
      * FAMILY GROUPS (FIXED NAMING)
      * ===================================================== */
 
+    // TODO: Delegate to StudentParentService
     public function getFamilyParentGet($id = null, $data = [])
     {
-        if ($auth = $this->authorizeStudents(self::PARENT_ACCESS_PERMS, 'Insufficient permission to view parent records')) {
-            return $auth;
-        }
-
-        if (!$id) {
-            return $this->badRequest('Parent ID required');
-        }
-
-        return $this->handleResponse(
-            $this->familyGroupsManager->getParentDetails((int) $id)
-        );
+        return $this->parentService->getFamilyParentGet($id, $data, [], $this);
     }
 
+    // TODO: Delegate to StudentParentService
     public function putFamilyParentUpdate($id = null, $data = [])
     {
-        if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update parent records')) {
-            return $auth;
-        }
-
-        if (!$id) {
-            return $this->badRequest('Parent ID required');
-        }
-
-        return $this->handleResponse(
-            $this->familyGroupsManager->updateParent((int) $id, $data)
-        );
+        return $this->parentService->putFamilyParentUpdate($id, $data, [], $this);
     }
 
     /* =====================================================
@@ -2041,7 +2055,7 @@ class StudentsController extends BaseController
         return array_map('intval', array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), 'id'));
     }
 
-    private function handleResponse($result)
+    public function handleResponse($result)
     {
         if (!is_array($result)) {
             return $this->success($result);
@@ -2183,7 +2197,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->listHealthSpecialNeeds(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch special needs records: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -2205,7 +2220,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->getPerformanceMeta());
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2231,7 +2247,8 @@ class StudentsController extends BaseController
                 array_merge($_GET, $data)
             ));
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load performance overview: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2267,15 +2284,9 @@ class StudentsController extends BaseController
             }
 
             return $this->success($payload);
-        } catch (\RuntimeException $e) {
-            $message = $e->getMessage();
-            if (strpos($message, 'forbidden:') === 0) {
-                return $this->forbidden(substr($message, 10));
-            }
-
-            return $this->badRequest('Failed to load performance details: ' . $message);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load performance details: ' . $e->getMessage());
+        } catch (RuntimeException $e) { error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2303,7 +2314,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->getDisciplineMeta());
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load discipline metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2319,7 +2331,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->listDisciplineCases(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load discipline cases: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2345,7 +2358,8 @@ class StudentsController extends BaseController
 
             return $this->success($payload);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load discipline case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2366,15 +2380,9 @@ class StudentsController extends BaseController
         try {
             $this->studentInsightsService->updateDisciplineCase($caseId, $data, (int)$this->user['id']);
             return $this->success(['message' => 'Discipline case updated successfully']);
-        } catch (\RuntimeException $e) {
-            $message = $e->getMessage();
-            if (strpos($message, 'bad_request:') === 0) {
-                return $this->badRequest(substr($message, 12));
-            }
-
-            return $this->badRequest('Failed to update discipline case: ' . $message);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to update discipline case: ' . $e->getMessage());
+        } catch (RuntimeException $e) { error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Exception $e) {
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2394,7 +2402,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->getSpecialNeedsMeta());
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load special needs metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2411,7 +2420,8 @@ class StudentsController extends BaseController
         try {
             return $this->success($this->studentInsightsService->listSpecialNeedsIEPs(array_merge($_GET, $data)));
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load special needs records: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2437,7 +2447,8 @@ class StudentsController extends BaseController
 
             return $this->success($payload);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load IEP details: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2448,66 +2459,37 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/family-groups-meta-v2
      */
+    // TODO: Delegate to StudentParentService
     public function getFamilyGroupsMetaV2($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        return $this->handleResponse($this->familyGroupsManager->getFamilyGroupsMeta());
+        return $this->parentService->getFamilyGroupsMetaV2($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/students/family-groups-v2
      */
+    // TODO: Delegate to StudentParentService
     public function getFamilyGroupsV2($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        return $this->handleResponse($this->familyGroupsManager->getFamilyGroups(array_merge($_GET, $data)));
+        return $this->parentService->getFamilyGroupsV2($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/students/family-group/{parentId}
      */
+    // TODO: Delegate to StudentParentService
     public function getFamilyGroup($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        $parentId = $id !== null ? (int)$id : null;
-        if ($parentId === null) {
-            return $this->badRequest('Parent ID is required');
-        }
-
-        $result = $this->familyGroupsManager->getParentDetails($parentId);
-        if (is_array($result) && ($result['success'] ?? false)) {
-            $result['data'] = [
-                'parent' => $result['data']['parent'] ?? null,
-                'students' => $result['data']['children'] ?? [],
-            ];
-        }
-        return $this->handleResponse($result);
+        return $this->parentService->getFamilyGroup($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/students/family-group/{parentId}/link-student
      */
+    // TODO: Delegate to StudentParentService
     public function postFamilyGroupLinkStudent($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        $parentId = $id !== null ? (int)$id : null;
-        if ($parentId === null) {
-            return $this->badRequest('Parent ID is required');
-        }
-
-        return $this->handleResponse($this->familyGroupsManager->linkStudentToFamilyGroup($parentId, $data));
+        return $this->parentService->postFamilyGroupLinkStudent($id, $data, $segments, $this);
     }
 
     /* =====================================================
@@ -2517,50 +2499,28 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/promotion-meta-v2
      */
+    // TODO: Delegate to StudentPromotionService
     public function getPromotionMetaV2($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        return $this->success($this->promotionManager->getPromotionMeta());
+        return $this->promotionService->getPromotionMetaV2($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/students/promotion-candidates-v2
      */
+    // TODO: Delegate to StudentPromotionService
     public function getPromotionCandidatesV2($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        try {
-            return $this->success($this->promotionManager->getPromotionCandidates(array_merge($_GET, $data)));
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load promotion candidates: ' . $e->getMessage());
-        }
+        return $this->promotionService->getPromotionCandidatesV2($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/students/promotion-execute-v2
      */
+    // TODO: Delegate to StudentPromotionService
     public function postPromotionExecuteV2($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
-
-        try {
-            $userId = (int)($this->user['id'] ?? $this->user['user_id'] ?? 0);
-            if ($userId <= 0) {
-                return $this->unauthorized('Authenticated user ID could not be resolved');
-            }
-
-            return $this->success($this->promotionManager->executePromotionV2($data, $userId));
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to execute promotion: ' . $e->getMessage());
-        }
+        return $this->promotionService->postPromotionExecuteV2($id, $data, $segments, $this);
     }
 
     /* =====================================================
@@ -2628,7 +2588,8 @@ class StudentsController extends BaseController
                 'statuses' => ['open', 'in_progress', 'resolved', 'closed', 'cancelled'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load counseling metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2759,7 +2720,8 @@ class StudentsController extends BaseController
 
             return $this->success($cases);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load counseling cases: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2834,7 +2796,8 @@ class StudentsController extends BaseController
                 'sessions' => $sessions,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load case details: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2875,7 +2838,8 @@ class StudentsController extends BaseController
                 'statuses' => ['active', 'inactive', 'resolved', 'monitoring'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load health metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2993,7 +2957,8 @@ class StudentsController extends BaseController
 
             return $this->success($records);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load health records: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3077,7 +3042,8 @@ class StudentsController extends BaseController
                 'reviews' => $reviews,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load record details: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3127,7 +3093,8 @@ class StudentsController extends BaseController
                 'boarding_statuses' => ['active', 'on_leave', 'sick', 'suspended', 'checked_out'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load catering metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3274,7 +3241,8 @@ class StudentsController extends BaseController
 
             return $this->success($students);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load boarding students: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3381,7 +3349,8 @@ class StudentsController extends BaseController
                 'breakdown_by_diet' => $breakdownByDiet,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load catering summary: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3485,7 +3454,8 @@ class StudentsController extends BaseController
                 'catering_notes' => [],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load meal profile: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3547,7 +3517,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Meal plan saved successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to save meal plan: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3588,7 +3559,8 @@ class StudentsController extends BaseController
                 'items' => [],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load food requisition: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3643,7 +3615,8 @@ class StudentsController extends BaseController
                 'exeat_statuses' => ['requested', 'approved', 'out', 'returned', 'overdue', 'cancelled'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load boarding metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3795,7 +3768,8 @@ class StudentsController extends BaseController
 
             return $this->success($students);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load boarding students: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3888,7 +3862,8 @@ class StudentsController extends BaseController
                 'special_alerts_count' => $specialAlerts,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load boarding summary: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3997,7 +3972,8 @@ class StudentsController extends BaseController
                 'boarding_notes' => $boardingNotes,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load boarding profile: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4050,7 +4026,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Dormitory assigned successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to assign dormitory: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4105,7 +4082,8 @@ class StudentsController extends BaseController
                 'attendance_statuses' => ['pending', 'picked_up', 'dropped_off', 'absent', 'excused', 'not_riding'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load transport metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4254,7 +4232,8 @@ class StudentsController extends BaseController
 
             return $this->success($passengers);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load transport passengers: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4383,7 +4362,8 @@ class StudentsController extends BaseController
                 'vehicle_name' => $vehicleName,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load transport summary: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4496,7 +4476,8 @@ class StudentsController extends BaseController
                 'notes' => $notes,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load transport profile: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4568,7 +4549,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Attendance saved successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to save attendance: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4616,7 +4598,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Incident reported successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to report incident: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4682,7 +4665,8 @@ class StudentsController extends BaseController
                 'statuses' => ['open', 'in_progress', 'resolved', 'closed', 'cancelled'],
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load welfare metadata: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4810,7 +4794,8 @@ class StudentsController extends BaseController
 
             return $this->success($cases);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load welfare cases: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4895,7 +4880,8 @@ class StudentsController extends BaseController
                 'notes' => $notes,
             ]);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to load welfare case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -4945,7 +4931,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Welfare case created successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to create welfare case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5000,7 +4987,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Note added successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to add note: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5054,7 +5042,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Follow-up scheduled successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to schedule follow-up: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5105,7 +5094,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Case resolved successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to resolve case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5157,7 +5147,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Case escalated successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to escalate case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5214,7 +5205,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Session note added successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to add session note: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5268,7 +5260,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Follow-up scheduled successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to schedule follow-up: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5319,7 +5312,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Case closed successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to close case: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -5363,7 +5357,8 @@ class StudentsController extends BaseController
 
             return $this->success(['message' => 'Boarding note added successfully']);
         } catch (\Exception $e) {
-            return $this->badRequest('Failed to add boarding note: ' . $e->getMessage());
+            error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 }

@@ -207,7 +207,8 @@ class BankPaymentWebhook
         } catch (Exception $e) {
             error_log("Bank Payment Processing Error: " . $e->getMessage());
             $this->logWebhookError('KCB', $e->getMessage(), $paymentData);
-            return formatResponse(false, null, 'Failed to process bank payment: ' . $e->getMessage());
+            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -268,7 +269,8 @@ class BankPaymentWebhook
 
         } catch (Exception $e) {
             error_log("Bank Payment Error: " . $e->getMessage());
-            return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

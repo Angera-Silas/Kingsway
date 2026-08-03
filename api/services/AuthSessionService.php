@@ -170,7 +170,7 @@ final class AuthSessionService
             return null;
         }
 
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $stmt = $this->db->prepare(
             "SELECT id, user_id, last_activity, expires_at
              FROM auth_sessions
@@ -222,7 +222,7 @@ final class AuthSessionService
             return null;
         }
 
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $stmt = $this->db->prepare(
             "SELECT id, user_id, last_activity, expires_at
              FROM auth_sessions
@@ -492,7 +492,7 @@ final class AuthSessionService
         }
 
         // All interpolated values below are strictly normalized integers.
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $baseSql = "
             SELECT
                 CONCAT('refresh:', rt.id) AS registry_key,

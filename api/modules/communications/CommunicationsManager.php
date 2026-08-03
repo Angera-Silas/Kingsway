@@ -263,17 +263,20 @@ class CommunicationsManager extends FileLifecycleBase
             $content = $body;
         }
 
-        $sql = "INSERT INTO communications (sender_id, subject, content, type, status, priority, template_id, scheduled_at) VALUES (:sender_id, :subject, :content, :type, :status, :priority, :template_id, :scheduled_at)";
+        $sql = "INSERT INTO communications (sender_id, subject, content, type, category, status, priority, template_id, scheduled_at, reminder_at, sender_signature) VALUES (:sender_id, :subject, :content, :type, :category, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':sender_id' => $data['sender_id'] ?? 1,
             ':subject' => $data['subject'] ?? 'No subject',
             ':content' => $content,
             ':type' => $type,
+            ':category' => $data['category'] ?? $data['message_type'] ?? null,
             ':status' => $data['status'] ?? 'draft',
             ':priority' => $data['priority'] ?? 'medium',
             ':template_id' => $data['template_id'] ?? null,
-            ':scheduled_at' => $data['scheduled_at'] ?? null
+            ':scheduled_at' => $data['scheduled_at'] ?? null,
+            ':reminder_at' => $data['reminder_at'] ?? null,
+            ':sender_signature' => $data['sender_signature'] ?? $data['signature'] ?? null,
         ]);
         return $this->getCommunication($this->db->lastInsertId());
     }
@@ -288,7 +291,7 @@ class CommunicationsManager extends FileLifecycleBase
     {
         $fields = [];
         $params = [':id' => $id];
-        foreach (["sender_id", "subject", "content", "type", "status", "priority", "template_id", "scheduled_at"] as $col) {
+        foreach (["sender_id", "subject", "content", "type", "category", "status", "priority", "template_id", "scheduled_at", "reminder_at", "sender_signature"] as $col) {
             if (isset($data[$col])) {
                 $fields[] = "$col = :$col";
                 $params[":$col"] = $data[$col];

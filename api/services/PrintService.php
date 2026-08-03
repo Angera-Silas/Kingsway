@@ -37,6 +37,9 @@ final class PrintService
 {
     private string $templatesPath;
     private string $certificatesPath;
+    private string $portfolioTemplatesPath;
+    private string $reportCardTemplatesPath;
+    private string $portfolioCssPath;
     private string $printCssPath;
     private string $idCardTemplatesPath;
     private string $idCardSharedCssPath;
@@ -83,6 +86,18 @@ final class PrintService
             . 'certificates'
             . DIRECTORY_SEPARATOR;
 
+        $this->portfolioTemplatesPath =
+            rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . 'portfolios'
+            . DIRECTORY_SEPARATOR;
+
+        $this->reportCardTemplatesPath =
+            rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . 'report_cards'
+            . DIRECTORY_SEPARATOR;
+
         $this->idCardTemplatesPath =
             rtrim((string) ID_CARD_TEMPLATES, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR;
@@ -95,6 +110,15 @@ final class PrintService
             . 'css'
             . DIRECTORY_SEPARATOR
             . 'print-reports.css';
+
+        $this->portfolioCssPath =
+            $projectRoot
+            . DIRECTORY_SEPARATOR
+            . 'public'
+            . DIRECTORY_SEPARATOR
+            . 'css'
+            . DIRECTORY_SEPARATOR
+            . 'portfolio-print.css';
 
         $idCardCssDirectory =
             $projectRoot
@@ -751,6 +775,222 @@ final class PrintService
         return $filepath;
     }
 
+
+    /**
+     * Render arbitrary HTML content as a PDF.
+     *
+     * Accepts fully-formed HTML (with <html>/<body>) or body-only HTML.
+     * If body-only, wraps it in the standard report document shell with
+     * header/footer. If full-document, renders it as-is (allows per-card
+     * styles and multi-card layouts with page breaks).
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $config
+     */
+    public function printHtml(array $data, array $config = []): string
+    {
+        $config = array_merge(
+            $this->defaultReportConfig(),
+            [
+                'html' => '',
+                'isFullDocument' => false,
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+                'filename' => 'document_' . date('Ymd_His'),
+            ],
+            $config
+        );
+
+        $html = $config['html'];
+
+        if (!$config['isFullDocument']) {
+            $variables = $this->buildTemplateVariables($config);
+            $header = $this->renderServerPartial('report_header.php', $variables);
+            $footer = $this->renderServerPartial('report_footer.php', $variables);
+
+            $html = $this->buildReportDocument(
+                $config['title'] ?? 'Document',
+                $header,
+                $html,
+                $footer,
+                $config['paperSize'],
+                $config['orientation']
+            );
+        }
+
+        return $this->generatePDF($html, [
+            'orientation' => $config['orientation'],
+            'paperSize' => $config['paperSize'],
+            'filename' => $config['filename'],
+            'showPageNumbers' => $config['showPageNumbers'],
+            'reportCode' => $config['reportCode'],
+        ]);
+    }
+
+    /**
+     * Generate a student portfolio PDF.
+     *
+     * @param array<string, mixed> $data Full portfolio data (student, portfolio, artifacts,
+     *                                    competencySummary, valuesSummary, teacherFeedback, etc.)
+     * @param array<string, mixed> $config
+     */
+    public function printPortfolio(array $data, array $config = []): string
+    {
+        $config = array_merge(
+            $this->defaultReportConfig(),
+            [
+                'filename' => 'portfolio_' . date('Ymd_His'),
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+            ],
+            $config
+        );
+
+        $templatePath = $this->portfolioTemplatesPath . 'portfolio_main.php';
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException("Portfolio template not found: {$templatePath}");
+        }
+
+        $footerTemplatePath = $this->portfolioTemplatesPath . 'portfolio_footer.php';
+
+        $student = $data['student'] ?? [];
+        $studentName = trim(($student['first_name']??'') . ' ' . ($student['last_name']??'')) ?: 'Student';
+        $config['title'] = $config['title'] ?? 'CBC Student Portfolio';
+        $config['subtitle'] = $config['subtitle'] ?? ('Evidence of Learning — ' . $studentName);
+
+        $variables = $this->buildTemplateVariables($config);
+        $variables = array_merge(
+            $variables,
+            [
+                'schoolLogo' => $this->resolvePdfAsset(
+                    (string) ($this->schoolConfig['logo'] ?? '')
+                ),
+            ],
+            $data,
+            $config
+        );
+
+        $bodyHtml = $this->renderPhpTemplate($templatePath, $variables);
+
+        $footerHtml = '';
+        if (is_file($footerTemplatePath)) {
+            $footerHtml = $this->renderServerPartial(
+                'portfolio_footer.php',
+                $variables,
+                $this->portfolioTemplatesPath
+            );
+        }
+
+        $html = $this->buildReportDocument(
+            $config['title'],
+            '', // no header — portfolio cover page is its own opener
+            $bodyHtml,
+            $footerHtml,
+            $config['paperSize'],
+            $config['orientation']
+        );
+
+        if (is_file($this->portfolioCssPath)) {
+            $portfolioCss = file_get_contents($this->portfolioCssPath);
+            if ($portfolioCss !== false) {
+                $html = str_replace(
+                    '</head>',
+                    '<style>' . $portfolioCss . '</style></head>',
+                    $html
+                );
+            }
+        }
+
+        return $this->generatePDF($html, [
+            'orientation' => $config['orientation'],
+            'paperSize' => $config['paperSize'],
+            'filename' => $config['filename'],
+            'showPageNumbers' => $config['showPageNumbers'] ?? true,
+            'reportCode' => $config['reportCode'] ?? '',
+        ]);
+    }
+
+    /**
+     * Generate a CBC report card PDF for the given level.
+     *
+     * Resolves the template by level: pp_report_card, lower_primary_report_card,
+     * upper_primary_report_card, junior_secondary_report_card.
+     *
+     * @param array<string, mixed> $data  Full report card data (student, term, scores,
+     *                                     competencies, values, attendance, comments, level)
+     * @param array<string, mixed> $config
+     * @throws RuntimeException when template not found
+     */
+    public function printReportCard(array $data, array $config = []): string
+    {
+        $config = array_merge(
+            $this->defaultReportConfig(),
+            [
+                'filename' => 'report_card_' . date('Ymd_His'),
+                'orientation' => 'portrait',
+                'paperSize' => 'A4',
+            ],
+            $config
+        );
+
+        $level = (string)($data['level'] ?? 'PP');
+        $templateMap = [
+            'PP'             => 'pp_report_card.php',
+            'LowerPrimary'   => 'lower_primary_report_card.php',
+            'UpperPrimary'   => 'upper_primary_report_card.php',
+            'JuniorSecondary'=> 'junior_secondary_report_card.php',
+        ];
+        $templateFile = $templateMap[$level] ?? 'pp_report_card.php';
+        $templatePath = $this->reportCardTemplatesPath . $templateFile;
+
+        if (!is_file($templatePath)) {
+            throw new \RuntimeException(
+                "Report card template not found for level '{$level}': {$templatePath}"
+            );
+        }
+
+        $levelTitles = [
+            'PP'             => 'Pre-Primary Progress Report',
+            'LowerPrimary'   => 'Lower Primary Progress Report',
+            'UpperPrimary'   => 'Upper Primary Progress Report',
+            'JuniorSecondary'=> 'Junior Secondary Progress Report — KJSEA Format',
+        ];
+        $config['title'] = $config['title']
+            ?? $levelTitles[$level]
+            ?? 'CBC Progress Report';
+
+        $student = $data['student'] ?? [];
+        $studentName = trim(($student['first_name']??'') . ' ' . ($student['last_name']??'')) ?: 'Student';
+        $gradeLabel = (string)($student['class_name'] ?? '');
+        $streamLabel = (string)($student['stream_name'] ?? '');
+        $config['subtitle'] = $config['subtitle']
+            ?? trim("Grade {$gradeLabel} {$streamLabel} — {$studentName}");
+
+        $variables = $this->buildTemplateVariables($config);
+        $variables = array_merge($variables, $data, $config);
+
+        $bodyHtml = $this->renderPhpTemplate($templatePath, $variables);
+
+        $header = $this->renderServerPartial('report_header.php', $variables);
+        $footer = $this->renderServerPartial('report_footer.php', $variables);
+
+        $html = $this->buildReportDocument(
+            $config['title'],
+            $header,
+            $bodyHtml,
+            $footer,
+            $config['paperSize'],
+            $config['orientation']
+        );
+
+        return $this->generatePDF($html, [
+            'orientation' => $config['orientation'],
+            'paperSize' => $config['paperSize'],
+            'filename' => $config['filename'],
+            'showPageNumbers' => $config['showPageNumbers'] ?? true,
+            'reportCode' => $config['reportCode'] ?? '',
+        ]);
+    }
 
     /**
      * @param array<int, array<string, mixed>> $cards
@@ -1710,13 +1950,15 @@ final class PrintService
      */
     private function renderServerPartial(
         string $filename,
-        array $variables
+        array $variables,
+        ?string $templateDir = null
     ): string {
-        $path = $this->templatesPath . $filename;
+        $dir = $templateDir ?? $this->templatesPath;
+        $path = rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $filename;
 
         if (!is_file($path) || !is_readable($path)) {
             throw new RuntimeException(
-                "Server print template was not found or is unreadable: {$path}"
+                "Server print partial template was not found or is unreadable: {$path}"
             );
         }
 
@@ -1952,6 +2194,8 @@ final class PrintService
             'Report template directory' => $this->templatesPath,
             'Certificate template directory' => $this->certificatesPath,
             'Student ID template directory' => $this->idCardTemplatesPath,
+            'Portfolio template directory' => $this->portfolioTemplatesPath,
+            'Report card template directory' => $this->reportCardTemplatesPath,
         ];
 
         foreach ($requiredDirectories as $label => $path) {

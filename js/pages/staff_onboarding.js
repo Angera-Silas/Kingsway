@@ -61,7 +61,7 @@ const staffOnboardingController = {
       this._setStats(resp?.stats || {});
       this._renderCards();
     } catch (e) {
-      if (grid) grid.innerHTML = `<div class="col-12 text-danger text-center py-4">${e.message||'Load failed'}</div>`;
+      if (grid) grid.innerHTML = `<div class="col-12 text-danger text-center py-4">${this._esc(e.message||'Load failed')}</div>`;
     }
   },
 

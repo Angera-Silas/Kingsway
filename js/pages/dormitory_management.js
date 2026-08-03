@@ -32,14 +32,8 @@ const DormitoryManagementController = {
   async loadData() {
     try {
       this.showGridLoading();
-      // Use a generic approach since boarding API may not exist
-      const res = await API.callAPI('/?route=boarding&action=dormitories')
-        .then((data) => ({ success: true, data }))
-        .catch(() => null);
-
-      if (res?.success) {
-        this.state.dorms = res.data || [];
-      }
+      this.state.dorms = await API.callAPI('/?route=boarding&action=dormitories')
+        .catch(() => []);
       this.updateStats();
       this.renderDormsGrid();
     } catch (error) {
@@ -157,11 +151,8 @@ const DormitoryManagementController = {
 
   async viewOccupants(dormId) {
     try {
-      const res = await API.callAPI(`/?route=boarding&action=occupants&dorm_id=${dormId}`)
-        .then((data) => ({ success: true, data }))
-        .catch(() => null);
-
-      const occupants = res?.success ? res.data || [] : [];
+      const occupants = await API.callAPI(`/?route=boarding&action=occupants&dorm_id=${dormId}`)
+        .catch(() => []);
       let html =
         occupants.length === 0
           ? '<p class="text-muted">No occupants found</p>'
@@ -180,20 +171,14 @@ const DormitoryManagementController = {
     const data = Object.fromEntries(new FormData(form).entries());
 
     try {
-      const res = await API.callAPI('/?route=boarding&action=create-dormitory', 'POST', data)
-        .then((response) => ({ success: true, data: response }))
-        .catch(() => null);
+      await API.callAPI('/?route=boarding&action=create-dormitory', 'POST', data);
 
-      if (res?.success) {
-        this.showNotification("Dormitory saved", "success");
-        bootstrap.Modal.getInstance(
-          document.getElementById("addDormModal"),
-        )?.hide();
-        form.reset();
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to save", "error");
-      }
+      this.showNotification("Dormitory saved", "success");
+      bootstrap.Modal.getInstance(
+        document.getElementById("addDormModal"),
+      )?.hide();
+      form.reset();
+      await this.loadData();
     } catch (error) {
       console.error("Error saving dorm:", error);
     }

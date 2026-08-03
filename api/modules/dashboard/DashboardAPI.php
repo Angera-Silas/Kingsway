@@ -33,7 +33,7 @@ class DashboardAPI
             }
         } catch (\Exception $e) {
             http_response_code(500);
-            return ['success' => false, 'message' => $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 

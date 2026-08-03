@@ -49,19 +49,19 @@
       <div class="row g-2 align-items-end">
         <div class="col-md-2">
           <label class="form-label small fw-semibold mb-1">Term</label>
-          <select id="faTermFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll()">
+          <select id="faTermFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll(); fAssCtrl._loadSummary()">
             <option value="">All Terms</option>
           </select>
         </div>
         <div class="col-md-2">
           <label class="form-label small fw-semibold mb-1">Class</label>
-          <select id="faClassFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll()">
+          <select id="faClassFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll(); fAssCtrl._loadSummary()">
             <option value="">All Classes</option>
           </select>
         </div>
         <div class="col-md-3">
           <label class="form-label small fw-semibold mb-1">Learning Area</label>
-          <select id="faSubjectFilter" class="form-select form-select-sm" onchange="fAssCtrl.loadAll()">
+          <select id="faSubjectFilter" class="form-select form-select-sm" onchange="fAssCtrl._onSubjectFilterChange()">
             <option value="">All Learning Areas</option>
           </select>
         </div>
@@ -119,7 +119,28 @@
     <div class="tab-pane fade" id="faTabSummary">
       <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <p class="text-muted small mb-3">Aggregated formative averages per student per learning area.</p>
+          <div class="row g-2 mb-3 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold mb-1">Breakdown</label>
+              <select id="faSummaryBreakdown" class="form-select form-select-sm" onchange="fAssCtrl._loadSummary()">
+                <option value="learning_area">By Learning Area</option>
+                <option value="strand">By Strand</option>
+                <option value="sub_strand">By Sub-strand</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label small fw-semibold mb-1">Strand <small class="text-muted">(optional)</small></label>
+              <select id="faStrandFilter" class="form-select form-select-sm" onchange="fAssCtrl._loadSummary()">
+                <option value="">All Strands</option>
+              </select>
+            </div>
+            <div class="col-md-5">
+              <p class="text-muted small mb-0 mt-4">
+                <i class="bi bi-info-circle me-1"></i>
+                Aggregated formative averages per student. Strand / Sub-strand views require a Learning Area filter above.
+              </p>
+            </div>
+          </div>
           <div id="faSummaryContainer">
             <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
           </div>
@@ -168,6 +189,12 @@
               <option value="">— Select learning area —</option>
             </select>
           </div>
+          <div class="col-md-12">
+            <label class="form-label fw-semibold">Learning Outcome <small class="text-muted">(optional)</small></label>
+            <select id="faOutcome" class="form-select">
+              <option value="">— Select learning outcome —</option>
+            </select>
+          </div>
           <div class="col-md-3">
             <label class="form-label fw-semibold">Max Marks <span class="text-danger">*</span></label>
             <input type="number" id="faMaxMarks" class="form-control" value="100" min="1">
@@ -187,5 +214,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/formative_assessments.js"></script>
+<script src="<?= $appBase ?>/js/pages/formative_assessments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/formative_assessments.js") ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>

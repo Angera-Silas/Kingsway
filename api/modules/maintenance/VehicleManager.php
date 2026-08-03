@@ -68,10 +68,8 @@ class VehicleManager extends BaseAPI
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Failed to list vehicle maintenance records: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -99,10 +97,8 @@ class VehicleManager extends BaseAPI
                 'data' => $record
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Failed to get vehicle maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -168,10 +164,8 @@ class VehicleManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error creating vehicle maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -240,10 +234,8 @@ class VehicleManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error updating vehicle maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -268,10 +260,8 @@ class VehicleManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error deleting vehicle maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -303,10 +293,8 @@ class VehicleManager extends BaseAPI
                 'data' => $records
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error fetching cost summary: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -332,10 +320,8 @@ class VehicleManager extends BaseAPI
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error fetching upcoming schedule: ' . $e->getMessage()
-            ];
+            error_log('[VehicleManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

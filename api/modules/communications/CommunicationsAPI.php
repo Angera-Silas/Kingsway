@@ -154,6 +154,84 @@ class CommunicationsAPI extends BaseAPI
     }
 
     /**
+     * Resend a failed/pending communication
+     * POST /communications/resend
+     * Expects: { id: communication_id }
+     * Re-sends via the appropriate channel (sms/email/whatsapp) and updates status.
+     */
+    public function resendCommunication($data)
+    {
+        $commId = $data['id'] ?? $data['communication_id'] ?? null;
+        if (!$commId) {
+            return ['status' => 'error', 'message' => 'Communication ID is required'];
+        }
+
+        $comm = $this->manager->getCommunication((int)$commId);
+        if (!$comm) {
+            return ['status' => 'error', 'message' => 'Communication not found'];
+        }
+
+        $type = $comm['type'] ?? 'sms';
+        $message = $comm['content'] ?? $comm['body'] ?? $comm['subject'] ?? '';
+        $recipients = [];
+        $recipientRows = $this->manager->listRecipients((int)$commId);
+        foreach ($recipientRows as $r) {
+            $recipients[] = $r['recipient_id'];
+        }
+
+        // Re-send via the appropriate gateway
+        $gateway = new \App\API\Services\sms\SMSGateway();
+        $sent = 0;
+        $failed = [];
+
+        foreach ($recipients as $phone) {
+            try {
+                if ($type === 'whatsapp') {
+                    $result = $gateway->sendWhatsApp($phone, $message);
+                } else {
+                    $result = $gateway->send($phone, $message);
+                }
+
+                $success = false;
+                if (is_bool($result)) {
+                    $success = $result;
+                } elseif (is_array($result) && ($result['status'] ?? '') === 'success') {
+                    $success = true;
+                }
+
+                if ($success) {
+                    $sent++;
+                } else {
+                    $failed[] = $phone;
+                }
+            } catch (\Exception $e) {
+                $failed[] = $phone;
+                error_log('SMS Resend Error: ' . $e->getMessage());
+            }
+        }
+
+        // Update the communication status
+        $newStatus = $sent > 0 ? 'sent' : 'failed';
+        $this->manager->updateCommunication((int)$commId, ['status' => $newStatus]);
+
+        // Update individual recipient delivery status
+        if ($sent > 0) {
+            foreach ($recipientRows as $r) {
+                $this->manager->updateDeliveryStatus($r['id'], 'sent', date('Y-m-d H:i:s'));
+            }
+        }
+
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'message' => $sent > 0 ? "Resent to $sent recipient(s)" : 'Resend failed',
+            'sent_count' => $sent,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+            'communication_id' => (int)$commId,
+        ];
+    }
+
+    /**
      * Send email directly
      * Mapped to: POST /communications/send-email
      * @param array $recipients Array of emails or [email => name] pairs
@@ -338,11 +416,8 @@ class CommunicationsAPI extends BaseAPI
             }
         } catch (\Exception $e) {
             error_log("Fee Reminder Error: " . $e->getMessage());
-            return [
-                'status' => 'error',
-                'message' => 'Error sending fee reminder: ' . $e->getMessage(),
-                'data' => null
-            ];
+            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
         }
     }
 
@@ -1151,7 +1226,7 @@ class CommunicationsAPI extends BaseAPI
                 } catch (\Exception $e) {
                     $failed[] = [
                         'phone' => $phone,
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -1171,11 +1246,8 @@ class CommunicationsAPI extends BaseAPI
             ];
         } catch (\Exception $e) {
             error_log("WhatsApp Template Error: " . $e->getMessage());
-            return [
-                'status' => 'error',
-                'message' => $e->getMessage(),
-                'data' => null
-            ];
+            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
         }
     }
 
@@ -1246,11 +1318,8 @@ class CommunicationsAPI extends BaseAPI
             }
         } catch (\Exception $e) {
             error_log("Create WhatsApp Template Error: " . $e->getMessage());
-            return [
-                'status' => 'error',
-                'message' => $e->getMessage(),
-                'data' => null
-            ];
+            error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
         }
     }
 

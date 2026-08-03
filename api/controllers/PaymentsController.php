@@ -52,7 +52,8 @@ class PaymentsController extends BaseController
                 'timestamp' => date('Y-m-d H:i:s')
             ], 'Revenue sources breakdown');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch revenue sources: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -130,7 +131,8 @@ class PaymentsController extends BaseController
             ], 'Fees collection statistics');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch fees statistics: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -202,7 +204,8 @@ class PaymentsController extends BaseController
             ], 'Collection trends retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch collection trends: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -343,7 +346,8 @@ class PaymentsController extends BaseController
 
             return $this->success(['transactions' => $rows]);
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch unmatched mpesa transactions: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -404,7 +408,8 @@ class PaymentsController extends BaseController
             return $this->success(['imported' => $inserted], 'Import completed');
         } catch (\Exception $e) {
             $this->db->rollBack();
-            return $this->error('Failed to import mpesa transactions: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -552,11 +557,10 @@ class PaymentsController extends BaseController
                 ? 'Payment reconciled and allocated to student fees'
                 : 'Transaction recorded (no student linked - fees not updated)');
 
-        } catch (\Exception $e) {
-            if ($this->db->inTransaction())
-                $this->db->rollBack();
-            return $this->error('Reconcile failed: ' . $e->getMessage(), null, 500);
-        }
+        } catch (Exception $e) {
+    error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    return $this->error('An internal error occurred.');
+}
     }
 
     /**
@@ -595,7 +599,8 @@ class PaymentsController extends BaseController
 
             return $this->success(['history' => $rows]);
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch reconciliation history: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -742,7 +747,8 @@ class PaymentsController extends BaseController
             ], count($results) . ' student(s) found for phone ' . $phone);
 
         } catch (\Exception $e) {
-            return $this->error('Phone lookup failed: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -841,7 +847,8 @@ class PaymentsController extends BaseController
             ], 'Student linked successfully');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to link student: ' . $e->getMessage());
+            error_log('[PaymentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

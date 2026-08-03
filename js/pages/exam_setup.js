@@ -45,8 +45,8 @@ const examSetupController = (() => {
       { grade: "E", min: 0, max: 49, remarks: "Fail" },
     ],
     cbc: [
-      { grade: "EE", min: 80, max: 100, remarks: "Exceeding Expectations" },
-      { grade: "ME", min: 60, max: 79, remarks: "Meeting Expectations" },
+      { grade: "EE", min: 75, max: 100, remarks: "Exceeding Expectations" },
+      { grade: "ME", min: 60, max: 74, remarks: "Meeting Expectations" },
       { grade: "AE", min: 40, max: 59, remarks: "Approaching Expectations" },
       { grade: "BE", min: 0, max: 39, remarks: "Below Expectations" },
     ],

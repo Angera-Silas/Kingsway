@@ -102,7 +102,8 @@ class PermissionManager
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_assigned' => count($permissions)]];
         } catch (Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
     public function bulkRevokePermissionsFromUser($userId, $permissions)
@@ -133,7 +134,8 @@ class PermissionManager
 
             return ['success' => true, 'data' => ['user_id' => $userId, 'permissions_revoked' => count($permissions)]];
         } catch (Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[PermissionManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
     public function bulkAssignPermissionsToRole($roleId, $formPermissionIds)

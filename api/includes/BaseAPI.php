@@ -164,22 +164,22 @@ class BaseAPI extends FileLifecycleBase
 
             // Log to database
             $stmt = $this->db->prepare("
-                INSERT INTO system_logs (
-                    request_id, user_id, action, entity_type, 
-                    entity_id, description, ip_address, created_at
+                INSERT INTO audit_logs (
+                    action, entity, entity_id, user_id, ip_address,
+                    user_agent, details, status, created_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, NOW()
+                    ?, ?, ?, ?, ?, ?, ?, 'success', NOW()
                 )
             ");
 
             $stmt->execute([
-                $this->request_id,
-                $this->user_id,
                 $action_type,
                 $this->module,
                 $record_id,
-                $description,
-                $_SERVER['REMOTE_ADDR']
+                $this->user_id,
+                $_SERVER['REMOTE_ADDR'] ?? null,
+                $_SERVER['HTTP_USER_AGENT'] ?? null,
+                $description
             ]);
 
             // For audit logs
@@ -202,7 +202,7 @@ class BaseAPI extends FileLifecycleBase
                 'type' => 'error',
                 'module' => $this->module,
                 'context' => $context,
-                'message' => $e->getMessage(),
+                'message' => 'An internal error occurred.',
                 'code' => $e->getCode(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),

@@ -90,6 +90,26 @@ class ControllerRouter
                 }
             }
 
+            // Fallback: if the full joined resource resolves to nothing but the
+            // resource-minus-last-segment maps to an existing method, treat the
+            // last segment as a string ID. This supports RESTful routes with
+            // non-numeric IDs (e.g. /parent-portal/mpesa-status/{checkoutRequestId}
+            // where Safaricom checkout IDs are alphanumeric). Only applies when the
+            // full resource would otherwise 404, so existing named resources such
+            // as /inventory/items-list are never affected.
+            if (!$found && $resource && count($segments) > 1) {
+                $stringId = array_pop($segments);
+                $prefixResource = implode('-', $segments);
+                $prefixMethod = $this->buildMethodName($method, $prefixResource);
+                if ($prefixResource && method_exists($controller, $prefixMethod)) {
+                    $found = $prefixMethod;
+                    $id = $stringId;
+                } else {
+                    // Restore segments if fallback didn't apply
+                    $segments[] = $stringId;
+                }
+            }
+
             if ($found) {
                 $methodName = $found;
             } else {
@@ -134,11 +154,8 @@ class ControllerRouter
             ];
 
         } catch (Exception $e) {
-            $code = (int) $e->getCode();
-            if ($code < 400 || $code > 599) {
-                $code = 500;
-            }
-            return $this->abort($code, $e->getMessage());
+            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->abort(500, 'An internal error occurred.');
         }
     }
 
@@ -274,6 +291,10 @@ class ControllerRouter
         ];
     }
 
+    /**
+     * @deprecated Unused behind defined('DEBUG') guard. Not called anywhere
+     *             in the active codebase. Remove when cleaning dead code.
+     */
     private function ensureLogDir(): string
     {
         $logDir = dirname(__DIR__, 2) . '/logs';
@@ -283,6 +304,10 @@ class ControllerRouter
         return $logDir;
     }
 
+    /**
+     * @deprecated Unused behind defined('DEBUG') guard. Not called anywhere
+     *             in the active codebase. Remove when cleaning dead code.
+     */
     private function debugLog(array $data): void
     {
         if (!defined('DEBUG') || !DEBUG) {

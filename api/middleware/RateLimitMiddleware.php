@@ -12,7 +12,14 @@ class RateLimitMiddleware
     const ANONYMOUS_REQUESTS_LIMIT = 120;
     const AUTHENTICATED_REQUESTS_LIMIT = 600;
     const REFRESH_REQUESTS_LIMIT = 60;
+    const LOGIN_REQUESTS_LIMIT = 60;
     const TIME_WINDOW = 60; // seconds
+
+    // Login endpoints that get a stricter rate limit.
+    const LOGIN_PATHS = [
+        '/auth/login',
+        '/users/login',
+    ];
 
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
@@ -67,9 +74,24 @@ class RateLimitMiddleware
             return self::REFRESH_REQUESTS_LIMIT;
         }
 
+        if (self::isLoginEndpoint()) {
+            return self::LOGIN_REQUESTS_LIMIT;
+        }
+
         return strpos($rateKey, 'user:') === 0
             ? self::AUTHENTICATED_REQUESTS_LIMIT
             : self::ANONYMOUS_REQUESTS_LIMIT;
+    }
+
+    private static function isLoginEndpoint()
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        foreach (self::LOGIN_PATHS as $loginPath) {
+            if (strpos($path, $loginPath) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function resolveRateKey($ipAddress)

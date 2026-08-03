@@ -128,7 +128,8 @@ class ReAdmissionWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('submitReAdmission', $e->getMessage());
-            return formatResponse(false, null, 'Failed to submit re-admission: ' . $e->getMessage());
+            error_log('[ReAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -171,7 +172,8 @@ class ReAdmissionWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('reviewReAdmission', $e->getMessage());
-            return formatResponse(false, null, 'Failed to review re-admission: ' . $e->getMessage());
+            error_log('[ReAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -238,7 +240,8 @@ class ReAdmissionWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('approveReAdmission', $e->getMessage());
-            return formatResponse(false, null, 'Failed to approve re-admission: ' . $e->getMessage());
+            error_log('[ReAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -296,7 +299,8 @@ class ReAdmissionWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('completeReAdmission', $e->getMessage());
-            return formatResponse(false, null, 'Failed to complete re-admission: ' . $e->getMessage());
+            error_log('[ReAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -339,7 +343,8 @@ class ReAdmissionWorkflow extends WorkflowHandler
             return formatResponse(true, $readmission, 'Re-admission details retrieved successfully');
         } catch (Exception $e) {
             $this->logError('getReAdmissionDetails', $e->getMessage());
-            return formatResponse(false, null, 'Failed to get re-admission details: ' . $e->getMessage());
+            error_log('[ReAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

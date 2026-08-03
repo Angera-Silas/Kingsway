@@ -62,7 +62,7 @@ class OTPDeliveryService
         if ($this->smsGateway) {
             try {
                 $result = $this->smsGateway->send($phone, $message);
-                return $result['success'] ?? false;
+                return is_bool($result) ? $result : ($result['success'] ?? false);
             } catch (\Throwable $e) {
                 error_log("[OTPDelivery] SMS failed: " . $e->getMessage());
                 return false;

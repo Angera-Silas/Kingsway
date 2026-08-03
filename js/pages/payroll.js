@@ -124,17 +124,13 @@ const payrollController = {
 
     const [year, month] = period.split("-");
     try {
-      const response = await window.API.staff.generateDetailedPayslip(
+      await window.API.staff.generateDetailedPayslip(
         staffId,
         parseInt(month),
         parseInt(year),
       );
-      if (response?.success || response?.data) {
-        this.notify("Payroll processed successfully!", "success");
-        this.loadReport();
-      } else {
-        this.notify(response?.message || "Failed to process payroll", "error");
-      }
+      this.notify("Payroll processed successfully!", "success");
+      this.loadReport();
     } catch (error) {
       console.error("Error processing payroll:", error);
       this.notify(

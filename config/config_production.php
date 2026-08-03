@@ -62,9 +62,6 @@ define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
 
-define('CURRENT_YEAR', date('Y'));
-define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
-
 /*
 |--------------------------------------------------------------------------
 | Database
@@ -75,7 +72,31 @@ define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
 define('DB_USER', $_ENV['DB_USER'] ?? 'kingswa4_root');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'kingswa4_kingswayacademy');
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
+// WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? '');
+
+try {
+    $_db = new \PDO(
+        'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+        DB_USER,
+        DB_PASS,
+        [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
+    );
+    $_row = $_db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetch();
+    define('CURRENT_YEAR', $_row ? (int) $_row['id'] : (int) date('Y'));
+    $_row2 = $_db->query(
+        "SELECT ayt.id
+           FROM academic_year_terms ayt
+           JOIN academic_years ay ON ay.id = ayt.academic_year_id
+          WHERE ay.is_current = 1 AND ayt.status = 'current'
+          LIMIT 1"
+    )->fetch();
+    define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    $_db = null;
+} catch (\Exception $_e) {
+    define('CURRENT_YEAR', (int) date('Y'));
+    define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -83,6 +104,7 @@ define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 |--------------------------------------------------------------------------
 */
 
+// WARNING: Default secret is insecure. Must be overridden in .env for any non-development environment.
 $jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
 
 if ($jwtSecret === '') {

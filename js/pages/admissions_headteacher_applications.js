@@ -386,14 +386,10 @@ const headteacherApplicationsController = {
             assessment_data: assessmentData
         })
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Interview results recorded successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('conductInterviewModal')).hide();
-                    document.getElementById('conductInterviewForm').reset();
-                    this.loadApplications();
-                } else {
-                    showNotification('error', response.message || 'Failed to record interview results');
-                }
+                showNotification('success', 'Interview results recorded successfully');
+                bootstrap.Modal.getInstance(document.getElementById('conductInterviewModal')).hide();
+                document.getElementById('conductInterviewForm').reset();
+                this.loadApplications();
             })
             .catch(error => {
                 console.error('Failed to submit interview results:', error);

@@ -88,7 +88,7 @@ class BulkCrudController {
                             $stmt->execute([$preview ?: $mediaId, $id]);
                             echo json_encode(['status' => 'success', 'media_id' => $mediaId, 'preview' => $preview]);
                         } catch (\Exception $e) {
-                            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+                            echo json_encode(['status' => 'error', 'message' => 'An internal error occurred.']);
                         }
                     } else {
                         echo json_encode(['status' => 'error', 'message' => 'No file uploaded']);
@@ -106,7 +106,7 @@ class BulkCrudController {
                             $stmt->execute([$id, $preview ?: $mediaId, $mediaId]);
                             echo json_encode(['status' => 'success', 'media_id' => $mediaId, 'preview' => $preview]);
                         } catch (\Exception $e) {
-                            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+                            echo json_encode(['status' => 'error', 'message' => 'An internal error occurred.']);
                         }
                     } else {
                         echo json_encode(['status' => 'error', 'message' => 'No file uploaded']);

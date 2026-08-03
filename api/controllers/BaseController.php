@@ -44,41 +44,51 @@ abstract class BaseController extends FileLifecycleBase
     // ========================================================================
 
     /**
+     * Canonical response helper — all response methods converge through this.
+     *
+     * Produces a uniform shape that ApiResponse::normalize() can reconcile:
+     *   { success, status, data, message, code, timestamp, request_id }
+     */
+    protected function respond($data = null, string $message = 'OK', int $code = 200, bool $success = true): array
+    {
+        http_response_code($code);
+        return [
+            'success' => $success,
+            'status' => $success ? 'success' : 'error',
+            'data' => $data,
+            'message' => $message,
+            'code' => $code,
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+            'request_id' => $_SERVER['REQUEST_ID'] ?? $this->requestId,
+        ];
+    }
+
+    /**
      * Success response (200 OK)
-     * @param mixed $data The response data
-     * @param string $message Optional message
-     * @return string JSON response
      */
     protected function success($data = null, $message = 'Success')
     {
-        return $this->formatResponse('success', $data, $message, 200);
+        return $this->respond($data, $message, 200, true);
     }
 
     /**
      * Created response (201 Created)
-     * @param mixed $data The created resource
-     * @param string $message Optional message
-     * @return string JSON response
      */
     protected function created($data = null, $message = 'Resource created successfully')
     {
-        return $this->formatResponse('success', $data, $message, 201);
+        return $this->respond($data, $message, 201, true);
     }
 
     /**
      * Accepted response (202 Accepted) - for async operations
-     * @param mixed $data The response data
-     * @param string $message Optional message
-     * @return string JSON response
      */
     protected function accepted($data = null, $message = 'Request accepted for processing')
     {
-        return $this->formatResponse('success', $data, $message, 202);
+        return $this->respond($data, $message, 202, true);
     }
 
     /**
      * No content response (204 No Content) - for delete operations
-     * @return string JSON response
      */
     protected function noContent()
     {
@@ -88,123 +98,90 @@ abstract class BaseController extends FileLifecycleBase
 
     /**
      * Bad request (400 Bad Request)
-     * @param string $message Error message
-     * @param mixed $data Additional error data
-     * @return string JSON response
      */
     protected function badRequest($message = 'Bad request', $data = null)
     {
-        return $this->formatResponse('error', $data, $message, 400);
+        return $this->respond($data, $message, 400, false);
     }
 
     /**
      * Unauthorized response (401 Unauthorized)
-     * @param string $message Error message
-     * @return string JSON response
      */
     protected function unauthorized($message = 'Unauthorized')
     {
-        return $this->formatResponse('error', null, $message, 401);
+        return $this->respond(null, $message, 401, false);
     }
 
     /**
      * Forbidden response (403 Forbidden)
-     * @param string $message Error message
-     * @return string JSON response
      */
     protected function forbidden($message = 'Access forbidden')
     {
-        return $this->formatResponse('error', null, $message, 403);
+        return $this->respond(null, $message, 403, false);
     }
 
     /**
      * Not found response (404 Not Found)
-     * @param string $message Error message
-     * @return string JSON response
      */
     protected function notFound($message = 'Resource not found')
     {
-        return $this->formatResponse('error', null, $message, 404);
+        return $this->respond(null, $message, 404, false);
     }
 
     /**
      * Conflict response (409 Conflict)
-     * @param string $message Error message
-     * @param mixed $data Additional error data
-     * @return string JSON response
      */
     protected function conflict($message = 'Resource conflict', $data = null)
     {
-        return $this->formatResponse('error', $data, $message, 409);
+        return $this->respond($data, $message, 409, false);
     }
 
     /**
      * Unprocessable entity (422 Unprocessable Entity)
-     * @param string $message Error message
-     * @param mixed $data Validation errors or additional data
-     * @return string JSON response
      */
     protected function unprocessable($message = 'Unprocessable entity', $data = null)
     {
-        return $this->formatResponse('error', $data, $message, 422);
+        return $this->respond($data, $message, 422, false);
     }
 
     /**
      * Server error (500 Internal Server Error)
-     * @param string $message Error message
-     * @param mixed $debugData Debug information (only if DEBUG mode enabled)
-     * @return string JSON response
      */
     protected function serverError($message = 'Internal server error', $debugData = null)
     {
-        return $this->formatResponse(
-            'error',
+        return $this->respond(
             DEBUG ? ['debug' => $debugData, 'request_id' => $this->requestId] : null,
             $message,
-            500
+            500,
+            false
         );
     }
 
     /**
-     * Legacy method for backwards compatibility
-     * Generic error response - automatically sets 400/500 based on message
-     * @deprecated Use success(), created(), badRequest(), etc. instead
+     * Legacy — generic error response.
+     * @deprecated Use badRequest(), notFound(), etc.
      */
     protected function error($message = 'An error occurred', $data = null, $code = 400)
     {
-        return $this->formatResponse('error', $data, $message, $code);
+        return $this->respond($data, $message, $code, false);
     }
 
     /**
-     * Legacy method for backwards compatibility
-     * @deprecated Use success(), created(), badRequest(), etc. instead
+     * Legacy — respond with given code.
+     * @deprecated Use success(), created(), badRequest(), etc.
      */
     protected function respondWith($code, $message, $data = null)
     {
-        $status = ($code >= 200 && $code < 300) ? 'success' : 'error';
-        return $this->formatResponse($status, $data, $message, $code);
+        return $this->respond($data, $message, (int) $code, ($code >= 200 && $code < 300));
     }
 
     /**
-     * Core response formatter - unified format for all endpoints
-     * @param string $status 'success' or 'error'
-     * @param mixed $data Response data
-     * @param string $message Human-readable message
-     * @param int $code HTTP status code
-     * @return string JSON response
+     * Core response formatter — delegates to respond() for convergence.
+     * @deprecated Use respond() directly in new code.
      */
     private function formatResponse($status, $data, $message, $code)
     {
-        http_response_code($code);
-        // Return array, not JSON string - api/index.php will json_encode it
-        return [
-            'status' => $status,
-            'message' => $message,
-            'data' => $data,
-            'code' => $code,
-            'timestamp' => date('c'),
-            'request_id' => $this->requestId
-        ];
+        return $this->respond($data, $message, (int) $code, $status === 'success');
     }
 
     // ========================================================================
@@ -367,12 +344,12 @@ abstract class BaseController extends FileLifecycleBase
     // HELPER METHODS
     // ========================================================================
 
-    protected function getUser()
+    public function getUser()
     {
         return $this->user;
     }
 
-    protected function getUserId()
+    public function getUserId()
     {
         return $this->user['user_id'] ?? $this->user['id'] ?? null;
     }
@@ -399,7 +376,7 @@ abstract class BaseController extends FileLifecycleBase
         return in_array((int) $roleId, $this->getUserRoleIds());
     }
 
-    protected function getDb()
+    public function getDb()
     {
         return $this->db;
     }
@@ -622,7 +599,7 @@ abstract class BaseController extends FileLifecycleBase
             return $this->notFound("Method '$methodName' not found in API");
 
         } catch (Exception $e) {
-            return $this->serverError('API method call failed', $e->getMessage());
+            return $this->serverError('API method call failed', 'An internal error occurred.');
         }
     }
 
@@ -677,7 +654,7 @@ abstract class BaseController extends FileLifecycleBase
         } catch (\ReflectionException $e) {
             return $this->badRequest("Invalid method: $methodName");
         } catch (Exception $e) {
-            return $this->serverError('Method execution failed', $e->getMessage());
+            return $this->serverError('Method execution failed', 'An internal error occurred.');
         }
     }
 

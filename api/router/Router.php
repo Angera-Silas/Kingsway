@@ -74,7 +74,7 @@ class Router
                 "success" => false,
                 "status" => "error",
                 "data" => null,
-                "message" => $e->getMessage(),
+                "message" => 'An internal error occurred.',
                 "errors" => [],
                 "code" => $code
             ];

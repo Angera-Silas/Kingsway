@@ -98,45 +98,47 @@ class FeeStructureController {
   /**
    * Load academic years for filter dropdown
    */
-  loadAcademicYears() {
-    API.GET("/academic/years/list", {})
-      .then((response) => {
-        if (response.success && response.data.years) {
-          const select = document.getElementById("academicYearFilter");
-          response.data.years.forEach((year) => {
-            const option = document.createElement("option");
-            option.value = year.id;
-            option.textContent = year.year;
-            select.appendChild(option);
-          });
-        }
-      })
-      .catch((error) => console.error("Failed to load academic years:", error));
+  async loadAcademicYears() {
+    try {
+      const response = await API.apiCall("/academic/years/list", "GET", null, {});
+      if (response.years) {
+        const select = document.getElementById("academicYearFilter");
+        response.years.forEach((year) => {
+          const option = document.createElement("option");
+          option.value = year.id;
+          option.textContent = year.year;
+          select.appendChild(option);
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load academic years:", error);
+    }
   }
 
   /**
    * Load classes for filter dropdown
    */
-  loadClasses() {
-    API.GET("/academics/classes/list", {})
-      .then((response) => {
-        if (response.success && response.data.classes) {
-          const select = document.getElementById("classFilter");
-          response.data.classes.forEach((cls) => {
-            const option = document.createElement("option");
-            option.value = cls.id;
-            option.textContent = cls.name;
-            select.appendChild(option);
-          });
-        }
-      })
-      .catch((error) => console.error("Failed to load classes:", error));
+  async loadClasses() {
+    try {
+      const response = await API.apiCall("/academics/classes/list", "GET", null, {});
+      if (response.classes) {
+        const select = document.getElementById("classFilter");
+        response.classes.forEach((cls) => {
+          const option = document.createElement("option");
+          option.value = cls.id;
+          option.textContent = cls.name;
+          select.appendChild(option);
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load classes:", error);
+    }
   }
 
   /**
    * Load fee structures with current filters
    */
-  loadFeeStructures(page = 1) {
+  async loadFeeStructures(page = 1) {
     const filters = {
       page: page,
       limit: this.itemsPerPage,
@@ -153,20 +155,15 @@ class FeeStructureController {
       }
     });
 
-    API.GET("/finance/fee-structures/list", filters)
-      .then((response) => {
-        if (response.success) {
-          this.renderFeeStructures(response.data.fee_structures);
-          this.updateStats(response.data);
-          this.renderPagination(response.data.pagination);
-        } else {
-          this.showError(response.message || "Failed to load fee structures");
-        }
-      })
-      .catch((error) => {
-        console.error("Error loading fee structures:", error);
-        this.showError("Error loading fee structures");
-      });
+    try {
+      const response = await API.apiCall("/finance/fee-structures/list", "GET", null, filters);
+      this.renderFeeStructures(response.fee_structures);
+      this.updateStats(response);
+      this.renderPagination(response.pagination);
+    } catch (error) {
+      console.error("Error loading fee structures:", error);
+      this.showError("Error loading fee structures");
+    }
   }
 
   /**
@@ -251,46 +248,36 @@ class FeeStructureController {
   /**
    * View a fee structure
    */
-  viewStructure(structureId) {
-    API.GET(`/api/finance/fee-structures/${structureId}`, {})
-      .then((response) => {
-        if (response.success) {
-          this.displayStructureModal(
-            response.data.structure,
-            response.data.fee_items,
-            true,
-          );
-        } else {
-          this.showError(response.message || "Failed to load structure");
-        }
-      })
-      .catch((error) => {
-        console.error("Error loading structure:", error);
-        this.showError("Error loading structure");
-      });
+  async viewStructure(structureId) {
+    try {
+      const response = await API.apiCall(`/api/finance/fee-structures/${structureId}`, "GET");
+      this.displayStructureModal(
+        response.structure,
+        response.fee_items,
+        true,
+      );
+    } catch (error) {
+      console.error("Error loading structure:", error);
+      this.showError("Error loading structure");
+    }
   }
 
   /**
    * Edit a fee structure
    */
-  editStructure(structureId) {
-    API.GET(`/api/finance/fee-structures/${structureId}`, {})
-      .then((response) => {
-        if (response.success) {
-          this.editingStructureId = structureId;
-          this.displayStructureModal(
-            response.data.structure,
-            response.data.fee_items,
-            false,
-          );
-        } else {
-          this.showError(response.message || "Failed to load structure");
-        }
-      })
-      .catch((error) => {
-        console.error("Error loading structure:", error);
-        this.showError("Error loading structure");
-      });
+  async editStructure(structureId) {
+    try {
+      const response = await API.apiCall(`/api/finance/fee-structures/${structureId}`, "GET");
+      this.editingStructureId = structureId;
+      this.displayStructureModal(
+        response.structure,
+        response.fee_items,
+        false,
+      );
+    } catch (error) {
+      console.error("Error loading structure:", error);
+      this.showError("Error loading structure");
+    }
   }
 
   /**
@@ -397,7 +384,7 @@ class FeeStructureController {
   /**
    * Save structure changes
    */
-  saveStructure() {
+  async saveStructure() {
     if (!this.editingStructureId) {
       this.showError("No structure selected for editing");
       return;
@@ -408,20 +395,15 @@ class FeeStructureController {
       notes: document.getElementById("structureNotes")?.value,
     };
 
-    API.PUT(`/api/finance/fee-structures/${this.editingStructureId}`, data)
-      .then((response) => {
-        if (response.success) {
-          this.showSuccess("Fee structure updated successfully");
-          this.feeStructureModal?.hide();
-          this.loadFeeStructures(this.currentPage);
-        } else {
-          this.showError(response.message || "Failed to update structure");
-        }
-      })
-      .catch((error) => {
-        console.error("Error saving structure:", error);
-        this.showError("Error saving structure");
-      });
+    try {
+      await API.apiCall(`/api/finance/fee-structures/${this.editingStructureId}`, "PUT", data);
+      this.showSuccess("Fee structure updated successfully");
+      this.feeStructureModal?.hide();
+      this.loadFeeStructures(this.currentPage);
+    } catch (error) {
+      console.error("Error saving structure:", error);
+      this.showError("Error saving structure");
+    }
   }
 
   /**
@@ -437,44 +419,40 @@ class FeeStructureController {
   /**
    * Confirm delete action
    */
-  confirmDelete() {
+  async confirmDelete() {
     if (!this.deleteStructureId) return;
 
-    API.DELETE(`/api/finance/fee-structures/${this.deleteStructureId}`, {})
-      .then((response) => {
-        if (response.success) {
-          this.showSuccess("Fee structure deleted successfully");
-          this.deleteConfirmModal?.hide();
-          this.loadFeeStructures(1);
-        } else {
-          this.showError(response.message || "Failed to delete structure");
-        }
-      })
-      .catch((error) => {
-        console.error("Error deleting structure:", error);
-        this.showError("Error deleting structure");
-      });
+    try {
+      await API.apiCall(`/api/finance/fee-structures/${this.deleteStructureId}`, "DELETE");
+      this.showSuccess("Fee structure deleted successfully");
+      this.deleteConfirmModal?.hide();
+      this.loadFeeStructures(1);
+    } catch (error) {
+      console.error("Error deleting structure:", error);
+      this.showError("Error deleting structure");
+    }
   }
 
   /**
    * Duplicate a fee structure
    */
-  duplicateStructure(structureId) {
+  async duplicateStructure(structureId) {
     this.duplicateStructureId = structureId;
 
     // Load available academic years for duplication
-    API.GET("/academic/years/list", {}).then((response) => {
-      if (response.success) {
-        const select = document.getElementById("duplicateYear");
-        select.innerHTML = '<option value="">Select Year</option>';
-        response.data.years?.forEach((year) => {
-          const option = document.createElement("option");
-          option.value = year.id;
-          option.textContent = year.year;
-          select.appendChild(option);
-        });
-      }
-    });
+    try {
+      const response = await API.apiCall("/academic/years/list", "GET", null, {});
+      const select = document.getElementById("duplicateYear");
+      select.innerHTML = '<option value="">Select Year</option>';
+      response.years?.forEach((year) => {
+        const option = document.createElement("option");
+        option.value = year.id;
+        option.textContent = year.year;
+        select.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Failed to load academic years:", error);
+    }
 
     if (this.duplicateModal) {
       this.duplicateModal.show();
@@ -484,7 +462,7 @@ class FeeStructureController {
   /**
    * Confirm duplicate action
    */
-  confirmDuplicate() {
+  async confirmDuplicate() {
     if (!this.duplicateStructureId) return;
 
     const targetYear = document.getElementById("duplicateYear")?.value;
@@ -502,25 +480,21 @@ class FeeStructureController {
       price_adjustment: adjustment,
     };
 
-    API.POST(
-      `/api/finance/fee-structures/${this.duplicateStructureId}/duplicate`,
-      data,
-    )
-      .then((response) => {
-        if (response.success) {
-          this.showSuccess(
-            `Fee structure duplicated successfully (${response.data.items_copied} items)`,
-          );
-          this.duplicateModal?.hide();
-          this.loadFeeStructures(1);
-        } else {
-          this.showError(response.message || "Failed to duplicate structure");
-        }
-      })
-      .catch((error) => {
-        console.error("Error duplicating structure:", error);
-        this.showError("Error duplicating structure");
-      });
+    try {
+      const response = await API.apiCall(
+        `/api/finance/fee-structures/${this.duplicateStructureId}/duplicate`,
+        "POST",
+        data,
+      );
+      this.showSuccess(
+        `Fee structure duplicated successfully (${response.items_copied} items)`,
+      );
+      this.duplicateModal?.hide();
+      this.loadFeeStructures(1);
+    } catch (error) {
+      console.error("Error duplicating structure:", error);
+      this.showError("Error duplicating structure");
+    }
   }
 
   /**
@@ -541,7 +515,7 @@ class FeeStructureController {
   /**
    * Export structures to CSV
    */
-  exportStructures() {
+  async exportStructures() {
     const filters = {
       academic_year: document.getElementById("academicYearFilter")?.value || "",
       class_id: document.getElementById("classFilter")?.value || "",
@@ -553,13 +527,12 @@ class FeeStructureController {
       if (filters[key] === "") delete filters[key];
     });
 
-    API.GET("/finance/fee-structures/export", filters)
-      .then((response) => {
-        if (response.success) {
-          this.downloadCSV(response.data);
-        }
-      })
-      .catch((error) => console.error("Export error:", error));
+    try {
+      const response = await API.apiCall("/finance/fee-structures/export", "GET", null, filters);
+      this.downloadCSV(response);
+    } catch (error) {
+      console.error("Export error:", error);
+    }
   }
 
   /**

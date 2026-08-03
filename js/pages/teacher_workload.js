@@ -43,16 +43,9 @@ const TeacherWorkloadController = {
 
     async loadTeachers() {
         try {
-            const response = await window.API.staff.getTeachers({});
-            const normalized = AppState.normalizeResponse(response);
-            
-            if (normalized.success) {
-                this.state.teachers = Array.isArray(normalized.data) ? normalized.data : [];
-                await this.loadWorkloadData();
-                this.render();
-            } else {
-                showNotification('Failed to load teachers', 'error');
-            }
+            this.state.teachers = await window.API.staff.getTeachers({}) || [];
+            await this.loadWorkloadData();
+            this.render();
         } catch (error) {
             console.error('Error loading teachers:', error);
             showNotification('Failed to load teachers', 'error');
@@ -61,13 +54,8 @@ const TeacherWorkloadController = {
 
     async loadDepartments() {
         try {
-            const response = await window.API.staff.getDepartments();
-            const normalized = AppState.normalizeResponse(response);
-            
-            if (normalized.success) {
-                this.state.departments = Array.isArray(normalized.data) ? normalized.data : [];
-                this.populateDepartmentDropdown();
-            }
+            this.state.departments = await window.API.staff.getDepartments() || [];
+            this.populateDepartmentDropdown();
         } catch (error) {
             console.error('Error loading departments:', error);
         }
@@ -75,13 +63,8 @@ const TeacherWorkloadController = {
 
     async loadWorkloadData() {
         try {
-            const workloadResponse = await window.API.staff.getWorkload();
-            const normalized = AppState.normalizeResponse(workloadResponse);
-            
-            if (normalized.success) {
-                this.state.workloadData = Array.isArray(normalized.data) ? normalized.data : [];
-                this.mergeWorkloadData();
-            }
+            this.state.workloadData = await window.API.staff.getWorkload() || [];
+            this.mergeWorkloadData();
         } catch (error) {
             console.error('Error loading workload data:', error);
             // Fallback: create empty workload data

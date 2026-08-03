@@ -67,13 +67,13 @@ const LearningAreasController = {
   async loadData() {
     try {
       this.showTableLoading("#subjectsTable");
-      const [subjectsRes, classesRes] = await Promise.all([
+      const [subjects, classes] = await Promise.all([
         window.API.academic.listLearningAreas(),
         window.API.academic.listClasses(),
       ]);
 
-      if (subjectsRes?.success) this.state.subjects = subjectsRes.data || [];
-      if (classesRes?.success) this.state.classes = classesRes.data || [];
+      this.state.subjects = subjects || [];
+      this.state.classes = classes || [];
 
       this.updateStats();
       this.renderSubjectsTable();
@@ -155,11 +155,11 @@ const LearningAreasController = {
   async loadAssignments() {
     try {
       this.showTableLoading("#assignmentsTable");
-      const res = await window.API.academic.getCustom({
+      const data = await window.API.academic.getCustom({
         action: "subject-teacher-assignments",
       });
-      if (res?.success) {
-        this.state.assignments = res.data || [];
+      if (data) {
+        this.state.assignments = data || [];
       } else {
         // Build assignments from subjects data
         this.state.assignments = this.state.subjects
@@ -226,9 +226,8 @@ const LearningAreasController = {
     if (!container) return;
 
     try {
-      const res = await window.API.academic.listCurriculumUnits();
-      if (res?.success && res.data?.length > 0) {
-        const units = res.data;
+      const units = await window.API.academic.listCurriculumUnits();
+      if (units && units.length > 0) {
         container.innerHTML = this.buildCurriculumTree(units);
       } else {
         container.innerHTML =
@@ -277,10 +276,8 @@ const LearningAreasController = {
 
     try {
       this.showTableLoading("#sowTable");
-      const res = await window.API.academic.getSchemeOfWork();
-      if (res?.success) {
-        this.state.schemesOfWork = res.data || [];
-        if (this.state.schemesOfWork.length === 0) {
+      this.state.schemesOfWork = await window.API.academic.getSchemeOfWork() || [];
+      if (this.state.schemesOfWork.length === 0) {
           tbody.innerHTML =
             '<tr><td colspan="6" class="text-center text-muted py-4">No schemes of work uploaded</td></tr>';
           return;
@@ -302,7 +299,6 @@ const LearningAreasController = {
                     </tr>`,
           )
           .join("");
-      }
     } catch (error) {
       console.error("Error loading SOW:", error);
       tbody.innerHTML =
@@ -320,25 +316,20 @@ const LearningAreasController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.academic.updateLearningArea(editId, data);
+        await window.API.academic.updateLearningArea(editId, data);
       } else {
-        res = await window.API.academic.createLearningArea(data);
+        await window.API.academic.createLearningArea(data);
       }
 
-      if (res?.success) {
-        this.showNotification(
-          editId ? "Subject updated" : "Subject added",
-          "success",
-        );
-        bootstrap.Modal.getInstance(modal)?.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Operation failed", "error");
-      }
+      this.showNotification(
+        editId ? "Subject updated" : "Subject added",
+        "success",
+      );
+      bootstrap.Modal.getInstance(modal)?.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadData();
     } catch (error) {
       console.error("Error saving subject:", error);
       this.showNotification("Failed to save subject", "error");
@@ -347,9 +338,8 @@ const LearningAreasController = {
 
   async viewSubject(id) {
     try {
-      const res = await window.API.academic.getLearningArea(id);
-      if (res?.success && res.data) {
-        const s = res.data;
+      const s = await window.API.academic.getLearningArea(id);
+      if (s) {
         const html = `
                     <div class="row">
                         <div class="col-md-6">
@@ -373,9 +363,8 @@ const LearningAreasController = {
 
   async editSubject(id) {
     try {
-      const res = await window.API.academic.getLearningArea(id);
-      if (res?.success && res.data) {
-        const s = res.data;
+      const s = await window.API.academic.getLearningArea(id);
+      if (s) {
         const modal = document.getElementById("addSubjectModal");
         const form = modal?.querySelector("form");
         if (form) {
@@ -395,13 +384,9 @@ const LearningAreasController = {
   async deleteSubject(id) {
     if (!confirm("Delete this subject? This action cannot be undone.")) return;
     try {
-      const res = await window.API.academic.deleteLearningArea(id);
-      if (res?.success) {
-        this.showNotification("Subject deleted", "success");
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to delete", "error");
-      }
+      await window.API.academic.deleteLearningArea(id);
+      this.showNotification("Subject deleted", "success");
+      await this.loadData();
     } catch (error) {
       console.error("Error deleting subject:", error);
     }

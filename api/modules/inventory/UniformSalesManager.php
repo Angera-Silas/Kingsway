@@ -53,7 +53,8 @@ class UniformSalesManager extends BaseAPI
                 'total_count' => count($items)
             ], 'Uniform items retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve uniform items: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -97,7 +98,8 @@ class UniformSalesManager extends BaseAPI
                 'sizes' => $sizes
             ], 'Uniform sizes retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve uniform sizes: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -163,7 +165,8 @@ class UniformSalesManager extends BaseAPI
                 throw $e;
             }
         } catch (Exception $e) {
-            return $this->formatError('Failed to register uniform sale: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -220,7 +223,8 @@ class UniformSalesManager extends BaseAPI
                 ]
             ], 'Student uniform sales retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve student uniform sales: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -247,7 +251,8 @@ class UniformSalesManager extends BaseAPI
                 'payment_status' => $payment_status
             ], 'Uniform sale payment status updated');
         } catch (Exception $e) {
-            return $this->formatError('Failed to update payment status: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -313,7 +318,8 @@ class UniformSalesManager extends BaseAPI
                 'inventory_status' => $stockStatus
             ], 'Uniform sales dashboard data retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve dashboard data: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -341,7 +347,8 @@ class UniformSalesManager extends BaseAPI
                 'payment_summary' => $summary
             ], 'Uniform payment summary retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve payment summary: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -381,7 +388,8 @@ class UniformSalesManager extends BaseAPI
                 'sizes' => $sizes
             ], 'Student uniform profile updated');
         } catch (Exception $e) {
-            return $this->formatError('Failed to update student profile: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -403,7 +411,8 @@ class UniformSalesManager extends BaseAPI
 
             return $this->formatSuccess($profile, 'Student uniform profile retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve student profile: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -496,7 +505,8 @@ class UniformSalesManager extends BaseAPI
                 ]
             ], 'Uniform sales retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve uniform sales: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -571,7 +581,8 @@ class UniformSalesManager extends BaseAPI
                 throw $e;
             }
         } catch (Exception $e) {
-            return $this->formatError('Failed to restock uniform: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -626,7 +637,8 @@ class UniformSalesManager extends BaseAPI
                 'summary' => $summary
             ], 'Low stock uniforms retrieved');
         } catch (Exception $e) {
-            return $this->formatError('Failed to retrieve low stock uniforms: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -723,7 +735,8 @@ class UniformSalesManager extends BaseAPI
                 'by_size' => $bySize
             ], 'Uniform sales report generated');
         } catch (Exception $e) {
-            return $this->formatError('Failed to generate sales report: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -781,7 +794,8 @@ class UniformSalesManager extends BaseAPI
                 throw $e;
             }
         } catch (Exception $e) {
-            return $this->formatError('Failed to delete uniform sale: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -880,7 +894,8 @@ class UniformSalesManager extends BaseAPI
                 throw $e;
             }
         } catch (\Exception $e) {
-            return $this->formatError('Failed to record purchase: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -914,7 +929,8 @@ class UniformSalesManager extends BaseAPI
                                  'total_pages' => (int)ceil($total / $limit)],
             ], 'Purchases retrieved');
         } catch (\Exception $e) {
-            return $this->formatError('Failed to retrieve purchases: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -943,7 +959,8 @@ class UniformSalesManager extends BaseAPI
 
             return $this->formatSuccess(['purchase' => $header, 'items' => $lines]);
         } catch (\Exception $e) {
-            return $this->formatError('Failed to retrieve purchase: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -972,7 +989,8 @@ class UniformSalesManager extends BaseAPI
 
             return $this->formatSuccess($result ?? [], 'Payment recorded');
         } catch (\Exception $e) {
-            return $this->formatError('Failed to record payment: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -1006,7 +1024,8 @@ class UniformSalesManager extends BaseAPI
 
             return $this->formatSuccess(['sale' => $sale, 'payments' => $payments]);
         } catch (\Exception $e) {
-            return $this->formatError('Failed to retrieve payment history: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 
@@ -1058,7 +1077,8 @@ class UniformSalesManager extends BaseAPI
                                  'total_pages' => (int)ceil($total / $limit)],
             ]);
         } catch (\Exception $e) {
-            return $this->formatError('Failed to get balances: ' . $e->getMessage(), 500);
+            error_log('[UniformSalesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->formatError('An internal error occurred.', 500);
         }
     }
 

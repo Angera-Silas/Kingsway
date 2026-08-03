@@ -47,9 +47,22 @@ class DeviceMiddleware
             $_SERVER['REMOTE_ADDR'] ?? 'unknown',
             $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
             $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? 'unknown',
+            $_SERVER['HTTP_SEC_CH_UA_PLATFORM'] ?? $_SERVER['HTTP_X_DEVICE_RESOLUTION'] ?? 'unknown',
+            $_SERVER['HTTP_X_DEVICE_TIMEZONE'] ?? date('P'),
+            self::parsePlatform($_SERVER['HTTP_USER_AGENT'] ?? ''),
         ];
 
         return hash('sha256', implode('|', $fingerprintData));
+    }
+
+    private static function parsePlatform(string $userAgent): string
+    {
+        if (stripos($userAgent, 'Windows') !== false) return 'Windows';
+        if (stripos($userAgent, 'Mac') !== false) return 'macOS';
+        if (stripos($userAgent, 'Linux') !== false) return 'Linux';
+        if (stripos($userAgent, 'Android') !== false) return 'Android';
+        if (stripos($userAgent, 'iOS') !== false || stripos($userAgent, 'iPhone') !== false) return 'iOS';
+        return 'unknown';
     }
 
     /**

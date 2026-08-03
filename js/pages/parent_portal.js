@@ -1,3 +1,17 @@
+function obfuscate(str) {
+    return btoa(String(str).split('').map(function (c, i) {
+        return String.fromCharCode(c.charCodeAt(0) + ((i % 7) + 1));
+    }).join(''));
+}
+
+function deobfuscate(str) {
+    try {
+        return atob(String(str)).split('').map(function (c, i) {
+            return String.fromCharCode(c.charCodeAt(0) - ((i % 7) + 1));
+        }).join('');
+    } catch (_) { return null; }
+}
+
 const parentPortalController = {
     BASE: window.APP_BASE || '',
     state: {
@@ -9,7 +23,13 @@ const parentPortalController = {
 
     async init() {
         if (window.AuthContext?.ready) await window.AuthContext.ready();
-        var stored = sessionStorage.getItem('pp_token');
+        GradingScale.preload(function () {
+            return apiCall('/parent-portal/grading-scale', 'GET', null, null, { noRedirect: true }).then(function (res) {
+                var data = res && res.data !== undefined ? res.data : res;
+                return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
+            });
+        });
+        var stored = deobfuscate(sessionStorage.getItem('pp_token'));
         var expires = sessionStorage.getItem('pp_expires');
         if (stored && expires && new Date(expires) > new Date()) {
             this.state.token = stored;
@@ -66,6 +86,22 @@ const parentPortalController = {
                 self.loadStudentTab(btn.dataset.tab);
             });
         });
+        // Pay Now button delegation (rendered dynamically in fee history)
+        document.getElementById('studentDetailContent').addEventListener('click', function (e) {
+            var btn = e.target.closest('.pay-now-btn');
+            if (btn) {
+                var amount = parseFloat(btn.dataset.amount || 0);
+                self.state.pendingAmount = amount;
+                self.openMpesaModal(amount);
+            }
+        });
+        this.on('btnMpesaPay', 'click', function () { self.initiateMpesaPayment(); });
+        this.on('btnMpesaDone', 'click', function () { self.resetMpesaModal(); });
+        // Reset modal on hide
+        var mpesaModal = document.getElementById('mpesaPaymentModal');
+        if (mpesaModal) {
+            mpesaModal.addEventListener('hidden.bs.modal', function () { self.resetMpesaModal(); });
+        }
     },
 
     submitEmailLogin() {
@@ -172,6 +208,7 @@ const parentPortalController = {
 
     openStudent(studentId, studentName, className) {
         this.state.selectedStudentId = studentId;
+        this.state.currentStudentId = studentId;
         this.setText('studentDetailName', studentName);
         this.setText('studentDetailClass', className);
         this.showView('student');
@@ -223,12 +260,33 @@ const parentPortalController = {
                 .catch(function () { content.innerHTML = '<div class="alert alert-danger">Failed to load payments</div>'; });
         } else if (tab === 'statement') {
             this.renderStatementView(id);
+        } else if (tab === 'attendance') {
+            this.apiFetch('/student-attendance/' + id, 'GET')
+                .then(function (resp) { self.renderAttendance(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load attendance: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'performance') {
+            this.apiFetch('/student-performance/' + id, 'GET')
+                .then(function (resp) { self.renderPerformance(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load performance: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'report-card') {
+            this.apiFetch('/student-report-card/' + id, 'GET')
+                .then(function (resp) { self.renderReportCard(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load report card: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'messages') {
+            this.apiFetch('/messages/' + id, 'GET')
+                .then(function (resp) { self.renderMessages(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load messages: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'portfolio') {
+            this.apiFetch('/portfolio/' + id, 'GET')
+                .then(function (resp) { self._portfolioData = resp.data || resp; self.renderPortfolio(self._portfolioData); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load portfolio: ' + self.esc(e.message) + '</div>'; });
         }
     },
 
     renderFeeHistory(data) {
         var content = document.getElementById('studentDetailContent');
         var years = data.academic_years || data || [];
+        var sid = this.state.selectedStudentId;
         if (!years.length) { content.innerHTML = '<div class="alert alert-info">No fee history found.</div>'; return; }
         content.innerHTML = years.map(function (yr) {
             return '<div class="card mb-3 border-0 shadow-sm">' +
@@ -243,13 +301,17 @@ const parentPortalController = {
                             '<td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td>' +
                             '<td><span class="badge bg-' + sc + '">' + parentPortalController.esc(o.payment_status || 'pending') + '</span></td></tr>';
                     }).join('');
+                    var payBtn = term.balance > 0
+                        ? '<button class="btn btn-sm btn-success pay-now-btn ms-2" data-amount="' + term.balance + '"><i class="bi bi-phone me-1"></i>Pay Now</button>'
+                        : '';
                     return '<h6 class="text-muted mb-2">' + parentPortalController.esc(term.term_name || '') + '</h6>' +
                         '<table class="table table-sm table-bordered mb-3"><thead class="table-light"><tr><th>Fee Type</th><th>Billed</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead>' +
                         '<tbody>' + rows + '</tbody>' +
                         '<tfoot class="fw-bold table-light"><tr><td>Total</td>' +
                         '<td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td>' +
                         '<td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td>' +
-                        '<td>KES ' + Number(term.balance || 0).toLocaleString() + '</td><td></td></tr></tfoot></table>';
+                        '<td>KES ' + Number(term.balance || 0).toLocaleString() + '</td>' +
+                        '<td>' + payBtn + '</td></tr></tfoot></table>';
                 }).join('') +
                 '</div></div>';
         }).join('');
@@ -333,9 +395,427 @@ const parentPortalController = {
             '</body></html>';
     },
 
+    renderAttendance(data) {
+        var content = document.getElementById('studentDetailContent');
+        var summary = data.summary || {};
+        var recent = data.recent || [];
+        var monthly = data.monthly || [];
+        var pct = data.percentage || 0;
+        var total = parseInt(summary.total_days || 0);
+        var present = parseInt(summary.days_present || 0);
+        var absent = parseInt(summary.days_absent || 0);
+        var late = parseInt(summary.days_late || 0);
+        var pctClass = pct >= 90 ? 'success' : (pct >= 75 ? 'warning' : 'danger');
+        var html = '<div class="row g-3 mb-4">' +
+            '<div class="col-md-3"><div class="card border-0 shadow-sm rounded-4 text-center p-3 bg-success bg-opacity-10"><h2 class="text-success fw-bold mb-0">' + pct + '%</h2><small class="text-muted">Attendance</small></div></div>' +
+            '<div class="col-md-3"><div class="card border-0 shadow-sm rounded-4 text-center p-3 bg-primary bg-opacity-10"><h2 class="text-primary fw-bold mb-0">' + present + '</h2><small class="text-muted">Present</small></div></div>' +
+            '<div class="col-md-3"><div class="card border-0 shadow-sm rounded-4 text-center p-3 bg-danger bg-opacity-10"><h2 class="text-danger fw-bold mb-0">' + absent + '</h2><small class="text-muted">Absent</small></div></div>' +
+            '<div class="col-md-3"><div class="card border-0 shadow-sm rounded-4 text-center p-3 bg-warning bg-opacity-10"><h2 class="text-warning fw-bold mb-0">' + late + '</h2><small class="text-muted">Late</small></div></div>' +
+            '</div>';
+        if (monthly.length) {
+            html += '<h6 class="text-muted mb-2">Monthly Breakdown</h6><div class="table-responsive mb-4"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Month</th><th>Total</th><th>Present</th><th>Absent</th><th>Late</th><th>%</th></tr></thead><tbody>';
+            monthly.forEach(function (m) {
+                var mpct = m.total_days > 0 ? Math.round(100 * m.days_present / m.total_days) : 0;
+                html += '<tr><td>' + m.month + '</td><td>' + m.total_days + '</td><td>' + m.days_present + '</td><td>' + m.days_absent + '</td><td>' + m.days_late + '</td><td><span class="badge bg-' + (mpct >= 90 ? 'success' : (mpct >= 75 ? 'warning' : 'danger')) + '">' + mpct + '%</span></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        if (recent.length) {
+            html += '<h6 class="text-muted mb-2">Recent Activity</h6><div class="table-responsive"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Date</th><th>Status</th><th>Reason</th></tr></thead><tbody>';
+            recent.forEach(function (r) {
+                var sc = r.status === 'present' ? 'success' : (r.status === 'late' ? 'warning' : 'danger');
+                html += '<tr><td>' + (r.date || '').substring(0, 10) + '</td><td><span class="badge bg-' + sc + '">' + parentPortalController.esc(r.status || '') + '</span></td><td>' + parentPortalController.esc(r.absence_reason || '-') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        if (!total) html = '<div class="alert alert-info">No attendance records found for the current term.</div>';
+        content.innerHTML = html;
+    },
+
+    renderPerformance(data) {
+        var content = document.getElementById('studentDetailContent');
+        var student = data.student || {};
+        var term = data.term || {};
+        var scores = data.scores || [];
+        var competencies = data.competencies || [];
+        var values = data.values || [];
+        var attendance = data.attendance || {};
+        var attPct = attendance.total_days > 0 ? Math.round(100 * attendance.days_present / attendance.total_days) : 0;
+        var html = '<div class="mb-3"><h5 class="fw-bold">' + parentPortalController.esc(student.first_name + ' ' + student.last_name) + '</h5>' +
+            '<small class="text-muted">' + parentPortalController.esc(student.class_name || '') + ' · ' + parentPortalController.esc(term.name || 'Current Term') + '</small></div>';
+        if (scores.length) {
+            html += '<h6 class="text-muted mb-2">Subject Scores</h6><div class="table-responsive mb-4"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Subject</th><th>Score</th><th>Grade</th></tr></thead><tbody>';
+            scores.forEach(function (s) {
+                var score = parseFloat(s.score || s.total_score || 0);
+                var grade = s.grade || s.letter_grade || GradingScale.grade(score);
+                html += '<tr><td>' + parentPortalController.esc(s.subject_name || '') + '</td><td>' + score + '</td><td><span class="badge bg-primary">' + parentPortalController.esc(grade) + '</span></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        if (competencies.length) {
+            html += '<h6 class="text-muted mb-2">Core Competencies</h6><div class="table-responsive mb-4"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Competency</th><th>Level</th><th>Notes</th></tr></thead><tbody>';
+            competencies.forEach(function (c) {
+                html += '<tr><td><strong>' + parentPortalController.esc(c.code || '') + '</strong> ' + parentPortalController.esc(c.competency_name || '') + '</td>' +
+                    '<td><span class="badge bg-info">' + parentPortalController.esc(c.level_name || c.level_code || '-') + '</span></td>' +
+                    '<td><small>' + parentPortalController.esc(c.notes || '') + '</small></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        if (values.length) {
+            html += '<h6 class="text-muted mb-2">Core Values</h6><div class="table-responsive mb-4"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Value</th><th>Rating</th></tr></thead><tbody>';
+            values.forEach(function (v) {
+                html += '<tr><td>' + parentPortalController.esc(v.value_name || '') + '</td><td>' + parentPortalController.esc(v.rating || '-') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        if (attendance.total_days) {
+            html += '<h6 class="text-muted mb-2">Term Attendance</h6><div class="row g-2 mb-3">' +
+                '<div class="col-auto"><span class="badge bg-success fs-6">' + attPct + '%</span></div>' +
+                '<div class="col-auto text-muted small lh-lg">' + attendance.days_present + '/' + attendance.total_days + ' days present</div></div>';
+        }
+        if (!scores.length && !competencies.length) {
+            html = '<div class="alert alert-info">No performance data available for the current term.</div>';
+        }
+        content.innerHTML = html;
+    },
+
+    renderReportCard(data) {
+        var content = document.getElementById('studentDetailContent');
+        var s = data.student || {};
+        var term = data.term || {};
+        var scores = data.scores || [];
+        var comps = data.competencies || [];
+        var vals = data.values || [];
+        var att = data.attendance || {};
+        var enr = data.enrollment || {};
+        var school = data.school || {};
+        var self = this;
+        var attPct = att.total_days > 0 ? Math.round(100 * att.days_present / att.total_days) : 0;
+        // ── Header ──
+        var html = '<div class="report-card-container p-3">' +
+            '<div class="text-center mb-3 border-bottom pb-3">' +
+            '<h4 class="fw-bold mb-0">' + self.esc(school.name || 'Kingsway Preparatory School') + '</h4>' +
+            '<small class="text-muted">' + self.esc(school.address || '') + ' | ' + self.esc(school.phone || '') + '</small>' +
+            '<h5 class="mt-2">School Report Card</h5>' +
+            '<small class="text-muted">' + self.esc(term.name || '') + ' · ' + (data.year || '') + '</small></div>' +
+            // ── Student Info ──
+            '<div class="row mb-3 small"><div class="col-6"><strong>Name:</strong> ' + self.esc(s.first_name + ' ' + s.last_name) + '</div>' +
+            '<div class="col-3"><strong>Adm:</strong> ' + self.esc(s.admission_no || '') + '</div>' +
+            '<div class="col-3"><strong>Class:</strong> ' + self.esc(s.class_name || '') + ' ' + self.esc(s.stream_name || '') + '</div></div>';
+        // ── Subject Scores ──
+        if (scores.length) {
+            html += '<h6 class="text-muted border-bottom pb-1">Academic Performance</h6>' +
+                '<div class="table-responsive mb-3"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Subject</th><th>Formative</th><th>Summative</th><th>Overall</th><th>Grade</th></tr></thead><tbody>';
+            scores.forEach(function (sc) {
+                var fmt = parseFloat(sc.formative_percentage || sc.formative_score || 0);
+                var sum = parseFloat(sc.summative_percentage || sc.summative_score || 0);
+                var ovr = parseFloat(sc.overall_percentage || sc.total_score || sc.score || 0);
+                var grd = sc.overall_grade || sc.grade || sc.cbc_grade || GradingScale.grade(ovr);
+                html += '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + fmt + '</td><td>' + sum + '</td><td><strong>' + ovr + '</strong></td><td><span class="badge bg-primary">' + self.esc(grd) + '</span></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        // ── Competencies ──
+        if (comps.length) {
+            html += '<h6 class="text-muted border-bottom pb-1">Core Competencies</h6>' +
+                '<div class="table-responsive mb-3"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Competency</th><th>Level</th><th>Notes</th></tr></thead><tbody>';
+            comps.forEach(function (c) {
+                html += '<tr><td><strong>' + self.esc(c.code || '') + '</strong> ' + self.esc(c.competency_name || '') + '</td>' +
+                    '<td><span class="badge bg-info">' + self.esc(c.level_name || c.level_code || '-') + '</span></td>' +
+                    '<td><small>' + self.esc(c.notes || '') + '</small></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        // ── Values ──
+        if (vals.length) {
+            html += '<h6 class="text-muted border-bottom pb-1">Core Values</h6>' +
+                '<div class="table-responsive mb-3"><table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Value</th><th>Rating</th></tr></thead><tbody>';
+            vals.forEach(function (v) {
+                html += '<tr><td>' + self.esc(v.value_name || '') + '</td><td>' + self.esc(v.rating || '-') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+        // ── Attendance ──
+        if (att.total_days) {
+            html += '<h6 class="text-muted border-bottom pb-1">Attendance</h6>' +
+                '<div class="row g-2 mb-3"><div class="col-auto"><span class="badge bg-success fs-6">' + attPct + '%</span></div>' +
+                '<div class="col-auto text-muted small lh-lg">' + (att.days_present || 0) + '/' + (att.total_days || 0) + ' days present | ' +
+                (att.days_absent || 0) + ' absent | ' + (att.days_late || 0) + ' late</div></div>';
+        }
+        // ── Teacher Comments ──
+        if (enr.teacher_comments) {
+            html += '<div class="card bg-light mb-2"><div class="card-body py-2"><small class="text-muted">Class Teacher</small>' +
+                '<p class="mb-0 fst-italic">" ' + self.esc(enr.teacher_comments) + ' "</p>' +
+                (enr.class_teacher_name ? '<small class="text-muted">— ' + self.esc(enr.class_teacher_name) + '</small>' : '') + '</div></div>';
+        }
+        if (enr.head_teacher_comments) {
+            html += '<div class="card bg-light mb-2"><div class="card-body py-2"><small class="text-muted">Head Teacher</small>' +
+                '<p class="mb-0 fst-italic">" ' + self.esc(enr.head_teacher_comments) + ' "</p></div></div>';
+        }
+        // ── Print ──
+        html += '<div class="text-center mt-3"><button class="btn btn-outline-primary btn-sm" id="btnPrintReportCard"><i class="bi bi-printer me-1"></i>Print</button></div></div>';
+        content.innerHTML = html;
+        var printBtn = document.getElementById('btnPrintReportCard');
+        if (printBtn) {
+            printBtn.addEventListener('click', function () {
+                var printWin = window.open('', '_blank', 'width=800,height=600');
+                printWin.document.write(self.buildReportCardHTML(data));
+                printWin.document.close();
+                printWin.focus();
+                printWin.print();
+            });
+        }
+    },
+
+    buildReportCardHTML(data) {
+        var s = data.student || {};
+        var school = data.school || {};
+        var term = data.term || {};
+        var scores = data.scores || [];
+        var comps = data.competencies || [];
+        var vals = data.values || {};
+        var att = data.attendance || {};
+        var enr = data.enrollment || {};
+        var self = this;
+        var attPct = att.total_days > 0 ? Math.round(100 * att.days_present / att.total_days) : 0;
+        var scoreRows = scores.map(function (sc) {
+            var ovr = parseFloat(sc.overall_percentage || sc.total_score || sc.score || 0);
+            var grd = sc.overall_grade || sc.grade || sc.cbc_grade || GradingScale.grade(ovr);
+            return '<tr><td>' + self.esc(sc.subject_name || '') + '</td><td>' + (parseFloat(sc.formative_percentage || 0)) + '</td><td>' + (parseFloat(sc.summative_percentage || 0)) + '</td><td><strong>' + ovr + '</strong></td><td><strong>' + self.esc(grd) + '</strong></td></tr>';
+        }).join('');
+        var compRows = comps.map(function (c) {
+            return '<tr><td><strong>' + self.esc(c.code || '') + '</strong></td><td>' + self.esc(c.competency_name || '') + '</td><td>' + self.esc(c.level_name || c.level_code || '-') + '</td></tr>';
+        }).join('');
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Report Card</title>' +
+            '<style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #999;padding:6px 8px;text-align:left}th{background:#eee}.header{text-align:center;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:15px}.footer{margin-top:20px;border-top:1px solid #ccc;padding-top:10px;font-size:12px}</style></head><body>' +
+            '<div class="header"><h2>' + self.esc(school.name || 'Kingsway Preparatory School') + '</h2>' +
+            '<h3>School Report Card</h3><p>' + self.esc(term.name || '') + ' · ' + (data.year || '') + '</p></div>' +
+            '<table><tr><td><strong>Name:</strong> ' + self.esc(s.first_name + ' ' + s.last_name) + '</td><td><strong>Adm:</strong> ' + self.esc(s.admission_no || '') + '</td><td><strong>Class:</strong> ' + self.esc(s.class_name || '') + ' ' + self.esc(s.stream_name || '') + '</td></tr></table>' +
+            (scoreRows ? '<h4>Academic Performance</h4><table><thead><tr><th>Subject</th><th>Formative</th><th>Summative</th><th>Overall</th><th>Grade</th></tr></thead><tbody>' + scoreRows + '</tbody></table>' : '') +
+            (compRows ? '<h4>Core Competencies</h4><table><thead><tr><th>Code</th><th>Competency</th><th>Level</th></tr></thead><tbody>' + compRows + '</tbody></table>' : '') +
+            (vals.length ? '<h4>Core Values</h4><table><thead><tr><th>Value</th><th>Rating</th></tr></thead><tbody>' + vals.map(function (v) { return '<tr><td>' + self.esc(v.value_name || '') + '</td><td>' + self.esc(v.rating || '-') + '</td></tr>'; }).join('') + '</tbody></table>' : '') +
+            (att.total_days ? '<h4>Attendance</h4><p>' + attPct + '% (' + (att.days_present || 0) + '/' + (att.total_days || 0) + ' days present)</p>' : '') +
+            (enr.teacher_comments ? '<h4>Class Teacher Comment</h4><p><em>"' + self.esc(enr.teacher_comments) + '"</em></p>' : '') +
+            (enr.head_teacher_comments ? '<h4>Head Teacher Comment</h4><p><em>"' + self.esc(enr.head_teacher_comments) + '"</em></p>' : '') +
+            '<div class="footer"><p>Generated: ' + self.esc(data.generated_at || '') + ' | Kingsway Preparatory School</p></div>' +
+            '</body></html>';
+    },
+
+    renderMessages(data) {
+        var content = document.getElementById('studentDetailContent');
+        var msgs = data || [];
+        var self = this;
+        var html = '<div class="d-flex justify-content-between align-items-center mb-3">' +
+            '<h6 class="mb-0 text-muted">Messages with School</h6>' +
+            '<button class="btn btn-primary btn-sm" id="btnComposeMessage"><i class="bi bi-pencil me-1"></i>Compose</button></div>';
+        if (!msgs.length) {
+            html += '<div class="alert alert-info">No messages yet. Click "Compose" to send a message to the school.</div>';
+        } else {
+            html += '<div class="list-group mb-3">';
+            msgs.forEach(function (m) {
+                var isParent = m.sender_type === 'parent';
+                html += '<div class="list-group-item list-group-item-action ' + (isParent ? '' : 'bg-light') + '">' +
+                    '<div class="d-flex justify-content-between"><small class="fw-bold">' + self.esc(m.sender_name || (isParent ? 'You' : 'School')) + '</small>' +
+                    '<small class="text-muted">' + (m.created_at || '').substring(0, 16) + '</small></div>' +
+                    '<strong class="d-block small">' + self.esc(m.subject || '') + '</strong>' +
+                    '<p class="mb-0 small">' + self.esc(m.message || '') + '</p></div>';
+            });
+            html += '</div>';
+        }
+        // Compose form (hidden initially)
+        html += '<div id="composeForm" style="display:none" class="card border-0 shadow-sm p-3">' +
+            '<h6 class="text-muted mb-3">Send Message to School</h6>' +
+            '<div class="mb-2"><input type="text" id="msgSubject" class="form-control form-control-sm" placeholder="Subject"></div>' +
+            '<div class="mb-2"><textarea id="msgBody" class="form-control" rows="3" placeholder="Your message..."></textarea></div>' +
+            '<div id="msgError" class="alert alert-danger d-none"></div>' +
+            '<div><button class="btn btn-success btn-sm" id="btnSendMessage"><i class="bi bi-send me-1"></i>Send</button>' +
+            '<button class="btn btn-outline-secondary btn-sm ms-2" id="btnCancelMessage">Cancel</button></div></div>';
+        content.innerHTML = html;
+        this.on('btnComposeMessage', 'click', function () { self.setView('composeForm', true); });
+        this.on('btnCancelMessage', 'click', function () { self.setView('composeForm', false); document.getElementById('msgError').classList.add('d-none'); });
+        this.on('btnSendMessage', 'click', function () { self.sendMessage(); });
+    },
+
+    sendMessage() {
+        var subject = document.getElementById('msgSubject').value.trim();
+        var message = document.getElementById('msgBody').value.trim();
+        var errEl = document.getElementById('msgError');
+        var self = this;
+        errEl.classList.add('d-none');
+        if (!subject || !message) { errEl.textContent = 'Subject and message are required'; errEl.classList.remove('d-none'); return; }
+        this.apiFetch('/send-message', 'POST', {
+            student_id: this.state.selectedStudentId,
+            subject: subject,
+            message: message
+        }).then(function () {
+            document.getElementById('msgSubject').value = '';
+            document.getElementById('msgBody').value = '';
+            self.setView('composeForm', false);
+            self.loadStudentTab('messages');
+        }).catch(function (err) {
+            errEl.textContent = err.message || 'Failed to send message';
+            errEl.classList.remove('d-none');
+        });
+    },
+
+    renderPortfolio(data) {
+        var content = document.getElementById('studentDetailContent');
+        var portfolio = data.portfolio || {};
+        var artifacts = data.artifacts || [];
+        var self = this;
+        if (!portfolio) {
+            content.innerHTML = '<div class="alert alert-info">No portfolio found for this student. Portfolios are created by the teacher.</div>';
+            return;
+        }
+        var html = '<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">' +
+            '<h6 class="mb-0 text-muted">' + self.esc(portfolio.title || 'Portfolio') + '</h6>' +
+            '<div>' +
+            '<button class="btn btn-outline-primary btn-sm me-1" onclick="parentPortalController.printPortfolio()"><i class="bi bi-printer me-1"></i>Print</button>' +
+            '<span class="badge bg-secondary">' + (portfolio.portfolio_type || 'digital') + '</span></div></div>';
+        if (portfolio.description) {
+            html += '<p class="small text-muted mb-3">' + self.esc(portfolio.description) + '</p>';
+        }
+        if (portfolio.theme) {
+            html += '<p class="small"><strong>Theme:</strong> ' + self.esc(portfolio.theme) + '</p>';
+        }
+        if (!artifacts.length) {
+            html += '<div class="alert alert-info">No artifacts have been added yet.</div>';
+        } else {
+            html += '<div class="row g-2">';
+            artifacts.forEach(function (a) {
+                var typeIcon = a.artifact_type === 'photo' || a.artifact_type === 'video' ? 'bi-file-image' :
+                    a.artifact_type === 'document' ? 'bi-file-text' :
+                    a.artifact_type === 'project' ? 'bi-diagram-3' : 'bi-file';
+                html += '<div class="col-12"><div class="card border-0 shadow-sm">' +
+                    '<div class="card-body py-2">' +
+                    '<div class="d-flex justify-content-between align-items-start">' +
+                    '<div><i class="bi ' + typeIcon + ' me-2 text-primary"></i><strong>' + self.esc(a.artifact_title || '') + '</strong>' +
+                    ' <span class="badge bg-light text-muted">' + self.esc(a.artifact_type || '') + '</span></div>' +
+                    '<small class="text-muted">' + (a.upload_date || '').substring(0, 10) + '</small></div>';
+                if (a.description) html += '<p class="small mb-1 mt-1">' + self.esc(a.description) + '</p>';
+                // Competency mapping
+                if (a.competency_name) html += '<small class="text-muted d-block"><strong>C:</strong> ' + self.esc(a.competency_name) + '</small>';
+                if (a.value_name) html += '<small class="text-muted d-block"><strong>V:</strong> ' + self.esc(a.value_name) + '</small>';
+                if (a.rating) html += '<small class="text-muted d-block"><strong>Rating:</strong> ' + a.rating + '/5</small>';
+                // Learner reflection
+                if (a.learner_reflection) {
+                    html += '<div class="bg-light rounded p-2 mt-1"><small class="text-muted"><em>Student:</em> ' + self.esc(a.learner_reflection) + '</small></div>';
+                }
+                // Teacher feedback
+                if (a.teacher_feedback) {
+                    html += '<div class="bg-info bg-opacity-10 rounded p-2 mt-1"><small class="text-primary"><em>Teacher:</em> ' + self.esc(a.teacher_feedback) + '</small></div>';
+                }
+                if (a.file_path) {
+                    html += '<a href="' + self.esc(a.file_path) + '" target="_blank" class="btn btn-outline-primary btn-sm mt-1"><i class="bi bi-eye me-1"></i>View</a>';
+                }
+                html += '</div></div></div>';
+            });
+            html += '</div>';
+        }
+        content.innerHTML = html;
+    },
+
+    printPortfolio: function () {
+        var stdIdEl = document.getElementById('studentDetailContent');
+        var studentId = this.state.currentStudentId;
+        if (!studentId) { alert('No student selected.'); return; }
+        if (window.PrintManager) {
+            window.PrintManager.printPortfolio({ student_id: studentId });
+        } else {
+            alert('Print service not available.');
+        }
+    },
+
+    openMpesaModal(amount) {
+        document.getElementById('mpesaAmount').value = amount || '';
+        document.getElementById('mpesaPhone').value = '';
+        this.setView('mpesaPaymentForm', true);
+        this.setView('mpesaWaiting', false);
+        document.getElementById('mpesaError').classList.add('d-none');
+        var modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('mpesaPaymentModal'));
+        modal.show();
+    },
+
+    initiateMpesaPayment() {
+        var amount = document.getElementById('mpesaAmount').value;
+        var phone = document.getElementById('mpesaPhone').value.trim();
+        var errEl = document.getElementById('mpesaError');
+        var spinner = document.getElementById('mpesaSpinner');
+        var self = this;
+        errEl.classList.add('d-none');
+        if (!amount || parseFloat(amount) <= 0) { errEl.textContent = 'Invalid amount'; errEl.classList.remove('d-none'); return; }
+        if (!phone) { errEl.textContent = 'Phone number is required'; errEl.classList.remove('d-none'); return; }
+        spinner.classList.remove('d-none');
+        this.apiFetch('/initiate-mpesa-payment', 'POST', {
+            student_id: this.state.selectedStudentId,
+            amount: parseFloat(amount),
+            phone: phone
+        }).then(function (resp) {
+            var d = resp.data || resp;
+            if (d.checkout_request_id) {
+                self.setView('mpesaPaymentForm', false);
+                self.setView('mpesaWaiting', true);
+                self.startPolling(d.checkout_request_id);
+            } else {
+                errEl.textContent = d.message || 'Failed to initiate payment';
+                errEl.classList.remove('d-none');
+            }
+        }).catch(function (err) {
+            errEl.textContent = err.message || 'Payment initiation failed';
+            errEl.classList.remove('d-none');
+        }).finally(function () {
+            spinner.classList.add('d-none');
+        });
+    },
+
+    startPolling(checkoutRequestId) {
+        var self = this;
+        var attempts = 0;
+        var maxAttempts = 30;
+        var statusEl = document.getElementById('mpesaPollingStatus');
+        this.state._mpesaPolling = setInterval(function () {
+            attempts++;
+            statusEl.textContent = 'Checking status... (' + attempts + '/' + maxAttempts + ')';
+            if (attempts >= maxAttempts) {
+                clearInterval(self.state._mpesaPolling);
+                statusEl.textContent = 'Payment confirmation timed out. Check your M-Pesa messages.';
+                return;
+            }
+            self.checkMpesaStatus(checkoutRequestId, function (done) {
+                if (done) {
+                    clearInterval(self.state._mpesaPolling);
+                    statusEl.textContent = 'Payment confirmed! Refreshing...';
+                    var modal = bootstrap.Modal.getInstance(document.getElementById('mpesaPaymentModal'));
+                    if (modal) modal.hide();
+                    self.loadBalanceSummary(self.state.selectedStudentId);
+                    self.loadStudentTab('fees');
+                }
+            });
+        }, 4000);
+    },
+
+    checkMpesaStatus(checkoutRequestId, callback) {
+        this.apiFetch('/mpesa-status/' + checkoutRequestId, 'GET')
+            .then(function (resp) {
+                var d = resp.data || resp;
+                if (d.ResultCode === '0' || d.resultCode === '0' || d.status === 'completed') {
+                    callback(true);
+                }
+            }).catch(function () {});
+    },
+
+    resetMpesaModal() {
+        if (this.state._mpesaPolling) {
+            clearInterval(this.state._mpesaPolling);
+            this.state._mpesaPolling = null;
+        }
+        this.setView('mpesaPaymentForm', true);
+        this.setView('mpesaWaiting', false);
+    },
+
     storeAuth(token, expiresAt, parent) {
         this.state.token = token;
-        sessionStorage.setItem('pp_token', token);
+        sessionStorage.setItem('pp_token', obfuscate(token));
         sessionStorage.setItem('pp_expires', expiresAt || '');
         if (parent) {
             var nameEl = document.getElementById('parentName');

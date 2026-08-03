@@ -59,12 +59,12 @@ const AllParentsController = {
       const pRes = await window.API.academic
         .getCustom({ action: "parents" })
         .catch(() => null);
-      if (pRes?.success && pRes.data?.length) {
-        parentData = pRes.data;
-      } else if (parentsRes?.success) {
+      if (pRes?.length) {
+        parentData = pRes;
+      } else if (parentsRes) {
         // Extract unique parents from student data
         const parentMap = {};
-        (parentsRes.data || []).forEach((s) => {
+        (parentsRes || []).forEach((s) => {
           const pKey = (s.parent_name || s.guardian_name || "").trim();
           if (pKey && !parentMap[pKey]) {
             parentMap[pKey] = {
@@ -92,8 +92,8 @@ const AllParentsController = {
       this.state.allParents = parentData;
       this.state.parents = [...parentData];
 
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
+      if (classesRes) {
+        this.state.classes = classesRes || [];
         this.populateClassFilter();
       }
 

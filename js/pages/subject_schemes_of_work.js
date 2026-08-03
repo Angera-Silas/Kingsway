@@ -85,18 +85,15 @@ const SubjectSchemesOfWorkController = {
 
   async loadAcademicYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        const years = res.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -109,14 +106,11 @@ const SubjectSchemesOfWorkController = {
       const user = window.AuthContext?.getUser();
       if (!user || !user.id) return;
 
-      const res = await window.API.apiCall('/academic/subjects', 'GET');
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        const subjectSelect = document.getElementById('subjectSelect');
-        if (subjectSelect) {
-          subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
-            this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
-        }
+      this.state.subjects = await window.API.apiCall('/academic/subjects', 'GET') || [];
+      const subjectSelect = document.getElementById('subjectSelect');
+      if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
+          this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading subjects:', error);
@@ -147,15 +141,9 @@ const SubjectSchemesOfWorkController = {
         params.subject_id = this.state.selectedSubject;
       }
 
-      const res = await window.API.apiCall('/academic/subject-schemes', 'GET', params);
-      
-      if (res?.success) {
-        this.state.schemes = res.data || [];
-        this.renderSchemesTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load schemes of work', 'error');
-      }
+      this.state.schemes = await window.API.apiCall('/academic/subject-schemes', 'GET', params) || [];
+      this.renderSchemesTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading schemes of work:', error);
       this.showNotification('Failed to load schemes of work', 'error');
@@ -250,13 +238,9 @@ const SubjectSchemesOfWorkController = {
     if (!confirm('Submit this scheme for approval?')) return;
     
     try {
-      const res = await window.API.apiCall('/academic/schemes-of-work/' + id, 'PUT', { status: 'pending' });
-      if (res?.success) {
-        this.showNotification('Scheme submitted for approval', 'success');
-        await this.loadSchemes();
-      } else {
-        this.showNotification('Failed to submit scheme', 'error');
-      }
+      await window.API.apiCall('/academic/schemes-of-work/' + id, 'PUT', { status: 'pending' });
+      this.showNotification('Scheme submitted for approval', 'success');
+      await this.loadSchemes();
     } catch (error) {
       console.error('Error submitting scheme:', error);
       this.showNotification('Failed to submit scheme', 'error');

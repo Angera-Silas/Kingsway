@@ -150,7 +150,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('initiateTransfer', $e->getMessage());
-            return formatResponse(false, null, 'Failed to initiate transfer: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -214,7 +215,8 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('getClearanceStatus', $e->getMessage());
-            return formatResponse(false, null, 'Failed to get clearance status: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -352,7 +354,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('processClearance', $e->getMessage());
-            return formatResponse(false, null, 'Failed to process clearance: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -402,7 +405,8 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('verifyFeeSettlement', $e->getMessage());
-            return formatResponse(false, null, 'Failed to verify fee settlement: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -473,7 +477,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('approveTransfer', $e->getMessage());
-            return formatResponse(false, null, 'Failed to approve transfer: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -532,7 +537,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('markDocumentsReady', $e->getMessage());
-            return formatResponse(false, null, 'Failed to mark documents ready: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -594,7 +600,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('completeTransfer', $e->getMessage());
-            return formatResponse(false, null, 'Failed to complete transfer: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -645,7 +652,8 @@ class TransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             $this->logError('getTransferDetails', $e->getMessage());
-            return formatResponse(false, null, 'Failed to get transfer details: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -679,7 +687,8 @@ class TransferWorkflow extends WorkflowHandler
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('cancelTransfer', $e->getMessage());
-            return formatResponse(false, null, 'Failed to cancel transfer: ' . $e->getMessage());
+            error_log('[TransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

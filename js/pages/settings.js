@@ -136,10 +136,8 @@ function attachSettingsEventListeners() {
 
 async function performBackup() {
     try {
-        const result = await window.API.apiCall('/settings/backup', 'POST', {});
-        if (result.success) {
-            alert('Backup created successfully: ' + result.backup_file);
-        }
+        await window.API.apiCall('/settings/backup', 'POST', {});
+        alert('Backup created successfully');
     } catch (error) {
         console.error('Backup failed:', error);
         alert('Backup failed. Check console for details.');

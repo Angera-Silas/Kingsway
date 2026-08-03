@@ -33,8 +33,8 @@ const BalancesByClassController = {
         window.API.academic.listYears(),
       ]);
 
-      const classes = classesRes?.success ? classesRes.data || [] : (classesRes?.data || []);
-      const years = yearsRes?.success ? yearsRes.data || [] : (yearsRes?.data || []);
+      const classes = classesRes || [];
+      const years = yearsRes || [];
 
       this.state.classes = Array.isArray(classes) ? classes : [];
       this.state.academicYears = Array.isArray(years) ? years : [];
@@ -122,8 +122,8 @@ const BalancesByClassController = {
           : window.API.academic.getCustom({ action: 'class-balances' }),
       ]);
 
-      const classes = classesRes?.success ? classesRes.data || [] : (classesRes?.data || []);
-      const paymentPayload = paymentRes?.success ? paymentRes.data || [] : (paymentRes?.data || paymentRes || []);
+      const classes = classesRes || [];
+      const paymentPayload = paymentRes || [];
       const payments = Array.isArray(paymentPayload)
         ? paymentPayload
         : (paymentPayload?.items || paymentPayload?.data || []);

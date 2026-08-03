@@ -133,7 +133,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $this->db->rollBack();
             }
             $this->logError('admission_submit_failed', $e->getMessage());
-            return formatResponse(false, null, 'Application submission failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -266,7 +267,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('document_upload_failed', $e->getMessage());
-            return formatResponse(false, null, 'Document upload failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -359,7 +361,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('document_verify_failed', $e->getMessage());
-            return formatResponse(false, null, 'Verification failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -438,7 +441,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('interview_schedule_failed', $e->getMessage());
-            return formatResponse(false, null, 'Scheduling failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -526,7 +530,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('interview_assessment_failed', $e->getMessage());
-            return formatResponse(false, null, 'Assessment failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -575,7 +580,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('placement_offer_failed', $e->getMessage());
-            return formatResponse(false, null, 'Placement offer failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -636,7 +642,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('fee_payment_failed', $e->getMessage());
-            return formatResponse(false, null, 'Payment recording failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -704,7 +711,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, ['space_available' => true, 'next_stage' => $nextStage], 'Space confirmed.');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Class space check failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -739,7 +747,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, ['next_stage' => 'provisional_student_creation'], 'Student admitted.');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Admission failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -865,7 +874,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Provisional student creation failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -926,7 +936,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, ['card_id' => $cardId, 'next_stage' => 'final_approval'], 'Student ID card generated.');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'ID card generation failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -956,7 +967,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, ['next_stage' => 'enrollment'], 'Final approval granted.');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Final approval failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1109,7 +1121,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('enrollment_failed', $e->getMessage());
-            return formatResponse(false, null, 'Enrollment failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1179,7 +1192,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 $this->db->rollBack();
             }
             $this->logError('director_confirmation_failed', $e->getMessage());
-            return formatResponse(false, null, 'Director confirmation failed: ' . $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

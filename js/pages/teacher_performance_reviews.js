@@ -42,15 +42,8 @@ const TeacherPerformanceReviewsController = {
 
     async loadReviews() {
         try {
-            const response = await window.API.staff.getPerformanceReviews({});
-            const normalized = AppState.normalizeResponse(response);
-            
-            if (normalized.success) {
-                this.reviews = Array.isArray(normalized.data) ? normalized.data : [];
-                this.render();
-            } else {
-                showNotification('Failed to load performance reviews', 'error');
-            }
+            this.reviews = await window.API.staff.getPerformanceReviews({}) || [];
+            this.render();
         } catch (error) {
             console.error('Error loading performance reviews:', error);
             showNotification('Failed to load performance reviews', 'error');
@@ -59,12 +52,7 @@ const TeacherPerformanceReviewsController = {
 
     async loadTeachers() {
         try {
-            const response = await window.API.staff.getTeachers({});
-            const normalized = AppState.normalizeResponse(response);
-            
-            if (normalized.success) {
-                this.teachers = Array.isArray(normalized.data) ? normalized.data : [];
-            }
+            this.teachers = await window.API.staff.getTeachers({}) || [];
         } catch (error) {
             console.error('Error loading teachers:', error);
         }
@@ -72,13 +60,8 @@ const TeacherPerformanceReviewsController = {
 
     async loadSubjects() {
         try {
-            const response = await window.API.academic.listSubjects();
-            const normalized = AppState.normalizeResponse(response);
-            
-            if (normalized.success) {
-                this.subjects = Array.isArray(normalized.data) ? normalized.data : [];
-                this.populateFilterDropdown();
-            }
+            this.subjects = await window.API.academic.listSubjects() || [];
+            this.populateFilterDropdown();
         } catch (error) {
             console.error('Error loading subjects:', error);
         }

@@ -150,7 +150,7 @@ const manageWebsiteController = {
       this.state.newsItems = r?.data?.items || [];
       this.renderNewsTable();
     } catch(e) {
-      body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${e.message||'Load failed'}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">${this.esc(e.message||'Load failed')}</td></tr>`;
     }
   },
 
@@ -270,7 +270,7 @@ const manageWebsiteController = {
             <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsDeleteEvent(${ev.id},'${this.esc(ev.title).replace(/'/g,'')}')"><i class="bi bi-trash"></i></button>
           </td>
         </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${e.message}</td></tr>`; }
+    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
   },
 
   async wsOpenEventModal(id = null) {
@@ -347,7 +347,7 @@ const manageWebsiteController = {
           </div>
           <div class="caption">${this.esc(g.caption||'\u2014')} <span class="text-muted">(${this.esc(g.category||'')})</span></div>
         </div>`).join('');
-    } catch(e) { grid.innerHTML = `<div class="text-danger small p-3">${e.message}</div>`; }
+    } catch(e) { grid.innerHTML = `<div class="text-danger small p-3">${this.esc(e.message)}</div>`; }
   },
 
   wsViewImg(url) {
@@ -415,7 +415,7 @@ const manageWebsiteController = {
             <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsDeleteDownload(${d.id})"><i class="bi bi-eye-slash"></i></button>
           </td>
         </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${e.message}</td></tr>`; }
+    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
   },
 
   async wsOpenDownloadModal(id = null) {
@@ -493,7 +493,7 @@ const manageWebsiteController = {
             <button class="btn btn-sm btn-outline-danger rounded-pill px-2" onclick="wsCloseJob(${j.id},'${this.esc(j.title).replace(/'/g,'')}')"><i class="bi bi-x-circle"></i></button>
           </td>
         </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${e.message}</td></tr>`; }
+    } catch(e) { body.innerHTML = `<tr><td colspan="6" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
   },
 
   async wsOpenJobModal(id = null) {
@@ -585,7 +585,7 @@ const manageWebsiteController = {
             </select>
           </td>
         </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${e.message}</td></tr>`; }
+    } catch(e) { body.innerHTML = `<tr><td colspan="9" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
 
     // Job Applications
     const jBody = document.getElementById('jobAppsTableBody');
@@ -637,7 +637,7 @@ const manageWebsiteController = {
             </select>
           </td>
         </tr>`).join('');
-    } catch(e) { body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${e.message}</td></tr>`; }
+    } catch(e) { body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message)}</td></tr>`; }
   },
 
   async wsUpdateInquiryStatus(id, status) {
@@ -675,7 +675,7 @@ const manageWebsiteController = {
           <span class="flex-grow-1"></span>
           <button class="btn btn-sm btn-outline-danger rounded-pill" style="padding:1px 8px;font-size:.72rem" onclick="wsDeleteCategory(${c.id},'${this.esc(c.name).replace(/'/g,'')}')">Remove</button>
         </div>`).join('') || '<div class="text-muted small">No categories found.</div>';
-    } catch(e) { container.innerHTML = `<div class="text-danger small">${e.message}</div>`; }
+    } catch(e) { container.innerHTML = `<div class="text-danger small">${this.esc(e.message)}</div>`; }
   },
 
   async wsSaveContent(key, value) {
@@ -712,7 +712,7 @@ const manageWebsiteController = {
       const r = await this.API('GET','website/settings');
       this.state.allSettings = r?.data?.items || [];
       this.renderSettings(this.state.allSettings);
-    } catch(e) { container.innerHTML = `<div class="text-danger small">${e.message}</div>`; }
+    } catch(e) { container.innerHTML = `<div class="text-danger small">${this.esc(e.message)}</div>`; }
   },
 
   renderSettings(items) {

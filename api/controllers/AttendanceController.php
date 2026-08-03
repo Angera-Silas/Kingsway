@@ -3,6 +3,9 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\attendance\AttendanceAPI;
+use App\API\Modules\attendance\AttendanceStudentService;
+use App\API\Modules\attendance\AttendanceStaffService;
+use App\API\Modules\attendance\AttendancePermissionService;
 use App\API\Services\StaffDomainAccessService;
 use RuntimeException;
 use Exception;
@@ -11,23 +14,25 @@ class AttendanceController extends BaseController
 {
     private $api;
     private $staffAccess;
+    private AttendanceStudentService $studentAttendanceService;
+    private AttendanceStaffService $staffAttendanceService;
+    private AttendancePermissionService $permissionService;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new AttendanceAPI();
         $this->staffAccess = new StaffDomainAccessService($this->user);
+        $this->studentAttendanceService = new AttendanceStudentService($this->api);
+        $this->staffAttendanceService = new AttendanceStaffService($this->api);
+        $this->permissionService = new AttendancePermissionService($this->api);
     }
-    private function guardStaffAttendance(string $permission, array $roles = [])
+    public function guardStaffAttendance(string $permission, array $roles = [])
     {
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401
-                ? $this->unauthorized($e->getMessage())
-                : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     public function index()
@@ -82,13 +87,15 @@ class AttendanceController extends BaseController
             ], 'Today attendance statistics');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch attendance statistics: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * GET /api/attendance/today-attendance - Get today's student attendance percentage for dashboard
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getTodayAttendance($id = null, $data = [], $segments = [])
     {
         try {
@@ -120,24 +127,23 @@ class AttendanceController extends BaseController
             ], 'Student attendance statistics');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch student attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     public function getStudentHistory($studentId = null, $data = [], $segments = [])
     {
-        $studentId = $studentId ?? ($data['studentId'] ?? null);
-        $result = $this->api->getStudentAttendanceHistory($studentId);
-        return $this->handleResponse($result);
+        return $this->studentAttendanceService->getStudentHistory($studentId, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AttendanceStudentService
     public function getStudentSummary($studentId = null, $data = [], $segments = [])
     {
-        $studentId = $studentId ?? ($data['studentId'] ?? null);
-        $result = $this->api->getStudentAttendanceSummary($studentId);
-        return $this->handleResponse($result);
+        return $this->studentAttendanceService->getStudentSummary($studentId, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AttendanceStudentService
     public function getClassAttendance($classId = null, $data = [], $segments = [])
     {
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -146,6 +152,7 @@ class AttendanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // TODO: Delegate to AttendanceStudentService
     public function getStudentPercentage($studentId = null, $data = [], $segments = [])
     {
         try {
@@ -169,7 +176,8 @@ class AttendanceController extends BaseController
                 'term_id' => $termId
             ], 'Attendance percentage calculated');
         } catch (\Exception $e) {
-            return $this->error('Failed to calculate percentage: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -188,7 +196,8 @@ class AttendanceController extends BaseController
             // Return the full structured response (data, absent_students, absent_staff, summary)
             return $this->success($trends, 'Attendance trends retrieved');
         } catch (\Exception $e) {
-            return $this->serverError('Failed to fetch attendance trends: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -204,28 +213,17 @@ class AttendanceController extends BaseController
 
     public function getStaffHistory($staffId = null, $data = [], $segments = [])
     {
-        if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
-        $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
-        if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
-        try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
-        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
-
-        $staffId = $staffId ?? ($data['staffId'] ?? null);
-        $scope = $this->getAccessibleStaffScope();
-        if (!$this->isStaffInScope($staffId ? (int) $staffId : null, $scope)) {
-            return $this->forbidden('You are not allowed to access this staff attendance history');
-        }
-        $result = $this->api->getStaffAttendanceHistory($staffId);
-        return $this->handleResponse($result);
+        return $this->staffAttendanceService->getStaffHistory($staffId, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AttendanceStaffService
     public function getStaffSummary($staffId = null, $data = [], $segments = [])
     {
         if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
         $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
         if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
         try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
-        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+        catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
 
         $staffId = $staffId ?? ($data['staffId'] ?? null);
         $scope = $this->getAccessibleStaffScope();
@@ -236,6 +234,7 @@ class AttendanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // TODO: Delegate to AttendanceStaffService
     public function getDepartmentAttendance($departmentId = null, $data = [], $segments = [])
     {
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
@@ -244,13 +243,14 @@ class AttendanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // TODO: Delegate to AttendanceStaffService
     public function getStaffPercentage($staffId = null, $data = [], $segments = [])
     {
         if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
         $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
         if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
         try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
-        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+        catch (RuntimeException $e) { error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
 
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
         $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
@@ -351,13 +351,15 @@ class AttendanceController extends BaseController
 
             return $this->success($classes, 'Classes retrieved successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch classes: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * GET /api/attendance/students-by-class/{stream_id} - Get students for a class
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getStudentsByClass($streamId = null, $data = [], $segments = [])
     {
         try {
@@ -403,7 +405,8 @@ class AttendanceController extends BaseController
 
             return $this->success($students, 'Students retrieved successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch students: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -411,6 +414,7 @@ class AttendanceController extends BaseController
      * POST /api/attendance/mark-bulk - Mark attendance for multiple students at once
      * Expects: { stream_id, date, attendance: [ { student_id, status } ] }
      */
+    // TODO: Delegate to AttendanceStudentService
     public function postMarkBulk($id = null, $data = [], $segments = [])
     {
         try {
@@ -479,7 +483,8 @@ class AttendanceController extends BaseController
                 'register_type' => $registerType,
             ], 'Attendance marked successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to mark attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -491,6 +496,7 @@ class AttendanceController extends BaseController
      * GET /api/attendance/sessions - Get all attendance sessions
      * Optionally filter by type (academic, boarding, activity)
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getSessions($id = null, $data = [], $segments = [])
     {
         try {
@@ -518,13 +524,15 @@ class AttendanceController extends BaseController
 
             return $this->success($sessions, 'Attendance sessions retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch sessions: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * GET /api/attendance/session-attendance - Get attendance for a specific session
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getSessionAttendance($id = null, $data = [], $segments = [])
     {
         try {
@@ -598,7 +606,8 @@ class AttendanceController extends BaseController
                 'students' => $students
             ], 'Session attendance retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch session attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -606,6 +615,7 @@ class AttendanceController extends BaseController
      * POST /api/attendance/mark-session - Mark attendance for a specific session
      * Expects: { session_id, stream_id, date, attendance: [{ student_id, status, notes }] }
      */
+    // TODO: Delegate to AttendanceStudentService
     public function postMarkSession($id = null, $data = [], $segments = [])
     {
         try {
@@ -726,7 +736,8 @@ class AttendanceController extends BaseController
                 'date' => $date
             ], 'Session attendance marked successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to mark session attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -734,6 +745,7 @@ class AttendanceController extends BaseController
      * GET /api/attendance/academic-summary
      * Aggregate learner attendance for the shared reports page.
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getAcademicSummary($id = null, $data = [], $segments = [])
     {
         try {
@@ -888,7 +900,8 @@ class AttendanceController extends BaseController
                 'low_attendance' => $lowAttendance,
             ], 'Academic attendance summary retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to load academic attendance summary: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -896,6 +909,7 @@ class AttendanceController extends BaseController
      * GET /api/attendance/daily-register
      * Return raw attendance rows for the selected day/session.
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getDailyRegister($id = null, $data = [], $segments = [])
     {
         try {
@@ -954,7 +968,8 @@ class AttendanceController extends BaseController
             $rows = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->success($rows, 'Daily register retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to load daily register: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -965,6 +980,7 @@ class AttendanceController extends BaseController
     /**
      * GET /api/attendance/dormitories - Get all dormitories
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getDormitories($id = null, $data = [], $segments = [])
     {
         try {
@@ -987,13 +1003,15 @@ class AttendanceController extends BaseController
 
             return $this->success($dormitories, 'Dormitories retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch dormitories: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * GET /api/attendance/dormitory-students - Get students in a dormitory for roll call
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getDormitoryStudents($id = null, $data = [], $segments = [])
     {
         try {
@@ -1058,7 +1076,8 @@ class AttendanceController extends BaseController
                 'students' => $students
             ], 'Dormitory students retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch dormitory students: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1066,6 +1085,7 @@ class AttendanceController extends BaseController
      * POST /api/attendance/mark-boarding - Mark boarding attendance (roll call)
      * Expects: { dormitory_id, session_id, date, attendance: [{ student_id, status, notes }] }
      */
+    // TODO: Delegate to AttendanceStudentService
     public function postMarkBoarding($id = null, $data = [], $segments = [])
     {
         try {
@@ -1150,13 +1170,15 @@ class AttendanceController extends BaseController
                 'date' => $date
             ], 'Boarding attendance marked successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to mark boarding attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * GET /api/attendance/boarding-summary - Get boarding attendance summary for a date
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getBoardingSummary($id = null, $data = [], $segments = [])
     {
         try {
@@ -1193,7 +1215,8 @@ class AttendanceController extends BaseController
                 'summary' => $summary
             ], 'Boarding summary retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch boarding summary: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1206,25 +1229,13 @@ class AttendanceController extends BaseController
      */
     public function getPermissionTypes($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffAttendance(
-            'attendance_boarding_view',
-            ['system administrator', 'school administrator', 'headteacher', 'director', 'boarding master']
-        )) return $denied;
-
-        try {
-            $sql = "SELECT * FROM student_permission_types WHERE status = 'active' ORDER BY name";
-            $result = $this->db->query($sql);
-            $types = $result->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success($types, 'Permission types retrieved');
-        } catch (\Exception $e) {
-            return $this->error('Failed to fetch permission types: ' . $e->getMessage());
-        }
+        return $this->permissionService->getPermissionTypes($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/attendance/permissions - Get student permissions (optionally filtered)
      */
+    // TODO: Delegate to AttendancePermissionService
     public function getPermissions($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance(
@@ -1328,13 +1339,15 @@ class AttendanceController extends BaseController
 
             return $this->success($permissions, 'Permissions retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch permissions: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * POST /api/attendance/permissions - Create a new student permission/exeat
      */
+    // TODO: Delegate to AttendancePermissionService
     public function postPermissions($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance(
@@ -1429,13 +1442,15 @@ class AttendanceController extends BaseController
 
             return $this->success(['id' => $permissionId], 'Permission request created');
         } catch (\Exception $e) {
-            return $this->error('Failed to create permission: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * PUT /api/attendance/permissions/{id} - Approve/reject permission
      */
+    // TODO: Delegate to AttendancePermissionService
     public function putPermissions($id = null, $data = [], $segments = [])
     {
         $requestedStatus = $data['status'] ?? null;
@@ -1552,7 +1567,8 @@ class AttendanceController extends BaseController
 
             return $this->success(['id' => $id, 'status' => $status], 'Permission updated');
         } catch (\Exception $e) {
-            return $this->error('Failed to update permission: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1563,6 +1579,7 @@ class AttendanceController extends BaseController
     /**
      * GET /api/attendance/staff-today - Get staff attendance for today with leave/off-day info
      */
+    // TODO: Delegate to AttendanceStaffService
     public function getStaffToday($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
@@ -1652,7 +1669,8 @@ class AttendanceController extends BaseController
                 'staff' => $staff
             ], 'Staff attendance retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch staff attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1660,6 +1678,7 @@ class AttendanceController extends BaseController
      * POST /api/attendance/mark-staff - Mark staff attendance
      * Expects: { date, attendance: [{ staff_id, status, check_in_time, check_out_time, notes }] }
      */
+    // TODO: Delegate to AttendanceStaffService
     public function postMarkStaff($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance('staff.attendance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
@@ -1794,7 +1813,8 @@ class AttendanceController extends BaseController
                 'date' => $date, 'shift' => $shift,
             ], 'Staff attendance marked successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to mark staff attendance: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1802,6 +1822,7 @@ class AttendanceController extends BaseController
      * GET /api/attendance/staff-register-context?date=X&department_id=Y
      * Returns full pre-computed register for a date: who is on leave, off, duty, expected time.
      */
+    // TODO: Delegate to AttendanceStaffService
     public function getStaffRegisterContext($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
@@ -1883,7 +1904,8 @@ class AttendanceController extends BaseController
                 'summary'         => $summary,
             ]);
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1908,7 +1930,8 @@ class AttendanceController extends BaseController
 
             return $this->success($dutyTypes, 'Duty types retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch duty types: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1916,6 +1939,7 @@ class AttendanceController extends BaseController
      * GET /api/attendance/staff-report - Get staff attendance report with aggregates
      * Params: date_from, date_to, department_id, duty_type_id, status
      */
+    // TODO: Delegate to AttendanceStaffService
     public function getStaffReport($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
@@ -2151,7 +2175,8 @@ class AttendanceController extends BaseController
                 }, $staffData),
             ], 'Staff report generated');
         } catch (\Exception $e) {
-            return $this->error('Failed to generate staff report: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -2183,7 +2208,8 @@ class AttendanceController extends BaseController
                 'events' => $calendar
             ], 'Calendar retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch calendar: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -2231,7 +2257,8 @@ class AttendanceController extends BaseController
                 ] : null,
             ], 'School day check completed');
         } catch (\Exception $e) {
-            return $this->error('Failed to check school day: ' . $e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -2282,7 +2309,7 @@ class AttendanceController extends BaseController
         return $userId ? (int) $userId : null;
     }
 
-    private function getCurrentStaffId(): ?int
+    public function getCurrentStaffId(): ?int
     {
         $userId = $this->getCurrentUserId();
         if (!$userId) {
@@ -2324,7 +2351,7 @@ class AttendanceController extends BaseController
         ]);
     }
 
-    private function userCanAccessBoardingAttendance(): bool
+    public function userCanAccessBoardingAttendance(): bool
     {
         return $this->userCanManageAllAttendance()
             || $this->currentUserHasAnyRole([
@@ -2332,7 +2359,7 @@ class AttendanceController extends BaseController
             ]);
     }
 
-    private function getAccessibleClassScope(): array
+    public function getAccessibleClassScope(): array
     {
         $scope = [
             'restricted' => !$this->userCanManageAllAttendance(),
@@ -2396,7 +2423,7 @@ class AttendanceController extends BaseController
         return $scope;
     }
 
-    private function getAccessibleStaffScope(): array
+    public function getAccessibleStaffScope(): array
     {
         $canViewAll = $this->userHasAny(
             [
@@ -2436,7 +2463,7 @@ class AttendanceController extends BaseController
         ];
     }
 
-    private function isStaffInScope(?int $staffId, array $scope): bool
+    public function isStaffInScope(?int $staffId, array $scope): bool
     {
         if (!$staffId) {
             return false;
@@ -2449,7 +2476,7 @@ class AttendanceController extends BaseController
         return in_array((int) $staffId, $scope['staff_ids'], true);
     }
 
-    private function buildStreamScopeClause(?int $requestedStreamId, array $scope, string $column = 's.stream_id'): array
+    public function buildStreamScopeClause(?int $requestedStreamId, array $scope, string $column = 's.stream_id'): array
     {
         if ($requestedStreamId) {
             if ($scope['restricted'] && !in_array((int) $requestedStreamId, $scope['stream_ids'], true)) {
@@ -2701,7 +2728,7 @@ class AttendanceController extends BaseController
     /**
      * Unified API response handler (matches other controllers)
      */
-    private function handleResponse($result)
+    public function handleResponse($result)
     {
         if (is_array($result)) {
             // Handle successResponse/errorResponse format: {status, message, type, code, data}
@@ -2738,6 +2765,7 @@ class AttendanceController extends BaseController
      * - How many students already marked?
      * - What is the current academic term + year?
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getRegisterContext($id = null, $data = [], $segments = [])
     {
         try {
@@ -2833,7 +2861,8 @@ class AttendanceController extends BaseController
                 'total_students'     => $totalStudents,
             ]);
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -2842,10 +2871,12 @@ class AttendanceController extends BaseController
      * Returns attendance records grouped by academic year → term
      * with clear differentiation even if student repeated a class
      */
+    // TODO: Delegate to AttendanceStudentService
     public function getStudentHistoryByYear($id = null, $data = [], $segments = [])
     {
         $studentId = $id ?? ($segments[0] ?? null);
-        if (!$studentId) return $this->error('student_id required');
+        if (!$studentId) error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
 
         try {
             $rows = $this->db->query(
@@ -2907,7 +2938,8 @@ class AttendanceController extends BaseController
                 'total_rows' => count($rows),
             ]);
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[AttendanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -2919,7 +2951,7 @@ class AttendanceController extends BaseController
      * Look up which term and academic year a given date belongs to.
      * Falls back to current active term if date not in any term range.
      */
-    private function _resolveTermForDate(string $date): array
+    public function _resolveTermForDate(string $date): array
     {
         $row = $this->db->query(
             "SELECT t.id AS term_id, t.academic_year_id AS year_id, t.name AS term_name,

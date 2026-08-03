@@ -56,38 +56,6 @@ const admissionsWorkspaceController = {
         throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
     },
 
-    isSuccessfulResponse: function(response) {
-        if (!response) return false;
-        if (response.success === false || response.status === false) return false;
-        if (response.success === true || response.status === true) return true;
-        return response.data !== undefined || response.queues !== undefined || response.application !== undefined;
-    },
-
-    unwrapPayload: function(response) {
-        // Handle both response.data and direct response objects
-        if (response && response.data) {
-            return response.data;
-        }
-        return response || {};
-    },
-
-    extractList: function(response) {
-        const payload = this.unwrapPayload(response);
-        if (Array.isArray(payload)) {
-            return payload;
-        }
-        if (payload.data && Array.isArray(payload.data)) {
-            return payload.data;
-        }
-        if (payload.items && Array.isArray(payload.items)) {
-            return payload.items;
-        }
-        if (payload.list && Array.isArray(payload.list)) {
-            return payload.list;
-        }
-        return [];
-    },
-
     notify: function(type, message) {
         if (typeof window.showNotification === "function") {
             window.showNotification(type, message);
@@ -173,13 +141,7 @@ const admissionsWorkspaceController = {
             
             // Fallback to direct API call
             if (!queueData) {
-                const response = await this.apiCall('/admission/queues', 'GET');
-
-                if (!this.isSuccessfulResponse(response)) {
-                    throw new Error(response?.message || "Failed to load admissions data.");
-                }
-
-                queueData = this.unwrapPayload(response);
+                queueData = await this.apiCall('/admission/queues', 'GET');
                 
                 // Cache in DataStore
                 if (typeof DataStore !== 'undefined') {
@@ -957,13 +919,7 @@ const admissionsWorkspaceController = {
             
             // Fallback to direct API call
             if (!payload) {
-                const response = await this.apiCall(`/admission/application/${applicationId}`, "GET");
-                
-                if (!this.isSuccessfulResponse(response)) {
-                    throw new Error(response?.message || "Failed to load application details");
-                }
-
-                payload = this.unwrapPayload(response);
+                payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
                 
                 // Cache in DataStore
                 if (typeof DataStore !== 'undefined') {
@@ -1155,7 +1111,7 @@ const admissionsWorkspaceController = {
 
     startIntake: async function(applicationId) {
         try {
-            const payload = this.unwrapPayload(await this.apiCall(`/admission/application/${applicationId}`, "GET"));
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
             const app = payload?.application || {};
             const workflowData = this.parseJsonSafe(app.workflow_data_json || app.data_json || payload.workflow_data || {});
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
@@ -1551,9 +1507,7 @@ const admissionsWorkspaceController = {
         let existingDocuments = [];
 
         try {
-            const payload = this.unwrapPayload(
-                await this.apiCall(`/admission/application/${applicationId}`, "GET")
-            );
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
             existingDocuments = Array.isArray(payload.documents) ? payload.documents : [];
             this.currentApplicationId = applicationId;
             this.currentApplicationData = payload;
@@ -1865,9 +1819,7 @@ const admissionsWorkspaceController = {
                 }
             }
 
-            const payload = this.unwrapPayload(
-                await this.apiCall(`/admission/application/${applicationId}`, "GET")
-            );
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
 
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
             if (documents.length < initialDocumentCount + uploadedCount) {
@@ -1948,7 +1900,7 @@ const admissionsWorkspaceController = {
 
     verifyDocuments: async function(applicationId) {
         try {
-            const payload = this.unwrapPayload(await this.apiCall(`/admission/application/${applicationId}`, "GET"));
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
             const documents = Array.isArray(payload.documents) ? payload.documents : [];
 
             if (documents.length === 0) {
@@ -2127,9 +2079,8 @@ const admissionsWorkspaceController = {
 
     generatePlacement: async function(applicationId) {
         try {
-            const response = await this.apiCall("/admission/placement-classes", "GET");
-            const payload = this.unwrapPayload(response);
-            const classes = payload.classes || payload.data?.classes || [];
+            const payload = await this.apiCall("/admission/placement-classes", "GET");
+            const classes = payload.classes || [];
 
             this.showWorkspaceModal(
                 '<i class="bi bi-award me-2"></i>Generate Placement Offer',
@@ -2245,8 +2196,7 @@ const admissionsWorkspaceController = {
 
     checkClassSpaceAvailability: async function(applicationId) {
         try {
-            const response = await this.apiCall(`/admission/check-class-space/${applicationId}`, "GET");
-            const payload = this.unwrapPayload(response);
+            const payload = await this.apiCall(`/admission/check-class-space/${applicationId}`, "GET");
             
             const spaceData = payload.space_check || payload;
             const spaceAvailable = spaceData.space_available;
@@ -2338,7 +2288,7 @@ const admissionsWorkspaceController = {
 
     admitStudent: async function(applicationId) {
         try {
-            const payload = this.unwrapPayload(await this.apiCall(`/admission/application/${applicationId}`, "GET"));
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
             const app = payload?.application || {};
             
             this.showWorkspaceModal(
@@ -2397,10 +2347,9 @@ const admissionsWorkspaceController = {
 
     createProvisionalStudent: async function(applicationId) {
         try {
-            const response = await this.apiCall(`/admission/create-provisional-student/${applicationId}`, "POST");
-            const payload = this.unwrapPayload(response);
+            const payload = await this.apiCall(`/admission/create-provisional-student/${applicationId}`, "POST");
             
-            if (payload.success) {
+            if (payload && payload.admission_number) {
                 this.notify("success", `Provisional student record created. Admission No: ${payload.admission_number || 'N/A'}`);
                 this.closeWorkspaceModal();
                 await this.loadQueueData();
@@ -2415,7 +2364,7 @@ const admissionsWorkspaceController = {
 
     generateStudentIdCard: async function(applicationId) {
         try {
-            const payload = this.unwrapPayload(await this.apiCall(`/admission/application/${applicationId}`, "GET"));
+            const payload = await this.apiCall(`/admission/application/${applicationId}`, "GET");
             const app = payload?.application || {};
             const workflowData = this.parseJsonSafe(app.workflow_data_json || '{}');
             

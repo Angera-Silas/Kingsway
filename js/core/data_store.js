@@ -3,6 +3,27 @@
  *
  * Coordinates memory cache, IndexedDB and authoritative backend fetches.
  * Cache keys are identifiers only; they are never converted into API paths.
+ *
+ * ── Per-key TTL Override ──────────────────────────────────────────────
+ * Controllers can pass a per-call TTL override via the options object:
+ *   DataStore.get('students', { ttl: 300000 })              // 5 minutes
+ *   DataStore.get('attendance', { ttl: 15000, strategy: 'network-first' })
+ *
+ * The default TTL for each key is defined in the `policies` object below
+ * (60 s for volatile data, 24 h for reference data, 7 d for long-lived).
+ * If no policy matches, MEMORY_TTL (60 s) is used.
+ *
+ * ── Real‑time / Cross‑tab Updates ─────────────────────────────────────
+ *  • BroadcastChannel ('kingsway-cache') — when the same origin fires
+ *    CACHE_INVALIDATED, all non‑sending tabs invalidate the listed keys.
+ *  • localStorage fallback (kingsway_cache_invalidation) — the same
+ *    mechanism via the 'storage' event for browsers without BroadcastChannel.
+ *  • Subscriber pattern — controllers can subscribe to keys and react to
+ *    'local' and 'network' source events (see `subscribe()`).
+ *
+ * There is no WebSocket / SSE integration yet. If real‑time push is added,
+ * use the subscriber API to deliver live updates:
+ *   DataStore.subscribe('attendance', ({ key, data, source }) => { … });
  */
 const DataStore = (() => {
   'use strict';
@@ -195,6 +216,25 @@ const DataStore = (() => {
     }
   }
 
+  /**
+   * Retrieve a cached value (or fetch from network).
+   *
+   * @param {string} key                    Cache key (must match a policy entry).
+   * @param {object} [options]              Options bag.
+   * @param {number} [options.ttl]          Override TTL in ms (default: policy TTL or 60000).
+   * @param {string} [options.strategy]     Cache strategy (stale-while-revalidate, cache-first,
+   *                                        cache-only, network-first).
+   * @param {boolean} [options.forceRefresh] Skip cache and fetch from network.
+   * @param {boolean} [options.bypassCache]  Skip memory + IndexedDB entirely.
+   * @param {string} [options.endpoint]     API path to fetch (if not using fetcher).
+   * @param {function} [options.fetcher]    Async function that returns data.
+   * @param {object} [options.params]       Query params appended to endpoint.
+   * @param {boolean} [options.useMemory]   Default true.
+   * @param {boolean} [options.useIndexedDB] Default true.
+   * @param {boolean} [options.allowStaleOnError] Default true — fall back to stale data
+   *                                              when the network request fails.
+   * @returns {Promise<*|null>}
+   */
   async function get(key, options = {}) {
     const config = normalizeOptions(key, options);
     const cacheKey = generateCacheKey(key, config.params);
@@ -348,7 +388,7 @@ const DataStore = (() => {
         try {
           const message = JSON.parse(event.newValue);
           if (message?.type === 'CACHE_INVALIDATED' && Array.isArray(message?.keys)) {
-            message.keys.forEach((key) => invalidate(key));
+            message.keys.filter((k) => typeof k === 'string').forEach((key) => invalidate(key));
           }
         } catch (_) {}
       }

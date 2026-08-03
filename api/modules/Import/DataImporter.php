@@ -119,7 +119,7 @@ class DataImporter
                     $successCount = count($validRows);
                 }
             } catch (Exception $e) {
-                $importErrors[] = ['row' => 0, 'field' => 'system', 'message' => $e->getMessage()];
+                $importErrors[] = ['row' => 0, 'field' => 'system', 'message' => 'An internal error occurred.'];
             }
         }
 

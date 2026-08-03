@@ -181,18 +181,17 @@ class SchoolAdminAnalyticsService
         try {
             // Active class schedules this week
             $query = "SELECT 
-                        COUNT(DISTINCT class_id) as active_timetables,
+                        COUNT(DISTINCT academic_year_class_stream_id) as active_timetables,
                         COUNT(*) as total_periods
-                      FROM class_schedules 
-                      WHERE status = 'active'";
+                      FROM vw_timetable_entries 
+                      WHERE status = 'scheduled'";
             $stmt = $this->db->query($query);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
             // Classes per week
             $weeklyQuery = "SELECT COUNT(*) as classes_this_week 
-                            FROM class_schedules 
-                            WHERE status = 'active'
-                              AND DAYOFWEEK(CURDATE()) BETWEEN 2 AND 6";
+                            FROM vw_timetable_entries 
+                            WHERE status = 'scheduled'";
             $weeklyStmt = $this->db->query($weeklyQuery);
             $weeklyResult = $weeklyStmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -672,22 +671,20 @@ class SchoolAdminAnalyticsService
             $dayNames = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday'];
             $today = $dayNames[$dayOfWeek] ?? 'Monday';
 
-            // Class schedules for today (without subjects table)
+            // Class schedules for today
             $query = "SELECT 
                         cs.start_time,
                         cs.end_time,
-                        c.name as class_name,
+                        cs.class_name,
                         cs.subject_id,
-                        CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                        cs.teacher_name,
                         'Class' as event_type
-                      FROM class_schedules cs
-                      JOIN classes c ON cs.class_id = c.id
-                      LEFT JOIN staff s ON cs.teacher_id = s.id
+                      FROM vw_timetable_entries cs
                       WHERE cs.day_of_week = ?
-                        AND cs.status = 'active'
+                        AND cs.status = 'scheduled'
                       ORDER BY cs.start_time
                       LIMIT 15";
-            $stmt = $this->db->query($query, [$today]);
+            $stmt = $this->db->query($query, [$dayOfWeek]);
             $classes = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
             foreach ($classes as $class) {

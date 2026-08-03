@@ -222,6 +222,16 @@ define(
 
 
 define(
+    'PORTFOLIO_TEMPLATES',
+    TEMPLATES_PATH . '/portfolios'
+);
+
+define(
+    'REPORT_CARD_TEMPLATES',
+    TEMPLATES_PATH . '/report_cards'
+);
+
+define(
     'STAFF_SECURITY_PASS_TEMPLATES',
     ID_CARD_TEMPLATES . '/staff_security_pass'
 );

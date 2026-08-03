@@ -51,7 +51,8 @@ class HealthController extends BaseController
                 'vaccinations_due' => $vaxDue,
             ]);
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -102,7 +103,8 @@ class HealthController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -151,7 +153,8 @@ class HealthController extends BaseController
 
             return $this->success(['message' => 'Health record saved']);
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -190,7 +193,8 @@ class HealthController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -234,7 +238,8 @@ class HealthController extends BaseController
 
             return $this->created(['id' => (int)$this->db->lastInsertId()], 'Visit recorded');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -278,7 +283,8 @@ class HealthController extends BaseController
             );
             return $this->success(['message' => 'Visit updated']);
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -312,7 +318,8 @@ class HealthController extends BaseController
             }
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -343,7 +350,8 @@ class HealthController extends BaseController
             );
             return $this->created(['id' => (int)$this->db->lastInsertId()], 'Vaccination recorded');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[HealthController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 }

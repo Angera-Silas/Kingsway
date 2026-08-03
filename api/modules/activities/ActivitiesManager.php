@@ -269,7 +269,7 @@ class ActivitiesManager extends BaseAPI
                 return [
                     'success' => false,
                     'code' => 400,
-                    'message' => $e->getMessage()
+                    'message' => 'An internal error occurred.'
                 ];
             }
 
@@ -383,7 +383,7 @@ class ActivitiesManager extends BaseAPI
             return [
                 'success' => false,
                 'code' => 400,
-                'message' => $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -461,7 +461,7 @@ class ActivitiesManager extends BaseAPI
             return [
                 'success' => false,
                 'code' => 400,
-                'message' => $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }

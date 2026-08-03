@@ -96,7 +96,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to create budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -177,7 +178,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to update budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -240,7 +242,8 @@ class BudgetManager
             return formatResponse(true, $budget);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -317,7 +320,8 @@ class BudgetManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list budgets: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -355,7 +359,8 @@ class BudgetManager
             return formatResponse(true, ['variances' => $variances]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate variance report: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -393,7 +398,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -436,7 +442,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to delete budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

@@ -430,14 +430,10 @@ const pendingApprovalsController = {
                 remarks: approvalData.remarks
             })
                 .then(response => {
-                    if (response.success) {
-                        showNotification('success', 'Admission approved successfully');
-                        bootstrap.Modal.getInstance(document.getElementById('finalApprovalModal')).hide();
-                        document.getElementById('finalApprovalForm').reset();
-                        this.loadApplications();
-                    } else {
-                        showNotification('error', response.message || 'Failed to approve admission');
-                    }
+                    showNotification('success', 'Admission approved successfully');
+                    bootstrap.Modal.getInstance(document.getElementById('finalApprovalModal')).hide();
+                    document.getElementById('finalApprovalForm').reset();
+                    this.loadApplications();
                 })
                 .catch(error => {
                     console.error('Failed to submit approval:', error);

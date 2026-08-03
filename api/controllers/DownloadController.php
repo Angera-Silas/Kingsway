@@ -63,7 +63,8 @@ final class DownloadController extends BaseController
                 'download_url' => $this->generatedDownloadUrl($path),
             ], 'Export generated.');
         } catch (\Throwable $exception) {
-            return $this->serverError('Export generation failed.', $exception->getMessage());
+            error_log('[DownloadController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->serverError('Export generation failed.', 'An internal error occurred.');
         }
     }
 

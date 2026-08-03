@@ -48,6 +48,95 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
     }
 
     /**
+     * Resolve an academic_years.id from a numeric year value (year_code).
+     */
+    private function resolveYearIdFromCode(int $yearValue): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
+        $stmt->execute([(string)$yearValue]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Tables in the normalized schema use explicit integer ids (no AUTO_INCREMENT).
+     * Mirrors the sp_generate_year_calendar approach: COALESCE(MAX(id), 0) + 1.
+     */
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Ensure a global terms row exists for the given term name/number.
+     * Returns the terms.id.
+     */
+    private function ensureTermId(string $termName, int $termNumber): int
+    {
+        $code = 'T' . $termNumber;
+        $stmt = $this->db->prepare("SELECT id FROM terms WHERE code = ? LIMIT 1");
+        $stmt->execute([$code]);
+        $id = (int) ($stmt->fetchColumn() ?: 0);
+        if (!$id) {
+            $id = $this->nextId('terms');
+            $stmt = $this->db->prepare("INSERT INTO terms (id, name, code) VALUES (?, ?, ?)");
+            $stmt->execute([$id, $termName, $code]);
+        }
+        return $id;
+    }
+
+    /**
+     * Reuse-or-create a streams row and link it to an academic year class.
+     * Returns the academic_year_class_streams.id.
+     */
+    private function createStreamLink(int $aycId, array $stream): int
+    {
+        $name = trim((string) ($stream['name'] ?? ''));
+        if ($name === '') {
+            throw new Exception('Stream name is required');
+        }
+        $code = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $name), 0, 6));
+        $capacity = (int) ($stream['capacity'] ?? 40);
+        if ($capacity <= 0) {
+            $capacity = 40;
+        }
+
+        $stmt = $this->db->prepare("SELECT id, capacity FROM streams WHERE name = ? LIMIT 1");
+        $stmt->execute([$name]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $streamId = $row ? (int) $row['id'] : 0;
+
+        if (!$streamId) {
+            $streamId = $this->nextId('streams');
+            $stmt = $this->db->prepare("INSERT INTO streams (id, name, code, capacity) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$streamId, $name, $code, $capacity]);
+        } elseif ((int) $row['capacity'] !== $capacity) {
+            $stmt = $this->db->prepare("UPDATE streams SET code = ?, capacity = ? WHERE id = ?");
+            $stmt->execute([$code, $capacity, $streamId]);
+        }
+
+        $stmt = $this->db->prepare("
+            SELECT id FROM academic_year_class_streams
+            WHERE academic_year_class_id = ? AND stream_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$aycId, $streamId]);
+        $aycsId = (int) ($stmt->fetchColumn() ?: 0);
+
+        if (!$aycsId) {
+            $aycsId = $this->nextId('academic_year_class_streams');
+            $stmt = $this->db->prepare("
+                INSERT INTO academic_year_class_streams (id, academic_year_class_id, stream_id, room_id, class_teacher_id, status)
+                VALUES (?, ?, ?, NULL, NULL, 'active')
+            ");
+            $stmt->execute([$aycsId, $aycId, $streamId]);
+        }
+
+        return $aycsId;
+    }
+
+    /**
      * Stage 1: Prepare academic calendar
      * 
      * @param array $calendar {
@@ -88,41 +177,72 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Check if academic year already exists
             $checkStmt = $this->db->prepare(
-                "SELECT COUNT(*) as count FROM academic_terms WHERE academic_year = :year"
+                "SELECT COUNT(*) as count FROM academic_years WHERE year_code = :year"
             );
-            $checkStmt->execute(['year' => $toYear]);
+            $checkStmt->execute(['year' => (string)$toYear]);
             $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($existing['count'] > 0) {
+            if ((int) $existing['count'] > 0) {
+                $this->db->rollBack();
                 return formatResponse(false, null, "Academic year {$toYear} already exists");
             }
 
-            // Create academic terms for new year
+            // Create academic year record
+            $academicYearId = $this->nextId('academic_years');
+            $yearStmt = $this->db->prepare(
+                "INSERT INTO academic_years (id, year_code, year_name, start_date, end_date, status, is_current)
+                 VALUES (:id, :year, :name, :start_date, :end_date, 'planning', 0)"
+            );
+            $yearStmt->execute([
+                'id' => $academicYearId,
+                'year' => (string)$toYear,
+                'name' => 'Academic Year ' . $toYear,
+                'start_date' => $calendar['year_start_date'],
+                'end_date' => $calendar['year_end_date'],
+            ]);
+
+            // Create academic year terms for new year
             $termIds = [];
-            foreach ($calendar['terms'] as $term) {
+            foreach ($calendar['terms'] as $index => $term) {
+                $termNumber = $index + 1;
+                $termId = $this->ensureTermId(
+                    (string) ($term['term_name'] ?? ('Term ' . $termNumber)),
+                    $termNumber
+                );
+
+                $aytId = $this->nextId('academic_year_terms');
                 $termStmt = $this->db->prepare(
-                    "INSERT INTO academic_terms (
-                        term_name, academic_year, start_date, end_date, 
-                        weeks, status
-                    ) VALUES (
-                        :name, :year, :start_date, :end_date,
-                        :weeks, 'upcoming'
-                    )"
+                    "INSERT INTO academic_year_terms (id, academic_year_id, term_id, opening_date, closing_date, status)
+                     VALUES (:id, :year_id, :term_id, :start_date, :end_date, 'upcoming')"
                 );
                 $termStmt->execute([
-                    'name' => $term['term_name'],
-                    'year' => $toYear,
+                    'id' => $aytId,
+                    'year_id' => $academicYearId,
+                    'term_id' => $termId,
                     'start_date' => $term['start_date'],
                     'end_date' => $term['end_date'],
-                    'weeks' => isset($term['weeks']) ? (int) $term['weeks'] : 12,
                 ]);
-                $termIds[] = (int) $this->db->lastInsertId();
+                $termIds[] = $aytId;
             }
+
+            // Auto-generate the term calendar (weeks, school days, half-term
+            // holidays) from the government-issued term dates. Explicit week
+            // counts (e.g. 14/14/10) are honored when supplied per term.
+            $weekCounts = [];
+            foreach ($calendar['terms'] as $index => $term) {
+                if (isset($term['weeks']) && (int) $term['weeks'] > 0) {
+                    $weekCounts[$index + 1] = (int) $term['weeks'];
+                }
+            }
+            require_once __DIR__ . '/AcademicCalendarService.php';
+            $calendarService = new AcademicCalendarService($this->db);
+            $calendarService->generateYearCalendar($academicYearId, $weekCounts);
 
             // Prepare workflow data
             $workflowData = [
                 'from_year' => $fromYear,
                 'to_year' => $toYear,
+                'academic_year_id' => $academicYearId,
                 'year_start_date' => $calendar['year_start_date'],
                 'year_end_date' => $calendar['year_end_date'],
                 'terms' => $calendar['terms'],
@@ -138,16 +258,15 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             // Start workflow
             $instance = $this->startWorkflow(
-                'year_transition',
+                $this->getWorkflowDefinitionCode(),
                 $toYear,
-                $workflowData,
-                "Academic year transition: {$fromYear} → {$toYear}"
+                $workflowData
             );
 
             $this->db->commit();
 
             return formatResponse(true, [
-                'instance_id' => $instance['id'],
+                'instance_id' => $instance,
                 'workflow_data' => $workflowData,
                 'terms_created' => count($termIds),
             ], 'Academic calendar prepared successfully');
@@ -200,10 +319,11 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 $assessStmt = $this->db->prepare(
                     "SELECT COUNT(*) as count FROM assessment_results ar
                     INNER JOIN assessments a ON ar.assessment_id = a.id
-                    INNER JOIN academic_terms t ON a.term_id = t.id
-                    WHERE t.academic_year = :year"
+                    INNER JOIN academic_year_terms ayt ON a.academic_year_term_id = ayt.id
+                    INNER JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                    WHERE ay.year_code = :year"
                 );
-                $assessStmt->execute(['year' => $fromYear]);
+                $assessStmt->execute(['year' => (string)$fromYear]);
                 $assessCount = $assessStmt->fetch(PDO::FETCH_ASSOC);
                 $archiveSummary['assessments_archived'] = (int) $assessCount['count'];
             }
@@ -235,8 +355,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Archived data for year {$fromYear}"
+                'archive_data',
+                "Archived data for year {$fromYear}",
+                $data
             );
 
             return formatResponse(true, $archiveSummary, 'Data archived successfully');
@@ -295,17 +416,21 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
                 }
 
                 // Count students in this grade
+                $yearId = $this->resolveYearIdFromCode($fromYear);
                 $countStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM students s
-                    INNER JOIN class_streams cs ON s.stream_id = cs.id
-                    INNER JOIN classes c ON cs.class_id = c.id
-                    WHERE c.level_id = :grade_id 
-                    AND c.academic_year = :year
+                    "SELECT COUNT(DISTINCT s.id) as count FROM students s
+                    INNER JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.academic_year_id = :year_id
+                        AND sae.enrollment_status IN ('pending', 'active')
+                    INNER JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    INNER JOIN classes c ON c.id = ayc.class_id
+                    WHERE c.level_id = :grade_id
                     AND s.status = 'active'"
                 );
                 $countStmt->execute([
+                    'year_id' => $yearId,
                     'grade_id' => $fromGradeId,
-                    'year' => $fromYear,
                 ]);
                 $studentCount = $countStmt->fetch(PDO::FETCH_ASSOC);
                 $count = (int) $studentCount['count'];
@@ -338,8 +463,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Promoted {$promotionSummary['promoted']} students, {$promotionSummary['graduated']} graduated"
+                'execute_promotions',
+                "Promoted {$promotionSummary['promoted']} students, {$promotionSummary['graduated']} graduated",
+                $data
             );
 
             $this->db->commit();
@@ -354,18 +480,28 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
     /**
      * Stage 4: Setup new academic year
-     * 
-     * Creates class structures, streams, and other organizational elements.
-     * 
+     *
+     * Two modes:
+     *
+     *  A) AUTO (default, no class_structures) - clones the source (Term 3)
+     *     year's class structure one grade ahead:
+     *       * target class resolved through academic_class_progression
+     *         (e.g. Grade 5 -> Grade 6, Grade 8 -> Grade 9);
+     *       * Grade 4 and above copies the source stream set (5A/B/C -> 6A/B/C);
+     *       * ECD / lower primary (Playgroup..Grade 3) always gets 2 streams (A, B);
+     *       * Grade 9 graduates (no target created);
+     *       * idempotent - existing classes/streams in the target year are reused.
+     *
+     *  B) EXPLICIT (class_structures provided) - legacy behavior, creates the
+     *     listed levels/streams verbatim.
+     *
      * @param int $instance_id Workflow instance ID
      * @param array $setup_config {
-     *   @type array $class_structures Array of class definitions {
-     *     @type int $level_id School level/grade ID
-     *     @type array $streams Stream names (e.g., ['A', 'B', 'C'])
-     *     @type int $capacity Students per stream
-     *   }
-     *   @type bool $clone_subjects Clone subjects from previous year
-     *   @type bool $clone_staff_assignments Clone teacher assignments
+     *   @type int $from_year Source year (defaults to workflow from_year)
+     *   @type array $class_structures Explicit class definitions (mode B)
+     *   @type array $stream_overrides { target_class_id: [stream names] }
+     *   @type int $default_ecd_streams Streams for ECD/lower (default 2)
+     *   @type int $capacity Default stream capacity (default 40)
      * }
      * @return array Response with setup summary
      */
@@ -379,63 +515,63 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $data = json_decode($instance['data_json'], true) ?: [];
             $toYear = (int) ($data['to_year'] ?? 0);
+            $fromYear = (int) ($setup_config['from_year'] ?? ($data['from_year'] ?? 0));
+            $capacity = (int) ($setup_config['capacity'] ?? 40);
+            $defaultEcdStreams = max(1, (int) ($setup_config['default_ecd_streams'] ?? 2));
+            $streamOverrides = $setup_config['stream_overrides'] ?? [];
+
+            $academicYearId = $this->resolveYearIdFromCode($toYear);
+            if (!$academicYearId) {
+                throw new Exception("Academic year {$toYear} not found");
+            }
 
             $this->db->beginTransaction();
 
-            $classStructures = $setup_config['class_structures'] ?? [];
-            $newClasses = [];
-
-            foreach ($classStructures as $structure) {
-                $levelId = (int) ($structure['level_id'] ?? 0);
-                $streams = $structure['streams'] ?? ['A'];
-                $capacity = isset($structure['capacity']) ? (int) $structure['capacity'] : 40;
-
-                // Create class for this level
-                $classStmt = $this->db->prepare(
-                    "INSERT INTO classes (
-                        level_id, academic_year, capacity, status
-                    ) VALUES (
-                        :level_id, :year, :capacity, 'active'
-                    )"
+            // Mode B: explicit class structures (legacy path).
+            if (!empty($setup_config['class_structures'])) {
+                $newClasses = $this->setupNewYearExplicit(
+                    $academicYearId,
+                    $setup_config['class_structures'],
+                    $capacity
                 );
-                $classStmt->execute([
-                    'level_id' => $levelId,
-                    'year' => $toYear,
-                    'capacity' => $capacity * count($streams),
-                ]);
-                $classId = (int) $this->db->lastInsertId();
 
-                // Create streams for this class
-                $streamIds = [];
-                foreach ($streams as $streamName) {
-                    $streamStmt = $this->db->prepare(
-                        "INSERT INTO class_streams (
-                            class_id, stream_name, capacity
-                        ) VALUES (
-                            :class_id, :stream_name, :capacity
-                        )"
-                    );
-                    $streamStmt->execute([
-                        'class_id' => $classId,
-                        'stream_name' => $streamName,
-                        'capacity' => $capacity,
-                    ]);
-                    $streamIds[] = (int) $this->db->lastInsertId();
-                }
+                $data['new_classes'] = array_merge($data['new_classes'] ?? [], $newClasses);
+                $data['academic_year_id'] = $academicYearId;
 
-                $newClasses[] = [
-                    'level_id' => $levelId,
-                    'class_id' => $classId,
-                    'streams' => $streamIds,
-                ];
+                $this->advanceStage(
+                    $instance_id,
+                    'setup_new_year',
+                    "Created " . count($newClasses) . " classes for year {$toYear}",
+                    $data
+                );
+
+                $this->db->commit();
+
+                return formatResponse(true, [
+                    'classes_created' => count($newClasses),
+                    'new_classes' => $newClasses,
+                    'academic_year_id' => $academicYearId,
+                    'mode' => 'explicit',
+                ], 'New academic year structure created');
             }
 
-            $data['new_classes'] = $newClasses;
+            // Mode A: auto-clone from the source year one grade ahead.
+            $newClasses = $this->setupNewYearAuto(
+                $fromYear,
+                $academicYearId,
+                $capacity,
+                $defaultEcdStreams,
+                $streamOverrides
+            );
+
+            $data['new_classes'] = array_merge($data['new_classes'] ?? [], $newClasses);
+            $data['academic_year_id'] = $academicYearId;
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Created {count($newClasses)} classes for year {$toYear}"
+                'setup_new_year',
+                "Created " . count($newClasses) . " classes for year {$toYear}",
+                $data
             );
 
             $this->db->commit();
@@ -443,12 +579,242 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             return formatResponse(true, [
                 'classes_created' => count($newClasses),
                 'new_classes' => $newClasses,
+                'academic_year_id' => $academicYearId,
+                'mode' => 'auto',
             ], 'New academic year structure created');
 
         } catch (Exception $e) {
             $this->db->rollBack();
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * Mode A: clone the source year's class/stream structure one grade ahead.
+     *
+     * @return array List of created/ensured class entries
+     */
+    private function setupNewYearAuto(int $fromYear, int $toYearId, int $capacity, int $defaultEcdStreams, array $streamOverrides): array
+    {
+        if ($fromYear <= 0) {
+            throw new Exception('from_year is required for automatic class setup');
+        }
+
+        $fromYearId = $this->resolveYearIdFromCode($fromYear);
+        if (!$fromYearId) {
+            throw new Exception("Source academic year {$fromYear} not found");
+        }
+
+        // Source structure: class => stream names (Term 3 / year-end snapshot).
+        $sourceStmt = $this->db->prepare(
+            "SELECT c.id AS class_id, c.name AS class_name, c.level_id,
+                    ayc.id AS ayc_id
+             FROM academic_year_classes ayc
+             JOIN classes c ON c.id = ayc.class_id
+             WHERE ayc.academic_year_id = ?
+             ORDER BY c.id"
+        );
+        $sourceStmt->execute([$fromYearId]);
+        $sourceClasses = $sourceStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $streamStmt = $this->db->prepare(
+            "SELECT aycs.academic_year_class_id, s.name
+             FROM academic_year_class_streams aycs
+             JOIN streams s ON s.id = aycs.stream_id
+             WHERE aycs.academic_year_class_id IN (SELECT id FROM academic_year_classes WHERE academic_year_id = ?)"
+        );
+        $streamStmt->execute([$fromYearId]);
+        $streamsByAycs = [];
+        foreach ($streamStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $streamsByAycs[(int) $row['academic_year_class_id']][] = $row['name'];
+        }
+
+        // Existing structure in the target year (for idempotency).
+        $existingTarget = [];
+        $targetStmt = $this->db->prepare(
+            "SELECT c.id AS class_id, ayc.id AS ayc_id
+             FROM academic_year_classes ayc
+             JOIN classes c ON c.id = ayc.class_id
+             WHERE ayc.academic_year_id = ?"
+        );
+        $targetStmt->execute([$toYearId]);
+        foreach ($targetStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $existingTarget[(int) $row['class_id']] = (int) $row['ayc_id'];
+        }
+
+        $created = [];
+        $graduated = [];
+
+        foreach ($sourceClasses as $source) {
+            $sourceClassId = (int) $source['class_id'];
+            $sourceName = (string) $source['class_name'];
+
+            // Resolve the next class through the progression ladder.
+            $nextClassId = $this->resolveNextClassId($sourceClassId);
+            if ($nextClassId <= 0) {
+                $graduated[] = $sourceName; // e.g. Grade 9 - graduates.
+                continue;
+            }
+
+            // Determine stream names for the target class.
+            if (isset($streamOverrides[$nextClassId]) && is_array($streamOverrides[$nextClassId])) {
+                $streamNames = array_values(array_map('strval', $streamOverrides[$nextClassId]));
+            } elseif ($this->isUpperPrimaryOrAbove($sourceName)) {
+                // Grade 4+ keeps the source stream set (A/B/C stays A/B/C).
+                $streamNames = $streamsByAycs[(int) $source['ayc_id']] ?? ['A'];
+                if (empty($streamNames)) {
+                    $streamNames = ['A'];
+                }
+            } else {
+                // ECD / lower primary always gets the default stream set (A, B).
+                $streamNames = ['A', 'B'];
+                if ($defaultEcdStreams > 2) {
+                    for ($i = 3; $i <= $defaultEcdStreams; $i++) {
+                        $streamNames[] = chr(64 + $i);
+                    }
+                }
+            }
+
+            $created[] = $this->ensureYearClass(
+                $toYearId,
+                $nextClassId,
+                $streamNames,
+                $capacity,
+                $existingTarget
+            );
+        }
+
+        return $created;
+    }
+
+    /**
+     * Resolve the next class id for a source class via academic_class_progression.
+     * Returns 0 when the source class graduates (no next class).
+     */
+    private function resolveNextClassId(int $sourceClassId): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT target_class_id FROM academic_class_progression
+             WHERE source_class_id = ? AND active = 1 LIMIT 1"
+        );
+        $stmt->execute([$sourceClassId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Ensure a class + streams exist for a year, creating them when missing.
+     */
+    private function ensureYearClass(int $toYearId, int $classId, array $streamNames, int $capacity, array &$existingTarget): array
+    {
+        $aycId = $existingTarget[$classId] ?? 0;
+        if ($aycId <= 0) {
+            $aycId = $this->nextId('academic_year_classes');
+            $aycStmt = $this->db->prepare(
+                "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
+                 VALUES (?, ?, ?, 'active')"
+            );
+            $aycStmt->execute([$aycId, $toYearId, $classId]);
+            $existingTarget[$classId] = $aycId;
+        }
+
+        $streamIds = [];
+        foreach ($streamNames as $streamName) {
+            $streamIds[] = $this->createStreamLink($aycId, [
+                'name' => (string) $streamName,
+                'capacity' => $capacity,
+            ]);
+        }
+
+        return [
+            'class_id' => $classId,
+            'academic_year_class_id' => $aycId,
+            'streams' => $streamIds,
+            'stream_names' => $streamNames,
+        ];
+    }
+
+    /**
+     * Mode B: create explicitly-provided class structures (legacy behavior).
+     */
+    private function setupNewYearExplicit(int $academicYearId, array $classStructures, int $capacity): array
+    {
+        $newClasses = [];
+
+        foreach ($classStructures as $structure) {
+            $levelId = (int) ($structure['level_id'] ?? 0);
+            $streams = $structure['streams'] ?? ['A'];
+
+            // Resolve school level for class naming.
+            $levelStmt = $this->db->prepare("SELECT name, code FROM school_levels WHERE id = ? LIMIT 1");
+            $levelStmt->execute([$levelId]);
+            $level = $levelStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$level) {
+                throw new Exception("School level {$levelId} not found");
+            }
+            $levelName = $level['name'];
+            $levelCode = strtoupper($level['code']);
+
+            // Reuse the canonical class master when present; only create it when missing.
+            $classStmt = $this->db->prepare("SELECT id FROM classes WHERE level_id = ? AND name = ? LIMIT 1");
+            $classStmt->execute([$levelId, $levelName]);
+            $classId = (int) ($classStmt->fetchColumn() ?: 0);
+            if ($classId <= 0) {
+                $classId = $this->nextId('classes');
+                $classInsert = $this->db->prepare(
+                    "INSERT INTO classes (id, code, name, level_id, grade_level)
+                     VALUES (:id, :code, :name, :level_id, NULL)"
+                );
+                $classInsert->execute([
+                    'id' => $classId,
+                    'code' => $levelCode,
+                    'name' => $levelName,
+                    'level_id' => $levelId,
+                ]);
+            }
+
+            // Link class to academic year idempotently.
+            $aycLookup = $this->db->prepare(
+                "SELECT id FROM academic_year_classes WHERE academic_year_id = ? AND class_id = ? LIMIT 1"
+            );
+            $aycLookup->execute([$academicYearId, $classId]);
+            $aycId = (int) ($aycLookup->fetchColumn() ?: 0);
+            if ($aycId <= 0) {
+                $aycId = $this->nextId('academic_year_classes');
+                $aycStmt = $this->db->prepare(
+                    "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
+                     VALUES (:id, :year_id, :class_id, 'active')"
+                );
+                $aycStmt->execute(['id' => $aycId, 'year_id' => $academicYearId, 'class_id' => $classId]);
+            }
+
+            // Create/link streams for this class
+            $streamIds = [];
+            foreach ($streams as $streamName) {
+                $streamName = is_array($streamName) ? ($streamName['name'] ?? 'A') : $streamName;
+                $streamIds[] = $this->createStreamLink($aycId, [
+                    'name' => (string) $streamName,
+                    'capacity' => $capacity,
+                ]);
+            }
+
+            $newClasses[] = [
+                'level_id' => $levelId,
+                'class_id' => $classId,
+                'academic_year_class_id' => $aycId,
+                'streams' => $streamIds,
+            ];
+        }
+
+        return $newClasses;
+    }
+
+    /**
+     * Upper-primary and above (Grade 4..Grade 9) copy the source stream set;
+     * everything lower (Playgroup..Grade 3) always uses the default ECD set.
+     */
+    private function isUpperPrimaryOrAbove(string $className): bool
+    {
+        return (bool) preg_match('/^Grade\s+([4-9]|1[0-2])\b/i', trim($className));
     }
 
     /**
@@ -499,8 +865,9 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Migrated {$migratedBaselines['total_baselines']} competency baselines"
+                'migrate_baselines',
+                "Migrated {$migratedBaselines['total_baselines']} competency baselines",
+                $data
             );
 
             return formatResponse(true, $migratedBaselines, 'Competency baselines migrated successfully');
@@ -528,47 +895,171 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             $data = json_decode($instance['data_json'], true) ?: [];
             $toYear = (int) ($data['to_year'] ?? 0);
+            $fromYear = (int) ($data['from_year'] ?? 0);
 
             $validationResults = [];
+            $yearId = (int) ($data['academic_year_id'] ?? 0);
+            if ($yearId <= 0) {
+                $yearId = $this->resolveYearIdFromCode($toYear);
+            }
 
-            // Check 1: Academic terms created
+            // Check 1: Target academic year exists.
+            $yearStmt = $this->db->prepare(
+                "SELECT id, status, is_current FROM academic_years WHERE id = ? LIMIT 1"
+            );
+            $yearStmt->execute([$yearId]);
+            $year = $yearStmt->fetch(PDO::FETCH_ASSOC);
+            $validationResults['academic_year_exists'] = [
+                'status' => $year ? 'pass' : 'fail',
+                'academic_year_id' => $yearId,
+                'year_status' => $year['status'] ?? null,
+            ];
+
+            // Check 2: Expected year terms created.
             $termsStmt = $this->db->prepare(
-                "SELECT COUNT(*) as count FROM academic_terms WHERE academic_year = :year"
+                "SELECT COUNT(*) FROM academic_year_terms WHERE academic_year_id = ?"
             );
-            $termsStmt->execute(['year' => $toYear]);
-            $termsCount = $termsStmt->fetch(PDO::FETCH_ASSOC);
+            $termsStmt->execute([$yearId]);
+            $termsCount = (int) $termsStmt->fetchColumn();
             $validationResults['terms_created'] = [
-                'status' => (int) $termsCount['count'] > 0 ? 'pass' : 'fail',
-                'count' => (int) $termsCount['count'],
+                'status' => $termsCount >= 3 ? 'pass' : 'fail',
+                'count' => $termsCount,
+                'expected_minimum' => 3,
             ];
 
-            // Check 2: Classes created
+            // Check 3: Target classes created.
             $classesStmt = $this->db->prepare(
-                "SELECT COUNT(*) as count FROM classes WHERE academic_year = :year"
+                "SELECT COUNT(*) FROM academic_year_classes
+                 WHERE academic_year_id = ? AND status = 'active'"
             );
-            $classesStmt->execute(['year' => $toYear]);
-            $classesCount = $classesStmt->fetch(PDO::FETCH_ASSOC);
+            $classesStmt->execute([$yearId]);
+            $classesCount = (int) $classesStmt->fetchColumn();
             $validationResults['classes_created'] = [
-                'status' => (int) $classesCount['count'] > 0 ? 'pass' : 'fail',
-                'count' => (int) $classesCount['count'],
+                'status' => $classesCount > 0 ? 'pass' : 'fail',
+                'count' => $classesCount,
             ];
 
-            // Check 3: Data archived
-            $validationResults['data_archived'] = [
-                'status' => !empty($data['archive_summary']) ? 'pass' : 'fail',
-                'summary' => $data['archive_summary'] ?? null,
+            // Check 4: Every active target class has at least one stream.
+            $streamGapsStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM academic_year_classes ayc
+                 LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.academic_year_class_id = ayc.id
+                 WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
+                   AND aycs.id IS NULL"
+            );
+            $streamGapsStmt->execute([$yearId]);
+            $streamGaps = (int) $streamGapsStmt->fetchColumn();
+            $validationResults['class_streams_seeded'] = [
+                'status' => $classesCount > 0 && $streamGaps === 0 ? 'pass' : 'fail',
+                'classes_without_streams' => $streamGaps,
             ];
 
-            // Check 4: Promotions executed
+            // Check 5: Classes that require CBC curriculum have learning areas.
+            $learningAreaGapsStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM academic_year_classes ayc
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN academic_year_class_learning_areas acla
+                    ON acla.academic_year_class_id = ayc.id
+                 WHERE ayc.academic_year_id = ? AND ayc.status = 'active'
+                   AND c.name NOT IN ('Playgroup', 'Grade 0')
+                   AND acla.id IS NULL"
+            );
+            $learningAreaGapsStmt->execute([$yearId]);
+            $learningAreaGaps = (int) $learningAreaGapsStmt->fetchColumn();
+            $validationResults['learning_areas_seeded'] = [
+                'status' => $learningAreaGaps === 0 ? 'pass' : 'fail',
+                'classes_without_learning_areas' => $learningAreaGaps,
+            ];
+
+            // Check 6: Calendar exists for every target term.
+            $calendarGapsStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM academic_year_terms ayt
+                 LEFT JOIN academic_year_calendar aycal
+                    ON aycal.academic_year_term_id = ayt.id
+                 WHERE ayt.academic_year_id = ? AND aycal.id IS NULL"
+            );
+            $calendarGapsStmt->execute([$yearId]);
+            $calendarGaps = (int) $calendarGapsStmt->fetchColumn();
+            $validationResults['calendar_generated'] = [
+                'status' => $termsCount > 0 && $calendarGaps === 0 ? 'pass' : 'fail',
+                'terms_without_calendar' => $calendarGaps,
+            ];
+
+            // Check 6b: Calendar week numbers are sequential per term (no gaps/duplicates).
+            $calendarStructureStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM (
+                     SELECT aycal.academic_year_term_id
+                     FROM academic_year_calendar aycal
+                     JOIN academic_year_terms ayt ON ayt.id = aycal.academic_year_term_id
+                     WHERE ayt.academic_year_id = ?
+                     GROUP BY aycal.academic_year_term_id
+                     HAVING COUNT(*) <> COUNT(DISTINCT aycal.week_number)
+                         OR COUNT(*) <> MAX(aycal.week_number)
+                 ) malformed"
+            );
+            $calendarStructureStmt->execute([$yearId]);
+            $malformedTerms = (int) $calendarStructureStmt->fetchColumn();
+            $validationResults['calendar_week_structure'] = [
+                'status' => $malformedTerms === 0 ? 'pass' : 'fail',
+                'malformed_terms' => $malformedTerms,
+            ];
+
+            // Check 6c: Source (from) year terms must all be closed before a rollover.
+            $sourceYearId = 0;
+            if ($fromYear > 0) {
+                $sourceYearId = $this->resolveYearIdFromCode($fromYear);
+            }
+            if ($sourceYearId > 0) {
+                $sourceOpenStmt = $this->db->prepare(
+                    "SELECT COUNT(*) FROM academic_year_terms
+                     WHERE academic_year_id = ? AND status <> 'completed'"
+                );
+                $sourceOpenStmt->execute([$sourceYearId]);
+                $sourceOpenTerms = (int) $sourceOpenStmt->fetchColumn();
+                $validationResults['source_year_closed'] = [
+                    'status' => $sourceOpenTerms === 0 ? 'pass' : 'fail',
+                    'source_year_id' => $sourceYearId,
+                    'open_terms' => $sourceOpenTerms,
+                ];
+            } else {
+                $validationResults['source_year_closed'] = [
+                    'status' => 'pass',
+                    'source_year_id' => null,
+                    'open_terms' => null,
+                ];
+            }
+
+            // Check 7: Promotion stage was run.
             $validationResults['promotions_executed'] = [
                 'status' => !empty($data['promotion_summary']) ? 'pass' : 'fail',
                 'summary' => $data['promotion_summary'] ?? null,
             ];
 
+            // Check 8: No unresolved pending promotion transitions for the target year.
+            $pendingTransitionsStmt = $this->db->prepare(
+                "SELECT COUNT(*) FROM student_transitions st
+                 WHERE st.academic_year_id = ?
+                   AND st.transition_type = 'promotion'
+                   AND st.to_student_academic_enrollment_id IS NULL
+                   AND st.executed_at IS NULL"
+            );
+            $pendingTransitionsStmt->execute([$yearId]);
+            $pendingTransitions = (int) $pendingTransitionsStmt->fetchColumn();
+            $validationResults['promotion_transitions_resolved'] = [
+                'status' => $pendingTransitions === 0 ? 'pass' : 'fail',
+                'pending_transitions' => $pendingTransitions,
+            ];
+
+            // Check 9: Archive stage was run.
+            $validationResults['data_archived'] = [
+                'status' => !empty($data['archive_summary']) ? 'pass' : 'fail',
+                'summary' => $data['archive_summary'] ?? null,
+            ];
+
             // Overall readiness
             $allPassed = true;
             foreach ($validationResults as $check) {
-                if ($check['status'] === 'fail') {
+                if (($check['status'] ?? 'fail') === 'fail') {
                     $allPassed = false;
                     break;
                 }
@@ -578,28 +1069,37 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
             $data['ready_for_new_year'] = $allPassed;
 
             if ($allPassed) {
-                // Mark first term as active
+                // Mark only the first target term current after all gates pass.
                 $this->db->prepare(
-                    "UPDATE academic_terms 
-                    SET status = 'active' 
-                    WHERE academic_year = :year 
-                    ORDER BY start_date LIMIT 1"
-                )->execute(['year' => $toYear]);
+                    "UPDATE academic_year_terms ayt
+                     SET ayt.status = CASE WHEN ayt.id = (
+                         SELECT min_id FROM (SELECT MIN(id) AS min_id FROM academic_year_terms WHERE academic_year_id = ?) min_term
+                     ) THEN 'current' ELSE 'upcoming' END
+                     WHERE ayt.academic_year_id = ?"
+                )->execute([$yearId, $yearId]);
             }
 
-            // Complete workflow
-            $this->completeWorkflow(
-                $instance_id,
-                json_encode($data),
-                $allPassed
-                ? "Year transition completed successfully"
-                : "Year transition completed with validation warnings"
-            );
+            // Complete workflow only when all required checks pass; otherwise persist
+            // the failure details without activating the year.
+            if ($allPassed) {
+                $this->completeWorkflow(
+                    $instance_id,
+                    json_encode($data),
+                    'Year transition completed successfully'
+                );
+            } else {
+                $this->advanceStage(
+                    $instance_id,
+                    'validate_readiness',
+                    'Readiness validation failed; new year not activated',
+                    $data
+                );
+            }
 
-            return formatResponse(true, [
+            return formatResponse($allPassed, [
                 'ready_for_new_year' => $allPassed,
                 'validation_results' => $validationResults,
-            ], $allPassed ? 'System ready for new academic year' : 'Validation warnings found');
+            ], $allPassed ? 'System ready for new academic year' : 'New academic year is not ready');
 
         } catch (Exception $e) {
             return $this->handleException($e);

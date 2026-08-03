@@ -54,14 +54,11 @@ const FeeDefaultersController = {
         window.API.academic.listClasses(),
       ]);
 
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-        this.populateClassFilter();
-      }
+      this.state.classes = classesRes || [];
+      this.populateClassFilter();
 
-      if (paymentRes?.success) {
-        // Filter to only those with outstanding balance
-        this.state.allDefaulters = (paymentRes.data || [])
+      // Filter to only those with outstanding balance
+      this.state.allDefaulters = (paymentRes || [])
           .filter(
             (s) =>
               parseFloat(s.balance || s.outstanding || s.amount_due || 0) > 0,
@@ -84,7 +81,6 @@ const FeeDefaultersController = {
           .sort((a, b) => b.balance - a.balance);
 
         this.state.defaulters = [...this.state.allDefaulters];
-      }
 
       this.updateStats();
       this.renderTable();
@@ -213,14 +209,10 @@ const FeeDefaultersController = {
       const res = await window.API.communications?.sendBulkFeeReminders({
         student_ids: ids,
       });
-      if (res?.success) {
-        this.showNotification(
-          `Reminders sent to ${ids.length} parents`,
-          "success",
-        );
-      } else {
-        this.showNotification(res?.message || "Failed to send", "error");
-      }
+      this.showNotification(
+        `Reminders sent to ${ids.length} parents`,
+        "success",
+      );
     } catch (error) {
       console.error("Error sending notices:", error);
       this.showNotification("Failed to send notices", "error");
@@ -232,10 +224,7 @@ const FeeDefaultersController = {
       const res = await window.API.communications?.sendFeeReminder({
         student_id: studentId,
       });
-      this.showNotification(
-        res?.success ? "Reminder sent" : res?.message || "Failed",
-        res?.success ? "success" : "error",
-      );
+      this.showNotification("Reminder sent", "success");
     } catch (error) {
       console.error("Error sending reminder:", error);
     }

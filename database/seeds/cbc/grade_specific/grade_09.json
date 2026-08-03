@@ -1,0 +1,2917 @@
+{
+    "grade": "Grade 9",
+    "learning_areas": [
+        {
+            "code": "ENG",
+            "name": "English",
+            "optional": false,
+            "source_documents": [
+                "GRADE.9.ENGLISH.pdf (p.1)"
+            ],
+            "strands": [
+                {
+                    "name": "Listening and Speaking",
+                    "source_subject": "English",
+                    "sub_strands": [
+                        {
+                            "name": "Polite Language",
+                            "objectives": [
+                                "outline words and phrases used to express euphemism",
+                                "use euphemism to show politeness in communication",
+                                "conduct a debate while adhering to conventions of polite language",
+                                "acknowledge the importance of politeness in communication"
+                            ]
+                        },
+                        {
+                            "name": "Oral Literature: Short Forms",
+                            "objectives": [
+                                "identify the characteristics of riddles, tongue twisters and proverbs",
+                                "explain the functions of riddles, tongue twisters and proverbs",
+                                "perform riddles, tongue twisters and proverbs",
+                                "appreciate the importance of short forms in fostering fluency in communication"
+                            ]
+                        },
+                        {
+                            "name": "Listening Comprehension (Grade Appropriate Texts)",
+                            "objectives": [
+                                "identify the main idea and specific details from an argumentative text",
+                                "listen for the main idea and specific information (details) in an argumentative text",
+                                "acknowledge the need for comprehension in communication"
+                            ]
+                        },
+                        {
+                            "name": "Selective Listening",
+                            "objectives": [
+                                "select required information from a listening text",
+                                "make judgement on the message in the listening text",
+                                "advocate the need for selective listening in various contexts"
+                            ]
+                        },
+                        {
+                            "name": "Pronunciation",
+                            "objectives": [
+                                "pronounce the semi vowels /j/ /w/ and the diphthongs /aɪ/ and /eɪ/ words with clarity",
+                                "apply stress on content and function words appropriately for speech clarity",
+                                "appreciate the importance of correct pronunciation in"
+                            ]
+                        },
+                        {
+                            "name": "Conversational skills: Negotiation skills",
+                            "objectives": [
+                                "identify words and phrases used during negotiations",
+                                "use verbal and non- verbal cues during negotiations",
+                                "acknowledge the importance of negotiation skills in communication"
+                            ]
+                        },
+                        {
+                            "name": "Listening Comprehension: Listening for Detail",
+                            "objectives": [
+                                "select the main idea from a listening passage",
+                                "respond to questions based on the listening passage",
+                                "acknowledge the importance of attentive listening"
+                            ]
+                        },
+                        {
+                            "name": "Oral Poetry",
+                            "objectives": [
+                                "interpret oral poems on varied issues",
+                                "perform an oral poem using of techniques",
+                                "acknowledge the role of oral poetry in the preservation of our cultural heritage"
+                            ]
+                        },
+                        {
+                            "name": "Diphthongs and sentence stress",
+                            "objectives": [
+                                "identify words with the diphthongs /aʊ/ and /ʊə/ in a text",
+                                "use emphatic stress in words to convey meanings",
+                                "advocate the need for accurate pronunciation in oral communication"
+                            ]
+                        },
+                        {
+                            "name": "Impromptu Speeches",
+                            "objectives": [
+                                "outline the procedure for preparing for an impromptu speech",
+                                "make an impromptu speech on a selected topic",
+                                "acknowledge the importance of excellent presentation skills in speech delivery",
+                                "identify main points or ideas in an argumentative passage",
+                                "make notes from an argumentative passage",
+                                "value the importance of note making while reading for pleasure or academic purposes"
+                            ]
+                        },
+                        {
+                            "name": "Conversation Skills: Job Interviews",
+                            "objectives": [
+                                "outline preparations undertaken by an interviewer and interviewee before a job interview",
+                                "ask and answer appropriate questions in mock job interviews",
+                                "recognise excellent interview skills as a"
+                            ]
+                        },
+                        {
+                            "name": "Listening to Respond: Expressing Feelings",
+                            "objectives": [
+                                "identify words and expressions used to describe their feelings towards a poem",
+                                "express their feelings towards the subject matter of a poem",
+                                "value the importance of poem recitation for effective communication.  watch a live or recorded poem on personal grooming and, in small groups, describe their feelings towards the subject matter of the poem,  in groups, recite selected poems and present their varied feelings towards each poem’s subject matter in detail,  discuss, in plenary, the importance of reciting poems in with feeling. recite poems with feeling?"
+                            ]
+                        },
+                        {
+                            "name": "Extensive Listening: Speeches",
+                            "objectives": [
+                                "identify the issue addressed by the different speeches listened to",
+                                "take notes on the points made by the different speakers on the issue",
+                                "acknowledge the importance of getting information from varied sources"
+                            ]
+                        },
+                        {
+                            "name": "Intonation in sentences- Question tags",
+                            "objectives": [
+                                "write the correct form of question tags in sentences",
+                                "apply question tags",
+                                "compose sentences using question tags correctly",
+                                "appreciate the importance of question tags and correct intonation in communication the correct intonation  match affirmative and negative sentences to question tags provided in a list  complete fill-in exercises with the correct question tags  work in small groups to compose and write down sentences that end in question tags  write the sentences generated on large papers and post them on the class notice board"
+                            ]
+                        },
+                        {
+                            "name": "Oral Reports- News (role play)",
+                            "objectives": [
+                                "read a short report within a specified number of minutes",
+                                "analyse a recorded grade appropriate oral news report",
+                                "apply the features of oral presentations for effective communication",
+                                "appreciate the importance of fluency in News report"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Reading",
+                    "source_subject": "English",
+                    "sub_strands": [
+                        {
+                            "name": "Independent Reading - Grade Appropriate Text",
+                            "objectives": [
+                                "select reading materials from digital or non-digital sources",
+                                "read grade appropriate materials for lifelong learning",
+                                "create a reading log for monitoring reading activities"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Simple Poems",
+                            "objectives": [
+                                "identify basic aspects of style such as repetition and rhyme in a poem",
+                                "describe the functions of rhyme and repetition in a poem",
+                                "appreciate the role of repetition and rhyme in a poem"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Plot",
+                            "objectives": [
+                                "describe the sequence of events in a play",
+                                "relate the events in a play to real life experiences",
+                                "acknowledge the importance of a plot in a literary work"
+                            ]
+                        },
+                        {
+                            "name": "Reading for Information and Meaning",
+                            "objectives": [
+                                "infer the meaning of words, phrases and sentences from the context",
+                                "make connections between events in a text and real life situations",
+                                "value the need to comprehend the information in written texts.  relate the characters, events and places in a text to real life  answer questions from a text  make notes as they read a text  summarise the events in a text  form sentences using the new words and phrases  fill in a crossword puzzle in pairs or small groups using the new words. text?"
+                            ]
+                        },
+                        {
+                            "name": "Poems: Structure",
+                            "objectives": [
+                                "describe the structure of a poem",
+                                "analyse the use of personification in a poem",
+                                "create a poem based on a topic of interest",
+                                "appreciate the reading of poetry for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading",
+                            "objectives": [
+                                "predict events in a reading text",
+                                "outline the key events in a text",
+                                "answer direct and inferential questions for comprehension",
+                                "infer the meaning of new words and phrases using contextual clues",
+                                "relate the characters, events and places in the text to real life",
+                                "appreciate the importance of comprehension in lifelong learning"
+                            ]
+                        },
+                        {
+                            "name": "Reference Materials: Dictionary, Thesaurus, Encyclopaedia",
+                            "objectives": [
+                                "outline various types of reference materials and their uses",
+                                "use the dictionary, thesaurus and subject specific encyclopaedia to check the meaning and usage of words",
+                                "conduct research on a topic of interest using the dictionary, thesaurus and encyclopaedia",
+                                "acknowledge the value of reference materials in research"
+                            ]
+                        },
+                        {
+                            "name": "Play: Style",
+                            "objectives": [
+                                "identify the features of style used in a play with examples",
+                                "relate the stylistic features to the message in a play",
+                                "value the role of varied style in reinforcing the message in a play",
+                                "identify features of style used in a play",
+                                "relate features of style to the meaning of a play",
+                                "acknowledge the importance of stylistic features in literary appreciation"
+                            ]
+                        },
+                        {
+                            "name": "Reading Fluency",
+                            "objectives": [
+                                "outline ways of enhancing fluency in reading",
+                                "read a text at the right speed, accurately and with expression for effective communication",
+                                "acknowledge the role of reading fluently in extensive reading",
+                                "preview a text while ignoring unknown words",
+                                "make predictions about the characters, events and the message in a given text",
+                                "skim a text to get the gist",
+                                "scan a text to obtain specific information",
+                                "advocate the role of reading fluency in communication"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading – Play",
+                            "objectives": [
+                                "identify the themes in a play or a section of a play",
+                                "analyse the themes in a play",
+                                "relate the themes in a play to real life",
+                                "appreciate the role of literary appreciation in the development of critical thinking skills",
+                                "identify the characters in a play for deeper understanding",
+                                "analyse the characters in a play and their relationship",
+                                "value the role of literary appreciation in developing critical thinking"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Interpretation and Evaluation",
+                            "objectives": [
+                                "distinguish between reading for interpretation and reading for evaluation for infromation",
+                                "interpret a reading text for lifelong learning",
+                                "summarise information in a reading text",
+                                "appreciate the role of correct interpretation and evaluation of a text in learning"
+                            ]
+                        },
+                        {
+                            "name": "Reading for Interpretation",
+                            "objectives": [
+                                "identify the point of view in a poem",
+                                "analyse the point of view in a poem",
+                                "acknowledge the importance of the point of view in the understanding of a poem"
+                            ]
+                        },
+                        {
+                            "name": "Poetry: Characters",
+                            "objectives": [
+                                "identify the persona and other participants in a poem",
+                                "analyse the character of the speaker (persona) and the other participants in a poem",
+                                "acknowledge the importance of characters in literary appreciation"
+                            ]
+                        },
+                        {
+                            "name": "Extensive Reading (Grade Appropriate Fiction)",
+                            "objectives": [
+                                "select a reading text from a collection of books or the library",
+                                "read a text for information and enjoyment",
+                                "appreciate the role of extensive reading in lifelong learning"
+                            ]
+                        },
+                        {
+                            "name": "Play: Project",
+                            "objectives": [
+                                "identify simple props and costumes that create mood and atmosphere",
+                                "present dramatised parts of a play to an audience",
+                                "acknowledge the effectiveness of the performance in delivering the play’s message. movements,  discuss how to us role play and mime in the performance,  give and receive feedback on the performance,  record the performance on a video or audio device"
+                            ]
+                        },
+                        {
+                            "name": "Extensive Reading: Fiction",
+                            "objectives": [
+                                "distinguish between fiction and non-fiction reading materials",
+                                "select and read grade appropriate fiction materials",
+                                "keep a portfolio of the subject matter",
+                                "appreciate the importance of reading fiction for exposure"
+                            ]
+                        },
+                        {
+                            "name": "Grade - appropriate Play: Lessons learnt",
+                            "objectives": [
+                                "identify and illustrate the lessons learnt from a play",
+                                "relate the lessons learnt to real life experiences",
+                                "perceive plays as sources of life lessons and entertainment"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Comprehension Strategies",
+                            "objectives": [
+                                "identify clues in the passage from which conclusions can be drawn",
+                                "infer information and meaning of words and expressions from a passage",
+                                "summarise ideas in a passage",
+                                "apply the skills of making inferences and drawing conclusions in independent reading"
+                            ]
+                        },
+                        {
+                            "name": "Play: Characterisation",
+                            "objectives": [
+                                "outline the clues for identifying traits of different characters in a play",
+                                "use the clues to describe the characters in a play",
+                                "appreciate the role of characterisation in determining virtues and vices in the society"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Visualising and Summarising",
+                            "objectives": [
+                                "identify mental images created from a read passage",
+                                "summarise what a paragraph and the passage are about",
+                                "appreciate the role of visualising and summarising in enhancing understanding of a text"
+                            ]
+                        },
+                        {
+                            "name": "Grade- appropriate Play: Style",
+                            "objectives": [
+                                "identify the styles of humour and monologue in a play",
+                                "dramatise instances of humour and monologue in a play",
+                                "acknowledge the role of humour and monologue in enriching a literary work"
+                            ]
+                        },
+                        {
+                            "name": "Summarising: argumentative texts (grade appropriate text)",
+                            "objectives": [
+                                "pick out the main points discussed in a text",
+                                "organise an outline of points into a coherent whole",
+                                "summarise a text correctly in their own words",
+                                "realise the importance of good summary writing skills in writing"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading: Play- Relating to real life",
+                            "objectives": [
+                                "identify the characters in a play",
+                                "discuss the various themes in a play",
+                                "relate the characters and themes to real life",
+                                "participate in a stage performance of a play",
+                                "appreciate the beauty of performance of a literary text"
+                            ]
+                        },
+                        {
+                            "name": "Intensive reading: Poems",
+                            "objectives": [
+                                "explain why it is important to relate ideas learnt in poems to real life",
+                                "relate ideas in poems on tourist attraction sites to real life",
+                                "acknowledge the need to relate ideas in poems to real life"
+                            ]
+                        },
+                        {
+                            "name": "Play: Structure and Setting",
+                            "objectives": [
+                                "describe the structure and setting of a play",
+                                "analyse the acts and scenes of a play for literary appreciation",
+                                "recognise the role of literary appreciation in critical thinking"
+                            ]
+                        },
+                        {
+                            "name": "Play: Identification of Characters",
+                            "objectives": [
+                                "identify the characters in a play",
+                                "use appropriate adjectives to describe the characters",
+                                "describe the actions of the characters using appropriate adverbs",
+                                "value the role of characters in developing a play"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Grammar in Use",
+                    "source_subject": "English",
+                    "sub_strands": [
+                        {
+                            "name": "Gender Neutral Language",
+                            "objectives": [
+                                "identify gender biased words and phrases in oral and written texts",
+                                "use gender neutral words and phrases in sentences",
+                                "acknowledge the importance of gender sensitivity in communication"
+                            ]
+                        },
+                        {
+                            "name": "Nouns and Quantifiers",
+                            "objectives": [
+                                "use quantifiers in sentence",
+                                "categorise count and non-count nouns in oral and written texts",
+                                "acknowledge the importance of quantifiers in oral and written communication"
+                            ]
+                        },
+                        {
+                            "name": "Modal Auxiliaries",
+                            "objectives": [
+                                "identify modal auxiliaries in a passage",
+                                "use modal auxiliaries to express different moods",
+                                "value the importance of using modal auxiliaries in communication"
+                            ]
+                        },
+                        {
+                            "name": "Present and Past Perfect Aspect",
+                            "objectives": [
+                                "distinguish the present and past perfect aspect in sentences",
+                                "use present and past perfect aspect in sentences",
+                                "appreciate the importance of using tense in sentences"
+                            ]
+                        },
+                        {
+                            "name": "Order of Adjectives",
+                            "objectives": [
+                                "identify various types of adjectives in texts",
+                                "use the correct order of adjectives in oral and written texts",
+                                "appreciate the role of ordered adjectives in communication for clarity"
+                            ]
+                        },
+                        {
+                            "name": "Comparison of Adverbs",
+                            "objectives": [
+                                "identify the degrees of comparison in adverbs",
+                                "use positive, comparative and superlative degrees of adverbs in sentences",
+                                "appreciate the importance of the correct usage of adverbs"
+                            ]
+                        },
+                        {
+                            "name": "Relative Pronouns Interrogative Pronouns",
+                            "objectives": [
+                                "recognise relative and interrogative pronouns in a text",
+                                "use relative and interrogative pronouns in sentences",
+                                "acknowledge the value of relative and interrogative pronouns in communication"
+                            ]
+                        },
+                        {
+                            "name": "Complex Prepositions",
+                            "objectives": [
+                                "recognise complex prepositions in texts",
+                                "use complex prepositions in sentences",
+                                "appreciate the role of prepositions in oral and written communication"
+                            ]
+                        },
+                        {
+                            "name": "Determiners: Numerals and Ordinals",
+                            "objectives": [
+                                "identify numerals and ordinals used as determiners in a text",
+                                "use numerals and ordinals as determiners in sentences",
+                                "appreciate the need for well -formed sentences in communication"
+                            ]
+                        },
+                        {
+                            "name": "Word Classes: Nouns",
+                            "objectives": [
+                                "identify nouns formed from verbs and other nouns from a text",
+                                "use nouns formed from verbs and other nouns in sentences"
+                            ]
+                        },
+                        {
+                            "name": "Phrasal Verbs",
+                            "objectives": [
+                                "identify phrasal verbs formed from break, hang, run and turn in texts",
+                                "use the given phrasal verbs in sentences of their own",
+                                "value the importance of using phrasal verbs in spoken and written communication"
+                            ]
+                        },
+                        {
+                            "name": "Sentences: Complex Sentences",
+                            "objectives": [
+                                "identify subordinating conjunctions in sentences",
+                                "construct complex sentences using subordinating conjunctions learnt",
+                                "correct disjointed"
+                            ]
+                        },
+                        {
+                            "name": "Conjunctions: Correlative Conjunctions",
+                            "objectives": [
+                                "identify correlative conjunctions in texts",
+                                "use correlative conjunctions in sentences"
+                            ]
+                        },
+                        {
+                            "name": "Sentences- Direct and Indirect Speech",
+                            "objectives": [
+                                "differentiate between direct and indirect speech",
+                                "convert direct speech into indirect speech",
+                                "use the correct punctuation marks in direct speech",
+                                "apply direct and indirect speech correctly in communication"
+                            ]
+                        },
+                        {
+                            "name": "Exclamatory",
+                            "objectives": [
+                                "identify instances where the two types of sentences are used correctly in printed handouts or online texts",
+                                "punctuate given texts by use of the appropriate punctuation marks",
+                                "appreciate the use of exclamatory and imperative sentences in spoken language"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Writing",
+                    "source_subject": "English",
+                    "sub_strands": [
+                        {
+                            "name": "Legibility and Neatness",
+                            "objectives": [
+                                "identify sections of a piece of writing that require breaking of words and indentation",
+                                "indent paragraphs when writing a composition",
+                                "create a neat and legible text",
+                                "appreciate the importance of legibility and neatness in written communication"
+                            ]
+                        },
+                        {
+                            "name": "Mechanics of Writing: Punctuation",
+                            "objectives": [
+                                "identify the double quotation marks and the bracket in a text",
+                                "use the double quotation marks and the bracket in written texts",
+                                "appreciate the role of the double quotation marks and the bracket in written texts"
+                            ]
+                        },
+                        {
+                            "name": "Structure of a paragraph",
+                            "objectives": [
+                                "outline the four characteristics of a well formed paragraph",
+                                "create a paragraph that is well developed, coherent and unified",
+                                "acknowledge the need for concise paragraphs in written communication"
+                            ]
+                        },
+                        {
+                            "name": "Narrative and Descriptive Paragraphs",
+                            "objectives": [
+                                "highlight the qualities of a well formed paragraph",
+                                "write narrative and descriptive paragraphs",
+                                "use the first person and second person in narrative and descriptive paragraphs",
+                                "value the need for well formed paragraphs in written communication"
+                            ]
+                        },
+                        {
+                            "name": "Letter of Application",
+                            "objectives": [
+                                "identify the components of a letter of application",
+                                "write a letter of application for placement at Senior Secondary School using all the components",
+                                "advocate the need to adhere to the format of formal letter writing"
+                            ]
+                        },
+                        {
+                            "name": "Mechanics of Writing: Spelling",
+                            "objectives": [
+                                "recognise homonyms, homophones, double consonants and double vowels in written texts",
+                                "spell commonly misspelt words for writing fluency",
+                                "value the importance of correct spelling in written communication",
+                                "spell words for effective communication",
+                                "write common abreviations in full",
+                                "appreciate the importance of abbreviations in writing"
+                            ]
+                        },
+                        {
+                            "name": "The Writing Process",
+                            "objectives": [
+                                "outline the stages of the writing process",
+                                "create a composition, story or poem following the steps of the writing process",
+                                "advocate the need for creativity in life",
+                                "outline the different stages of the writing process",
+                                "apply the writing process in creating a dialogue on a relevant theme"
+                            ]
+                        },
+                        {
+                            "name": "Assessing Writing",
+                            "objectives": [
+                                "identify the qualities of a well written composition",
+                                "write a composition related to the theme",
+                                "assess a composition against a predesigned criteria",
+                                "value the need for for claity and cohesion in writing communication"
+                            ]
+                        },
+                        {
+                            "name": "Narrative compositions",
+                            "objectives": [
+                                "identify the elements of a narrative composition",
+                                "Uses the elements of a narrative composition in a story",
+                                "appreciate the role of background information in the creation of credible stories"
+                            ]
+                        },
+                        {
+                            "name": "Filling Forms: Application Forms",
+                            "objectives": [
+                                "recognize bursary and scholarship application forms from a list of forms",
+                                "fill in bursary and scholarship application forms while adhering to conventions",
+                                "value the importance of giving accurate and sufficient information in forms"
+                            ]
+                        },
+                        {
+                            "name": "Creative Writing: Idioms",
+                            "objectives": [
+                                "explain the meaning of given idioms in different contexts",
+                                "use a variety of idioms in writing narrative compositions",
+                                "encourage peers to use idioms appropriately in speech and writing"
+                            ]
+                        },
+                        {
+                            "name": "Descriptive writing (280 – 320 words)",
+                            "objectives": [
+                                "use the correct writing process to write a composition",
+                                "spell words correctly in composition writing",
+                                "apply the five senses in writing descriptive compositions",
+                                "display creativity and imagination in composition writing",
+                                "recognise the importance of creativity in writing"
+                            ]
+                        },
+                        {
+                            "name": "Emails",
+                            "objectives": [
+                                "identify the key elements of an email",
+                                "apply the elements in writing an email",
+                                "appreciate the importance of writing emails"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "KIS",
+            "name": "Kiswahili",
+            "optional": false,
+            "source_documents": [
+                "Kiswahili-Gredi-9-2024-Revised-Oct.pdf (p.13)"
+            ],
+            "strands": [
+                {
+                    "name": "Kusikiliza na Kuzungumza",
+                    "source_subject": "Kiswahili",
+                    "sub_strands": [
+                        {
+                            "name": "Kusikiliza na Kujibu Mjadala",
+                            "objectives": [
+                                "kutambua vipengele vya kuzingatia katika kusikiliza mjadala",
+                                "kutambua vipengele vya kuzingatia katika kuchangia mjadala",
+                                "kushiriki mjadala kwa kuzingatia vipengele vifaavyo katika kusikiliza na kuchangia mijadala",
+                                "kuchangamkia kushiriki katika mijadala ya miktadha mbalimbali"
+                            ]
+                        },
+                        {
+                            "name": "Kusikiliza kwa Kina Sauti /b/ na /mb/",
+                            "objectives": [
+                                "kutamka sauti /b/ na /mb/ ipasavyo ili kuzitofautisha kimatamshi",
+                                "kutamka vitanzandimi vyenye sauti /b/ na /mb/ ipasavyo",
+                                "kuunda vitanzandimi vyepesi vyenye sauti /b/ na /mb/",
+                                "kuchangamkia matamshi bora ya sauti /b/ na /mb/ katika mazungumzo ya kawaida"
+                            ]
+                        },
+                        {
+                            "name": "Semi",
+                            "objectives": [
+                                "kueleza maana ya tashbihi, sitiari na methali ili kuzipambanua",
+                                "kutambua tashbihi, sitiari na methali katika matini ya fasihi simulizi",
+                                "kueleza matumizi ya tashbihi, sitiari na methali katika matini ya fasihi simulizi",
+                                "kutumia tashbihi, sitiari na methali katika uwasilishaji wa tungo za fasihi simulizi",
+                                "kuchangamkia matumizi ya tashbihi, sitiari na methali katika tungo za fasihi simulizi",
+                                "kueleza maana ya vitendawili na nahau ili kuipambanua",
+                                "kutambua vitendawili na nahau katika matini",
+                                "kufafanua umuhimu wa vitendawili na nahau katika fasihi simulizi",
+                                "kutumia nahau ipasavyo katika mawasiliano",
+                                "kuwasilisha vitendawili kwa kuzingatia vipengele vya uwasilishaji wake",
+                                "kuchangamkia matumizi ya nahau na uwasilishaji wa vitendawili katika tungo za fasihi"
+                            ]
+                        },
+                        {
+                            "name": "Ufahamu wa Kusikiliza",
+                            "objectives": [
+                                "kueleza maana ya ufahamu wa kusikiliza",
+                                "kujadili kanuni za ufahamu wa kusikiliza",
+                                "kujadili vipengele vya ufahamu wa kusikiliza",
+                                "kushiriki katika ufahamu wa kusikiliza akizingatia vipengele vyake",
+                                "kuchangamkia kushiriki katika kusikiliza kwa ufahamu ili kukuza stadi ya kusikiliza"
+                            ]
+                        },
+                        {
+                            "name": "Kusikiliza kwa Kufasiri",
+                            "objectives": [
+                                "kueleza maana ya kusikiliza kwa kufasiri ili kuibanisha",
+                                "kueleza msimamo na mielekeo kuhusu ujumbe wa matini ya kusikiliza",
+                                "kulinganisha misimamo na mielekeo ya ujumbe wa matini aliyosikiliza na ile ya jamii yake kuhusu suala husika",
+                                "kujenga mazoea ya kutambua msimamo"
+                            ]
+                        },
+                        {
+                            "name": "Kusikiliza kwa Kutathmini",
+                            "objectives": [
+                                "kueleza maana ya kusikiliza kwa kutathmini ili kuibainisha",
+                                "kujadili vipengele vya kuzingatia katika kusikiliza kwa kutathmini",
+                                "kutathmini ujumbe wa mzungumzaji",
+                                "kutathmini mtazamo wa msemaji kuhusu anachokizungumzia",
+                                "kueleza maana ya msamiati kama ulivyotumiwa katika matini aliyosikiliza",
+                                "kuchangamkia kushiriki katika kusikiliza kwa",
+                                "kueleza maana ya kusikiliza kwa kutathmini",
+                                "kujadili vipengele vya kuzingatia katika kutathmini mazungumzo",
+                                "kusikiliza mazungumzo na kuyatathmini kwa kuzingatia vipengele vifaavyo",
+                                "kuchangamkia kutathmini mazungumzo ili kuimarisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Uzungumzaji wa Kushawishi",
+                            "objectives": [
+                                "kueleza maana ya uzungumzaji wa kushawishi ili kuupambanua",
+                                "kubainisha miktadha ya uzungumzaji wa kushawishi",
+                                "kujadili vipengele vya kuzingatia katika uzungumzaji wa kushawishi",
+                                "kufanya mazungumzo ya kushawishi akizingatia vipengele vya uzungumzaji wa kushawishi",
+                                "kujenga mazoea ya kuwasilisha hoja kwa mazungumzo yanayoshawishi hadhira"
+                            ]
+                        },
+                        {
+                            "name": "Kusikiliza kwa Kina Sauti /j/ na /nj/",
+                            "objectives": [
+                                "kutambua sauti /j/ na /nj/ katika maneno",
+                                "kutamka maneno yenye sauti /j/ na /nj/ ipasavyo",
+                                "kubuni vitanzandimi vinavyohusisha sauti / j /na /nj/",
+                                "kuchangamkia matamshi bora ya sauti /j/ na /nj/ ili kufanikisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Mazungumzo Malumbano ya utani",
+                            "objectives": [
+                                "kueleza maana ya malumbano ya utani kama kipera cha mazungumzo",
+                                "kujadili sifa za malumbano ya utani",
+                                "kutambua vipengele vya uwasilishaji wa malumbano ya utani",
+                                "kuwasilisha malumbano ya utani kwa kuzingatia vipengele vifaavyo vya uwasilishaji",
+                                "kuchangamkia uwasilishaji wa malumbano ya utani kwa kuzingatia vipengele vya kimsingi katika uwasilishaji"
+                            ]
+                        },
+                        {
+                            "name": "Ufahamu wa Kusikiliza Matini ya kusikiliza",
+                            "objectives": [
+                                "kueleza habari katika matini ya kusikiliza",
+                                "kukadiria maana ya msamiati mahususi na vifungu katika matini ya kusikiliza",
+                                "kuchanganua mitazamo na maoni katika matini ya kusikiliza",
+                                "kufurahia kusikiliza matini za kusikiliza ili kupata habari mahususi"
+                            ]
+                        },
+                        {
+                            "name": "Mazungumzo Mawaidha",
+                            "objectives": [
+                                "kueleza maana ya mawaidha ili kuipambanua",
+                                "kujadili ujumbe na sifa za mawaidha ya kifasihi",
+                                "kueleza vipengele vya uwasilishaji wa mawaidha",
+                                "kutambua washiriki katika mawaidha ya fasihi simulizi",
+                                "kuchambua sifa za washiriki katika mawaidha ya fasihi simulizi",
+                                "kuwasilisha mawaidha kwa kuzingatia vipengele vifaavyo vya uwasilishaji",
+                                "kutambua vipengele vya lugha vinavyotumika katika mawaidha",
+                                "kujadili umuhimu wa vipengele vya lugha vinavyotumika katika mawaidha",
+                                "kujadili ishara zifaazo katika kutoa mawaidha",
+                                "kutoa mawaidha kwa kuzingatia vipengele mbalimbali vya lugha ya mawaidha na ishara zifaazo"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Kusoma",
+                    "source_subject": "Kiswahili",
+                    "sub_strands": [
+                        {
+                            "name": "Kusoma kwa Ufahamu Kifungu cha Simulizi",
+                            "objectives": [
+                                "kudondoa habari mahususi katika kifungu cha simulizi",
+                                "kupanga matukio yanavyofuatana katika kifungu cha simulizi",
+                                "kufanya utabiri na ufasiri kutokana na kifungu cha simulizi",
+                                "kueleza maana ya msamiati kama ulivyotumiwa katika kifungu cha simulizi",
+                                "kuchangamkia kujibu maswali ya ufahamu ili kukuza uelewa wa habari"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Mapana Matini ya kujichagulia",
+                            "objectives": [
+                                "kufafanua ujumbe wa matini aliyosoma",
+                                "kutambua msamiati uliotumiwa katika matini ya kujichagulia",
+                                "kutumia ipasavyo msamiati unaotokana na matini aliyosoma",
+                                "kujenga mazoea ya kusoma matini mbalimbali za kujichagulia",
+                                "kuteua matini ya kusoma ya kiwango chake",
+                                "kueleza ujumbe katika matini ya kujichagulia",
+                                "kutambua maana ya msamiati na matumizi mengine ya lugha katika matini ya kujichagulia",
+                                "kutumia msamiati aliojifunza ipasavyo katika sentensi",
+                                "kufurahia kusoma matini ya kujichagulia ili kujenga ufasaha wa lugha"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Kina Ushairi",
+                            "objectives": [
+                                "kueleza maana ya shairi ili kulitofautisha na tungo nyingine",
+                                "kujadili sifa za ushairi kama utanzu wa fasihi andishi",
+                                "kueleza sifa za ushairi katika shairi",
+                                "kufurahia kuchambua ushairi kama utungo wa fasihi",
+                                "kueleza maana ya maudhui na dhamira katika fasihi",
+                                "kujadili maudhui na dhamira katika shairi",
+                                "kuchambua shairi kwa kuzingatia maudhui na dhamira",
+                                "kuchangamkia usomaji wa kina wa mashairi ili kupata ujumbe wake",
+                                "kueleza maana ya mandhari katika fasihi",
+                                "kutambua mandhari mbalimbali katika shairi",
+                                "kueleza umuhimu wa mandhari katika shairi",
+                                "kufafanua vipengele vya muundo katika shairi",
+                                "kuchambua shairi kwa kuzingatia mandhari na muundo",
+                                "kuchangamkia nafasi ya mandhari na muundo katika shairi",
+                                "kueleza maana ya wahusika katika fasihi",
+                                "kutambua wahusika katika shairi",
+                                "kujadili sifa za wahusika katika shairi",
+                                "kuchambua shairi kwa kuzingatia sifa za wahusika",
+                                "kujenga mazoea ya kuchambua wahusika katika mashairi ili kuimarisha uwazaji wa kina"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Ufasaha",
+                            "objectives": [
+                                "kutambua vipengele vya kuzingatia katika kusoma kwa ufasaha",
+                                "kusoma kifungu cha nathari akizingatia matamshi bora",
+                                "kusoma kifungu cha nathari akizingatia kasi ifaayo",
+                                "kusoma kifungu cha nathari akizingatia kiwango kifaacho cha sauti",
+                                "kusoma kifungu cha nathari akizingatia ishara za mwili zifaazo",
+                                "kujenga mazoea ya kusoma kwa ufasaha ili kufanikisha mawasiliano",
+                                "kusoma kifungu kwa kuzingatia matamshi bora",
+                                "kusoma kifungu kwa kasi ifaayo",
+                                "kusoma kifungu kwa kutumia sauti ipasavyo",
+                                "kusoma kifungu kwa kuambatanisha ishara zifaazo",
+                                "kujenga mazoea ya kusoma vifungu kwa kuzingatia vipengele vya usomaji matini ufaao ili kufanikisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Ufahamu",
+                            "objectives": [
+                                "kudondoa habari mahususi katika kifungu cha ufahamu",
+                                "kufanya utabiri na ufasiri kutokana na kifungu cha ufahamu",
+                                "kueleza maana ya msamiati kulingana na kifungu cha ufahamu",
+                                "kuchangamkia kusoma kwa ufahamu ili kukuza uelewa wa habari"
+                            ]
+                        },
+                        {
+                            "name": "Ufupisho",
+                            "objectives": [
+                                "kueleza maana ya ufupisho ili kuupambanua",
+                                "kujadili vipengele vya ufupisho wa kifungu",
+                                "kufupisha kifungu akizingatia vipengele vya ufupisho",
+                                "kujenga mazoea ya kuwasiliana kwa maelezo mafupi",
+                                "kujadili vipengele vya kuzingatia katika ufupisho wa habari katika matini",
+                                "kuandika ufupisho wa habari kwa kuzingatia vipengele vifaavyo",
+                                "kufurahia kufupisha habari kwa usahihi katika miktadha mbalimbali"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Ufahamu Kifungu cha kushawishi",
+                            "objectives": [
+                                "kudondoa habari mahususi katika kifungu cha kushawishi",
+                                "kueleza maana za maneno kama yalivyotumiwa katika kifungu cha kushawishi",
+                                "kuchangamkia usomaji wa kifungu cha kushawishi ili kukuza hamu ya ujifunzaji"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Kina Ushairi Mbinu za lugha",
+                            "objectives": [
+                                "kutambua mbinu za lugha katika fasihi",
+                                "kuchanganua matumizi ya lugha katika mashairi",
+                                "kutumia mbinu mbalimbali za lugha katika mashairi",
+                                "kuchambua shairi kwa kuzingatia mbinu mbalimbali za lugha",
+                                "kuchangamkia matumizi ya lugha katika ushairi"
+                            ]
+                        },
+                        {
+                            "name": "Kusoma kwa Ufahamu Kifungu cha mjadala",
+                            "objectives": [
+                                "kudondoa habari mahususi katika kifungu cha mjadala",
+                                "kueleza maana ya msamiati na vifungu kama vilivyotumiwa katika kifungu cha mjadala",
+                                "kuchanganua mitazamo katika kifungu cha mjadala",
+                                "kufurahia kusoma kwa ufahamu ili kukuza uelewa wa habari"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Kuandika",
+                    "source_subject": "Kiswahili",
+                    "sub_strands": [
+                        {
+                            "name": "Viakifishi",
+                            "objectives": [
+                                "kutambua alama ya koloni na semi koloni katika matini",
+                                "kueleza matumizi ya koloni na semi koloni katika matini",
+                                "kutumia alama ya koloni na semi koloni ipasavyo katika matini",
+                                "kufurahia matumizi yafaayo ya alama ya koloni na semi koloni katika matini mbalimbali",
+                                "kutambua matumizi ya mabano na kistari kifupi katika matini",
+                                "kutumia mabano na kistari kifupi ipasavyo katika matini",
+                                "kujenga mazoea ya kutumia ipasavyo mabano na kistari kifupi katika matini ili kufanikisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Insha za Kiuamilifu Barua ya kirafiki",
+                            "objectives": [
+                                "kutambua ujumbe unaoafiki katika kujibu barua ya kirafiki",
+                                "kueleza lugha inayofaa katika kujibu barua ya kirafiki",
+                                "kufafanua muundo unaofaa katika kujibu barua ya kirafiki",
+                                "kujibu barua ya kirafiki akizingatia ujumbe, lugha na muundo ufaao",
+                                "kujenga mazoea ya kujibu barua ya kirafiki katika maisha ya kila siku"
+                            ]
+                        },
+                        {
+                            "name": "Insha za Kubuni Masimulizi",
+                            "objectives": [
+                                "kutambua vipengele vya kufafanulia ujumbe wa insha ya masimulizi",
+                                "kufafanua ujumbe wa insha ya masimulizi kupitia kwa utangulizi, kiini na hitimisho",
+                                "kufafanua ujumbe wa insha ya masimulizi kupitia kwa wahusika",
+                                "kuandika insha ya masimulizi kwa kuzingatia ujumbe na muundo ufaao",
+                                "kufurahia kufafanua ujumbe wa insha ya kusimulia ili kufanikisha maelezo",
+                                "kueleza maana ya lugha ya kitamathali, matendo ya wahusika na mandhari ili kuibanisha",
+                                "kujadili lugha ya kitamathali, matendo ya wahusika na mandhari katika insha ya masimulizi",
+                                "kuandika insha ya masimulizi akizingatia lugha ya kitamathali, matendo ya wahusika na mandhari",
+                                "kufurahia kuandika insha za masimulizi akizingatia lugha ya kitamathali, matendo ya wahusika na uchoraji wa mandhari ufaao ili kufanikisha mawasiliano",
+                                "kutambua vipengele vya ukuzaji wa wazo baina ya aya za insha ya masimulizi",
+                                "kueleza ukuzaji wa wazo baina ya aya za insha ya masimulizi",
+                                "kuandika insha ya masimulizi inayozingatia ukuzaji wa wazo baina ya aya",
+                                "kufurahia kuandika insha za masimulizi zinazozingatia ukuzaji wa wazo baina ya aya ili kufanikisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Insha za Kiuamilifu Shajara",
+                            "objectives": [
+                                "kueleza maana ya shajara",
+                                "kujadili vipengele vya shajara",
+                                "kuandika shajara akizingatia vipengele vyake",
+                                "kuonea fahari matumizi ya shajara katika maisha ya kila siku",
+                                "kujadili umuhimu wa shajara",
+                                "kueleza aina za shajara ili kuzibainisha",
+                                "kuandika aina za shajara akizingatia vipengele vyake"
+                            ]
+                        },
+                        {
+                            "name": "Insha za Kubuni Methali",
+                            "objectives": [
+                                "kueleza maana ya insha za methali ili kuipambanua",
+                                "kujadili vipengele vya insha ya methali",
+                                "kuandika insha ya methali kwa kuzingatia vipengele vya uandishi husika",
+                                "kufurahia kufasiri methali na kuziandikia insha zinazoafiki ili kujenga ubunifu"
+                            ]
+                        },
+                        {
+                            "name": "Insha za Kubuni Maelezo",
+                            "objectives": [
+                                "kutambua lugha inayoathiri hisia mbalimbali katika insha ya maelezo",
+                                "kujadili umuhimu wa kutumia lugha inayoathiri hisia mbalimbali katika insha ya maelezo",
+                                "kutumia ipasavyo lugha inayoathiri hisia mbalimbali katika kuandika insha ya maelezo",
+                                "kufurahia kuandika insha yenye maelezo yanayojenga picha dhahiri",
+                                "kujadili mitazamo katika insha za maelezo",
+                                "kuandika insha ya maelezo akizingatia mtazamo mahususi",
+                                "kufurahia kuandika insha za maelezo zinazoonyesha mitazamo mahususi",
+                                "kueleza maana ya insha ya maelezo kuhusu hali",
+                                "kutambua vipengele vya insha ya maelezo kuhusu hali",
+                                "kuandika insha ya maelezo kuhusu hali akizingatia vipengele vyake",
+                                "kufurahia kutunga insha za maelezo kuhusu hali"
+                            ]
+                        },
+                        {
+                            "name": "Barua Rasmi ya Kuomba Kazi",
+                            "objectives": [
+                                "kueleza maana ya barua rasmi ya kuomba kazi",
+                                "kutambua vipengele vya barua rasmi ya kuomba kazi",
+                                "kuandika barua rasmi ya kuomba kazi akizingatia vipengele vyake",
+                                "kujenga mazoea ya kuandika barua rasmi ya kuomba kazi ipasavyo"
+                            ]
+                        },
+                        {
+                            "name": "Hotuba ya Kushawishi",
+                            "objectives": [
+                                "kueleza maana ya hotuba ya kushawishi ili kuitofautisha na aina nyingine za hotuba",
+                                "kujadili vipengele vya kuzingatia katika uandishi wa hotuba ya kushawishi",
+                                "kuandika hotuba ya kushawishi akizingatia vipengele vifaavyo",
+                                "kuchangamkia kuandika ipasavyo hotuba ya kushawishi"
+                            ]
+                        },
+                        {
+                            "name": "Kujibu Baruapepe",
+                            "objectives": [
+                                "kujadili vipengele vya kuzingatia katika kujibu baruapepe",
+                                "kujibu baruapepe kwa kuzingatia vipengele vifaavyo"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Sarufi",
+                    "source_subject": "Kiswahili",
+                    "sub_strands": [
+                        {
+                            "name": "Vihusishi",
+                            "objectives": [
+                                "kutambua vihusishi vya mahali na vya wakati katika matini",
+                                "kutumia vihusishi vya mahali na vya wakati ipasavyo katika matini",
+                                "kuchangamkia matumizi yafaayo ya vihusishi vya mahali na vya wakati katika matini mbalimbali",
+                                "kutambua vihusishi vya -a unganifu na vya sababu katika matini",
+                                "kutumia vihusishi vya -a unganifu na vya sababu ipasavyo katika matini",
+                                "kuchangamkia matumizi yafaayo ya vihusishi vya -a unganifu na vya sababu katika mawasiliano",
+                                "kutambua vihusishi vilinganishi na kihusishi na katika matini",
+                                "kutumia vihusishi vilinganishi na kihusishi na ipasavyo katika matini",
+                                "kuchangamkia kutumia vihusishi vilinganishi na kihusishi na katika mawasiliano ya kila siku"
+                            ]
+                        },
+                        {
+                            "name": "Nyakati na Hali",
+                            "objectives": [
+                                "kutambua -ki- ya masharti na -ka- ya kufuatana katika matini",
+                                "kutumia -ki- ya masharti na -ka- ya kufuatana ipasavyo katika matini",
+                                "kujenga mazoea ya kutumia ipasavyo -ki- ya masharti na -ka- ya kufuatana kwa vitendo ili kufanikisha mawasiliano"
+                            ]
+                        },
+                        {
+                            "name": "Hali za Masharti -nge- -ngali",
+                            "objectives": [
+                                "kueleza maana ya hali ya masharti",
+                                "kutambua matumizi ya hali ya masharti ya -nge- na -ngali- katika matini",
+                                "kutumia hali ya masharti -nge- na -ngali- ipasavyo katika matini",
+                                "kuchangamkia matumizi yafaayo ya hali ya masharti -nge- na -ngali- ili kukuza ufasaha wa lugha"
+                            ]
+                        },
+                        {
+                            "name": "Vielezi",
+                            "objectives": [
+                                "kutambua vielezi vya namna na vya wakati katika matini",
+                                "kutumia vielezi vya namna na vya wakati ipasavyo katika matini",
+                                "kuchangamkia kutumia vielezi vya namna na vya wakati katika matini",
+                                "kutambua vielezi vya mahali na vya idadi katika matini",
+                                "kutumia vielezi vya mahali na vya idadi ipasavyo katika matini",
+                                "kuchangamkia kutumia vielezi vya mahali na vya idadi katika sentensi na vifungu"
+                            ]
+                        },
+                        {
+                            "name": "Ngeli na Upatanisho wa Kisarufi Ngeli ya",
+                            "objectives": [
+                                "kutambua viambishi vya upatanisho wa kisarufi vya ngeli ya U-ZI na YA-YA katika sentensi",
+                                "kutambua nomino za ngeli ya U-ZI na YA-YA katika matini",
+                                "kutumia nomino za ngeli ya U-ZI na YA-YA katika matini kwa kuzingatia upatanisho ufaao wa kisarufi",
+                                "kuchangamkia upatanisho ufaao wa ngeli ya U-ZI na YA-YA ili kujenga ufasaha wa lugha",
+                                "kutambua viambishi vya upatanisho wa kisarufi vya ngeli ya LI, KU na PA-KU-MU katika sentensi",
+                                "kutambua nomino za ngeli ya LI, KU na PA-KU-MU katika matini",
+                                "kutumia nomino za ngeli ya LI, KU na PA-KU-MU katika matini kwa kuzingatia upatanisho ufaao wa kisarufi",
+                                "kuchangamkia matumizi yafaayo ya upatanisho wa kisarufi wa ngeli ya LI, KU na PA-KU-MU katika"
+                            ]
+                        },
+                        {
+                            "name": "Vinyume vya Vihusishi",
+                            "objectives": [
+                                "kueleza maana ya vinyume vya vihusishi",
+                                "kutambua vinyume vya vihusishi katika matini",
+                                "kutumia vinyume vya vihusishi ipasavyo katika matini",
+                                "kujenga mazoea ya kutumia ipasavyo vinyume vya vihusishi"
+                            ]
+                        },
+                        {
+                            "name": "Aina za Sentensi Sentensi tata",
+                            "objectives": [
+                                "kueleza maana ya sentensi tata ili kuitofautisha na aina nyingine za sentensi",
+                                "kutambua sentensi tata katika matini",
+                                "kuchambua maana mbalimbali ya sentensi tata",
+                                "kujenga ujuzi wa kuchanganua maana mbalimbali katika sentensi tata ili kufasiri habari kikamilifu"
+                            ]
+                        },
+                        {
+                            "name": "Ukanushaji Hali ya masharti",
+                            "objectives": [
+                                "kutambua ukanushaji wa hali ya masharti -nge-, -ngali-, na -ki- katika matini",
+                                "kutumia hali ya ukanushaji wa hali ya masharti ya -nge-, -ngali- na -ki- ipasavyo katika matini",
+                                "kuchangamkia matumizi sahihi ya ukanushaji wa hali ya masharti ya -nge-, -ngali- na -ki- katika maisha ya kila siku"
+                            ]
+                        },
+                        {
+                            "name": "Udogo na Ukubwa wa Nomino",
+                            "objectives": [
+                                "kutambua hali ya udogo na ukubwa katika nomino",
+                                "kutumia nomino katika hali ya udogo na ukubwa ipasavyo katika matini"
+                            ]
+                        },
+                        {
+                            "name": "Usemi Halisi na Usemi wa Taarifa",
+                            "objectives": [
+                                "kujadili kanuni za kubadilisha usemi halisi kuwa usemi wa taarifa",
+                                "kutumia usemi halisi na usemi wa taarifa ipasavyo katika matini"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "MSHIKAMANO WA KIJAMII Mada Mada Ndogo",
+                    "source_subject": "Kiswahili",
+                    "sub_strands": [
+                        {
+                            "name": "Mazungumzo Mawaidha",
+                            "objectives": [
+                                "kueleza maana ya mawaidha ili kuipambanua",
+                                "kujadili ujumbe na sifa za mawaidha ya kifasihi",
+                                "kueleza vipengele vya uwasilishaji wa mawaidha",
+                                "kutambua washiriki katika mawaidha ya fasihi simulizi",
+                                "kuchambua sifa za washiriki katika mawaidha ya fasihi simulizi",
+                                "kuwasilisha mawaidha kwa kuzingatia vipengele vifaavyo vya uwasilishaji",
+                                "kutambua vipengele vya lugha vinavyotumika katika mawaidha",
+                                "kujadili umuhimu wa vipengele vya lugha vinavyotumika katika mawaidha",
+                                "kujadili ishara zifaazo katika kutoa mawaidha",
+                                "kutoa mawaidha kwa kuzingatia vipengele mbalimbali vya lugha ya mawaidha na ishara zifaazo"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "MATH",
+            "name": "Mathematics",
+            "optional": false,
+            "source_documents": [
+                "Mathematics-Grade-9-July-2024-Revised.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Numbers",
+                    "source_subject": "Mathematics",
+                    "sub_strands": [
+                        {
+                            "name": "Integers Simple and combined operations on Integers",
+                            "objectives": [
+                                "perform basic operations on Integers in different situations",
+                                "work out combined operations on Integers in different situations",
+                                "apply Integers to real- life situations",
+                                "appreciate the use of integers in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Cubes and Cube Roots",
+                            "objectives": [
+                                "work out cubes of numbers by multiplication in real-life situations",
+                                "determine cubes of numbers from mathematical tables in different situations",
+                                "determine cube roots of numbers by factor method in different situations",
+                                "determine cube roots of numbers from mathematical tables in different situations",
+                                "determine cube and cube roots of numbers using a calculator",
+                                "apply cubes and cube roots in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Indices and Logarithms",
+                            "objectives": [
+                                "express numbers in index form in different situations",
+                                "generate the laws of Indices in different situations",
+                                "apply the laws of indices in different situations",
+                                "relate powers of 10 to common logarithms in different situations",
+                                "appreciate the use of indices and logarithms in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Compound Proportions and Rates of Work",
+                            "objectives": [
+                                "divide quantities into proportional parts in real-life situations",
+                                "relate different proportional parts in real-life situations",
+                                "work out compound proportions using the ratio method in different situations",
+                                "calculate rates of work in real-life situations",
+                                "appreciate the use of compound proportions and rates of work in real-life situations"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Algebra",
+                    "source_subject": "Mathematics",
+                    "sub_strands": [
+                        {
+                            "name": "Matrices",
+                            "objectives": [
+                                "identify a matrix in different situations",
+                                "determine the order of a matrix in different situations",
+                                "determine the position of items in a matrix in different situations",
+                                "determine the compatibility of matrices in addition and subtraction",
+                                "carry out addition and subtraction of matrices in real-life situations",
+                                "reflect on the use of matrices in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Equations of Straight Lines",
+                            "objectives": [
+                                "identify the gradient in real-life situations",
+                                "determine the gradient of a line from two known points",
+                                "determine the equation of a straight line given two points",
+                                "determine the equation of a straight line from a known point and a gradient",
+                                "express the equation of a straight line in the form of 𝑦 = 𝑚𝑥 + 𝑐",
+                                "interpret the equation 𝑦 = 𝑚𝑥 + 𝑐 in different situations",
+                                "determine the x and y intercepts of a straight line",
+                                "recognize the use of equations of straight lines in real life"
+                            ]
+                        },
+                        {
+                            "name": "Linear Inequalities",
+                            "objectives": [
+                                "solve linear inequalities in one unknown",
+                                "represent linear inequalities in one unknown graphically",
+                                "represent linear inequality in two unknowns graphically",
+                                "apply linear inequalities to real- life situations",
+                                "reflect on the use of linear inequalities in real life"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Measurements",
+                    "source_subject": "Mathematics",
+                    "sub_strands": [
+                        {
+                            "name": "Area",
+                            "objectives": [
+                                "calculate the area of a pentagon and a hexagon in different situations",
+                                "work out the surface area of triangular and rectangular-based prisms",
+                                "work out the surface area of triangular, rectangular, and square-based pyramids",
+                                "calculate the area of a sector and segment of a circle",
+                                "work out the surface area of a cone in real- life situations",
+                                "calculate the surface area of a sphere in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Volume of Solids",
+                            "objectives": [
+                                "work out the volume of triangular and rectangular-based prisms",
+                                "calculate the volume of a triangular, rectangular, and square-based pyramid",
+                                "work out the volume of a cone in real-life situations",
+                                "determine the volume of a frustum in real- life situations",
+                                "calculate the volume of a sphere in real-life situations",
+                                "promote the use of volume and capacity of different containers in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Mass, Volume, Weight and Density",
+                            "objectives": [
+                                "convert units of mass from one form to another in different situations",
+                                "relate mass and weight in real-life situations",
+                                "determine mass, volume, and density of different substances",
+                                "apply density to real-life situations",
+                                "recognise the use of density in daily life"
+                            ]
+                        },
+                        {
+                            "name": "Time, Distance and Speed",
+                            "objectives": [
+                                "work out speed in km/h and m/s in real-life situations",
+                                "work out average speed in real-life situations",
+                                "determine velocity in real-life situations",
+                                "work out acceleration in real-life situations",
+                                "identify the longitudes on the globe",
+                                "relate longitudes to time on the globe",
+                                "determine the local time of places on the earth along different longitudes",
+                                "appreciate the use of time and distance in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Money",
+                            "objectives": [
+                                "identify currencies that are used in different countries",
+                                "convert currency from one form to another in real-life situations",
+                                "determine export duties charged on goods in real-life situations",
+                                "determine import duties charged on goods",
+                                "work out excise duty charged on goods and services in real-life situations",
+                                "calculate value added tax charged on goods and services",
+                                "appreciate the use of money in day-to-day activities"
+                            ]
+                        },
+                        {
+                            "name": "Approximations and Errors",
+                            "objectives": [
+                                "approximate quantities in measurements in different situations",
+                                "determine errors using estimations and actual measurements of quantities",
+                                "determine percentage errors using actual measurements of quantities",
+                                "appreciate approximations and errors in real-life situations"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Geometry",
+                    "source_subject": "Mathematics",
+                    "sub_strands": [
+                        {
+                            "name": "Coordinates and Graphs",
+                            "objectives": [
+                                "plot out points on a Cartesian plane",
+                                "draw a straight-line graph given an equation",
+                                "draw parallel lines on the Cartesian plane",
+                                "relate the gradients of parallel lines",
+                                "draw perpendicular lines on the Cartesian plane",
+                                "relate the gradients of perpendicular lines",
+                                "apply graphs of straight lines in a real- life situation"
+                            ]
+                        },
+                        {
+                            "name": "Scale Drawing",
+                            "objectives": [
+                                "identify compass and true bearings in real- life situations",
+                                "determine the bearing of a point from another point in real-life situations",
+                                "locate a point using bearing and distance in real-life situations",
+                                "identify angles of elevation in real-life situations",
+                                "determine angles of elevation in different situations",
+                                "identify angles of depression in real-life situations",
+                                "apply scale drawing in simple surveying",
+                                "appreciate the use of scale drawing in real- life situations. ● discuss and use scale drawing in simple surveying. ● observe maps or watch videos on bearings and simple surveying"
+                            ]
+                        },
+                        {
+                            "name": "Similarity and Enlargement",
+                            "objectives": [
+                                "identify similar figures and their properties",
+                                "draw similar figures in different situations",
+                                "determine properties of enlargement of different figures",
+                                "apply properties of enlargement to draw similar objects and their images",
+                                "determine the linear scale factor of similar figures",
+                                "promote the use of similarity and enlargement in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Trigonometry",
+                            "objectives": [
+                                "identify angles and sides of right-angled triangles in different situations",
+                                "identify Sine, Cosine, and Tangent ratios from a right- angled triangle in different situations",
+                                "read tables of trigonometric ratios for acute angles",
+                                "determine trigonometric ratios of acute angles using calculators",
+                                "apply trigonometric ratios to calculate lengths and angles of right-angled triangles in different situations",
+                                "appreciate the use of trigonometric ratios in real-life situations"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Data Handling and Probability",
+                    "source_subject": "Mathematics",
+                    "sub_strands": [
+                        {
+                            "name": "Data Interpretation (Grouped Data)",
+                            "objectives": [
+                                "determine appropriate class width for grouping data",
+                                "draw frequency distribution tables of grouped data",
+                                "identify the modal class of grouped data",
+                                "calculate the mean of grouped data from real- life situations",
+                                "determine the median of grouped data from real- life situations",
+                                "appreciate data interpretation in real-life situations"
+                            ]
+                        },
+                        {
+                            "name": "Probability",
+                            "objectives": [
+                                "perform experiments involving equal and likely outcomes in different situations",
+                                "determine the range of probability of an event",
+                                "identify mutually exclusive events in real-life situations",
+                                "perform experiments of single chance involving mutually exclusive events",
+                                "perform experiments involving independent events in different situations",
+                                "draw a tree diagram for a single outcome",
+                                "appreciate the probability of events occurring in real-life situations"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "RE",
+            "name": "Religious Education",
+            "optional": false,
+            "source_documents": [
+                "CRE-Grade-9-Revised.pdf (p.12)",
+                "Islamic-Religious-Education-Grade-9-July-2024.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Creation",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Work: God Worked",
+                            "objectives": [
+                                "interpret the scriptures on work to foster responsibility",
+                                "discuss virtues related to Christian work ethics",
+                                "choose career paths based on their gifts talents and abilities",
+                                "demonstrate a positive attitude towards work in daily activities",
+                                "desire to work hard to achieve their career goals and aspirations",
+                                "on different careers and the subjects/learning areas that one should undertake to qualify (note key points), ● discuss the statement, ‘Having a positive attitude towards work ‘and write key points in their notebooks for presentation in class, ● write and keep a journal on careers they aspire to undertake and how to work towards them and share them with peers, guardians, parents or teachers"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "The Bible Selected Teachings",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Christian Moral Values",
+                            "objectives": [
+                                "identify moral values that a young person should uphold",
+                                "describe forbidden sexual practises outlined in the Bible",
+                                "utilise Christian moral values and life skills to foster sexual purity",
+                                "desire to live a morally upright life as guided by the Bible"
+                            ]
+                        },
+                        {
+                            "name": "Judge Deborah",
+                            "objectives": [
+                                "analyse qualities portrayed by Deborah as a judge in Israel",
+                                "deduce lessons learnt from the leadership of Judge Deborah",
+                                "appreciate those in leadership by respecting them"
+                            ]
+                        },
+                        {
+                            "name": "Kings David and Solomon",
+                            "objectives": [
+                                "analyse the importance of David as a king and ancestor of Jesus Christ",
+                                "outline qualities of a good leader from King David’s leadership",
+                                "assess the achievements and failures of King Solomon",
+                                "examine how Solomon portrayed wisdom in his leadership",
+                                "choose leaders of integrity at school, church, and in the community"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "The Life and Ministry of Jesus Christ",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Raising the Widow’s Son",
+                            "objectives": [
+                                "elaborate the miracle of raising the Widow’s son",
+                                "interpret lessons learnt from the miracle for application in daily life",
+                                "model the value of compassion as portrayed by Jesus Christ",
+                                "embrace Christian belief in the resurrection of the dead"
+                            ]
+                        },
+                        {
+                            "name": "Parable on prayer",
+                            "objectives": [
+                                "elaborate the parable of a friend at midnight",
+                                "interpret lessons learnt from the parable of a friend at midnight",
+                                "apply lessons learnt from the parable in daily life",
+                                "appreciate the parable by praying to God always"
+                            ]
+                        },
+                        {
+                            "name": "Nicodemus’ Encounter with Jesus Christ",
+                            "objectives": [
+                                "describe Nicodemus’ encounter with Jesus Christ",
+                                "relate the significance of the bronze serpent to the mission of Jesus Christ",
+                                "deduce lessons learnt from John 3:5-7 and its relevance in the life of a Christian",
+                                "apply lessons learnt in daily life"
+                            ]
+                        },
+                        {
+                            "name": "Jesus’ Ministry in Jerusalem",
+                            "objectives": [
+                                "elaborate Jesus Christ’s triumphant entry into Jerusalem",
+                                "illustrate Jesus Christ’s cleansing of the temple",
+                                "describe Jesus Christ’s conflict with the Jewish leaders",
+                                "desire to avoid conflicts at home, school, and in the community"
+                            ]
+                        },
+                        {
+                            "name": "Jesus’ Passion, Death and Resurrection",
+                            "objectives": [
+                                "explain the significance of the Lord’s Supper to Christians today",
+                                "describe the events that took place at Mount Olives",
+                                "summarise the events that took place between the arrest and the burial of Jesus Christ",
+                                "discuss the importance of Christ’s",
+                                "describe Jesus Christ’s ascension to heaven",
+                                "recognize the second coming of Jesus Christ. 56), ● read Luke 24:1-7 and make notes on Christ’s resurrection, ● team up to brainstorm on the importance of Christ’s resurrection to Christians today, ● explain the meaning of the word, ‘Ascension.’ ● read Luke 24:50-51, Mark 16:19 and Acts 1:10- 11 and describe Christ’s ascension to heaven, ● write John 14:1-3 on flashcards and brainstorm on the second coming of Jesus Christ"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "The Life of Jesus Christ",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Healing the 10 Lepers",
+                            "objectives": [
+                                "describe the healing of the ten lepers",
+                                "devise ways of showing gratitude to God in daily life",
+                                "demonstrate faith by praying to God when faced with challenges",
+                                "apply lessons learnt by showing kindness to others"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "The Church",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "The Early Church",
+                            "objectives": [
+                                "discuss the characteristics of the Early Church",
+                                "describe the miracles performed in the Early Church",
+                                "outline lessons learnt from the miracles performed by the Apostles",
+                                "elaborate the story of Paul and Silas in Acts 16:16-24 and itemise lessons learnt",
+                                "describe the events in Acts 16:25-26 and lessons learnt",
+                                "desire to respond to the call of salvation as portrayed in Acts 16:30- 31"
+                            ]
+                        },
+                        {
+                            "name": "The Gifts of the Holy Spirit",
+                            "objectives": [
+                                "discuss the teachings of Jesus Christ on the role of the Holy Spirit",
+                                "identify the nine gifts of the Holy Spirit",
+                                "classify the gifts of the Holy Spirit according to their categories",
+                                "utilise discerning gifts to avoid joining ungodly cults/idol worship/religious extremism",
+                                "read the scripture provided to get knowledge and avoid being lured to false religion or cults",
+                                "desire to be guided by the Holy Spirit in day-to-day life"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "Christian Living Today",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Courtship and Marriage",
+                            "objectives": [
+                                "elaborate the causes and consequences of early marriage",
+                                "discuss moral values and life skills needed to avoid early marriage",
+                                "analyse Christian approaches to courtship and marriage",
+                                "appreciate marriage as a sacred institution ordained by God"
+                            ]
+                        },
+                        {
+                            "name": "Responsible parenthood",
+                            "objectives": [
+                                "explain biblical teachings on responsible parenting from the scriptures provided",
+                                "discuss the causes of irresponsible parenting today",
+                                "compile values needed to avoid unplanned families in Kenya today",
+                                "appraise the role of parents or guardians in shaping the character of their children",
+                                "value good parenting as guided by the Bible"
+                            ]
+                        },
+                        {
+                            "name": "Wealth, Money and Poverty",
+                            "objectives": [
+                                "discuss Christian teachings on wealth, money, and poverty",
+                                "appraise how the love of money can hinder one from inheriting the Kingdom of God",
+                                "assess five causes and remedies of poverty in the society today",
+                                "devise five ethical ways of acquiring wealth as a youth",
+                                "establish a viable business or enterprise",
+                                "manage the business by reporting its performance to the parent, guardian or the teacher",
+                                "desire to acquire wealth through credible ways as youths. ● share the business idea with either the teacher, parent, or guardian, ● start the business venture and write a report about its progress, ● write and keep a journal on the progress of the business. ● improve the business based on the feedback provided"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "Christian Living",
+                    "source_subject": "Christian Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Leisure",
+                            "objectives": [
+                                "outline different ways of spending leisure time",
+                                "analyse how youths misuse leisure today",
+                                "evaluate five effects of alcohol, drug and substance abuse on an individual",
+                                "establish moral values and life skills needed to avoid alcohol, drug and substance abuse",
+                                "read the scriptures provided and itemize lessons learnt",
+                                "utilise Christian moral values to avoid alcohol, drug and substance abuse"
+                            ]
+                        }
+                    ],
+                    "variant": "Christian Religious Education"
+                },
+                {
+                    "name": "Qur’an",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Ulum al- Qur’an",
+                            "objectives": [
+                                "describe the miraculous nature of the Qur’an to strengthen iman",
+                                "explain the language of the Qur’an for better understanding",
+                                "identify different styles of the Qur’an for better understanding",
+                                "appreciate the miraculous nature of the Qur’an as a divine scripture"
+                            ]
+                        },
+                        {
+                            "name": "Selected Chapter Surah al- Hujurat (Q 49)",
+                            "objectives": [
+                                "read Surah al-Hujurat (Q 49) correctly for spiritual nourishment",
+                                "explain the meaning of the verses of Surah al-Hujurat for better understanding",
+                                "deduce lessons from Surah al- Hujurat for application in daily life",
+                                "apply the teachings of Surah al- Hujurat in their daily life",
+                                "treasure the teachings from Surah al-Hujurat as a guide in relationships"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Hadith",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Ulum al-Hadith",
+                            "objectives": [
+                                "identify the six authentic Books of Hadith as a source of guidance",
+                                "describe the characteristics of different classes of Hadith (sahih, hasan, and dhaif) to differentiate between authentic and unauthentic Hadith",
+                                "explain reasons for the classification of Hadith for authenticity",
+                                "examine factors that necessitated the collection and compilation of Hadith during the period of Tabi'in and Tabi’i -Tabi’in as a measure of preservation",
+                                "describe the process of collection and compilation of Hadith during the period of the Tabi'in",
+                                "appreciate the collection and compilation of Hadith as a source of Islamic sharia. Tabi’in and present on charts/PowerPoint"
+                            ]
+                        },
+                        {
+                            "name": "Selected Hadith",
+                            "objectives": [
+                                "deduce lessons from the Hadith on unity and avoidance of ill motives among Muslims",
+                                "explain the relevance of the Hadith on unity and avoidance of ill motives in the life of a Muslim",
+                                "practise the teachings from the Hadith on unity and avoidance of ill motives in daily life",
+                                "honour Hadith as the second source of law and spiritual guidance"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Pillars of Iman",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Belief in the Last Day (Day of Judgement)",
+                            "objectives": [
+                                "describe the events of the Last Day for accountability",
+                                "assess the significance of believing in the Last Day for spiritual nourishment",
+                                "exercise righteousness in preparation for the Last Day",
+                                "desire to lead a righteous life to earn Allah (S.W.T.)’s blessings"
+                            ]
+                        },
+                        {
+                            "name": "Belief in Qadar",
+                            "objectives": [
+                                "describe the effects of believing in Qadar and Qadha as a pillar of Iman",
+                                "assess the significance of believing in Qadar and Qadha for spiritual nourishment",
+                                "appreciate belief in Qadar and Qadha to accept the Will of Allah"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Devotional Acts",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Shariah (Islamic law)",
+                            "objectives": [
+                                "explain the purpose of Islamic Shariah (Maqasid al-Shariah) as a guide for Muslims",
+                                "assess the relevance of Islamic Shariah in the contemporary world",
+                                "describe the categories of legal acts in Islamic Shariah as a means of upholding divine guidance",
+                                "apply Islamic Shariah in day-to-day life",
+                                "acknowledge Shariah as a source of divine guidance"
+                            ]
+                        },
+                        {
+                            "name": "Tawbah (Repentance)",
+                            "objectives": [
+                                "state the conditions of tawbah as a basis for forgiveness from Allah (S.W.T.)",
+                                "assess the significance of tawbah in the life of a Muslim",
+                                "practise actions that lead to tawbah as a way of purifying one from sins",
+                                "appreciate the virtue of tawbah as a condition for success in this life and the Hereafter"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Akhlaq (Moral Teachings)",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Virtues in Islam",
+                            "objectives": [
+                                "explain Islamic teachings on observing modesty, contentment, and trustworthiness in fulfilment of Allah (S.W.T.)’s commandments",
+                                "describe ways in which Muslims can practise modesty, contentment, and trustworthiness as part of faith",
+                                "assess the significance of observing modesty, contentment and trustworthiness in upholding Islamic morality in society",
+                                "practise modesty, contentment, and trustworthiness in day-to-day life to earn rewards from Allah (S.W.T.)",
+                                "value modesty, contentment, and trustworthiness for a morally upright society"
+                            ]
+                        },
+                        {
+                            "name": "Significance of Islamic Morality",
+                            "objectives": [
+                                "assess the significance of Islamic morality in promoting righteousness",
+                                "practise Islamic morality to earn Allah’s rewards",
+                                "uphold Islamic morality as a way of promoting an upright society"
+                            ]
+                        },
+                        {
+                            "name": "Prohibitions in Islam Zina (fornication and adultery)",
+                            "objectives": [
+                                "describe the effects of Zina on the community",
+                                "justify the reasons behind the prohibition of Zina for a morally upright society",
+                                "explain the Islamic measures of curbing Zina for a morally upright society",
+                                "appreciate the prohibition of Zina for a healthy society"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Muamalat (Social Relations)",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Domestic violence",
+                            "objectives": [
+                                "explain the causes of domestic violence to settle family conflicts",
+                                "explain the effects of domestic violence on the family",
+                                "describe measures to curb domestic violence in the family",
+                                "embrace measures proposed by Islam to curb domestic violence"
+                            ]
+                        },
+                        {
+                            "name": "Iddah",
+                            "objectives": [
+                                "describe the iddah for a divorcee and a widow in Islam to foster obedience to divine guidance",
+                                "explain the rationale for observing iddah as an act of ibadah",
+                                "state the rules of iddah as a means of safeguarding its validity",
+                                "assess the importance of iddah to the divorced and widowed Muslim woman",
+                                "appreciate iddah as an act of ibadah"
+                            ]
+                        },
+                        {
+                            "name": "Child custody",
+                            "objectives": [
+                                "identify the Islamic rules on child custody to safeguard the child’s rights",
+                                "assess the significance of Islamic rules on child custody",
+                                "appreciate Islamic teachings on child custody as a means of fostering family bonds"
+                            ]
+                        },
+                        {
+                            "name": "Polygamy in Islam",
+                            "objectives": [
+                                "explain the reasons for polygamy in Islam for social stability",
+                                "justify the reasons for the Prophet’s multiple marriages",
+                                "state the conditions for polygamy in Islam",
+                                "assess the significance of polygamy in Islam",
+                                "appreciate the Islamic concept of polygamy as a social remedy to safeguard human dignity"
+                            ]
+                        },
+                        {
+                            "name": "Trade and Finance in Islam",
+                            "objectives": [
+                                "explain the Islamic rules on borrowing and lending money",
+                                "practise Islamic teachings on borrowing and lending money to earn rewards from Allah (S.W.T.)",
+                                "describe the role of consumer protection agencies in enhancing integrity",
+                                "appreciate the Islamic concept of borrowing and lending money as a means of safeguarding equity in society"
+                            ]
+                        },
+                        {
+                            "name": "Contemporary Issues",
+                            "objectives": [
+                                "identify the rules of Jihad in Islam for a correct interpretation",
+                                "explain the causes of terrorism and extremism in the society",
+                                "explain the effects of terrorism and extremism on the society",
+                                "describes the measures to curb terrorism and extremism for peaceful co-existence",
+                                "acknowledge Islamic teachings on Jihad as a guide to harmonious co- existence"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                },
+                {
+                    "name": "Islamic Heritage and Civilisation",
+                    "source_subject": "Islamic Religious Education",
+                    "sub_strands": [
+                        {
+                            "name": "Islam in Kenya",
+                            "objectives": [
+                                "describe the factors that facilitated the spread of Islam in Kenya",
+                                "explain the effects of the contact between the early Muslims and the natives as a factor of civilisation",
+                                "examine the challenges faced by the early Muslims in the propagation of Islam",
+                                "appreciate the contribution of Islam to the development of culture in Kenya"
+                            ]
+                        },
+                        {
+                            "name": "Unity of Muslims",
+                            "objectives": [
+                                "explain the factors that would enhance the unity of Muslims in Kenya",
+                                "describe the challenges that undermine the unity of Muslims in Kenya",
+                                "assess the significance of the unity of Muslims for harmonious co-existence",
+                                "practise acts that foster unity among Muslims",
+                                "appreciate the unity of Muslims to enhance brotherhood"
+                            ]
+                        },
+                        {
+                            "name": "Muslim Institutions",
+                            "objectives": [
+                                "describe the role of mosques, madrasa, and Muslim NGOs in the preservation of Islamic heritage",
+                                "examine the challenges facing the Muslim institutions",
+                                "propose possible solutions to the challenges facing Muslim institutions",
+                                "recognise the role played by mosques, madrasa, and Muslim NGOs in preserving Islamic values"
+                            ]
+                        }
+                    ],
+                    "variant": "Islamic Religious Education"
+                }
+            ]
+        },
+        {
+            "code": "SOST",
+            "name": "Social Studies",
+            "optional": false,
+            "source_documents": [
+                "Social-Studies-Grade-9-Revised-1.pdf (p.13)"
+            ],
+            "strands": [
+                {
+                    "name": "Social Studies and Career Development",
+                    "source_subject": "Social Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Pathway Choices",
+                            "objectives": [
+                                "identify factors to consider in the selection of a pathway",
+                                "examine requirements for Social sciences pathway at senior school",
+                                "choose a possible track within a pathway at senior school",
+                                "appreciate the need for choosing a pathway in senior school"
+                            ]
+                        },
+                        {
+                            "name": "Pre-career Support systems (Psychosocial, social, mentorship/coach ing, spiritual, career support system)",
+                            "objectives": [
+                                "explore and use support systems for pre-career and other needs",
+                                "analyze challenges arising from existing support systems for pre- career and other needs",
+                                "design solutions to challenges arising from support systems",
+                                "explain the significance of pre-career mapping for individual growth",
+                                "appreciate the value of the pre-career support systems"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Community Service Learning",
+                    "source_subject": "Social Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Community Service Learning Project",
+                            "objectives": [
+                                "identify a problem in the community",
+                                "design a solution to the identified problem",
+                                "plan to solve the identified problem in the community",
+                                "implement the plan to solve the problem",
+                                "write a report on the concluded project",
+                                "appreciate teamwork in addressing community problems"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "People and Relationships",
+                    "source_subject": "Social Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Socio- Economic Practices of Early Humans",
+                            "objectives": [
+                                "describe the socio- economic practices of early humans in Africa during the Stone Age period",
+                                "examine different types of tools used by early humans during the Stone Age period",
+                                "illustrate the tools used by early humans during the Stone Age period"
+                            ]
+                        },
+                        {
+                            "name": "Indigenous Knowledge Systems in African Societies",
+                            "objectives": [
+                                "identify types of indigenous knowledge systems in African societies for self- identity",
+                                "explain how the indigenous knowledge systems were used for the sustainability of life",
+                                "use indigenous and modern knowledge systems for effective decision-making in life"
+                            ]
+                        },
+                        {
+                            "name": "Poverty Reduction",
+                            "objectives": [
+                                "explain the causes of poverty in Africa",
+                                "examine the effects of overexploitation of natural resources on poverty in Africa",
+                                "apply creative thinking skills to reduce poverty in the society"
+                            ]
+                        },
+                        {
+                            "name": "Population Structure",
+                            "objectives": [
+                                "identify sources of population data in a country",
+                                "explain factors determining population structure in Kenya and Germany",
+                                "construct age-sex population pyramids of developed and developing countries",
+                                "determine the significance of population structure in the distribution of national resources in a society"
+                            ]
+                        },
+                        {
+                            "name": "Peaceful Conflict Resolution",
+                            "objectives": [
+                                "explain types of peace for sustainable social interactions",
+                                "identify barriers to conflict resolution in day- to-day lives",
+                                "explore ways of managing emotions in the promotion of peace in the community",
+                                "apply emotional intelligence for peaceful conflict resolutions in the community"
+                            ]
+                        },
+                        {
+                            "name": "Healthy relationships - effective communication - negotiation skills - empathy - assertiveness",
+                            "objectives": [
+                                "explain ways of sustaining healthy relationships in the community",
+                                "explore barriers to harmonious relationships",
+                                "design strategies to overcome barriers to healthy relationships"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Natural and Historic Built Environments",
+                    "source_subject": "Social Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Topographical maps",
+                            "objectives": [
+                                "describe human activities on topographical maps",
+                                "use creative thinking skills to enlarge and reduce parts of topographical maps",
+                                "illustrate cross- sections from topographical maps"
+                            ]
+                        },
+                        {
+                            "name": "Internal Land Forming Processes",
+                            "objectives": [
+                                "explore the types and causes of earth movements in the environment",
+                                "explain the theories of continental drift and plate tectonics in the formation of continents",
+                                "illustrate the formation of selected features due to faulting in the environment",
+                                "explain the effects of faulting on human activities"
+                            ]
+                        },
+                        {
+                            "name": "Multi-purpose River Projects in Africa",
+                            "objectives": [
+                                "identify selected multi- purpose river projects on a map of Africa",
+                                "outline the conditions that led to the establishment of multi-purpose river projects along river Tana",
+                                "examine the economic importance of multi- purpose river projects in Africa",
+                                "assess challenges facing multi-purpose river projects in Africa",
+                                "design solutions to challenges facing multi- purpose river projects in Africa"
+                            ]
+                        },
+                        {
+                            "name": "Management and Conservation of the Environment",
+                            "objectives": [
+                                "explore factors that lead to the degradation of the environment in the community",
+                                "describe the effects of environmental degradation in society",
+                                "design measures to manage and conserve the environment for sustainability",
+                                "apply creative thinking skills in managing and conserving the immediate environment"
+                            ]
+                        },
+                        {
+                            "name": "World Heritage Sites in Africa",
+                            "objectives": [
+                                "identify the selected world heritage sites in Africa",
+                                "examine the importance of the selected world sites in promoting cultural heritage",
+                                "design measures to conserve the selected world heritage sites",
+                                "apply critical thinking skills in conserving heritage sites within the locality"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Political Developments and Governance",
+                    "source_subject": "Social Studies",
+                    "sub_strands": [
+                        {
+                            "name": "The Constitution of Kenya",
+                            "objectives": [
+                                "identify the stages in the constitution-making process in Kenya",
+                                "examine the role of parliament in the constitution-making process",
+                                "explore the role of citizens in the constitution-making process",
+                                "participate in the constitution-making process in the community"
+                            ]
+                        },
+                        {
+                            "name": "Civic Engagement in Governance",
+                            "objectives": [
+                                "identify individual and collective civic engagement activities in Kenya",
+                                "illustrate the role of political parties in democratic governance",
+                                "outline positions vied for in a general election in Kenya"
+                            ]
+                        },
+                        {
+                            "name": "Kenya’s Bill of Rights",
+                            "objectives": [
+                                "explore Kenya’s Bill of Rights for mutual social well-being",
+                                "examine human rights of special groups for the promotion of social justice and inclusivity",
+                                "apply the Bill of Rights for harmonious living",
+                                "develop assertiveness necessary in standing up for human rights",
+                                "cultivate empathy and solidarity with special groups in society for mutual social responsibility"
+                            ]
+                        },
+                        {
+                            "name": "Cultural Globalisation",
+                            "objectives": [
+                                "identify cultural elements and practises that have acquired global recognition and status",
+                                "examine African cultural practises in promoting a common humanity",
+                                "explore ways of preserving cultural elements that promote global citizenship",
+                                "enumerate factors that promote healthy cultural relationships in global interconnectedness"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "INSC",
+            "name": "Integrated Science",
+            "optional": false,
+            "source_documents": [
+                "Integrated-Science-Grade-9-July-2024.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Mixtures, Elements, and Compounds",
+                    "source_subject": "Integrated Science",
+                    "sub_strands": [
+                        {
+                            "name": "Structure of the atom",
+                            "objectives": [
+                                "describe the structure of the atom",
+                                "determine the mass number of elements",
+                                "draw the electron arrangement in atoms using dot or cross diagrams",
+                                "classify elements into metals and non- metals",
+                                "show interest in classifying elements into metals and non- metals"
+                            ]
+                        },
+                        {
+                            "name": "Metals and Alloys",
+                            "objectives": [
+                                "describe the physical properties of metals",
+                                "describe the composition of alloys",
+                                "identify the uses of metals and alloys in day-to-day life",
+                                "explain the effects of rusting of metals",
+                                "appreciate the importance of common alloys in day-to-day life"
+                            ]
+                        },
+                        {
+                            "name": "Water hardness",
+                            "objectives": [
+                                "describe the physical properties of water",
+                                "distinguish between hard and soft water in nature",
+                                "apply methods of softening hard water in day-to-day life",
+                                "outline the advantages and disadvantages of hard and soft water",
+                                "appreciate the applications of soft and hard water in day-to-day life"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Living things and their Environment",
+                    "source_subject": "Integrated Science",
+                    "sub_strands": [
+                        {
+                            "name": "Nutrition in Plants",
+                            "objectives": [
+                                "identify external and internal parts of a leaf",
+                                "explain adaptations of the leaf to photosynthesis",
+                                "describe the process of photosynthesis",
+                                "investigate the conditions necessary for photosynthesis",
+                                "appreciate the process of photosynthesis in nature"
+                            ]
+                        },
+                        {
+                            "name": "Nutrition in animals",
+                            "objectives": [
+                                "outline modes of nutrition in animals",
+                                "describe the structure and functions of different types of teeth",
+                                "classify animals based on their dentition",
+                                "describe the process of digestion in human beings",
+                                "appreciate that animals have varied modes of nutrition"
+                            ]
+                        },
+                        {
+                            "name": "Reproduction in plants",
+                            "objectives": [
+                                "outline functions of parts of a flower",
+                                "describe pollination in plants",
+                                "outline the adaptations of flowers to wind and insect pollination",
+                                "explain fertilisation and fruit formation in flowering plants",
+                                "categorise fruits and seeds based on their mode of dispersal",
+                                "recognise the role of flowers in nature"
+                            ]
+                        },
+                        {
+                            "name": "The Interdependence of Life",
+                            "objectives": [
+                                "explain the biotic and abiotic factors of the environment",
+                                "construct food chains and food webs in the environment",
+                                "describe the effect of human activities on the environment",
+                                "appreciate the interdependence between living and non-living factors of the environment"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Force and Energy",
+                    "source_subject": "Integrated Science",
+                    "sub_strands": [
+                        {
+                            "name": "Curved mirrors",
+                            "objectives": [
+                                "describe types of curved mirrors",
+                                "draw ray diagrams to locate images formed by concave and convex mirrors",
+                                "describe the characteristics of images formed by concave and convex mirrors",
+                                "explain the uses of concave and convex mirrors in day-to-day life",
+                                "appreciate the applications of curved mirrors in"
+                            ]
+                        },
+                        {
+                            "name": "Waves",
+                            "objectives": [
+                                "describe the generation of waves in nature",
+                                "classify waves as longitudinal and transverse",
+                                "describe basic characteristics of waves in nature",
+                                "describe remote sensing in relation to waves",
+                                "describe applications of waves in day-to- day life"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "PTS",
+            "name": "Pre-Technical Studies",
+            "optional": false,
+            "source_documents": [
+                "Pre-Technical-Studies-Grade-9-July-2024-Revised.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Foundations of Pre – Technical Studies",
+                    "source_subject": "Pre-Technical Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Safety on Raised Platforms",
+                            "objectives": [
+                                "identify types of raised platforms used in performing tasks",
+                                "describe risks associated with working on raised platforms",
+                                "observe safety when working on raised platforms",
+                                "appreciate the need for observing safety while working on raised platforms"
+                            ]
+                        },
+                        {
+                            "name": "Handling Hazardous Substances",
+                            "objectives": [
+                                "identify hazardous substances found in the environment",
+                                "classify hazardous substances found in the locality",
+                                "describe safe ways of handling hazardous substances in the environment",
+                                "handle hazardous substances safely in the environment",
+                                "appreciate the importance of observing safety when handling hazardous substances"
+                            ]
+                        },
+                        {
+                            "name": "Self- Exploration and Career Development",
+                            "objectives": [
+                                "explain ways of nurturing talents and abilities for self- development",
+                                "relate talents and abilities to career pathways",
+                                "analyse ethical and unethical practices related to the use of talents and abilities",
+                                "choose a career based on talents and abilities for self-development"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Communication in Pre-Technical Studies",
+                    "source_subject": "Pre-Technical Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Oblique Projection",
+                            "objectives": [
+                                "explain the characteristics of oblique drawing in technical fields",
+                                "sketch given drawings in oblique projection",
+                                "draw shaped blocks in oblique projection",
+                                "appreciate the application of oblique projection in drawing"
+                            ]
+                        },
+                        {
+                            "name": "Visual Programming",
+                            "objectives": [
+                                "explain the application areas of visual programming software in solving problems",
+                                "create an application using visual programming software for solving problems in day-to-day life",
+                                "embrace the use of visual programming in the day-to-day life"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Materials for Production",
+                    "source_subject": "Pre-Technical Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Wood",
+                            "objectives": [
+                                "classify wood according to physical characteristics",
+                                "describe the preparation of wood for use in the production of items",
+                                "relate types of wood to their uses in the community",
+                                "value the importance of wood in day-to-day life"
+                            ]
+                        },
+                        {
+                            "name": "Handling Waste Materials",
+                            "objectives": [
+                                "identify waste materials found in the environment",
+                                "describe ways of handling waste materials safely in the environment",
+                                "dispose waste materials using appropriate methods",
+                                "appreciate the need for proper handling of waste materials in the environment"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Tools and Production",
+                    "source_subject": "Pre-Technical Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Holding Tools",
+                            "objectives": [
+                                "identify holding tools used in day-to-day life",
+                                "select holding tools for performing given tasks",
+                                "use holding tools to perform given tasks",
+                                "care for holding tools used in day-to-day life",
+                                "appreciate the importance of holding tools in day-to-day life"
+                            ]
+                        },
+                        {
+                            "name": "Driving Tools",
+                            "objectives": [
+                                "identify driving tools used in day-to-day life",
+                                "select driving tools for performing given tasks",
+                                "use driving tools to perform given tasks",
+                                "care for driving tools used in day-to-day life",
+                                "acknowledge the importance of driving tools in day-to-day life"
+                            ]
+                        },
+                        {
+                            "name": "Project",
+                            "objectives": [
+                                "identify a problem in the locality that can be solved using the skills acquired in Pre-Technical Studies",
+                                "select an item that can be made to solve the identified problem",
+                                "make an item to solve the problem identified using locally available materials",
+                                "utilise skills acquired in Pre-Technical Studies to solve problems in day-to- day life"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Entrepreneurship",
+                    "source_subject": "Pre-Technical Studies",
+                    "sub_strands": [
+                        {
+                            "name": "Financial Services",
+                            "objectives": [
+                                "identify financial institutions available in Kenya",
+                                "classify financial institutions in Kenya",
+                                "analyse services offered by financial institutions in Kenya",
+                                "utilise financial services for entrepreneurial development"
+                            ]
+                        },
+                        {
+                            "name": "Government and Business",
+                            "objectives": [
+                                "explain the reasons for government involvement in business",
+                                "describe ways of government involvement in business",
+                                "explore types of taxes in Kenya",
+                                "analyse e-Government services in business",
+                                "acknowledge the need to comply with Government regulations in business"
+                            ]
+                        },
+                        {
+                            "name": "Business Plan",
+                            "objectives": [
+                                "explain the importance of a business plan in entrepreneurship",
+                                "describe the components of a business plan in financial management",
+                                "fill in a business plan template for a given business project",
+                                "embrace the use of a business plan in entrepreneurship"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "AGN",
+            "name": "Agriculture & Nutrition",
+            "optional": false,
+            "source_documents": [
+                "Agriculture-Grade9-1.8.2024-Proofread.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Conservation of Resources",
+                    "source_subject": "Agriculture",
+                    "sub_strands": [
+                        {
+                            "name": "Conserving Animal Feed: Hay",
+                            "objectives": [
+                                "describe methods of conserving forage in coping with drought",
+                                "conserve forage to cope with drought",
+                                "adopt conservation of forage in coping with drought"
+                            ]
+                        },
+                        {
+                            "name": "Conserving Leftover Food",
+                            "objectives": [
+                                "explain the importance of conserving leftover food at home",
+                                "prepare leftover food to avoid wastage",
+                                "embrace the use of leftover food to avoid food wastage"
+                            ]
+                        },
+                        {
+                            "name": "Integrated Farming",
+                            "objectives": [
+                                "describe components of integrated farming in conserving resources",
+                                "make a model of integrated farming for the conservation of resources",
+                                "appreciate the importance of integrated farming in the conservation of resources"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Food Production Processes",
+                    "source_subject": "Agriculture",
+                    "sub_strands": [
+                        {
+                            "name": "Organic Gardening",
+                            "objectives": [
+                                "explain organic gardening practises in crop production",
+                                "grow a crop using organic gardening practises",
+                                "appreciate the importance of organic gardening in the production of healthy foods"
+                            ]
+                        },
+                        {
+                            "name": "Storage of Crop Produce",
+                            "objectives": [
+                                "explain ways of preparing storage structures before storing crop produce",
+                                "prepare an existing storage structure in readiness for storing crop produce",
+                                "manage stored crop produce to reduce spoilage",
+                                "show responsibility in managing stored crop produce to reduce spoilage"
+                            ]
+                        },
+                        {
+                            "name": "Cooking: Using Flour Mixtures",
+                            "objectives": [
+                                "identify types of flour mixtures used in food production",
+                                "prepare flour mixtures for food production",
+                                "make products from various flour mixtures",
+                                "appreciate products made from various flour mixtures"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Hygiene Practises",
+                    "source_subject": "Agriculture",
+                    "sub_strands": [
+                        {
+                            "name": "Cleaning Waste Disposal Facilities",
+                            "objectives": [
+                                "explain the importance of cleaning waste disposal facilities",
+                                "clean waste disposal facilities at the household level",
+                                "adopt the use of clean waste disposal facilities at the household level"
+                            ]
+                        },
+                        {
+                            "name": "Disinfecting Clothing and Household Articles",
+                            "objectives": [
+                                "describe methods of disinfecting clothing and household articles",
+                                "carry out disinfection of clothing and household articles",
+                                "appreciate the importance of disinfecting clothing and household articles"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Production Techniques",
+                    "source_subject": "Agriculture",
+                    "sub_strands": [
+                        {
+                            "name": "Grafting in Plants",
+                            "objectives": [
+                                "describe grafting as a method of plant propagation",
+                                "carry out grafting for various purposes",
+                                "take care of the grafted plant to ensure successful union",
+                                "appraise grafting for aesthetics, repair, improvement and rejuvenation purposes"
+                            ]
+                        },
+                        {
+                            "name": "Homemade Sun Dryer",
+                            "objectives": [
+                                "describe how to make a homemade sun dryer for vegetables",
+                                "construct a homemade sun dryer to preserve vegetables",
+                                "adopt the use of a homemade sun dryer in the preservation of vegetables"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "CAS",
+            "name": "Creative Arts & Sports",
+            "optional": false,
+            "source_documents": [
+                "Creative-Arts-Sports-Grade-9-Revised.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Foundations of Creative Arts and Sports",
+                    "source_subject": "Creative Arts and Sports",
+                    "sub_strands": [
+                        {
+                            "name": "Careers in Creative Arts and Sports",
+                            "objectives": [
+                                "identify careers in Creative Arts and Sports",
+                                "illustrate entrepreneurial opportunities in Creative Arts and Sports",
+                                "appreciate careers in Creative Arts and Sports"
+                            ]
+                        },
+                        {
+                            "name": "Components of Creative Arts and Sports",
+                            "objectives": [
+                                "describe the elements of a play",
+                                "perform activities demonstrating the components of fitness",
+                                "name pitches on the grand stave",
+                                "group music notes in 4 4 time incorporating note extension",
+                                "construct the scale of F major on a staff",
+                                "appreciate the basic elements of Creative Arts and sports"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Creating and Performing",
+                    "source_subject": "Creative Arts and Sports",
+                    "sub_strands": [
+                        {
+                            "name": "Drawing and Painting",
+                            "objectives": [
+                                "discuss harmony/unity in a picture",
+                                "classify analogous colours on a colour wheel for painting",
+                                "illustrate a colour gradation strip for colour harmony",
+                                "paint a scenery composition to express harmony/unity",
+                                "appreciate own and others pictures"
+                            ]
+                        },
+                        {
+                            "name": "Rhythm",
+                            "objectives": [
+                                "describe the effect of note extension on rhythmic patterns",
+                                "compose a four-bar rhythmic pattern in 4 4 time",
+                                "notate four-bar rhythms in 4 4 time from dictation",
+                                "appreciate rhythmic patterns as a means of creating interest in Creative Arts and Sports"
+                            ]
+                        },
+                        {
+                            "name": "Athletics and Mosaic",
+                            "objectives": [
+                                "describe the phases in Triple jump",
+                                "perform Triple jump for skill acquisition",
+                                "identify long distance races in athletics",
+                                "perform techniques for long distance running",
+                                "explore characteristics of mosaic in sample pictures",
+                                "create a mosaic pictorial composition inspired by an athletic event",
+                                "acknowledge own and others’ efforts in performing Triple jump, skills in long"
+                            ]
+                        },
+                        {
+                            "name": "Melody",
+                            "objectives": [
+                                "describe the use of variation in composing a melody",
+                                "compose a four-bar melody in F Major and 4 4 time",
+                                "notate four-bar, melodies in 4 4 time",
+                                "perform melodies in F major and 4 4 time",
+                                "value the use of melody in Creative Arts and Sports"
+                            ]
+                        },
+                        {
+                            "name": "Rugby",
+                            "objectives": [
+                                "distinguish passes in Rugby",
+                                "perform passing skills in Rugby",
+                                "perform kick techniques in Rugby",
+                                "value own and others' efforts in applying passing and kicking skills for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Photography",
+                            "objectives": [
+                                "identify different viewpoints in photography",
+                                "take photographs of a scenery in viewpoint for showcase",
+                                "present the photographs for appreciation"
+                            ]
+                        },
+                        {
+                            "name": "Descant Recorder",
+                            "objectives": [
+                                "identify the fingering of notes in the scale of F major",
+                                "play the scale of F major from staff notation on a descant recorder",
+                                "perform a solo piece in F major on a descant recorder, applying correct playing techniques",
+                                "value playing music on the descant recorder"
+                            ]
+                        },
+                        {
+                            "name": "Play",
+                            "objectives": [
+                                "describe the format of a play script",
+                                "create a one act play addressing a societal issue",
+                                "act a role in a play performance",
+                                "recognise play performance as a channel of addressing societal issues",
+                                "costumes and music for the play performance, ● perform vocal and physical warm up activities in preparation for play performance, ● rehearse a role in the play (paying attention to use of voice, body, movement, space, use of props, music, and costume) ● perform a role in a play performance before an audience, ● record experiences in a journal. 1. How can a play performance be made believable to an audience? 2. Why is it important to decorate props to be used for performance? 23"
+                            ]
+                        },
+                        {
+                            "name": "Basketball and Logo Design",
+                            "objectives": [
+                                "perform passes in Basketball for skill acquisition",
+                                "execute dribbling in Basketball for skill acquisition",
+                                "design logo for a Basketball team",
+                                "appreciate each other’s skills in Basketball game"
+                            ]
+                        },
+                        {
+                            "name": "Indigenous Kenyan Crafts",
+                            "objectives": [
+                                "describe coil techniques in pottery",
+                                "model a vessel using coil method",
+                                "make a frame loom for weaving",
+                                "make a fabric using 2/1 twill weaving technique",
+                                "display and critique own and others’ woven articles"
+                            ]
+                        },
+                        {
+                            "name": "Swimming",
+                            "objectives": [
+                                "describe the body position in standing dive and butterfly stroke in swimming",
+                                "perform a standing dive in swimming",
+                                "perform the butterfly stroke in swimming",
+                                "appreciate swimming as a life skill"
+                            ]
+                        },
+                        {
+                            "name": "Kenyan Indigenous Games (Optional) Board games",
+                            "objectives": [
+                                "identify types of indigenous board games played in Kenya",
+                                "perform different indigenous board games",
+                                "perform indigenous board games to background music for enjoyment",
+                                "appreciate the role played by indigenous board games for mental health"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Appreciation in Creative Arts and Sports",
+                    "source_subject": "Creative Arts and Sports",
+                    "sub_strands": [
+                        {
+                            "name": "Analysis of Creative Arts and Sports",
+                            "objectives": [
+                                "analyse a play performance",
+                                "examine ethical practices in sports",
+                                "analyse a solo vocal piece of music",
+                                "critique exhibited artworks for inspiration",
+                                "appreciate the role of analysis in adding value to Creative Arts and Sports"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "INDL",
+            "name": "Indigenous Language",
+            "optional": true,
+            "source_documents": [
+                "Indigenous-Languages-Grade-9-Revised.pdf (p.12)"
+            ],
+            "strands": [
+                {
+                    "name": "Listening and Speaking",
+                    "source_subject": "Indigenous Language",
+                    "sub_strands": [
+                        {
+                            "name": "Listening for Information",
+                            "objectives": [
+                                "identify target words (names of people, things and places) from an oral text for information",
+                                "paraphrase the main ideas in an oral text for comprehension",
+                                "acknowledge the important role of effective listening in learning"
+                            ]
+                        },
+                        {
+                            "name": "Listening for Comprehension",
+                            "objectives": [
+                                "identify the main idea and specific details in a text for comprehension",
+                                "respond to texts on the theme for information",
+                                "acknowledge the importance of listening for comprehension"
+                            ]
+                        },
+                        {
+                            "name": "Pronunciation",
+                            "objectives": [
+                                "identify commonly mispronounced words for effective communication",
+                                "pronounce target words correctly for fluency",
+                                "apply correct intonation in words for accurate communication",
+                                "acknowledge the role of accentuation in indigenous language speech"
+                            ]
+                        },
+                        {
+                            "name": "Conversation skills- Negotiation",
+                            "objectives": [
+                                "recognise words used to interrupt politely during conversations for effective communication",
+                                "apply the skills of turn- taking and interrupting politely during a conversation for effective communication",
+                                "embrace good negotiation skills in communication"
+                            ]
+                        },
+                        {
+                            "name": "Presentation Skills – Public speaking",
+                            "objectives": [
+                                "recognise non-verbal cues in oral presentations for effective communication",
+                                "pick out key messages from a speech for information",
+                                "make a speech on cultural heritage",
+                                "desire to enhance conversational skills to improve their communication"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Listening",
+                            "objectives": [
+                                "recite tongue twisters for language acquisition",
+                                "solve riddles for comprehension",
+                                "use tongue twisters and riddles appropriately in oral texts for communication",
+                                "acknowledge the role of tongue twisters and riddles in language acquisition"
+                            ]
+                        },
+                        {
+                            "name": "Presentation Skills- Debate",
+                            "objectives": [
+                                "outline the qualities of an effective debater for information",
+                                "participate in a debate on the theme for effective communication",
+                                "acknowledge the role debates play in language acquisition"
+                            ]
+                        },
+                        {
+                            "name": "Storytelling - Legends",
+                            "objectives": [
+                                "explain the characteristics of a good storyteller for information",
+                                "retell a legend from a community for effective communication",
+                                "acknowledge the role of legends in the preservation of culture"
+                            ]
+                        },
+                        {
+                            "name": "Presentation Skills",
+                            "objectives": [
+                                "outline the qualities of an effective presenter for information",
+                                "present a short talk on Kenyan cultures for effective communication",
+                                "acknowledge the Kenyan culture as a source of pride for its people"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Reading",
+                    "source_subject": "Indigenous Language",
+                    "sub_strands": [
+                        {
+                            "name": "Reading for Comprehension",
+                            "objectives": [
+                                "outline reading strategies for use in a given text",
+                                "answer comprehension questions from a text for information",
+                                "embrace the use of appropriate comprehension skills for lifelong learning",
+                                "identify vocabulary related to the theme from texts for language acquisition",
+                                "respond to comprehension questions from texts on the theme for compression",
+                                "advocate reading texts and indigenous literature widely for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Reading for Comprehension: Poetry",
+                            "objectives": [
+                                "identify features of style used in poems for comprehension",
+                                "relate themes in poems to real life for effective communication",
+                                "advocate for reading of poems for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Extensive Reading: Library skills",
+                            "objectives": [
+                                "describe key practices for effective library use",
+                                "respond to texts related to the theme for information",
+                                "embrace extensive reading of indigenous literature for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Extensive reading – short stories",
+                            "objectives": [
+                                "identify vocabulary from texts on the theme for language acquisition",
+                                "use vocabulary related to the theme for sentence construction",
+                                "summarise the main ideas in a text for information",
+                                "advocate for reading widely for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Reading for Information – Plays",
+                            "objectives": [
+                                "identify vocabulary related to cultural heritage for language acquisition",
+                                "respond to a text on the theme for comprehension",
+                                "embrace lessons learnt from plays for lifelong learning"
+                            ]
+                        },
+                        {
+                            "name": "Reading for Information",
+                            "objectives": [
+                                "describe visuals accompanying texts for comprehension",
+                                "make connections between visuals and accompanying texts for information",
+                                "create visuals from written texts for effective communication",
+                                "acknowledge the importance of visuals to understanding of texts"
+                            ]
+                        },
+                        {
+                            "name": "Intensive Reading – Legends",
+                            "objectives": [
+                                "outline the characteristics of legends for information",
+                                "respond to questions from legends for comprehension",
+                                "acknowledge reading of legends from various cultures for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Extensive reading – Grade- appropriate texts",
+                            "objectives": [
+                                "outline the main ideas from texts for comprehension",
+                                "infer the meaning of vocabulary from the text for language acquisition",
+                                "advocate for reading indigenous literature for enjoyment"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Writing",
+                    "source_subject": "Indigenous Language",
+                    "sub_strands": [
+                        {
+                            "name": "Handwriting",
+                            "objectives": [
+                                "outline characteristics of good handwriting for information",
+                                "rewrite a short essay neatly and legibly for effective communication",
+                                "assess handwritten texts for correct spelling and word spacing",
+                                "embrace good handwriting for effective communication"
+                            ]
+                        },
+                        {
+                            "name": "Social Writing - Email",
+                            "objectives": [
+                                "identify components of emails for effective communication",
+                                "compose and send an email message for self- expression",
+                                "acknowledge the importance of using email services in social writing"
+                            ]
+                        },
+                        {
+                            "name": "Creative Writing – Poetry",
+                            "objectives": [
+                                "identify the features of a poem for information",
+                                "compose a short poem on the theme for creative expression",
+                                "acknowledge the role of poetry in creating awareness on community service"
+                            ]
+                        },
+                        {
+                            "name": "Essay writing",
+                            "objectives": [
+                                "explain the steps involved in writing a descriptive essay for information",
+                                "write a descriptive essay for effective communication",
+                                "recognise the role of writing on various topics for creative expression and enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Creative Writing - Plays",
+                            "objectives": [
+                                "explain the features of a play for information",
+                                "write a short play based on the theme for communication",
+                                "recognise the contribution of playwriting in the preservation of culture"
+                            ]
+                        },
+                        {
+                            "name": "Writing for information- Homonyms",
+                            "objectives": [
+                                "identify homonyms for information",
+                                "distinguish meaning between homonyms for comprehension",
+                                "appreciate writing in indigenous languages for enjoyment"
+                            ]
+                        },
+                        {
+                            "name": "Assessment of Writing – Narrative Composition",
+                            "objectives": [
+                                "recognise the features of a well- written composition for information",
+                                "assess written texts for relevance, punctuation, and neatness",
+                                "acknowledge the need for quality in written work for effective communication"
+                            ]
+                        },
+                        {
+                            "name": "Creative writing – short story",
+                            "objectives": [
+                                "explain the features of a short story for information",
+                                "write a short story featuring a hero or heroine for creative expression",
+                                "recognise the place of short story writing in indigenous knowledge preservation"
+                            ]
+                        },
+                        {
+                            "name": "Functional Writing – Letters of Application",
+                            "objectives": [
+                                "recognise the components of a letter of application for information",
+                                "write a letter of application for a scholarship for effective communication",
+                                "acknowledge writing as a means of communicating for lifelong learning"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "code": "FREN",
+            "name": "French",
+            "optional": true,
+            "source_documents": [
+                "French-Grade-9-July-2024.pdf (p.11)"
+            ],
+            "strands": [
+                {
+                    "name": "Listening and speaking",
+                    "source_subject": "French",
+                    "sub_strands": [
+                        {
+                            "name": "Interactive Speaking",
+                            "objectives": [
+                                "respond to questions and prompts to show comprehension and engagement",
+                                "use vocabulary and expressions appropriately to probe and engage in oral interactions",
+                                "use non-verbal communication cues to enhance communication",
+                                "exhibit confidence to contribute actively in conversations"
+                            ]
+                        },
+                        {
+                            "name": "Listening for information",
+                            "objectives": [
+                                "identify key points from audio stimuli",
+                                "recall important details from audio stimuli",
+                                "demonstrate focused listening for optimal information retrieval",
+                                "cultivate awareness on the importance of paying attention to details when listening for information",
+                                "demonstrate focused listening for information retrieval",
+                                "use information from audio stimuli to respond to questions or prompts"
+                            ]
+                        },
+                        {
+                            "name": "Oral expression",
+                            "objectives": [
+                                "demonstrate comprehension and engagement in oral interactions",
+                                "use verbal cues to probe and engage in oral interactions",
+                                "exhibit great interest to participate actively in conversations"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Reading",
+                    "source_subject": "French",
+                    "sub_strands": [
+                        {
+                            "name": "Reading for fluency",
+                            "objectives": [
+                                "infer meaning of words from simple texts",
+                                "read simple texts fluently using the right intonation and pace",
+                                "show enthusiasm in reading through exposure to simple varied texts"
+                            ]
+                        },
+                        {
+                            "name": "Reading for understanding",
+                            "objectives": [
+                                "identify key details and facts from read texts",
+                                "use information from read texts to respond to questions and prompts",
+                                "build confidence in one's ability to comprehend and interpret written material",
+                                "identify key details and facts from texts",
+                                "use information from texts to respond to questions and prompts",
+                                "Identify key points and facts from read texts",
+                                "infer meaning of words from simple texts",
+                                "read simple texts fluently using the right intonation and pace",
+                                "show enthusiasm in reading through exposure to simple varied texts"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "name": "Writing",
+                    "source_subject": "French",
+                    "sub_strands": [
+                        {
+                            "name": "Guided writing",
+                            "objectives": [
+                                "write common words with correct orthography",
+                                "create simple sentences using correct structures",
+                                "appreciate the role of writing in interactive communication contexts"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

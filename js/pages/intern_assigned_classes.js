@@ -73,18 +73,15 @@ const InternAssignedClassesController = {
 
   async loadAcademicYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        const years = res.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -112,15 +109,9 @@ const InternAssignedClassesController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/intern-classes', 'GET', params);
-      
-      if (res?.success) {
-        this.state.classes = res.data || [];
-        this.renderClassesTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load assigned classes', 'error');
-      }
+      this.state.classes = await window.API.apiCall('/academic/intern-classes', 'GET', params) || [];
+      this.renderClassesTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading assigned classes:', error);
       this.showNotification('Failed to load assigned classes', 'error');

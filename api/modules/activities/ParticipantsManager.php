@@ -544,9 +544,14 @@ class ParticipantsManager extends BaseAPI
 
                     $successful[] = $studentId;
                 } catch (Exception $e) {
+                    $errorMsg = 'An internal error occurred.';
+
+                    error_log('[ParticipantsManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+
+                    
                     $failed[] = [
                         'student_id' => $studentId,
-                        'error' => $e->getMessage()
+                        'error' => $errorMsg
                     ];
                 }
             }

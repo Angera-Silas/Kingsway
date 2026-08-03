@@ -400,15 +400,10 @@ async function sendMessage() {
     }
 
     try {
-        const result = await window.API.apiCall('/communications/send', 'POST', formData, true);
-        
-        if (result.success) {
-            alert('Message sent successfully!');
-            document.getElementById('composeForm').reset();
-            
-            // Switch to sent tab
-            tabNav.activateTab('sent');
-        }
+        await window.API.apiCall('/communications/send', 'POST', formData, true);
+        alert('Message sent successfully!');
+        document.getElementById('composeForm').reset();
+        tabNav.activateTab('sent');
     } catch (error) {
         console.error('Failed to send message:', error);
         alert('Failed to send message. Please try again.');

@@ -544,6 +544,15 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->deleteCommunication($id));
     }
 
+    /**
+     * Resend a failed/pending communication (SMS, email, whatsapp)
+     * POST /communications/resend
+     */
+    public function postResend($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->resendCommunication($data));
+    }
+
     // --- Attachments CRUD ---
     public function getAttachment($id = null, $data = [], $segments = [])
     {

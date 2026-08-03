@@ -1575,7 +1575,8 @@ class InventoryController extends BaseController
                 'payment_status' => $newStatus,
             ], 'Payment recorded');
         } catch (\Exception $e) {
-            return $this->serverError('Payment recording failed: ' . $e->getMessage());
+            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1610,7 +1611,8 @@ class InventoryController extends BaseController
                 'total_owed'   => $totalOwed,
             ]);
         } catch (\Exception $e) {
-            return $this->serverError('Failed to load student invoice: ' . $e->getMessage());
+            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1662,7 +1664,8 @@ class InventoryController extends BaseController
                 'filters' => ['from_date' => $fromDate, 'to_date' => $toDate, 'status' => $status],
             ]);
         } catch (\Exception $e) {
-            return $this->serverError('Failed to load summary: ' . $e->getMessage());
+            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 

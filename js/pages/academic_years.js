@@ -77,11 +77,7 @@ const AcademicYearsController = {
         };
       }
       
-      const yearsRes = await window.API.academic.listYears();
-
-      if (yearsRes?.success) {
-        this.state.years = yearsRes.data || [];
-      }
+      this.state.years = await window.API.academic.listYears() || [];
 
       this.renderCurrentInfo();
       this.renderYearsTable();
@@ -196,28 +192,23 @@ const AcademicYearsController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.academic.updateYear(editId, data);
+        await window.API.academic.updateYear(editId, data);
       } else {
-        res = await window.API.academic.createYear(data);
+        await window.API.academic.createYear(data);
       }
 
-      if (res?.success) {
-        this.showNotification(
-          editId ? "Academic year updated" : "Academic year created",
-          "success",
-        );
-        const modal = bootstrap.Modal.getInstance(
-          document.getElementById("addAcademicYearModal"),
-        );
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Operation failed", "error");
-      }
+      this.showNotification(
+        editId ? "Academic year updated" : "Academic year created",
+        "success",
+      );
+      const modal = bootstrap.Modal.getInstance(
+        document.getElementById("addAcademicYearModal"),
+      );
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadData();
     } catch (error) {
       console.error("Error saving academic year:", error);
       this.showNotification("Failed to save academic year", "error");
@@ -226,9 +217,8 @@ const AcademicYearsController = {
 
   async editYear(yearId) {
     try {
-      const res = await window.API.academic.getYear(yearId);
-      if (res?.success && res.data) {
-        const year = res.data;
+      const year = await window.API.academic.getYear(yearId);
+      if (year) {
         const form = document.getElementById("addAcademicYearForm");
         if (form) {
           form.dataset.editId = yearId;
@@ -263,13 +253,9 @@ const AcademicYearsController = {
         }
       } else {
         // Fallback to direct API call
-        const res = await window.API.academic.setCurrentYear(yearId);
-        if (res?.success) {
-          this.showNotification("Current academic year updated", "success");
-          await this.loadData();
-        } else {
-          this.showNotification(res?.message || "Failed to update", "error");
-        }
+        await window.API.academic.setCurrentYear(yearId);
+        this.showNotification("Current academic year updated", "success");
+        await this.loadData();
       }
     } catch (error) {
       console.error("Error setting current year:", error);
@@ -285,13 +271,9 @@ const AcademicYearsController = {
     )
       return;
     try {
-      const res = await window.API.academic.deleteYear(yearId);
-      if (res?.success) {
-        this.showNotification("Academic year deleted", "success");
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to delete", "error");
-      }
+      await window.API.academic.deleteYear(yearId);
+      this.showNotification("Academic year deleted", "success");
+      await this.loadData();
     } catch (error) {
       console.error("Error deleting year:", error);
     }
@@ -299,10 +281,9 @@ const AcademicYearsController = {
 
   async viewTerms(yearId) {
     try {
-      const res = await window.API.academic.listTerms({
+      const terms = await window.API.academic.listTerms({
         academic_year_id: yearId,
-      });
-      const terms = res?.success ? res.data || [] : [];
+      }) || [];
       const year = this.state.years.find((y) => y.id == yearId);
 
       let html = `<h6>Terms for ${this.escapeHtml(year?.name || "")}</h6>`;
@@ -335,14 +316,10 @@ const AcademicYearsController = {
     const data = Object.fromEntries(formData.entries());
 
     try {
-      const res = await window.API.academic.createTerm(data);
-      if (res?.success) {
-        this.showNotification("Term created successfully", "success");
-        form.reset();
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to create term", "error");
-      }
+      await window.API.academic.createTerm(data);
+      this.showNotification("Term created successfully", "success");
+      form.reset();
+      await this.loadData();
     } catch (error) {
       console.error("Error saving term:", error);
     }

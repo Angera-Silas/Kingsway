@@ -111,14 +111,10 @@
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving…';
             }
             try {
-                const res = await window.API.system.updateSchoolConfig(payload);
-                if (res?.status === "success" || res?.success) {
-                    showToast("Settings saved.", "success");
-                    const ts = document.getElementById("settingsLastSaved");
-                    if (ts) ts.textContent = "Last saved: " + new Date().toLocaleString();
-                } else {
-                    showToast(res?.message || "Failed to save.", "error");
-                }
+                await window.API.system.updateSchoolConfig(payload);
+                showToast("Settings saved.", "success");
+                const ts = document.getElementById("settingsLastSaved");
+                if (ts) ts.textContent = "Last saved: " + new Date().toLocaleString();
             } catch (e) {
                 showToast("Error saving settings.", "error");
             } finally {

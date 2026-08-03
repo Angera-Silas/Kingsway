@@ -66,7 +66,7 @@ if (!headers_sent()) {
     header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
-    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob:; connect-src \'self\'; frame-ancestors \'none\'');
+    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com; connect-src \'self\'; frame-ancestors \'none\'');
     if (($_ENV['APP_ENV'] ?? 'production') === 'production') {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
     }

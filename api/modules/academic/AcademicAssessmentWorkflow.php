@@ -535,15 +535,19 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
         try {
             $stmt = $this->db->prepare(
                 "SELECT a.*,
-                    s.name as subject_name,
-                    c.class_name,
-                    at.term_name,
-                    atc.classification_name
+                    la.name as subject_name,
+                    c.name as class_name,
+                    st.name as stream_name,
+                    t.name as term_name,
+                    CAST(NULL AS CHAR) AS classification_name
                 FROM assessments a
-                LEFT JOIN subjects s ON a.subject_id = s.id
-                LEFT JOIN classes c ON a.class_id = c.id
-                LEFT JOIN academic_terms at ON a.term_id = at.id
-                LEFT JOIN assessment_type_classifications atc ON a.classification_code = atc.code
+                LEFT JOIN learning_areas la ON a.learning_area_id = la.id
+                LEFT JOIN academic_year_class_streams aycs ON a.academic_year_class_stream_id = aycs.id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams st ON st.id = aycs.stream_id
+                LEFT JOIN academic_year_terms ayt ON a.academic_year_term_id = ayt.id
+                LEFT JOIN terms t ON t.id = ayt.term_id
                 WHERE a.id = :id"
             );
             $stmt->execute(['id' => $assessment_id]);

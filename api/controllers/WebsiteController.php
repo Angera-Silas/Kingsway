@@ -117,7 +117,8 @@ class WebsiteController extends BaseController
                 'job_apps'     => (int)$db->query("SELECT COUNT(*) FROM job_applications WHERE status='received'")->fetchColumn(),
             ];
             return $this->success($stats, 'Website stats retrieved');
-        } catch (\Throwable $e) { return $this->error('Stats failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -149,7 +150,8 @@ class WebsiteController extends BaseController
             $rows  = $db->query($sql, $params)->fetchAll();
             $total = (int)$db->query("SELECT COUNT(*) FROM news_articles WHERE ".implode(' AND ',$where), array_slice($params,0,-2))->fetchColumn();
             return $this->success(['items'=>$rows,'total'=>$total]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function postNews($id = null, $data = [], $segments = []) {
@@ -171,7 +173,8 @@ class WebsiteController extends BaseController
             );
             $newId = $db->lastInsertId();
             return $this->created(['id'=>$newId,'slug'=>$slug], 'Article published successfully');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putNews($id = null, $data = [], $segments = []) {
@@ -188,7 +191,8 @@ class WebsiteController extends BaseController
             $params[] = $id;
             $db->query("UPDATE news_articles SET ".implode(',',$fields).",updated_at=NOW() WHERE id=?", $params);
             return $this->success(['id'=>(int)$id], 'Article updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function deleteNews($id = null, $data = [], $segments = []) {
@@ -198,7 +202,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("UPDATE news_articles SET deleted_at=NOW() WHERE id=?", [$id]);
             return $this->success(null, 'Article deleted');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -219,7 +224,8 @@ class WebsiteController extends BaseController
             $where = $showAll ? '' : 'WHERE event_date >= CURDATE() AND status != "cancelled"';
             $rows = $db->query("SELECT * FROM school_events $where ORDER BY event_date DESC LIMIT 100")->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function postEvents($id = null, $data = [], $segments = []) {
@@ -233,7 +239,8 @@ class WebsiteController extends BaseController
                  $data['end_date']??null, $data['location']??'', $data['category']??'Academic', $data['status']??'upcoming']
             );
             return $this->created(['id'=>$this->db->lastInsertId()], 'Event created');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putEvents($id = null, $data = [], $segments = []) {
@@ -249,7 +256,8 @@ class WebsiteController extends BaseController
             $params[] = $id;
             $this->db->query("UPDATE school_events SET ".implode(',',$fields).",updated_at=NOW() WHERE id=?", $params);
             return $this->success(['id'=>(int)$id], 'Event updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function deleteEvents($id = null, $data = [], $segments = []) {
@@ -259,7 +267,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("DELETE FROM school_events WHERE id=?", [$id]);
             return $this->success(null, 'Event deleted');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -277,7 +286,8 @@ class WebsiteController extends BaseController
                 : "SELECT * FROM gallery_items ORDER BY display_order ASC, created_at DESC LIMIT 100";
             $rows = $this->db->query($sql)->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function postGallery($id = null, $data = [], $segments = []) {
@@ -291,7 +301,8 @@ class WebsiteController extends BaseController
                 [$data['image_url'], $data['caption']??'', $data['category']??'General', $maxOrder+10]
             );
             return $this->created(['id'=>$this->db->lastInsertId()], 'Image added to gallery');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putGallery($id = null, $data = [], $segments = []) {
@@ -307,7 +318,8 @@ class WebsiteController extends BaseController
             $params[] = $id;
             $this->db->query("UPDATE gallery_items SET ".implode(',',$fields)." WHERE id=?", $params);
             return $this->success(['id'=>(int)$id], 'Gallery item updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function deleteGallery($id = null, $data = [], $segments = []) {
@@ -317,7 +329,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("DELETE FROM gallery_items WHERE id=?", [$id]);
             return $this->success(null, 'Image removed from gallery');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -355,9 +368,8 @@ class WebsiteController extends BaseController
                 'total' => count($rows),
             ]);
         } catch (\Throwable $exception) {
-            return $this->error(
-                'Failed: ' . $exception->getMessage()
-            );
+            error_log('[WebsiteController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -455,9 +467,8 @@ class WebsiteController extends BaseController
                     $this->downloads()->publicDownloadUrl($token),
             ], 'Download entry added.');
         } catch (\Throwable $exception) {
-            return $this->error(
-                'Failed: ' . $exception->getMessage()
-            );
+            error_log('[WebsiteController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -585,9 +596,8 @@ class WebsiteController extends BaseController
                     : 'Download metadata updated.'
             );
         } catch (\Throwable $exception) {
-            return $this->error(
-                'Failed: ' . $exception->getMessage()
-            );
+            error_log('[WebsiteController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -624,9 +634,8 @@ class WebsiteController extends BaseController
                 'Download removed and public access revoked.'
             );
         } catch (\Throwable $exception) {
-            return $this->error(
-                'Failed: ' . $exception->getMessage()
-            );
+            error_log('[WebsiteController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -650,7 +659,8 @@ class WebsiteController extends BaseController
                 : "SELECT * FROM job_vacancies WHERE status = 'open' ORDER BY created_at DESC LIMIT 100";
             $rows = $db->query($sql)->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function postJobs($id = null, $data = [], $segments = []) {
@@ -667,7 +677,8 @@ class WebsiteController extends BaseController
                  $req, $resp, $data['deadline'], $data['color']??'#198754', $data['status']??'open']
             );
             return $this->created(['id'=>$this->db->lastInsertId()], 'Job vacancy created');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putJobs($id = null, $data = [], $segments = []) {
@@ -689,7 +700,8 @@ class WebsiteController extends BaseController
             $params[] = $id;
             $this->db->query("UPDATE job_vacancies SET ".implode(',',$fields).",updated_at=NOW() WHERE id=?", $params);
             return $this->success(['id'=>(int)$id], 'Job updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function deleteJobs($id = null, $data = [], $segments = []) {
@@ -699,7 +711,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("UPDATE job_vacancies SET status='closed', updated_at=NOW() WHERE id=?", [$id]);
             return $this->success(null, 'Job vacancy closed');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -711,7 +724,8 @@ class WebsiteController extends BaseController
         try {
             $rows = $this->db->query("SELECT id, setting_key, setting_value, label FROM school_settings ORDER BY setting_key")->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putSettings($id = null, $data = [], $segments = []) {
@@ -724,7 +738,8 @@ class WebsiteController extends BaseController
                 [$data['key'], $data['value']??'']
             );
             return $this->success(null, 'Setting saved');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -748,7 +763,8 @@ class WebsiteController extends BaseController
                 'benefits'    => $this->db->query("SELECT * FROM careers_benefits WHERE is_active=1 ORDER BY display_order")->fetchAll(),
             ];
             return $this->success(['blocks'=>$rows, 'sections'=>$extra]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putContent($id = null, $data = [], $segments = []) {
@@ -761,7 +777,8 @@ class WebsiteController extends BaseController
                 [$data['key'], $data['value']??'']
             );
             return $this->success(null, 'Content updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -798,7 +815,8 @@ class WebsiteController extends BaseController
             $rows = $this->db->query("SELECT id,child_full_name,grade_applying,parent_name,parent_phone,parent_email,boarding_preference,preferred_start,status,application_ref,created_at FROM admission_applications $where ORDER BY created_at DESC LIMIT 200", $params)->fetchAll();
             $total = (int)$this->db->query("SELECT COUNT(*) FROM admission_applications $where", $params)->fetchColumn();
             return $this->success(['items'=>$rows,'total'=>$total]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putApplications($id = null, $data = [], $segments = []) {
@@ -809,7 +827,8 @@ class WebsiteController extends BaseController
                 $this->db->query("UPDATE admission_applications SET status=?, updated_at=NOW() WHERE id=?", [$data['status'], $id]);
             }
             return $this->success(null, 'Application status updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -821,7 +840,8 @@ class WebsiteController extends BaseController
         try {
             $rows = $this->db->query("SELECT id,job_title,first_name,last_name,email,phone,tsc_number,status,created_at FROM job_applications ORDER BY created_at DESC LIMIT 200")->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -833,7 +853,8 @@ class WebsiteController extends BaseController
         try {
             $rows = $this->db->query("SELECT id,full_name,email,phone,subject,message,status,created_at FROM contact_inquiries ORDER BY created_at DESC LIMIT 200")->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function putInquiries($id = null, $data = [], $segments = []) {
@@ -844,7 +865,8 @@ class WebsiteController extends BaseController
                 $this->db->query("UPDATE contact_inquiries SET status=?, updated_at=NOW() WHERE id=?", [$data['status'], $id]);
             }
             return $this->success(null, 'Inquiry status updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -856,7 +878,8 @@ class WebsiteController extends BaseController
         try {
             $rows = $this->db->query("SELECT * FROM news_categories ORDER BY display_order")->fetchAll();
             return $this->success(['items'=>$rows]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function postCategories($id = null, $data = [], $segments = []) {
@@ -871,7 +894,8 @@ class WebsiteController extends BaseController
                 [$data['name'], $slug, $data['color']??'#198754', $max+10]
             );
             return $this->created(['id'=>$this->db->lastInsertId()], 'Category added');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     public function deleteCategories($id = null, $data = [], $segments = []) {
@@ -881,7 +905,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("UPDATE news_categories SET is_active=0 WHERE id=?", [$id]);
             return $this->success(null, 'Category deactivated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -942,7 +967,8 @@ class WebsiteController extends BaseController
             }
             $rows = $this->db->query("SELECT * FROM $table ORDER BY display_order ASC, id ASC LIMIT 200")->fetchAll();
             return $this->success(['items'=>$rows, 'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     private function genericCreate(string $resource, array $data) {
@@ -970,7 +996,8 @@ class WebsiteController extends BaseController
             );
             $newId = $this->db->lastInsertId();
             return $this->created(['id'=>$newId], ucfirst($resource).' record created.');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     private function genericUpdate(string $resource, array $data, $id = null) {
@@ -995,7 +1022,8 @@ class WebsiteController extends BaseController
         try {
             $this->db->query("UPDATE $table SET ".implode(',', $fields)." WHERE id=?", $params);
             return $this->success(['id'=>(int)$id], ucfirst($resource).' record updated.');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     private function genericDelete(string $resource, $id = null) {
@@ -1013,7 +1041,8 @@ class WebsiteController extends BaseController
             }
             $this->db->query("DELETE FROM $table WHERE id=?", [$id]);
             return $this->success(null, ucfirst($resource).' record deleted.');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+        } catch (\Throwable $e) { error_log('[WebsiteController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.'); }
     }
 
     /** Cache column list for a table (used for created_at/updated_at detection). */

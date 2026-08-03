@@ -206,30 +206,16 @@ class AfricasTalkingProvider implements SMSProvider
 
             return false;
         } catch (\Exception $e) {
-            $errorMsg = $e->getMessage();
-            $this->logSmsResponse($to, "EXCEPTION: " . $errorMsg);
-
-            // Don't retry on SSL errors - they indicate temporary connection issues
-            // SSL error 35 = SSL handshake error (likely temporary)
-            if (stripos($errorMsg, 'SSL') !== false || stripos($errorMsg, 'ssl3_get_record') !== false) {
-                $this->logSmsResponse($to, "SSL error detected - retrying with different sender ID may help");
-            }
-
+            error_log('[SMSGateway] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return false;
         }
     }
+
     private function logSmsResponse($to, $result)
     {
         $logFile = __DIR__ . '/../../../logs/sms_responses.log';
         $timestamp = date('Y-m-d H:i:s');
-
-        // Handle both objects and arrays
-        if (is_object($result)) {
-            $resultStr = json_encode((array) $result);
-        } else {
-            $resultStr = json_encode($result);
-        }
-
+        $resultStr = is_string($result) ? $result : json_encode($result);
         $logMessage = "[$timestamp] To: $to | Response: " . $resultStr . "\n";
         @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }

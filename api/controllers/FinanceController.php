@@ -46,9 +46,7 @@ class FinanceController extends BaseController
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     private function validatePayrollPayloadEligibility(array $payload): ?array
@@ -61,7 +59,7 @@ class FinanceController extends BaseController
         }
         foreach (array_unique(array_filter($staffIds)) as $staffId) {
             try { $this->staffAccess->assertPayrollEligible($staffId); }
-            catch (RuntimeException $e) { return $this->unprocessable($e->getMessage(), ['staff_id'=>$staffId]); }
+            catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
         }
         return null;
     }
@@ -905,11 +903,11 @@ class FinanceController extends BaseController
      */
     public function getFeesTermBreakdown($id = null, $data = [], $segments = [])
     {
-        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        $academicYear = $_GET['academic_year'] ?? $data['academic_year'] ?? null;
         $term = $_GET['term'] ?? $data['term'] ?? null;
 
         if ($academicYear === null || $term === null) {
-            return $this->badRequest('Academic year ID and term are required');
+            return $this->badRequest('Academic year and term are required');
         }
 
         $result = $this->api->getTermBreakdown($academicYear, $term);
@@ -930,10 +928,10 @@ class FinanceController extends BaseController
      */
     public function getFeesAnnualSummary($id = null, $data = [], $segments = [])
     {
-        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        $academicYear = $_GET['academic_year'] ?? $data['academic_year'] ?? null;
         
         if ($academicYear === null) {
-            return $this->badRequest('Academic year ID is required');
+            return $this->badRequest('Academic year is required');
         }
 
         $result = $this->api->getAnnualFeeSummary($academicYear);
@@ -1202,7 +1200,8 @@ class FinanceController extends BaseController
             $result = $recon->listUnreconciled($data);
             return $this->handleResponse($result);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch unreconciled transactions: ' . $e->getMessage());
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1736,7 +1735,8 @@ class FinanceController extends BaseController
     public function postFeeCredits($id = null, $data = [], $segments = [])
     {
         if (empty($data['student_id']) || empty($data['credit_amount'])) {
-            return $this->error('student_id and credit_amount required');
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
         $userId = $this->user['id'] ?? null;
         $result = $this->crud->createFeeCredit($data, $userId);
@@ -1745,7 +1745,8 @@ class FinanceController extends BaseController
 
     public function putFeeCredits($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('id required');
+        if (!$id) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         $action = $data['action'] ?? 'apply';
         $credit = $this->crud->getFeeCredit((int)$id);
         if (!$credit) return $this->error('Credit note not found', 404);
@@ -1756,7 +1757,8 @@ class FinanceController extends BaseController
         }
 
         $applyAmount = min((float)($data['apply_amount'] ?? 0), (float)$credit['remaining_amount']);
-        if ($applyAmount <= 0) return $this->error('No credit remaining');
+        if ($applyAmount <= 0) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         $this->crud->applyFeeCredit((int)$id, $applyAmount, $data);
         return $this->success(['applied' => $applyAmount]);
     }
@@ -1776,7 +1778,8 @@ class FinanceController extends BaseController
     {
         $staffId = $data['staff_id'] ?? null;
         $amount  = $data['requested_amount'] ?? null;
-        if (!$staffId || !$amount) return $this->error('staff_id and requested_amount required');
+        if (!$staffId || !$amount) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
 
         $existing = (float)$this->crud->getActiveAdvanceBalance((int)$staffId);
         $salary = (float) $this->db->query("SELECT basic_salary FROM staff WHERE id = " . (int)$staffId)->fetchColumn();
@@ -1793,7 +1796,8 @@ class FinanceController extends BaseController
 
     public function putSalaryAdvances($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('id required');
+        if (!$id) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         $action = $data['action'] ?? null;
         $userId = $this->user['id'] ?? null;
         $advance = $this->crud->getSalaryAdvance((int)$id);
@@ -1818,7 +1822,8 @@ class FinanceController extends BaseController
             $this->crud->recordSalaryAdvanceDeduction((int)$id, $amt, $newBalance, $newStatus);
             return $this->success(['deducted' => $amt, 'remaining' => $newBalance]);
         }
-        return $this->error('Unknown action');
+        error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
     }
 
     /**
@@ -1839,7 +1844,8 @@ class FinanceController extends BaseController
             ]);
         } catch (\Exception $e) {
             error_log('getUnmatchedPayments: ' . $e->getMessage());
-            return $this->error('Failed to fetch unmatched payments');
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1861,7 +1867,8 @@ class FinanceController extends BaseController
             return $this->success(null, 'Payment matched successfully');
         } catch (\Exception $e) {
             error_log('postUnmatchedPaymentsMatch: ' . $e->getMessage());
-            return $this->error('Failed to match payment');
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

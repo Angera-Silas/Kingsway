@@ -83,14 +83,11 @@ const ViewPastPapersController = {
 
   async loadSubjects() {
     try {
-      const res = await window.API.apiCall('/academic/learning-areas/list', 'GET');
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        const subjectSelect = document.getElementById('subjectFilter');
-        if (subjectSelect) {
-          subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
-            this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
-        }
+      this.state.subjects = await window.API.apiCall('/academic/learning-areas/list', 'GET') || [];
+      const subjectSelect = document.getElementById('subjectFilter');
+      if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
+          this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading subjects:', error);
@@ -99,14 +96,11 @@ const ViewPastPapersController = {
 
   async loadYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        this.state.years = res.data || [];
-        const yearSelect = document.getElementById('yearFilter');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">All Years</option>' + 
-            this.state.years.map(year => `<option value="${year.id}">${year.year_code || year.year_name}</option>`).join('');
-        }
+      this.state.years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('yearFilter');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">All Years</option>' + 
+          this.state.years.map(year => `<option value="${year.id}">${year.year_code || year.year_name}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading years:', error);
@@ -116,15 +110,9 @@ const ViewPastPapersController = {
   async loadPapers() {
     try {
       const params = this.buildParams();
-      const res = await window.API.apiCall('/academic/resources?type=past_paper' + params, 'GET');
-      
-      if (res?.success) {
-        this.state.papers = res.data || [];
-        this.renderPapersTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load past papers', 'error');
-      }
+      this.state.papers = await window.API.apiCall('/academic/resources?type=past_paper' + params, 'GET') || [];
+      this.renderPapersTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading past papers:', error);
       this.showNotification('Failed to load past papers', 'error');

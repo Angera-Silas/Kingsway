@@ -29,6 +29,7 @@ window.studentsManagementController = window.studentsManagementController || {
       this.renderForbidden();
       return;
     }
+    await GradingScale.preload();
     await this.loadInitialData();
     await this.loadStudents();
     this.attachEventListeners();
@@ -1239,11 +1240,7 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   _gradeFromScore: function (score) {
-    if (score >= 80) return "EE";
-    if (score >= 65) return "ME";
-    if (score >= 50) return "AE";
-    if (score >= 35) return "BE";
-    return "BEL";
+    return GradingScale.grade(score) || "-";
   },
 
   deleteStudent: async function (id) {

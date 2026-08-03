@@ -135,7 +135,8 @@ class PaymentManager
 
         } catch (Exception $e) {
             // No need to rollback - the stored procedure handles its own rollback on error
-            return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -290,7 +291,8 @@ class PaymentManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to allocate payment: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -356,7 +358,8 @@ class PaymentManager
             return formatResponse(true, $payment);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve payment: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -493,7 +496,8 @@ class PaymentManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list payments: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -577,7 +581,8 @@ class PaymentManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to reverse payment: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -644,7 +649,8 @@ class PaymentManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to reconcile payments: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -706,7 +712,8 @@ class PaymentManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get payment summary: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -746,7 +753,8 @@ class PaymentManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to record cash payment: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -790,7 +798,8 @@ class PaymentManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get parent payment activity: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -887,7 +896,8 @@ class PaymentManager
                 ]
             ]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list student payment status: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -908,7 +918,8 @@ class PaymentManager
             return formatResponse(true, $status);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get student payment status: ' . $e->getMessage());
+            error_log('[PaymentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

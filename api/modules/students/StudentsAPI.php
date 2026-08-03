@@ -4719,7 +4719,7 @@ class StudentsAPI extends BaseAPI
                     $results['errors'][] = [
                         'index' => $index,
                         'student' => ($studentData['first_name'] ?? 'Unknown') . ' ' . ($studentData['last_name'] ?? ''),
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -4860,7 +4860,7 @@ class StudentsAPI extends BaseAPI
                     $results['failed']++;
                     $results['errors'][] = [
                         'row' => $rowNum,
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -5865,7 +5865,7 @@ class StudentsAPI extends BaseAPI
                     $results['failed']++;
                     $results['errors'][] = [
                         'student_id' => $studentId,
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -6281,7 +6281,7 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Promotion batches fetched successfully'
             ];
         } catch (Exception $e) {
-            return ['success' => false, 'message' => $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -6334,7 +6334,70 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Alumni fetched successfully'
             ];
         } catch (Exception $e) {
-            return ['success' => false, 'message' => $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
+        }
+    }
+
+    /**
+     * Update alumni record
+     */
+    public function updateAlumni($data)
+    {
+        try {
+            $id = (int) ($data['id'] ?? 0);
+            if (!$id) {
+                return ['success' => false, 'message' => 'Alumni ID is required.'];
+            }
+
+            $allowedFields = [
+                'contact_email', 'contact_phone', 'next_school', 'career_interest',
+                'awards', 'achievements', 'conduct_grade', 'alumni_notes',
+                'last_contact_date', 'is_active_alumni', 'overall_rank',
+            ];
+
+            $sets = [];
+            $params = [];
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $sets[] = "{$field} = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            if (empty($sets)) {
+                return ['success' => false, 'message' => 'No valid fields to update.'];
+            }
+
+            $params[] = $id;
+            $sql = "UPDATE alumni SET " . implode(', ', $sets) . ", updated_at = NOW() WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return ['success' => true, 'message' => 'Alumni updated successfully.'];
+        } catch (Exception $e) {
+            error_log('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'message' => 'An internal error occurred.'];
+        }
+    }
+
+    /**
+     * Delete (soft) alumni record
+     */
+    public function deleteAlumni($data)
+    {
+        try {
+            $id = (int) ($data['id'] ?? 0);
+            if (!$id) {
+                return ['success' => false, 'message' => 'Alumni ID is required.'];
+            }
+
+            $stmt = $this->db->prepare("UPDATE alumni SET is_active_alumni = 0, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$id]);
+
+            return ['success' => true, 'message' => 'Alumni record deactivated.'];
+        } catch (Exception $e) {
+            error_log('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 

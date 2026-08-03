@@ -613,9 +613,14 @@ class SchedulesManager extends BaseAPI
                     $result = $this->createSchedule($scheduleData, $userId);
                     $successful[] = $result['data']['id'];
                 } catch (Exception $e) {
+                    $errorMsg = 'An internal error occurred.';
+
+                    error_log('[SchedulesManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+
+                    
                     $failed[] = [
                         'data' => $scheduleData,
-                        'error' => $e->getMessage()
+                        'error' => $errorMsg
                     ];
                 }
             }

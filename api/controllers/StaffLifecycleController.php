@@ -17,5 +17,5 @@ final class StaffLifecycleController extends BaseController
     public function putCancel($id=null,$data=[],$segments=[]){ return $this->guard(function()use($id,$data){$this->service->cancelAction((int)($id?:($data['id']??0)),$this->actor(),(string)($data['reason']??'Cancelled'));return ['cancelled'=>true];}); }
 
     private function actor(): int { $u=$this->getCurrentUser(); $id=(int)($u['id']??0); if(!$id) throw new \RuntimeException('Authentication required'); return $id; }
-    private function guard(callable $fn,int $code=200){ try{$result=$fn();return $code===201?$this->created($result):$this->success($result);}catch(Throwable $e){return $this->badRequest($e->getMessage());} }
+    private function guard(callable $fn,int $code=200){ try{$result=$fn();return $code===201?$this->created($result):$this->success($result);}catch(Throwable $e){error_log('[StaffLifecycleController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());return $this->badRequest('An internal error occurred.');} }
 }

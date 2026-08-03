@@ -116,9 +116,7 @@ const RoleDefinitionsController = {
             
             const response = await API.system.getRoles();
             
-            if (response.success) {
-                this.roles = response.data || [];
-            } else if (Array.isArray(response)) {
+            if (Array.isArray(response)) {
                 this.roles = response;
             } else {
                 this.roles = response.data || response.roles || [];
@@ -142,9 +140,7 @@ const RoleDefinitionsController = {
         try {
             const response = await API.system.getPermissions();
             
-            if (response.success) {
-                this.permissions = response.data || [];
-            } else if (Array.isArray(response)) {
+            if (Array.isArray(response)) {
                 this.permissions = response;
             } else {
                 this.permissions = response.data || [];
@@ -365,13 +361,9 @@ const RoleDefinitionsController = {
                 response = await API.system.createRole(data);
             }
 
-            if (response.success) {
-                bootstrap.Modal.getInstance(document.getElementById('createRoleModal')).hide();
-                this.showSuccess(roleId ? 'Role updated successfully' : 'Role created successfully');
-                await this.loadRoles();
-            } else {
-                this.showError(response.message || 'Failed to save role');
-            }
+            bootstrap.Modal.getInstance(document.getElementById('createRoleModal')).hide();
+            this.showSuccess(roleId ? 'Role updated successfully' : 'Role created successfully');
+            await this.loadRoles();
         } catch (error) {
             console.error('Error saving role:', error);
             this.showError('Failed to save role: ' + error.message);
@@ -389,12 +381,8 @@ const RoleDefinitionsController = {
             const newStatus = currentStatus == 1 ? 0 : 1;
             const response = await API.system.toggleRoleStatus(id, newStatus);
 
-            if (response.success) {
-                this.showSuccess('Role status updated');
-                await this.loadRoles();
-            } else {
-                this.showError(response.message || 'Failed to update status');
-            }
+            this.showSuccess('Role status updated');
+            await this.loadRoles();
         } catch (error) {
             console.error('Error toggling status:', error);
             this.showError('Failed to update status');

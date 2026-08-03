@@ -210,6 +210,12 @@
               <option value="">— Select strand (optional) —</option>
             </select>
           </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">Learning Outcome <small class="text-muted">(optional)</small></label>
+            <select id="aoOutcome" class="form-select">
+              <option value="">— Select learning outcome —</option>
+            </select>
+          </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">Date <span class="text-danger">*</span></label>
             <input type="date" id="aoDate" class="form-control">

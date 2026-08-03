@@ -116,7 +116,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -182,7 +183,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review fee: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -267,7 +269,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve fee: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -310,7 +313,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -355,7 +359,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -400,7 +405,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return $result;
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -437,7 +443,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['id' => $id, 'status' => 'active'], 'Fee structure activated successfully');
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to activate fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

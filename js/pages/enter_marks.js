@@ -50,19 +50,11 @@ const enterMarksCtrl = (() => {
     }
 
     function cbcGrade(score, maxMarks = 20) {
-        const percentage = (score / maxMarks) * 100;
-        if (percentage >= 80) return 'EE';
-        if (percentage >= 50) return 'ME';
-        if (percentage >= 25) return 'AE';
-        return 'BE';
+        return GradingScale.grade(score, maxMarks);
     }
 
     function getRemarks(score, maxMarks = 20) {
-        const percentage = (score / maxMarks) * 100;
-        if (percentage >= 80) return 'Excellent';
-        if (percentage >= 50) return 'Meeting Expectations';
-        if (percentage >= 25) return 'Approaching Expectations';
-        return 'Below Expectations';
+        return GradingScale.remarks(score, maxMarks);
     }
 
     async function loadYears() {
@@ -431,6 +423,8 @@ const enterMarksCtrl = (() => {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+
+        await GradingScale.preload();
 
         // Initialize Academic Context if available
         if (window.AcademicContext) {

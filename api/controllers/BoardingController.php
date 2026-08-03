@@ -93,7 +93,8 @@ class BoardingController extends BaseController
                     : 0,
             ]);
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
     public function getOccupancy($id = null, $data = [], $segments = [])
@@ -112,7 +113,8 @@ class BoardingController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -134,7 +136,8 @@ class BoardingController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -159,7 +162,8 @@ class BoardingController extends BaseController
             $newId = (int)$this->db->lastInsertId();
             return $this->created(['id' => $newId], 'Dormitory created successfully');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -185,7 +189,8 @@ class BoardingController extends BaseController
             );
             return $this->success([], 'Dormitory updated');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -209,7 +214,8 @@ class BoardingController extends BaseController
             );
             return $this->success([], 'Dormitory deleted');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -250,7 +256,8 @@ class BoardingController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
     public function getRollCall($id = null, $data = [], $segments = [])
@@ -273,7 +280,8 @@ class BoardingController extends BaseController
             $stmt->execute([date('Y-m-d', strtotime($date))]);
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -302,7 +310,8 @@ class BoardingController extends BaseController
             }
             return $this->success(['saved' => count($records)], 'Roll call saved');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -331,7 +340,8 @@ class BoardingController extends BaseController
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -354,7 +364,8 @@ class BoardingController extends BaseController
             );
             return $this->created(['id' => (int)$this->db->lastInsertId()], 'Leave request submitted');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -373,7 +384,8 @@ class BoardingController extends BaseController
             );
             return $this->success([], ucfirst($status) . ' leave request');
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -408,7 +420,8 @@ class BoardingController extends BaseController
 
             return $this->success(array_slice($rows, 0, 15));
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[BoardingController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 }

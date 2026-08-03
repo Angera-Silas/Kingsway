@@ -117,7 +117,7 @@ class DelegationsController extends BaseController
             $row = $stmt->fetch();
             return $this->created(['row' => $row, 'granted_permissions' => $granted]);
         } catch (Exception $e) {
-            return $this->serverError('Failed to create delegation', $e->getMessage());
+            return $this->serverError('Failed to create delegation', 'An internal error occurred.');
         }
     }
 

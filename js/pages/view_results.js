@@ -29,10 +29,8 @@ const viewResultsCtrl = (() => {
 
     function cbcGrade(pct) {
         const n = parseFloat(pct);
-        if (n >= 80) return { label: 'EE', cls: 'grade-EE' };
-        if (n >= 50) return { label: 'ME', cls: 'grade-ME' };
-        if (n >= 25) return { label: 'AE', cls: 'grade-AE' };
-        return { label: 'BE', cls: 'grade-BE' };
+        const g = GradingScale.grade(n);
+        return g ? { label: g, cls: 'grade-' + GradingScale.band(g) } : { label: '-', cls: 'grade-BE' };
     }
 
     async function loadTerms() {
@@ -287,6 +285,8 @@ const viewResultsCtrl = (() => {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+
+        await GradingScale.preload();
         
         // Initialize Academic Context if available
         if (window.AcademicContext) {

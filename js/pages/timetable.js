@@ -2,7 +2,7 @@
  * Timetable Controller
  * Page: timetable.php
  * Manages school timetable viewing by class, teacher, or room (read-only)
- * Connected to class_schedules table via SchedulesAPI
+ * Connected to timetable_entries via SchedulesAPI (day_of_week numeric 1=Mon..7=Sun)
  */
 const TimetableController = {
   state: {
@@ -64,8 +64,7 @@ const TimetableController = {
 
   async loadTimeSlots() {
     try {
-      const res = await window.API.schedules.getTimeSlots();
-      const data = res?.data || res || [];
+      const data = await window.API.schedules.getTimeSlots() || [];
       if (data.length > 0) {
         this.state.timeSlots = data.map((s) => ({
           label: s.label || `Period ${s.period_number}`,
@@ -87,15 +86,15 @@ const TimetableController = {
         window.API.academic.listClasses(),
       ]);
 
-      if (classesRes?.success !== false) {
-        this.state.classes = classesRes?.data || classesRes || [];
+      if (classesRes) {
+        this.state.classes = classesRes || [];
         this.populateSelect("#selectClass", this.state.classes, "id", "name");
       }
 
       // Load teachers
       try {
         const tRes = await window.API.academic.getTeachers();
-        this.state.teachers = tRes?.data || tRes || [];
+        this.state.teachers = tRes || [];
         this.populateSelect("#selectTeacher", this.state.teachers, "id", (t) =>
           `${t.first_name || ""} ${t.last_name || ""}`.trim(),
         );
@@ -106,7 +105,7 @@ const TimetableController = {
       // Load rooms
       try {
         const rRes = await window.API.schedules.getRooms();
-        this.state.rooms = rRes?.data || rRes || [];
+        this.state.rooms = rRes || [];
         this.populateSelect("#selectRoom", this.state.rooms, "id", "name");
       } catch (e) {
         console.warn("Rooms load:", e);
@@ -155,17 +154,8 @@ const TimetableController = {
         params.teacher_id = teacherId;
       }
 
-      const res = await window.API.schedules.getTimetable(params);
-
-      if (res?.success !== false) {
-        this.state.timetable = res?.data || res || [];
-        this.renderTimetableGrid();
-      } else {
-        this.showNotification(
-          res?.message || "Failed to load timetable",
-          "error",
-        );
-      }
+      this.state.timetable = await window.API.schedules.getTimetable(params) || [];
+      this.renderTimetableGrid();
     } catch (error) {
       console.error("Error loading timetable:", error);
       this.showNotification("Error loading timetable", "error");

@@ -73,18 +73,15 @@ const InternAssignedSubjectsController = {
 
   async loadAcademicYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        const years = res.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -112,15 +109,9 @@ const InternAssignedSubjectsController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/intern-subjects', 'GET', params);
-      
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        this.renderSubjectsTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load assigned subjects', 'error');
-      }
+      this.state.subjects = await window.API.apiCall('/academic/intern-subjects', 'GET', params) || [];
+      this.renderSubjectsTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading assigned subjects:', error);
       this.showNotification('Failed to load assigned subjects', 'error');

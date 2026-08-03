@@ -233,14 +233,14 @@ const addResultsController = (() => {
       btn.disabled = true;
       btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
       const res = await API.academic.recordMarks(payload);
-      if (res?.success !== false) {
+      if (res) {
         addToRecent(payload);
         document.getElementById("marksInput").value = "";
         document.getElementById("remarksInput").value = "";
         previewGrade();
         alert("Result saved successfully!");
       } else {
-        alert(res?.message || "Failed to save result.");
+        alert("Failed to save result.");
       }
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Result';

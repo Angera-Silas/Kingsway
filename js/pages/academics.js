@@ -1170,7 +1170,7 @@ const academicsController = {
     },
 
     // ── Curriculum Unit Modal ───────────────────────────────────────
-    showCurriculumUnitModal(id) {
+    async showCurriculumUnitModal(id) {
         const form = document.getElementById('curriculumUnitForm');
         if (!form) return;
         form.reset();
@@ -1184,8 +1184,26 @@ const academicsController = {
                 this._subjects.map(s => `<option value="${s.id}">${this._escH(s.name || s.subject_name)}</option>`).join('');
         }
         if (id) {
-            // TODO: load unit data when curriculum_units endpoint is available
             document.getElementById('unitModalAction').textContent = 'Edit';
+            try {
+                const r = await callAPI(`/academic/curriculum-units/${id}`, 'GET');
+                const d = r?.data || r;
+                if (d && d.id) {
+                    document.getElementById('unitId').value = d.id;
+                    if (document.getElementById('unitName')) document.getElementById('unitName').value = d.name || '';
+                    if (document.getElementById('unitCode')) document.getElementById('unitCode').value = d.code || '';
+                    if (document.getElementById('unitSequence')) document.getElementById('unitSequence').value = d.order_sequence || '';
+                    if (document.getElementById('unitSubject')) document.getElementById('unitSubject').value = d.learning_area_id || '';
+                    if (document.getElementById('unitTerm')) document.getElementById('unitTerm').value = d.term_number || '';
+                    if (document.getElementById('unitDuration')) document.getElementById('unitDuration').value = d.duration || '';
+                    if (document.getElementById('unitObjectives')) document.getElementById('unitObjectives').value = d.learning_outcomes || d.objectives || '';
+                    if (document.getElementById('unitTopics')) document.getElementById('unitTopics').value = (d.topics || []).map(t => t.name || t.topic_name).filter(Boolean).join(', ');
+                    if (document.getElementById('unitResources')) document.getElementById('unitResources').value = d.suggested_resources || d.resources_needed || '';
+                    if (document.getElementById('unitStatus')) document.getElementById('unitStatus').value = d.status || 'active';
+                }
+            } catch (e) {
+                console.warn('Failed to load curriculum unit:', e);
+            }
         }
         bootstrap.Modal.getOrCreateInstance(document.getElementById('curriculumUnitModal')).show();
     },

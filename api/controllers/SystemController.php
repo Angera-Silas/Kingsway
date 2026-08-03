@@ -265,7 +265,8 @@ class SystemController extends BaseController
                 'Auth events retrieved'
             );
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve auth events: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -295,7 +296,8 @@ class SystemController extends BaseController
                 'Active sessions retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Active session retrieval failed: ' . $e->getMessage()
@@ -338,11 +340,14 @@ class SystemController extends BaseController
                 'Session revoked'
             );
         } catch (\DomainException $e) {
-            return $this->conflict($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            return $this->notFound($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Active session revocation failed: ' . $e->getMessage()
@@ -370,7 +375,8 @@ class SystemController extends BaseController
                 'System runtime health retrieved'
             );
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve uptime metrics: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -391,7 +397,8 @@ class SystemController extends BaseController
                 'System errors retrieved'
             );
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve system errors: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -412,7 +419,8 @@ class SystemController extends BaseController
                 'System warnings retrieved'
             );
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve system warnings: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -433,7 +441,8 @@ class SystemController extends BaseController
                 'API load metrics retrieved'
             );
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve API load metrics: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -630,7 +639,8 @@ class SystemController extends BaseController
             ], 'Pending approvals retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve pending approvals: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -766,7 +776,8 @@ class SystemController extends BaseController
                 'Authentication logs retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Authentication log retrieval failed: ' . $e->getMessage()
@@ -794,7 +805,8 @@ class SystemController extends BaseController
                 'Failed login attempts retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Failed login attempt retrieval failed: ' . $e->getMessage()
@@ -1150,7 +1162,8 @@ class SystemController extends BaseController
                 'IP access rules retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'IP rule registry retrieval failed: ' . $e->getMessage()
@@ -1176,9 +1189,11 @@ class SystemController extends BaseController
 
             return $this->created($rule, 'IP access rule created');
         } catch (\DomainException $e) {
-            return $this->conflict($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->conflict('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log('IP rule creation failed: ' . $e->getMessage());
             return $this->serverError(
@@ -1211,11 +1226,14 @@ class SystemController extends BaseController
 
             return $this->success($rule, 'IP access rule updated');
         } catch (\DomainException $e) {
-            return $this->conflict($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            return $this->notFound($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log('IP rule update failed: ' . $e->getMessage());
             return $this->serverError(
@@ -1247,11 +1265,14 @@ class SystemController extends BaseController
 
             return $this->success($result, 'IP access rule deleted');
         } catch (\DomainException $e) {
-            return $this->conflict($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            return $this->notFound($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log('IP rule deletion failed: ' . $e->getMessage());
             return $this->serverError(
@@ -1282,7 +1303,8 @@ class SystemController extends BaseController
                 'Tokens retrieved'
             );
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Token registry retrieval failed: ' . $e->getMessage()
@@ -1323,11 +1345,14 @@ class SystemController extends BaseController
 
             return $this->success($result, 'Token revoked');
         } catch (\DomainException $e) {
-            return $this->conflict($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->conflict('An internal error occurred.');
         } catch (\OutOfBoundsException $e) {
-            return $this->notFound($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->notFound('An internal error occurred.');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
             error_log(
                 'Token revocation failed: ' . $e->getMessage()
@@ -1648,7 +1673,8 @@ class SystemController extends BaseController
             return $this->success($routes, 'Routes retrieved');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load routes: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1693,7 +1719,8 @@ class SystemController extends BaseController
             return $this->success(['id' => $newId], 'Route created successfully');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to create route: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1743,7 +1770,8 @@ class SystemController extends BaseController
             return $this->success(null, 'Route updated successfully');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to update route: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1769,7 +1797,8 @@ class SystemController extends BaseController
             return $this->success(null, 'Route deleted successfully');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to delete route: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1797,7 +1826,8 @@ class SystemController extends BaseController
             return $this->success(null, 'Route status updated');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to toggle status: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1837,7 +1867,8 @@ class SystemController extends BaseController
 
             return $this->success($roles, 'Roles retrieved');
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load roles: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1927,7 +1958,8 @@ class SystemController extends BaseController
             if ($db && $db->inTransaction()) {
                 $db->rollback();
             }
-            return $this->badRequest('Failed to create role: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2067,7 +2099,8 @@ class SystemController extends BaseController
             if ($db && $db->inTransaction()) {
                 $db->rollback();
             }
-            return $this->badRequest('Failed to update role: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2136,7 +2169,8 @@ class SystemController extends BaseController
             if ($db->inTransaction()) {
                 $db->rollback();
             }
-            return $this->badRequest('Failed to delete role: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2223,7 +2257,8 @@ class SystemController extends BaseController
             if ($db && $db->inTransaction()) {
                 $db->rollback();
             }
-            return $this->badRequest('Failed to toggle status: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -2408,7 +2443,8 @@ class SystemController extends BaseController
             return $this->success($permissions, 'Permissions retrieved');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load permissions: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3040,7 +3076,8 @@ class SystemController extends BaseController
             return $this->success($permissions, 'Role permissions retrieved');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load role permissions: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3097,7 +3134,8 @@ class SystemController extends BaseController
             return $this->success(['assigned' => $count], 'Permissions assigned to role');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to assign permissions: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3147,7 +3185,8 @@ class SystemController extends BaseController
             return $this->success(null, 'Permission removed from role');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to remove permission: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3174,7 +3213,8 @@ class SystemController extends BaseController
             return $this->success($menus, 'Sidebar menus retrieved');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load sidebar menus: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3205,7 +3245,8 @@ class SystemController extends BaseController
             return $this->success($menus, 'Role sidebar assignments retrieved');
 
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load assignments: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3221,7 +3262,8 @@ class SystemController extends BaseController
                  (int)($data['display_order'] ?? 0), $data['domain'] ?? 'SYSTEM', (int)($data['is_active'] ?? 1)]
             );
             return $this->created(['id' => (int)$this->db->lastInsertId()], 'Sidebar menu created');
-        } catch (Exception $e) { return $this->badRequest('Failed to create sidebar menu: ' . $e->getMessage()); }
+        } catch (Exception $e) { error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.'); }
     }
 
     public function putSidebarMenus($id = null, $data = [], $segments = [])
@@ -3238,7 +3280,8 @@ class SystemController extends BaseController
         try {
             $this->db->query('UPDATE sidebar_menu_items SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
             return $this->success(null, 'Sidebar menu updated');
-        } catch (Exception $e) { return $this->badRequest('Failed to update sidebar menu: ' . $e->getMessage()); }
+        } catch (Exception $e) { error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.'); }
     }
 
     public function deleteSidebarMenus($id = null, $data = [], $segments = [])
@@ -3250,7 +3293,8 @@ class SystemController extends BaseController
             $this->db->query('DELETE FROM role_sidebar_menus WHERE menu_item_id = ?', [$menuId]);
             $this->db->query('DELETE FROM sidebar_menu_items WHERE id = ?', [$menuId]);
             return $this->success(null, 'Sidebar menu deleted');
-        } catch (Exception $e) { return $this->badRequest('Failed to delete sidebar menu: ' . $e->getMessage()); }
+        } catch (Exception $e) { error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.'); }
     }
 
     public function postRoleSidebarAssignments($id = null, $data = [], $segments = [])
@@ -3302,7 +3346,8 @@ class SystemController extends BaseController
 
             return $this->success($modules, 'Modules retrieved');
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load modules: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3348,7 +3393,8 @@ class SystemController extends BaseController
                 'Module updated successfully'
             );
         } catch (Exception $e) {
-            return $this->badRequest('Failed to update module: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3388,7 +3434,8 @@ class SystemController extends BaseController
 
             return $this->success($items, 'Module enablement settings retrieved');
         } catch (Exception $e) {
-            return $this->badRequest('Failed to load module enablement settings: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -3435,7 +3482,8 @@ class SystemController extends BaseController
                 'Module enablement setting updated successfully'
             );
         } catch (Exception $e) {
-            return $this->badRequest('Failed to update module enablement setting: ' . $e->getMessage());
+            error_log('[SystemController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 

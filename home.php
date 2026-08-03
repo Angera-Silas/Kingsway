@@ -47,6 +47,10 @@ function asset_script(string $appBase, string $path): void
     echo '<script src="' . $src . '?v=' . $version . '"></script>' .
         PHP_EOL;
 }
+
+if (!headers_sent()) {
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -195,6 +199,7 @@ function asset_script(string $appBase, string $path): void
 <?php
 $files = [
     'js/api.js',
+    'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
     'js/core/connectivity_manager.js',

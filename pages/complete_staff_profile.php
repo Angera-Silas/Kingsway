@@ -85,4 +85,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/complete_staff_profile.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/complete_staff_profile.js"></script>

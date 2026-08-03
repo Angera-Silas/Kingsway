@@ -2,7 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\transport\TransportAPI;
-use App\API\Modules\Finance\TransportBillingManager;
+use App\API\Modules\finance\TransportBillingManager;
 use Exception;
 
 /**
@@ -47,7 +47,8 @@ class TransportController extends BaseController
             $students = (int)$this->db->query("SELECT COUNT(*) FROM transport_subscriptions WHERE status='active'")->fetchColumn();
             return $this->success(['routes' => $routes, 'vehicles' => $vehicles, 'active_subscriptions' => $students]);
         } catch (Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -465,7 +466,8 @@ class TransportController extends BaseController
                 'Driver route context retrieved'
             );
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -486,7 +488,8 @@ class TransportController extends BaseController
                 'Driver vehicle retrieved'
             );
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[TransportController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -540,9 +543,11 @@ class TransportController extends BaseController
             $result = $this->billing->subscribe($data);
             return $this->success($result, 'Student subscribed to transport');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            return $this->serverError('Subscription failed: ' . $e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -578,7 +583,8 @@ class TransportController extends BaseController
             $result = $this->billing->generateMonthlyBills($billingMonth, $userId);
             return $this->success($result, 'Monthly bills generated');
         } catch (Exception $e) {
-            return $this->serverError('Bill generation failed: ' . $e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -613,9 +619,11 @@ class TransportController extends BaseController
             $result = $this->billing->recordTransportPayment((int)$id, $data);
             return $this->success($result, 'Payment recorded');
         } catch (\InvalidArgumentException $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Exception $e) {
-            return $this->serverError('Payment recording failed: ' . $e->getMessage());
+            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 

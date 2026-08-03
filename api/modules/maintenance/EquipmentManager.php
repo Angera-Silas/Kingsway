@@ -65,10 +65,8 @@ class EquipmentManager extends BaseAPI
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Failed to list equipment maintenance records: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -100,10 +98,8 @@ class EquipmentManager extends BaseAPI
                 'data' => $record
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Failed to get equipment maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -167,10 +163,8 @@ class EquipmentManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error creating equipment maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -226,10 +220,8 @@ class EquipmentManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error updating equipment maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -254,10 +246,8 @@ class EquipmentManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error deleting equipment maintenance record: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -283,10 +273,8 @@ class EquipmentManager extends BaseAPI
                 'count' => count($records)
             ];
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error fetching overdue equipment: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -321,10 +309,8 @@ class EquipmentManager extends BaseAPI
                 ];
             }
         } catch (\Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error updating status: ' . $e->getMessage()
-            ];
+            error_log('[EquipmentManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

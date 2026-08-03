@@ -62,7 +62,8 @@ class ActivitiesController extends BaseController
             return $this->success($activities, 'Activities retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch activities: ' . $e->getMessage());
+            error_log('[ActivitiesController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 

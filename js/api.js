@@ -2102,8 +2102,14 @@ async function apiCall(
       // 2FA endpoints called during login (no JWT yet)
       "/twofactor/challenge",
       "/twofactor/verify",
+      // Parent portal public endpoints (backend AuthMiddleware/CsrfMiddleware skips these)
+      "/parent-portal/login",
+      "/parent-portal/login-otp-request",
+      "/parent-portal/login-otp-verify",
     ]);
-    isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
+    isProtectedRequest =
+      !authFreeEndpoints.has(normalizedEndpoint) &&
+      !normalizedEndpoint.startsWith("/parent-portal/");
 
     if (isProtectedRequest && AuthContext.hasSession?.()) {
       if (isSessionIdleExpired()) {
@@ -2181,7 +2187,9 @@ async function apiCall(
         ...(token && {
           Authorization: "Bearer " + token,
         }),
-        ...(_csrfToken && !authFreeEndpoints.has(normalizedEndpoint) && {
+        ...(_csrfToken &&
+          !authFreeEndpoints.has(normalizedEndpoint) &&
+          !normalizedEndpoint.startsWith("/parent-portal/") && {
           "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
@@ -3583,6 +3591,68 @@ window.API = {
       apiCall("/activities/workflow/evaluation/start", "POST", data),
     getWorkflowStatus: async (workflowId) =>
       apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
+    // Sports
+    sports: {
+      // Teams
+      listTeams: async (params = {}) =>
+        apiCall("/activities/sports/teams", "GET", null, params),
+      getTeam: async (id) =>
+        apiCall(`/activities/sports/teams/${id}`, "GET"),
+      createTeam: async (data) =>
+        apiCall("/activities/sports/teams", "POST", data),
+      updateTeam: async (id, data) =>
+        apiCall(`/activities/sports/teams/${id}`, "PUT", data),
+      deleteTeam: async (id) =>
+        apiCall(`/activities/sports/teams/${id}`, "DELETE"),
+
+      // Team Members
+      listTeamMembers: async (params = {}) =>
+        apiCall("/activities/sports/team-members", "GET", null, params),
+      addTeamMember: async (data) =>
+        apiCall("/activities/sports/team-members", "POST", data),
+      removeTeamMember: async (id) =>
+        apiCall(`/activities/sports/team-members/${id}`, "DELETE"),
+
+      // Fixtures
+      listFixtures: async (params = {}) =>
+        apiCall("/activities/sports/fixtures", "GET", null, params),
+      getFixture: async (id) =>
+        apiCall(`/activities/sports/fixtures/${id}`, "GET"),
+      createFixture: async (data) =>
+        apiCall("/activities/sports/fixtures", "POST", data),
+      updateFixture: async (id, data) =>
+        apiCall(`/activities/sports/fixtures/${id}`, "PUT", data),
+      deleteFixture: async (id) =>
+        apiCall(`/activities/sports/fixtures/${id}`, "DELETE"),
+      recordResult: async (id, data) =>
+        apiCall(`/activities/sports/fixtures/record-result/${id}`, "POST", data),
+
+      // Player Stats
+      getPlayerStats: async (params = {}) =>
+        apiCall("/activities/sports/player-stats", "GET", null, params),
+      getPlayerCareerStats: async (playerId) =>
+        apiCall(`/activities/sports/player-stats/career/${playerId}`, "GET"),
+
+      // Standings
+      getStandings: async (params = {}) =>
+        apiCall("/activities/sports/standings", "GET", null, params),
+      updateStandings: async (data) =>
+        apiCall("/activities/sports/standings", "POST", data),
+
+      // Dashboard / Service
+      getDashboardStats: async (params = {}) =>
+        apiCall("/activities/sports/dashboard-stats", "GET", null, params),
+      getSeasonSummary: async (params = {}) =>
+        apiCall("/activities/sports/season-summary", "GET", null, params),
+      getTopScorers: async (params = {}) =>
+        apiCall("/activities/sports/top-scorers", "GET", null, params),
+      getHeadToHead: async (teamId, opponent, params = {}) =>
+        apiCall("/activities/sports/head-to-head", "GET", null, { team_id: teamId, opponent, ...params }),
+      getUpcomingFixtures: async (days = 14) =>
+        apiCall("/activities/sports/upcoming-fixtures", "GET", null, { days }),
+      getRecentResults: async (limit = 10) =>
+        apiCall("/activities/sports/recent-results", "GET", null, { limit }),
+    },
   },
 
   // Counseling endpoints
@@ -3869,6 +3939,14 @@ window.API = {
       }),
     getUnreadCount: async () =>
       apiCall("/communications/communication?status=unread", "GET"),
+
+    // Resend a failed/pending communication (SMS, email, etc.)
+    resendCommunication: async (data) =>
+      apiCall("/communications/resend", "POST", data),
+
+    // Send WhatsApp message with optional media
+    sendWhatsapp: async (data) =>
+      apiCall("/communications/send-whatsapp", "POST", data),
 
     // Fee reminder SMS/WhatsApp
     sendFeeReminder: async (data) =>

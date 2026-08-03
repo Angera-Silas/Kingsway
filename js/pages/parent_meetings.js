@@ -67,12 +67,16 @@ const ParentMeetingsController = {
         window.API.academic.listClasses(),
       ]);
 
-      if (meetingsRes?.success) {
-        this.state.allMeetings = meetingsRes.data || [];
+      if (meetingsRes) {
+        this.state.allMeetings = Array.isArray(meetingsRes)
+          ? meetingsRes
+          : meetingsRes.data || [];
       }
 
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
+      if (classesRes) {
+        this.state.classes = Array.isArray(classesRes)
+          ? classesRes
+          : classesRes.data || [];
       }
 
       // Split into upcoming and past
@@ -260,11 +264,10 @@ const ParentMeetingsController = {
   async cancelMeeting(id) {
     if (!confirm("Cancel this meeting?")) return;
     try {
-      // Try to update via communications API
-      if (window.API?.communications?.updateCommunication) {
-        await window.API.communications.updateCommunication(id, { status: 'cancelled' }).catch(() => null);
-      } else if (window.API?.academic?.postCustom) {
+      if (window.API?.academic?.postCustom) {
         await window.API.academic.postCustom({ action: 'cancel-meeting', meeting_id: id }).catch(() => null);
+      } else if (window.API?.communications?.updateCommunication) {
+        await window.API.communications.updateCommunication(id, { status: 'cancelled' }).catch(() => null);
       }
     } catch (e) {
       console.warn('Could not persist meeting cancellation:', e);
@@ -336,10 +339,10 @@ const ParentMeetingsController = {
       type: 'parent_meeting',
     };
     try {
-      if (window.API?.communications?.createCommunication) {
-        await window.API.communications.createCommunication(data);
-      } else if (window.API?.academic?.postCustom) {
+      if (window.API?.academic?.postCustom) {
         await window.API.academic.postCustom({ action: 'schedule-meeting', ...data });
+      } else if (window.API?.communications?.createCommunication) {
+        await window.API.communications.createCommunication(data);
       }
       this.showNotification("Meeting scheduled successfully", "success");
       await this.loadData();

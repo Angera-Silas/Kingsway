@@ -121,10 +121,8 @@ class CounselingAPI extends BaseAPI
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to fetch summary: ' . $e->getMessage(),
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 
@@ -202,10 +200,8 @@ class CounselingAPI extends BaseAPI
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to list sessions: ' . $e->getMessage()
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 
@@ -243,10 +239,8 @@ class CounselingAPI extends BaseAPI
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to fetch session: ' . $e->getMessage()
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 
@@ -303,10 +297,8 @@ class CounselingAPI extends BaseAPI
             ], 201);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to create session: ' . $e->getMessage()
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 
@@ -371,10 +363,8 @@ class CounselingAPI extends BaseAPI
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to update session: ' . $e->getMessage()
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 
@@ -407,10 +397,8 @@ class CounselingAPI extends BaseAPI
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
-            return $this->response([
-                'status' => 'error',
-                'message' => 'Failed to delete session: ' . $e->getMessage()
-            ], 500);
+            error_log('[CounselingAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->response(['status' => 'error', 'message' => 'An internal error occurred.'], 500);
         }
     }
 }

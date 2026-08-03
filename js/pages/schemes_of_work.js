@@ -11,6 +11,7 @@ const SchemesOfWorkController = (() => {
     classes: [],
     subjects: [],
     academicYears: [],
+    terms: [],
     pagination: { page: 1, limit: 10, total: 0 },
     summary: { total: 0, approved: 0, pending: 0, overdue: 0 },
     currentAcademicYear: null,
@@ -109,6 +110,14 @@ const SchemesOfWorkController = (() => {
       populateYearDropdown();
     } catch (error) {
       console.warn("Failed to load academic years", error);
+    }
+
+    try {
+      const termResp = await window.API.apiCall("/academic/terms-list", "GET");
+      const termPayload = unwrapPayload(termResp) || {};
+      state.terms = Array.isArray(termPayload) ? termPayload : termPayload.data || [];
+    } catch (error) {
+      console.warn("Failed to load terms", error);
     }
   }
 
@@ -504,12 +513,221 @@ const SchemesOfWorkController = (() => {
     });
   }
 
+  // ---- Auto-Generate from CBC Curriculum ----
+
+  function openGenerateModal() {
+    const modalEl = document.getElementById("generateSchemeModal");
+    if (!modalEl) return;
+
+    const form = document.getElementById("generateSchemeForm");
+    if (form) form.reset();
+
+    const emptySelect = (id, first) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = first;
+      sel.appendChild(opt);
+    };
+
+    emptySelect("genStrand", "All Strands");
+    emptySelect("genSubStrand", "All Sub-Strands");
+
+    populateGenerateClass();
+    populateGenerateTerm();
+    loadLearningAreasForGenerate();
+
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  }
+
+  function populateGenerateClass() {
+    const select = document.getElementById("genClass");
+    if (!select) return;
+    state.classes.forEach((cls) => {
+      const opt = document.createElement("option");
+      opt.value = cls.id;
+      opt.textContent = cls.name || cls.class_name;
+      select.appendChild(opt);
+    });
+  }
+
+  function populateGenerateTerm() {
+    const select = document.getElementById("genTerm");
+    if (!select) return;
+
+    state.terms.forEach((term) => {
+      const opt = document.createElement("option");
+      opt.value = term.id;
+      const year = term.year || term.year_code || term.year_name || "";
+      opt.textContent = `${term.name || `Term ${term.term_number}`}${year ? ` - ${year}` : ""}`;
+      if (state.currentTerm && term.id == state.currentTerm) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  async function loadLearningAreasForGenerate() {
+    const select = document.getElementById("genLearningArea");
+    if (!select) return;
+
+    try {
+      const resp = await window.API.academic.listLearningAreas();
+      const payload = unwrapPayload(resp) || {};
+      const areas = Array.isArray(payload) ? payload : payload.data || [];
+      areas.forEach((area) => {
+        const opt = document.createElement("option");
+        opt.value = area.id;
+        opt.textContent = area.name;
+        select.appendChild(opt);
+      });
+    } catch (error) {
+      console.warn("Failed to load learning areas", error);
+    }
+  }
+
+  async function loadStrandsForGenerate(learningAreaId) {
+    const strandSelect = document.getElementById("genStrand");
+    const subSelect = document.getElementById("genSubStrand");
+    if (!strandSelect) return;
+
+    strandSelect.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "All Strands";
+    strandSelect.appendChild(all);
+    subSelect.innerHTML = "";
+    const allSub = document.createElement("option");
+    allSub.value = "";
+    allSub.textContent = "All Sub-Strands";
+    subSelect.appendChild(allSub);
+
+    if (!learningAreaId) return;
+
+    try {
+      const resp = await window.API.apiCall(
+        `/academic/strands?learning_area_id=${learningAreaId}`,
+        "GET",
+      );
+      const payload = unwrapPayload(resp) || {};
+      const strands = Array.isArray(payload) ? payload : payload.data || [];
+      strands.forEach((strand) => {
+        const opt = document.createElement("option");
+        opt.value = strand.id;
+        opt.textContent = strand.name;
+        strandSelect.appendChild(opt);
+      });
+    } catch (error) {
+      console.warn("Failed to load strands", error);
+    }
+  }
+
+  async function loadSubStrandsForGenerate(strandId) {
+    const select = document.getElementById("genSubStrand");
+    if (!select) return;
+
+    select.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "All Sub-Strands";
+    select.appendChild(all);
+
+    if (!strandId) return;
+
+    try {
+      const resp = await window.API.apiCall(
+        `/academic/sub-strands?strand_id=${strandId}`,
+        "GET",
+      );
+      const payload = unwrapPayload(resp) || {};
+      const subStrands = Array.isArray(payload) ? payload : payload.data || [];
+      subStrands.forEach((sub) => {
+        const opt = document.createElement("option");
+        opt.value = sub.id;
+        opt.textContent = sub.name;
+        select.appendChild(opt);
+      });
+    } catch (error) {
+      console.warn("Failed to load sub-strands", error);
+    }
+  }
+
+  async function generateSchemes() {
+    const classId = document.getElementById("genClass")?.value;
+    const learningAreaId = document.getElementById("genLearningArea")?.value;
+    const termId = document.getElementById("genTerm")?.value;
+    const strandId = document.getElementById("genStrand")?.value;
+    const subStrandId = document.getElementById("genSubStrand")?.value;
+
+    if (!classId || !learningAreaId || !termId) {
+      showError("Please select class, subject and term");
+      return;
+    }
+
+    const payload = {
+      class_id: parseInt(classId, 10),
+      learning_area_id: parseInt(learningAreaId, 10),
+      term_id: parseInt(termId, 10),
+    };
+    if (strandId) payload.strand_id = parseInt(strandId, 10);
+    if (subStrandId) payload.sub_strand_ids = [parseInt(subStrandId, 10)];
+
+    const btn = document.getElementById("confirmGenerateBtn");
+    const originalText = btn?.innerHTML;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Generating...';
+    }
+
+    try {
+      const resp = await window.API.apiCall(
+        "/academic/schemes-of-work/generate",
+        "POST",
+        payload,
+      );
+      const result = unwrapPayload(resp) || {};
+      const message =
+        result.message || resp?.message || "Scheme of work entries generated";
+      showSuccess(message);
+
+      bootstrap.Modal.getInstance(
+        document.getElementById("generateSchemeModal"),
+      )?.hide();
+      await loadSchemes(1);
+    } catch (error) {
+      console.error("Error generating schemes:", error);
+      showError(error.message || "Failed to generate schemes of work");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+  }
+
   // ---- Event Listeners ----
 
   function attachEventListeners() {
     document
       .getElementById("uploadSchemeBtn")
       ?.addEventListener("click", () => openSchemeModal());
+
+    document
+      .getElementById("generateSchemeBtn")
+      ?.addEventListener("click", () => openGenerateModal());
+
+    document
+      .getElementById("confirmGenerateBtn")
+      ?.addEventListener("click", () => generateSchemes());
+
+    document
+      .getElementById("genLearningArea")
+      ?.addEventListener("change", (e) => loadStrandsForGenerate(e.target.value));
+
+    document
+      .getElementById("genStrand")
+      ?.addEventListener("change", (e) => loadSubStrandsForGenerate(e.target.value));
 
     document
       .getElementById("saveSchemeBtn")
@@ -598,11 +816,26 @@ const SchemesOfWorkController = (() => {
     viewScheme,
     editScheme: openSchemeModal,
     deleteScheme,
+    openGenerateModal,
+    generateSchemes,
   };
 })();
 
-document.addEventListener("DOMContentLoaded", () =>
-  SchemesOfWorkController.init(),
-);
+let _initialized = false;
+
+function initializeSchemesOfWork() {
+  if (_initialized) return;
+  _initialized = true;
+  void SchemesOfWorkController.init().catch((error) => {
+    console.error("[SchemesOfWorkController] Page initialization failed:", error);
+  });
+}
+
+if (window.__APP_BOOTED__) {
+  initializeSchemesOfWork();
+} else {
+  window.addEventListener("kingsway:ready", initializeSchemesOfWork, { once: true });
+  document.addEventListener("DOMContentLoaded", initializeSchemesOfWork, { once: true });
+}
 
 window.SchemesOfWorkController = SchemesOfWorkController;

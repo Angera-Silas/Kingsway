@@ -4,6 +4,7 @@ namespace App\API\Modules\schedules;
 use Exception;
 
 use App\API\Includes\WorkflowHandler;
+use function App\API\Includes\dayNameToNumber;
 
 class SchedulesWorkflow extends WorkflowHandler
 {
@@ -95,19 +96,41 @@ class SchedulesWorkflow extends WorkflowHandler
                     throw new \Exception("Missing required field: $field");
                 }
             }
-            $this->db->beginTransaction();
-            // Insert timetable entries into class_schedules
+            $classStreamId = $this->resolveClassStreamId((int) $plan['class_id']);
+            if ($classStreamId <= 0) {
+                throw new \Exception('No active class-stream found for the given class');
+            }
+            $termId = $this->resolveAcademicYearTermId((int) $plan['term_id']);
+            if ($termId <= 0) {
+                throw new \Exception('No active term found for the given term');
+            }
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+            }
+            // Insert timetable entries into timetable_entries
             foreach ($plan['timetable_entries'] as $entry) {
-                $stmt = $this->db->prepare("INSERT INTO class_schedules (class_id, term_id, day_of_week, start_time, end_time, subject_id, teacher_id, room_id, status) VALUES (:class_id, :term_id, :day_of_week, :start_time, :end_time, :subject_id, :teacher_id, :room_id, 'inactive')");
+                $dayNum = dayNameToNumber($entry['day_of_week']);
+                if ($dayNum === null) {
+                    throw new \Exception('Invalid day_of_week in timetable entry');
+                }
+                $learningAreaId = $this->resolveLearningAreaId((int) ($entry['subject_id'] ?? 0));
+                if ($learningAreaId <= 0) {
+                    throw new \Exception('Invalid subject_id in timetable entry');
+                }
+                $timeSlotId = $this->resolveTimeSlotId($entry['time_slot_id'] ?? null, $entry['start_time'] ?? null, $entry['end_time'] ?? null);
+                if ($timeSlotId === null) {
+                    throw new \Exception('No time slot matches the entry start/end time');
+                }
+                $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
+                $stmt = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (:id, :aycs, :term, :day, :ts, :la, :teacher, 'scheduled')");
                 $stmt->execute([
-                    'class_id' => $plan['class_id'],
-                    'term_id' => $plan['term_id'],
-                    'day_of_week' => $entry['day_of_week'],
-                    'start_time' => $entry['start_time'],
-                    'end_time' => $entry['end_time'],
-                    'subject_id' => $entry['subject_id'],
-                    'teacher_id' => $entry['teacher_id'],
-                    'room_id' => $entry['room_id']
+                    'id' => $entryId,
+                    'aycs' => $classStreamId,
+                    'term' => $termId,
+                    'day' => $dayNum,
+                    'ts' => $timeSlotId,
+                    'la' => $learningAreaId,
+                    'teacher' => (int) ($entry['teacher_id'] ?? 0)
                 ]);
             }
             // Start workflow instance
@@ -115,8 +138,11 @@ class SchedulesWorkflow extends WorkflowHandler
             $this->db->commit();
             return ['success' => true, 'instance_id' => $instance_id, 'next_stage' => 'timetable_review'];
         } catch (\Exception $e) {
-            $this->db->rollBack();
-            return ['success' => false, 'error' => $e->getMessage()];
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -132,21 +158,36 @@ class SchedulesWorkflow extends WorkflowHandler
             if (!$instance) {
                 throw new \Exception('Workflow instance not found');
             }
-            // Example: call conflict detection procedure
-            $stmt = $this->db->prepare('CALL sp_detect_schedule_conflicts(:class_id, :term_id)');
             $data = json_decode($instance['data_json'], true);
-            $stmt->execute([
-                'class_id' => $data['class_id'],
-                'term_id' => $data['term_id']
-            ]);
-            $conflicts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            // Example: call conflict detection procedure
+            $conflicts = [];
+            $proc = "SHOW PROCEDURE STATUS WHERE Db = DATABASE() AND Name = 'sp_detect_schedule_conflicts'";
+            if ($this->db->query($proc)->fetchColumn()) {
+                $stmt = $this->db->prepare('CALL sp_detect_schedule_conflicts(:class_id, :term_id)');
+                $stmt->execute([
+                    'class_id' => $data['class_id'],
+                    'term_id' => $data['term_id']
+                ]);
+                $conflicts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            } else {
+                // Fall back to view-based overlap detection
+                $classStreamId = $this->resolveClassStreamId((int) $data['class_id']);
+                $termId = $this->resolveAcademicYearTermId((int) $data['term_id']);
+                $stmt = $this->db->prepare("SELECT COUNT(*) FROM vw_timetable_entries a JOIN vw_timetable_entries b ON a.academic_year_class_stream_id = b.academic_year_class_stream_id AND a.day_of_week = b.day_of_week AND a.id < b.id AND a.start_time < b.end_time AND a.end_time > b.start_time WHERE a.academic_year_class_stream_id = ? AND a.academic_year_term_id = ? AND a.status = 'scheduled'");
+                $stmt->execute([$classStreamId, $termId]);
+                $overlapCount = (int) $stmt->fetchColumn();
+                if ($overlapCount > 0) {
+                    $conflicts = [['conflict_type' => 'class_overlap', 'count' => $overlapCount]];
+                }
+            }
             // Advance workflow to next stage if no conflicts
             if (empty($conflicts)) {
                 $this->advanceStage($instance_id, 'timetable_approval', 'review_passed');
             }
             return ['success' => true, 'conflicts' => $conflicts, 'next_stage' => empty($conflicts) ? 'timetable_approval' : 'timetable_planning'];
         } catch (\Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -162,17 +203,20 @@ class SchedulesWorkflow extends WorkflowHandler
             if (!$instance) {
                 throw new \Exception('Workflow instance not found');
             }
-            // Mark all class_schedules as approved for this class/term
+            // Mark all timetable entries as approved for this class/term
             $data = json_decode($instance['data_json'], true);
-            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "active" WHERE class_id = :class_id AND term_id = :term_id');
+            $classStreamId = $this->resolveClassStreamId((int) $data['class_id']);
+            $termId = $this->resolveAcademicYearTermId((int) $data['term_id']);
+            $stmt = $this->db->prepare('UPDATE timetable_entries SET status = "scheduled" WHERE academic_year_class_stream_id = :class_stream_id AND academic_year_term_id = :term_id');
             $stmt->execute([
-                'class_id' => $data['class_id'],
-                'term_id' => $data['term_id']
+                'class_stream_id' => $classStreamId,
+                'term_id' => $termId
             ]);
             $this->advanceStage($instance_id, 'timetable_publication', 'approved');
             return ['success' => true, 'next_stage' => 'timetable_publication'];
         } catch (\Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -188,18 +232,139 @@ class SchedulesWorkflow extends WorkflowHandler
             if (!$instance) {
                 throw new \Exception('Workflow instance not found');
             }
-            // Mark all class_schedules as published for this class/term
+            // Mark all timetable entries as published for this class/term
             $data = json_decode($instance['data_json'], true);
-            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "active" WHERE class_id = :class_id AND term_id = :term_id');
+            $classStreamId = $this->resolveClassStreamId((int) $data['class_id']);
+            $termId = $this->resolveAcademicYearTermId((int) $data['term_id']);
+            $stmt = $this->db->prepare('UPDATE timetable_entries SET status = "scheduled" WHERE academic_year_class_stream_id = :class_stream_id AND academic_year_term_id = :term_id');
             $stmt->execute([
-                'class_id' => $data['class_id'],
-                'term_id' => $data['term_id']
+                'class_stream_id' => $classStreamId,
+                'term_id' => $termId
             ]);
             $this->advanceStage($instance_id, 'completed', 'published');
             return ['success' => true, 'next_stage' => 'completed'];
         } catch (\Exception $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[SchedulesWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
+    }
+
+    /**
+     * Resolve the current academic year id.
+     */
+    private function getCurrentAcademicYearId(): int
+    {
+        $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
+        if ($yearId <= 0) {
+            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+        }
+        return $yearId;
+    }
+
+    /**
+     * Resolve a legacy `class_id` to academic_year_class_streams.id.
+     */
+    private function resolveClassStreamId(int $classId): int
+    {
+        if ($classId <= 0) {
+            return 0;
+        }
+        $academicYearId = $this->getCurrentAcademicYearId();
+        if ($academicYearId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT aycs.id
+             FROM academic_year_class_streams aycs
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
+             ORDER BY aycs.id LIMIT 1"
+        );
+        $stmt->execute([$academicYearId, $classId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve a legacy `term_id` to academic_year_terms.id.
+     */
+    private function resolveAcademicYearTermId(int $termId): int
+    {
+        $academicYearId = $this->getCurrentAcademicYearId();
+        if ($academicYearId <= 0) {
+            return 0;
+        }
+        if ($termId > 0) {
+            $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE id = ? AND academic_year_id = ? LIMIT 1");
+            $stmt->execute([$termId, $academicYearId]);
+            $found = (int) $stmt->fetchColumn();
+            if ($found > 0) {
+                return $found;
+            }
+            $stmt = $this->db->prepare("SELECT ayt.id FROM academic_year_terms ayt WHERE ayt.academic_year_id = ? AND ayt.term_id = ? LIMIT 1");
+            $stmt->execute([$academicYearId, $termId]);
+            $found = (int) $stmt->fetchColumn();
+            if ($found > 0) {
+                return $found;
+            }
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1");
+        $stmt->execute([$academicYearId]);
+        $found = (int) $stmt->fetchColumn();
+        if ($found > 0) {
+            return $found;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'upcoming' ORDER BY opening_date LIMIT 1");
+        $stmt->execute([$academicYearId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve a legacy `subject_id` to learning_areas.id.
+     */
+    private function resolveLearningAreaId(int $subjectId): int
+    {
+        if ($subjectId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("SELECT learning_area_id FROM strands WHERE id = ? LIMIT 1");
+        $stmt->execute([$subjectId]);
+        $learningAreaId = (int) $stmt->fetchColumn();
+        if ($learningAreaId > 0) {
+            return $learningAreaId;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM learning_areas WHERE id = ? LIMIT 1");
+        $stmt->execute([$subjectId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve a time_slot by explicit id or start/end time.
+     */
+    private function resolveTimeSlotId($timeSlotId, $startTime = null, $endTime = null): ?int
+    {
+        if (!empty($timeSlotId) && is_numeric($timeSlotId)) {
+            $stmt = $this->db->prepare("SELECT id FROM time_slots WHERE id = ? AND is_active = 1 LIMIT 1");
+            $stmt->execute([(int) $timeSlotId]);
+            if ($stmt->fetchColumn()) {
+                return (int) $timeSlotId;
+            }
+        }
+        if ($startTime !== null && $startTime !== '') {
+            $sql = "SELECT id FROM time_slots WHERE is_active = 1 AND start_time = ?";
+            $params = [$startTime];
+            if ($endTime !== null && $endTime !== '') {
+                $sql .= " AND end_time = ?";
+                $params[] = $endTime;
+            }
+            $sql .= " ORDER BY period_number LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $id = (int) $stmt->fetchColumn();
+            if ($id > 0) {
+                return $id;
+            }
+        }
+        return null;
     }
 
     // Optionally, keep the generic workflow instance/status/list methods for API use

@@ -87,11 +87,8 @@ class StudentIDCardGenerator extends BaseAPI
             ], 'Photo uploaded successfully');
         } catch (Exception $exception) {
             $this->logError('uploadStudentPhoto', $exception->getMessage());
-            return formatResponse(
-                false,
-                null,
-                'Failed to upload photo: ' . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -165,7 +162,8 @@ class StudentIDCardGenerator extends BaseAPI
 
         } catch (Exception $e) {
             $this->logError('generateEnhancedQRCode', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate QR code: ' . $e->getMessage());
+            error_log('[StudentIDCardGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -380,12 +378,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate student ID cards: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -563,12 +557,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate student ID card: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -618,12 +608,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate class ID cards: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

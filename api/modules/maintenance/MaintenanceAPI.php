@@ -215,10 +215,8 @@ class MaintenanceAPI extends BaseAPI
                 ]
             ];
         } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error generating dashboard summary: ' . $e->getMessage()
-            ];
+            error_log('[MaintenanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

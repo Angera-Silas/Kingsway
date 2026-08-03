@@ -85,48 +85,9 @@ class MpesaB2CService
             }
 
         } catch (Exception $e) {
-            $this->logError("B2C Payment failed: " . $e->getMessage());
-            return [
-                'status' => 'failed',
-                'message' => $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Check M-Pesa account balance
-     */
-    public function checkAccountBalance()
-    {
-        try {
-            $accessToken = $this->getAccessToken();
-
-            $url = $this->baseUrl . '/mpesa/accountbalance/v1/query';
-
-            $payload = [
-                'Initiator' => $this->initiatorName,
-                'SecurityCredential' => $this->securityCredential,
-                'CommandID' => 'AccountBalance',
-                'PartyA' => $this->shortcode,
-                'IdentifierType' => '4', // 4 for organization shortcode
-                'Remarks' => 'Balance query',
-                'QueueTimeOutURL' => $this->queueTimeoutUrl,
-                'ResultURL' => BASE_URL . '/api/payments/balance-callback.php'
-            ];
-
-            $response = $this->makeRequest($url, $payload, $accessToken);
-
-            // Balance will come via callback, return pending status
-            return [
-                'status' => 'pending',
-                'message' => 'Balance query initiated',
-                'conversation_id' => $response['ConversationID'] ?? null
-            ];
-
-        } catch (Exception $e) {
-            $this->logError("Balance check failed: " . $e->getMessage());
-            return 0; // Return 0 if can't check balance
-        }
+    error_log('[MpesaB2CService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    return $this->logError('An internal error occurred.');
+}
     }
 
     /**

@@ -408,7 +408,11 @@ const placementTestsController = {
                 max_score: document.getElementById("createMaxScore")?.value || 100,
             };
 
-            // TODO: Implement actual API endpoint
+            // DEPENDENCY: No dedicated /admission/placement-test endpoint exists yet.
+            // Create AdmissionController::postPlacementTest() + module method in
+            // AdmissionAPI that inserts into a placement_tests table (which must be
+            // created/migrated first). Until then, test data is derived from admission
+            // application records that have placement_test_required set in their data_json.
             // const response = await this.apiCall('/admission/placement-test', 'POST', data);
 
             this.notify("warning", "Placement test creation requires additional API endpoint");
@@ -481,7 +485,9 @@ const placementTestsController = {
                 recommended_class: formData.get('recommendedClass'),
             };
 
-            // TODO: Implement actual API endpoint
+            // DEPENDENCY: No dedicated /admission/placement-test/{id}/record-results endpoint
+            // exists yet. Needs AdmissionController::postPlacementTestRecordResults() +
+            // AdmissionAPI method that writes scores to a placement_test_results table.
             // const response = await this.apiCall(`/admission/placement-test/${testId}/record-results`, 'POST', data);
 
             this.notify("warning", "Placement test results recording requires additional API endpoint");

@@ -40,13 +40,9 @@ const CounselingRecordsController = {
         window.API.counseling.getSummary(),
       ]);
 
-      if (sessionsRes?.success) {
-        this.state.allSessions = sessionsRes.data || [];
-        this.state.sessions = [...this.state.allSessions];
-      }
-      if (summaryRes?.success) {
-        this.state.summary = summaryRes.data || {};
-      }
+      this.state.allSessions = sessionsRes || [];
+      this.state.sessions = [...this.state.allSessions];
+      this.state.summary = summaryRes || {};
 
       this.updateStats();
       this.renderTable();
@@ -153,9 +149,8 @@ const CounselingRecordsController = {
 
   async viewSession(id) {
     try {
-      const res = await window.API.counseling.get(id);
-      if (res?.success && res.data) {
-        const s = res.data;
+      const s = await window.API.counseling.get(id);
+      if (s) {
         this.showModal(
           "Counseling Session",
           `

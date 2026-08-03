@@ -103,7 +103,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to create fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -158,7 +158,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to update fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -200,7 +200,7 @@ class FeeManager
             return formatResponse(true, $feeStructure);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -329,7 +329,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list fee structures: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -439,7 +439,7 @@ class FeeManager
 
             return formatResponse(true, $invoice, 'Invoice generated successfully');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate invoice: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -497,7 +497,7 @@ class FeeManager
                 'errors' => $errors
             ], 'Invoice batch generation completed');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate invoices: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -524,7 +524,7 @@ class FeeManager
             }
             return formatResponse(true, $invoice, 'Invoice retrieved successfully');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve invoice: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -546,7 +546,7 @@ class FeeManager
 
             return formatResponse(true, $feeTypes);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list fee types: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -568,7 +568,7 @@ class FeeManager
 
             return formatResponse(true, $studentTypes);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list student types: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -698,7 +698,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to update annual fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -769,7 +769,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to delete fee structures: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -792,7 +792,7 @@ class FeeManager
             return formatResponse(true, $result);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to calculate fees: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -876,7 +876,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve balance: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -914,7 +914,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Discount applied successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to apply discount: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -935,7 +935,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Balance carried over successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to carryover balance: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -954,7 +954,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Fee reminder sent successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to send reminder: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -976,7 +976,7 @@ class FeeManager
             return formatResponse(true, $result);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get collection rate: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1032,7 +1032,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate report: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1128,7 +1128,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate statement: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1148,7 +1148,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Fees transitioned to new term successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to transition fees: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1168,7 +1168,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Fees transitioned to new academic year successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to transition fees: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1199,7 +1199,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get class fee schedule: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1237,7 +1237,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get carryover summary: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1279,7 +1279,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get transition audit: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1322,7 +1322,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get fee type collection: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1346,7 +1346,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to calculate fee due: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1364,7 +1364,7 @@ class FeeManager
             return formatResponse(true, ['message' => 'Batch fee reminders sent successfully']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to send batch reminders: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1477,7 +1477,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to create annual fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1539,7 +1539,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1601,7 +1601,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1659,7 +1659,7 @@ class FeeManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to activate fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1703,7 +1703,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to rollover fee structures: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1765,7 +1765,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get term breakdown: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1815,7 +1815,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get payment history: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1866,7 +1866,7 @@ class FeeManager
             return formatResponse(true, $comparison);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to compare collections: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1886,7 +1886,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pending reviews: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1919,7 +1919,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get annual summary: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -1955,7 +1955,7 @@ class FeeManager
             return formatResponse(true, null, 'Fee structure deleted successfully');
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to delete fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2035,7 +2035,7 @@ class FeeManager
             ], 'Fee structure duplicated successfully');
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to duplicate fee structure: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2150,12 +2150,12 @@ class FeeManager
             if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
                 return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
             }
-            return formatResponse(false, null, 'Failed to submit fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to submit fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2252,12 +2252,12 @@ class FeeManager
             if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
                 return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
             }
-            return formatResponse(false, null, 'Failed to review fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2382,12 +2382,12 @@ class FeeManager
             if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
                 return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
             }
-            return formatResponse(false, null, 'Failed to approve fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve fee structure bundle: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2490,7 +2490,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to activate and generate obligations: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2584,9 +2584,9 @@ class FeeManager
             if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
                 return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
             }
-            return formatResponse(false, null, 'Failed to get fee structure bundles: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get fee structure bundles: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2694,7 +2694,7 @@ class FeeManager
             return formatResponse(true, ['academic_years' => $academicYears]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get student billing history: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -2769,7 +2769,7 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get class billing report: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

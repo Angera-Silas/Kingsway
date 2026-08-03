@@ -72,9 +72,11 @@ class CateringController extends BaseController
             }
             return $this->success($result['data'] ?? null);
         } catch (InvalidArgumentException $error) {
-            return $this->badRequest($error->getMessage());
+            error_log('[CateringController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[CateringController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 }

@@ -17,6 +17,10 @@
  * @since 2025-12-28
  */
 
+// TODO: Replace this manual require_once with Composer PSR-4 autoloading.
+// The Database class at database/Database.php has namespace App\Database
+// and should be loaded via the Composer autoloader already configured
+// in composer.json. Once confirmed working, remove this line.
 require_once dirname(__DIR__, 1) . '/../database/Database.php';
 
 use App\Database\Database;

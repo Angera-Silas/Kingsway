@@ -198,7 +198,8 @@ class AdmissionController extends BaseController
             ], 'Pending admissions retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch pending admissions: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -659,7 +660,8 @@ class AdmissionController extends BaseController
                 'space_check' => $result
             ]);
         } catch (Exception $e) {
-            return $this->errorResponse('Failed to check class space: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -708,7 +710,8 @@ class AdmissionController extends BaseController
                 'to_stage' => $result['to_stage'] ?? null
             ]);
         } catch (Exception $e) {
-            return $this->errorResponse('Failed to advance workflow stage: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -735,7 +738,8 @@ class AdmissionController extends BaseController
 
             return $this->handleResponse($result);
         } catch (Exception $e) {
-            return $this->errorResponse('Failed to create provisional student: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -1093,7 +1097,8 @@ class AdmissionController extends BaseController
             ], 'Workflow queues retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch workflow queues: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1182,7 +1187,8 @@ class AdmissionController extends BaseController
             ], 'Application details retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch application: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1368,7 +1374,8 @@ class AdmissionController extends BaseController
 
             return $this->success(['classes' => $classes], 'Placement classes retrieved');
         } catch (\Exception $e) {
-            return $this->error('Failed to load placement classes: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1433,7 +1440,8 @@ class AdmissionController extends BaseController
             return $this->success($stats, 'Admission statistics retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch admission stats: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1583,7 +1591,8 @@ class AdmissionController extends BaseController
             return $this->success($notifications, 'Notifications retrieved');
 
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch notifications: ' . $e->getMessage());
+            error_log('[AdmissionController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 

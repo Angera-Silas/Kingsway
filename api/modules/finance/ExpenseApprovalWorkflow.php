@@ -134,7 +134,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -207,7 +208,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to validate expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -293,7 +295,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -356,7 +359,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to record payment: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -399,7 +403,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -442,7 +447,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return $this->managerApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -484,7 +490,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['message' => 'Expense rejected']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -508,7 +515,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return $this->recordPayment($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

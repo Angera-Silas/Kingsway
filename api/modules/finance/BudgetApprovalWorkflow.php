@@ -129,7 +129,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -195,7 +196,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -261,7 +263,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -340,7 +343,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -383,7 +387,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -426,7 +431,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->departmentalReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at departmental level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -450,7 +456,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->financeReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at finance level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -474,7 +481,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at director level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -516,7 +524,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['message' => 'Budget rejected']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

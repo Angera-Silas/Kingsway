@@ -67,12 +67,19 @@ define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');
 define('DB_USER', $_ENV['DB_USER'] ?? 'root');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
-define('DB_PASS', $_ENV['DB_PASS'] ?? 'admin123');
+// WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
+define('DB_PASS', $_ENV['DB_PASS'] ?? 'CHANGE_ME_IN_ENV_FILE');
 
 /*
 |--------------------------------------------------------------------------
 | Academic year and term — read from database, fall back to calendar
 |--------------------------------------------------------------------------
+|
+| NOTE: This creates a second PDO connection outside the Database singleton
+| (database/Database.php). Ideally use Database::getInstance()->getConnection()
+| after Config init completes. The singleton in Database.php already guards
+| against duplicate connections per request.
+|
 */
 
 try {
@@ -82,10 +89,16 @@ try {
         DB_PASS,
         [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
     );
-    $_row = $_db->query("SELECT id AS year FROM academic_years WHERE is_current = 1 LIMIT 1")->fetch();
-    define('CURRENT_YEAR', $_row ? (int) $_row['year'] : (int) date('Y'));
-    $_row2 = $_db->query("SELECT term_number FROM academic_terms WHERE status = 'current' LIMIT 1")->fetch();
-    define('CURRENT_TERM', $_row2 ? (int) $_row2['term_number'] : (int) ceil((int) date('n') / 3));
+    $_row = $_db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetch();
+    define('CURRENT_YEAR', $_row ? (int) $_row['id'] : (int) date('Y'));
+    $_row2 = $_db->query(
+        "SELECT ayt.id
+           FROM academic_year_terms ayt
+           JOIN academic_years ay ON ay.id = ayt.academic_year_id
+          WHERE ay.is_current = 1 AND ayt.status = 'current'
+          LIMIT 1"
+    )->fetch();
+    define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
     $_db = null;
 } catch (\Exception $_e) {
     define('CURRENT_YEAR', (int) date('Y'));
@@ -98,9 +111,10 @@ try {
 |--------------------------------------------------------------------------
 */
 
+// WARNING: Default secret is insecure. Must be overridden in .env for any non-development environment.
 define(
     'JWT_SECRET',
-    $_ENV['JWT_SECRET'] ?? 'dev_secret_key_change_this_use_64_chars_minimum'
+    $_ENV['JWT_SECRET'] ?? 'INSECURE_DEV_SECRET_REPLACE_IN_ENV_64_CHARS_MINIMUM_12345678901234567890'
 );
 
 define(

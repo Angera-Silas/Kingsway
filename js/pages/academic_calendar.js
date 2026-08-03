@@ -54,18 +54,18 @@ const AcademicCalendarController = {
         window.API.academic.getCurrentAcademicYear(),
       ]);
 
-      if (yearsRes?.success) {
-        this.state.years = yearsRes.data || [];
+      if (yearsRes) {
+        this.state.years = yearsRes || [];
         this.populateYearFilter();
       }
 
-      if (currentRes?.success && currentRes.data) {
+      if (currentRes) {
         const yearFilter = document.getElementById("academicYearFilter");
         if (yearFilter) {
-          yearFilter.value = currentRes.data.id;
-          this.state.selectedYear = currentRes.data.id;
+          yearFilter.value = currentRes.id;
+          this.state.selectedYear = currentRes.id;
         }
-        await this.loadTerms(currentRes.data.id);
+        await this.loadTerms(currentRes.id);
       }
     } catch (error) {
       console.error("Error loading filters:", error);
@@ -90,8 +90,8 @@ const AcademicCalendarController = {
       const res = await window.API.academic.listTerms({
         academic_year_id: yearId,
       });
-      if (res?.success) {
-        this.state.terms = res.data || [];
+      if (res) {
+        this.state.terms = res || [];
         const termFilter = document.getElementById("termFilter");
         if (termFilter) {
           termFilter.innerHTML =
@@ -131,16 +131,10 @@ const AcademicCalendarController = {
         params.academic_year_id = this.state.selectedYear;
       if (this.state.selectedTerm) params.term_id = this.state.selectedTerm;
 
-      const res = await window.API.academic.getCustom({
+      this.state.events = await window.API.academic.getCustom({
         action: "calendar-events",
         ...params,
-      });
-      if (res?.success) {
-        this.state.events = res.data || [];
-      } else {
-        // Fallback: generate from term dates
-        this.state.events = this.generateEventsFromTerms();
-      }
+      }) || this.generateEventsFromTerms();
 
       this.renderCalendar();
       this.renderUpcomingEvents();
@@ -358,21 +352,17 @@ const AcademicCalendarController = {
       data.academic_year_id = this.state.selectedYear;
 
     try {
-      const res = await window.API.academic.postCustom({
+      await window.API.academic.postCustom({
         action: "create-calendar-event",
         ...data,
       });
-      if (res?.success) {
-        this.showNotification("Event added successfully", "success");
-        const modal = bootstrap.Modal.getInstance(
-          document.getElementById("addEventModal"),
-        );
-        if (modal) modal.hide();
-        form.reset();
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to add event", "error");
-      }
+      this.showNotification("Event added successfully", "success");
+      const modal = bootstrap.Modal.getInstance(
+        document.getElementById("addEventModal"),
+      );
+      if (modal) modal.hide();
+      form.reset();
+      await this.loadData();
     } catch (error) {
       console.error("Error saving event:", error);
       this.showNotification("Failed to save event", "error");

@@ -1999,7 +1999,7 @@ class FinanceAPI extends BaseAPI
                             $invoiceWarnings[] = [
                                 'student_id' => $child['student_id'],
                                 'staff_child_id' => $child['staff_child_id'],
-                                'message' => 'Could not generate invoice: ' . $invoiceEx->getMessage()
+                                'message' => 'An internal error occurred.'
                             ];
                         }
                     }

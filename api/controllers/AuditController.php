@@ -30,7 +30,8 @@ class AuditController extends BaseController
             $rows = $stmt ? $stmt->fetchAll() : [];
             return $this->success(['logs' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch audit logs: ' . $e->getMessage());
+            error_log('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -68,7 +69,8 @@ class AuditController extends BaseController
 
             return $this->success(['audit_id' => $this->db->lastInsertId()], 'Transaction approval recorded');
         } catch (Exception $e) {
-            return $this->error('Failed to record approval: ' . $e->getMessage());
+            error_log('[AuditController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

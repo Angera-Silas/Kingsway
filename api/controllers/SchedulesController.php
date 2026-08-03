@@ -621,15 +621,13 @@ class SchedulesController extends BaseController
             // Get lessons count for each day of the week
             for ($date = clone $startDate; $date <= $endDate; $date->modify('+1 day')) {
                 $dayName = $date->format('D');
-                // Convert short day name to full day name for database query
-                $dayMap = ['Mon' => 'Monday', 'Tue' => 'Tuesday', 'Wed' => 'Wednesday', 'Thu' => 'Thursday', 'Fri' => 'Friday', 'Sat' => 'Saturday', 'Sun' => 'Sunday'];
-                $fullDayName = $dayMap[$dayName] ?? $dayName;
+                $dayNum = (int) $date->format('N');
                 $dateStr = $date->format('Y-m-d');
                 $days[] = $dayName;
 
                 $result = $this->db->query(
-                    "SELECT COUNT(*) as total FROM class_schedules WHERE day_of_week = ? AND status = 'active'",
-                    [$fullDayName]
+                    "SELECT COUNT(*) as total FROM vw_timetable_entries WHERE day_of_week = ? AND status = 'scheduled'",
+                    [$dayNum]
                 );
                 $row = $result->fetch();
                 $counts[] = $row['total'] ?? 0;
@@ -647,7 +645,8 @@ class SchedulesController extends BaseController
                 'week_end' => $endDate->format('Y-m-d')
             ], 'Weekly lessons statistics retrieved');
         } catch (Exception $e) {
-            return $this->error('Failed to retrieve weekly lessons: ' . $e->getMessage());
+            error_log('[SchedulesController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 

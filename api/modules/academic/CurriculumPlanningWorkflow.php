@@ -76,8 +76,8 @@ class CurriculumPlanningWorkflow extends WorkflowHandler {
 
             $this->db->beginTransaction();
 
-            // Get subject information
-            $subjectStmt = $this->db->prepare("SELECT * FROM subjects WHERE id = :id");
+            // Get subject (learning area) information
+            $subjectStmt = $this->db->prepare("SELECT * FROM learning_areas WHERE id = :id");
             $subjectStmt->execute(['id' => (int)$framework['subject_id']]);
             $subject = $subjectStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -92,7 +92,7 @@ class CurriculumPlanningWorkflow extends WorkflowHandler {
                 AND grade_level = :grade_level"
             );
             $outcomesStmt->execute([
-                'learning_area_id' => (int)$subject['learning_area_id'],
+                'learning_area_id' => (int)$framework['subject_id'],
                 'grade_level' => $framework['grade_level'],
             ]);
             $outcomes = $outcomesStmt->fetchAll(PDO::FETCH_ASSOC);

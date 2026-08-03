@@ -9,7 +9,7 @@ use Exception;
  * 
  * Handles all academic year operations including:
  * - Creating and managing academic years
- * - Linking with academic_terms table
+ * - Linking with academic_year_terms table
  * - Managing year transitions
  * - Enrollment periods
  */
@@ -20,6 +20,17 @@ class AcademicYearManager
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    /**
+     * Tables in the normalized schema use explicit integer ids (no AUTO_INCREMENT).
+     * Mirrors the sp_generate_year_calendar approach: COALESCE(MAX(id), 0) + 1.
+     */
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -77,27 +88,29 @@ class AcademicYearManager
             throw new \InvalidArgumentException("Academic year {$data['year_code']} already exists");
         }
 
+        $yearId = $this->nextId('academic_years');
         $sql = "INSERT INTO academic_years (
-            year_code, year_name, start_date, end_date,
-            registration_start, registration_end, status, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            id, year_code, year_name, start_date, end_date, status, is_current
+        ) VALUES (?, ?, ?, ?, ?, ?, 0)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
+            $yearId,
             $data['year_code'],
             $data['year_name'],
             $data['start_date'],
             $data['end_date'],
-            $data['registration_start'] ?? null,
-            $data['registration_end'] ?? null,
-            $data['status'] ?? 'planning',
-            $data['created_by'] ?? null
+            $data['status'] ?? 'planning'
         ]);
-
-        $yearId = $this->db->lastInsertId();
 
         // Automatically create 3 terms for this academic year
         $this->createTermsForYear($yearId, $data['start_date'], $data['end_date']);
+
+        // Automatically generate the term calendar (weeks, school days,
+        // half-term holidays) from the (tentative) term dates. The admin later
+        // enters the government-issued dates on the terms; editing a term's
+        // dates regenerates the calendar automatically.
+        $this->regenerateCalendarForYear($yearId);
 
         return $this->getAcademicYear($yearId);
     }
@@ -107,9 +120,6 @@ class AcademicYearManager
      */
     private function createTermsForYear(int $yearId, string $startDate, string $endDate): void
     {
-        $year = $this->getAcademicYear($yearId);
-        $yearNumber = (int) substr($year['year_code'], 0, 4);
-
         // Calculate term dates (roughly equal divisions)
         $start = new \DateTime($startDate);
         $end = new \DateTime($endDate);
@@ -137,20 +147,72 @@ class AcademicYearManager
             ]
         ];
 
-        $sql = "INSERT INTO academic_terms (academic_year_id, name, start_date, end_date, year, term_number, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'upcoming')";
+        $sql = "INSERT INTO academic_year_terms (id, academic_year_id, term_id, opening_date, closing_date, status)
+                VALUES (?, ?, ?, ?, ?, 'upcoming')";
 
         foreach ($terms as $term) {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $this->nextId('academic_year_terms'),
                 $yearId,
-                $term['name'],
+                $this->ensureTermId($term['name'], $term['term_number']),
                 $term['start'],
-                $term['end'],
-                $yearNumber,
-                $term['term_number']
+                $term['end']
             ]);
         }
+    }
+
+    /**
+     * Regenerate the academic calendar for a year from the term dates.
+     *
+     * Delegates to AcademicCalendarService / sp_generate_year_calendar so the
+     * week + day structure stays consistent everywhere (year creation, term
+     * date edits, transition workflows). Week counts are derived from the dates.
+     */
+    private function regenerateCalendarForYear(int $yearId): void
+    {
+        require_once __DIR__ . '/AcademicCalendarService.php';
+        $calendarService = new AcademicCalendarService($this->db);
+        $calendarService->generateYearCalendar($yearId);
+    }
+
+    /**
+     * Public entry point used by controllers/services to rebuild a calendar.
+     */
+    public function generateCalendar(int $yearId, array $weekCounts = []): array
+    {
+        require_once __DIR__ . '/AcademicCalendarService.php';
+        $calendarService = new AcademicCalendarService($this->db);
+        return $calendarService->generateYearCalendar((int) $yearId, $weekCounts);
+    }
+
+    /**
+     * Return the generated calendar summary for a year.
+     */
+    public function getCalendar(int $yearId): array
+    {
+        require_once __DIR__ . '/AcademicCalendarService.php';
+        $calendarService = new AcademicCalendarService($this->db);
+        return $calendarService->getCalendar((int) $yearId);
+    }
+
+    /**
+     * Resolve (and create if needed) the global terms.id for a term number (T1..Tn).
+     */
+    private function ensureTermId(string $name, int $termNumber): int
+    {
+        $code = 'T' . $termNumber;
+        $stmt = $this->db->prepare("SELECT id FROM terms WHERE code = ? OR name = ? LIMIT 1");
+        $stmt->execute([$code, $name]);
+        $termId = (int) ($stmt->fetchColumn() ?: 0);
+        if ($termId > 0) {
+            return $termId;
+        }
+
+        $termId = $this->nextId('terms');
+        $ins = $this->db->prepare("INSERT INTO terms (id, name, code) VALUES (?, ?, ?)");
+        $ins->execute([$termId, $name, $code]);
+        return $termId;
     }
 
     /**
@@ -254,13 +316,13 @@ class AcademicYearManager
     private function getArchiveStats(int $yearId): array
     {
         $stmt = $this->db->prepare("
-            SELECT 
+            SELECT
                 COUNT(*) as total_students,
-                SUM(CASE WHEN promotion_status = 'promoted' THEN 1 ELSE 0 END) as promoted_count,
-                SUM(CASE WHEN promotion_status = 'retained' THEN 1 ELSE 0 END) as retained_count,
-                SUM(CASE WHEN promotion_status = 'transferred' THEN 1 ELSE 0 END) as transferred_count,
-                SUM(CASE WHEN promotion_status = 'graduated' THEN 1 ELSE 0 END) as graduated_count
-            FROM class_enrollments
+                SUM(CASE WHEN enrollment_status = 'completed' THEN 1 ELSE 0 END) as promoted_count,
+                SUM(CASE WHEN enrollment_status = 'active' THEN 1 ELSE 0 END) as retained_count,
+                SUM(CASE WHEN enrollment_status = 'transferred' THEN 1 ELSE 0 END) as transferred_count,
+                SUM(CASE WHEN enrollment_status = 'graduated' THEN 1 ELSE 0 END) as graduated_count
+            FROM student_academic_enrollments
             WHERE academic_year_id = ?
         ");
         $stmt->execute([$yearId]);
@@ -339,14 +401,23 @@ class AcademicYearManager
             throw new Exception("Academic year not found");
         }
 
-        $yearNumber = (int) substr($year['year_code'], 0, 4);
-
         $stmt = $this->db->prepare("
-            SELECT * FROM academic_terms 
-            WHERE year = ? 
+            SELECT
+                ayt.id,
+                ayt.academic_year_id,
+                ayt.term_id,
+                t.name,
+                t.code,
+                ayt.opening_date,
+                ayt.closing_date,
+                ayt.status,
+                SUBSTRING(t.code, 2) AS term_number
+            FROM academic_year_terms ayt
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ayt.academic_year_id = ?
             ORDER BY term_number ASC
         ");
-        $stmt->execute([$yearNumber]);
+        $stmt->execute([$yearId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -356,8 +427,19 @@ class AcademicYearManager
     public function getCurrentTerm(): ?array
     {
         $stmt = $this->db->query("
-            SELECT * FROM academic_terms 
-            WHERE status = 'current' 
+            SELECT
+                ayt.id,
+                ayt.academic_year_id,
+                ayt.term_id,
+                t.name,
+                t.code,
+                ayt.opening_date,
+                ayt.closing_date,
+                ayt.status,
+                SUBSTRING(t.code, 2) AS term_number
+            FROM academic_year_terms ayt
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ayt.status = 'current'
             LIMIT 1
         ");
         $term = $stmt->fetch(PDO::FETCH_ASSOC);

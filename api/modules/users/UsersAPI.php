@@ -457,7 +457,8 @@ class UsersAPI extends BaseAPI
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("User creation error: " . $e->getMessage());
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
         error_log($e->getTraceAsString());
 
@@ -476,7 +477,8 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Failed to add staff record'];
         } catch (Exception $e) {
             $this->db->rollBack();
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -620,7 +622,7 @@ class UsersAPI extends BaseAPI
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -641,7 +643,7 @@ class UsersAPI extends BaseAPI
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Bulk user creation error: " . $e->getMessage());
-            return ['success' => false, 'error' => 'Bulk creation failed: ' . $e->getMessage()];
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
     public function update($id, $data)
@@ -1057,6 +1059,12 @@ class UsersAPI extends BaseAPI
                     'UPDATE users
                      SET failed_login_attempts =
                             COALESCE(failed_login_attempts, 0) + 1,
+                         account_locked_until =
+                            CASE
+                                WHEN COALESCE(failed_login_attempts, 0) + 1 >= 5
+                                THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+                                ELSE account_locked_until
+                            END,
                          updated_at = NOW()
                      WHERE id = ?'
                 );

@@ -139,11 +139,14 @@ class StaffAppointmentsController extends BaseController
             return $callback();
         } catch (InvalidArgumentException $e) {
             if ($e->getMessage() === 'Staff user context is required') {
-                return $this->unauthorized($e->getMessage());
+                error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->unauthorized('An internal error occurred.');
             }
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         } catch (Throwable $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffAppointmentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 }

@@ -80,16 +80,10 @@ const ViewSyllabusController = {
         params.academic_year_id = this.state.currentAcademicYear;
       }
 
-      const res = await window.API.apiCall('/academic/syllabus', 'GET', params);
-      
-      if (res?.success) {
-        this.state.syllabus = res.data || [];
-        this.renderSyllabusTable();
-        this.updateStats();
-        this.populateLearningAreaFilter();
-      } else {
-        this.showNotification('Failed to load syllabus', 'error');
-      }
+      this.state.syllabus = await window.API.apiCall('/academic/syllabus', 'GET', params) || [];
+      this.renderSyllabusTable();
+      this.updateStats();
+      this.populateLearningAreaFilter();
     } catch (error) {
       console.error('Error loading syllabus:', error);
       this.showNotification('Failed to load syllabus', 'error');

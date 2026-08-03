@@ -1,0 +1,374 @@
+/* ==========================================================================
+   Kingsway Preparatory School — Portfolio Print Stylesheet
+   Used by PrintService::printPortfolio() via buildReportDocument().
+   ========================================================================== */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'DejaVu Sans', Arial, sans-serif;
+    color: #1f2937;
+    font-size: 10pt;
+    line-height: 1.5;
+}
+
+/* ── Page Margins ───────────────────────────────────────────────────────── */
+@page {
+    margin: 18mm 14mm 22mm;
+}
+
+/* ==========================================================================
+   WATERMARK — repeated faded school logo across every page
+   ========================================================================== */
+.server-print-document {
+    position: relative;
+}
+.server-print-document::before {
+    content: "";
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 130mm;
+    height: 130mm;
+    background: url('/uploads/school_assets/official_school_logo.png') no-repeat center center;
+    background-size: contain;
+    opacity: 0.06;
+    transform: translate(-50%, -50%) rotate(-15deg);
+    z-index: 0;
+    pointer-events: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+.server-print-document > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* ==========================================================================
+   COVER PAGE
+   ========================================================================== */
+.cover-page {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 35mm;
+    min-height: 240mm;
+}
+.cover-page .school-logo {
+    max-width: 75mm;
+    max-height: 75mm;
+    margin-bottom: 6mm;
+}
+.cover-page h1 {
+    font-size: 24pt;
+    color: #1b5e20;
+    margin-bottom: 4mm;
+    font-weight: 800;
+}
+.cover-page .subtitle {
+    font-size: 13pt;
+    color: #4b5563;
+    margin-bottom: 18mm;
+    font-style: italic;
+}
+.cover-page .student-name {
+    font-size: 28pt;
+    font-weight: 800;
+    color: #1b5e20;
+    margin-bottom: 8mm;
+    border-bottom: 2px solid #d3ad24;
+    display: inline-block;
+    padding-bottom: 3mm;
+}
+.cover-page .meta-table {
+    width: 75%;
+    margin: 0 auto;
+    border-collapse: collapse;
+    font-size: 11pt;
+}
+.cover-page .meta-table td {
+    padding: 3mm 5mm;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+}
+.cover-page .meta-table td:first-child {
+    font-weight: 700;
+    color: #4b5563;
+    width: 38%;
+}
+.cover-page .year-range {
+    margin-top: 14mm;
+    font-size: 12pt;
+    color: #6b7280;
+    font-weight: 600;
+}
+.cover-page .gold-strip {
+    margin: 16mm auto 0;
+    width: 60mm;
+    height: 1mm;
+    background: linear-gradient(90deg, transparent, #d3ad24, transparent);
+}
+
+/* ==========================================================================
+   TABLE OF CONTENTS
+   ========================================================================== */
+.toc-page {
+    page-break-after: always;
+}
+.toc-title {
+    font-size: 18pt;
+    font-weight: 800;
+    color: #1b5e20;
+    border-bottom: 2px solid #1b5e20;
+    padding-bottom: 3mm;
+    margin-bottom: 8mm;
+}
+.toc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11pt;
+}
+.toc-table td {
+    padding: 3mm 2mm;
+    border-bottom: 1px dotted #cbd5e1;
+}
+.toc-table .toc-number {
+    width: 12mm;
+    color: #6b7280;
+    font-weight: 700;
+}
+.toc-table .toc-title-cell {
+    color: #1b5e20;
+    font-weight: 600;
+}
+.toc-table .toc-page-num {
+    width: 15mm;
+    text-align: right;
+    color: #6b7280;
+}
+
+/* ==========================================================================
+   SECTION HEADINGS
+   ========================================================================== */
+.section-title {
+    background: #1b5e20;
+    color: #fff;
+    padding: 3mm 5mm;
+    font-size: 12pt;
+    font-weight: 700;
+    border-radius: 2mm;
+    margin: 6mm 0 4mm;
+    page-break-after: avoid;
+}
+
+/* ==========================================================================
+   SUMMARY TABLES
+   ========================================================================== */
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 5mm;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+}
+.summary-table th {
+    background: #e8f5e9;
+    padding: 2.5mm 3mm;
+    text-align: left;
+    font-weight: 700;
+    color: #1b5e20;
+    border: 1px solid #c8e6c9;
+}
+.summary-table td {
+    padding: 2mm 3mm;
+    border: 1px solid #e5e7eb;
+}
+
+/* ==========================================================================
+   ARTIFACT CARDS
+   ========================================================================== */
+.competency-group {
+    page-break-inside: avoid;
+    margin-bottom: 5mm;
+}
+.competency-group h3 {
+    font-size: 11pt;
+    color: #1b5e20;
+    border-left: 3mm solid #1b5e20;
+    padding-left: 3mm;
+    margin-bottom: 3mm;
+    page-break-after: avoid;
+}
+.competency-group .year-label {
+    font-size: 9pt;
+    font-weight: 700;
+    color: #6b7280;
+    margin: 3mm 0 2mm 5mm;
+    page-break-after: avoid;
+}
+.artifact-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 1.5mm;
+    padding: 2.5mm 3mm;
+    margin-bottom: 2.5mm;
+    page-break-inside: avoid;
+    background: #fff;
+}
+.artifact-item h4 {
+    font-size: 10pt;
+    margin-bottom: 1mm;
+}
+.artifact-item .meta {
+    font-size: 8pt;
+    color: #6b7280;
+    margin-bottom: 1.5mm;
+}
+.artifact-item .meta span {
+    background: #f3f4f6;
+    padding: 0.5mm 2mm;
+    border-radius: 1mm;
+    margin-right: 1.5mm;
+    display: inline-block;
+}
+.artifact-item .desc {
+    font-size: 9pt;
+    color: #374151;
+    margin-bottom: 1mm;
+}
+.artifact-item .reflection {
+    background: #f9fafb;
+    padding: 1.5mm 2mm;
+    border-radius: 1mm;
+    font-size: 8.5pt;
+    color: #4b5563;
+    margin-top: 1mm;
+}
+.artifact-item .feedback {
+    background: #d1e7dd;
+    padding: 1.5mm 2mm;
+    border-radius: 1mm;
+    font-size: 8.5pt;
+    color: #065f46;
+    margin-top: 0.5mm;
+}
+.artifact-item .rating {
+    float: right;
+    font-weight: 700;
+    color: #1b5e20;
+    font-size: 9pt;
+}
+
+/* ==========================================================================
+   CORE VALUES
+   ========================================================================== */
+.value-badge {
+    display: inline-block;
+    background: #fff3cd;
+    padding: 1mm 3mm;
+    border-radius: 1mm;
+    margin: 1mm;
+    font-size: 9pt;
+}
+
+/* ==========================================================================
+   TEACHER ASSESSMENT
+   ========================================================================== */
+.teacher-block {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 2mm;
+    padding: 4mm;
+    margin: 4mm 0;
+    font-size: 10pt;
+    line-height: 1.6;
+}
+.teacher-block strong { color: #1b5e20; }
+
+/* ==========================================================================
+   SIGNATURES (last page)
+   ========================================================================== */
+.signatures {
+    margin-top: 10mm;
+    page-break-inside: avoid;
+}
+.signatures table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.signatures td {
+    width: 50%;
+    padding: 2mm 4mm;
+    text-align: center;
+}
+.signatures .line {
+    border-top: 1px solid #374151;
+    padding-top: 2mm;
+    font-weight: 700;
+    font-size: 10pt;
+}
+
+/* ==========================================================================
+   PORTFOLIO FOOTER (running footer on every page)
+   ========================================================================== */
+.portfolio-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 4mm 14mm 6mm;
+    border-top: 1px solid #d3ad24;
+    font-size: 7pt;
+    color: #4b5563;
+    background: #fff;
+}
+.portfolio-footer-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.portfolio-footer-table td {
+    vertical-align: middle;
+    padding: 0;
+}
+.portfolio-footer-logo-cell {
+    width: 12mm;
+}
+.portfolio-footer-logo {
+    width: 10mm;
+    height: 10mm;
+    object-fit: contain;
+}
+.portfolio-footer-school-cell {
+    text-align: left;
+    padding-left: 3mm;
+}
+.portfolio-footer-school-name {
+    font-weight: 700;
+    color: #1b5e20;
+    font-size: 7.5pt;
+    display: block;
+}
+.portfolio-footer-school-motto {
+    font-style: italic;
+    color: #6b7280;
+    font-size: 6.5pt;
+    display: block;
+}
+.portfolio-footer-school-website {
+    color: #1b5e20;
+    font-size: 6.5pt;
+    display: block;
+}
+.portfolio-footer-meta-cell {
+    text-align: right;
+    vertical-align: bottom;
+}
+.portfolio-footer-contact {
+    color: #6b7280;
+    font-size: 6.5pt;
+    display: block;
+}
+.portfolio-footer-ref {
+    color: #9ca3af;
+    font-size: 6pt;
+    display: block;
+    margin-top: 0.5mm;
+}

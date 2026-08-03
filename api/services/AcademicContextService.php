@@ -42,7 +42,8 @@ class AcademicContextService
             if (class_exists('App\Database\Database')) {
                 $this->db = \App\Database\Database::getInstance()->getConnection();
             } else {
-                // Fallback to direct PDO connection
+                // Fallback to direct PDO connection (second instance — only used when
+                // Database singleton is unavailable, e.g. during early bootstrap).
                 $this->db = new PDO(
                     'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
                     DB_USER,

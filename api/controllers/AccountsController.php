@@ -48,7 +48,8 @@ class AccountsController extends BaseController
 
             return $this->success(['bank_accounts' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch bank accounts: ' . $e->getMessage());
+            error_log('[AccountsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -85,7 +86,8 @@ class AccountsController extends BaseController
             );
             return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Bank account created');
         } catch (Exception $e) {
-            return $this->error('Failed to create bank account (ensure bank_accounts table exists): ' . $e->getMessage());
+            error_log('[AccountsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -122,7 +124,8 @@ class AccountsController extends BaseController
             $rows = $stmt ? $stmt->fetchAll() : [];
             return $this->success(['transactions' => $rows]);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch bank transactions: ' . $e->getMessage());
+            error_log('[AccountsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -158,7 +161,8 @@ class AccountsController extends BaseController
             );
             return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Petty cash recorded (as expense)');
         } catch (Exception $e) {
-            return $this->error('Failed to record petty cash: ' . $e->getMessage());
+            error_log('[AccountsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 }

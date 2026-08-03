@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\Database\Database;
 use Exception;

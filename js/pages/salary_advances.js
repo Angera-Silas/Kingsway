@@ -42,7 +42,7 @@ const salaryAdvancesController = {
       this._page = 1;
       this._renderTable();
     } catch (e) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-danger text-center py-4">${e.message || 'Load failed'}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-danger text-center py-4">${this._esc(e.message || 'Load failed')}</td></tr>`;
     }
   },
 

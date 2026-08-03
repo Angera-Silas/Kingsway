@@ -97,14 +97,7 @@ const RouteRegistryController = {
             this.showLoading();
             
             const response = await window.API.system.getRoutes();
-            
-            if (response.success) {
-                this.routes = response.data || [];
-            } else if (Array.isArray(response)) {
-                this.routes = response;
-            } else {
-                this.routes = response.data || response.routes || [];
-            }
+            this.routes = response || [];
             
             this.applyFilters();
             
@@ -351,13 +344,9 @@ const RouteRegistryController = {
                 response = await window.API.system.createRoute(data);
             }
 
-            if (response.success) {
-                bootstrap.Modal.getInstance(document.getElementById('createRouteModal')).hide();
-                this.showSuccess(routeId ? 'Route updated successfully' : 'Route created successfully');
-                await this.loadRoutes();
-            } else {
-                this.showError(response.message || 'Failed to save route');
-            }
+            bootstrap.Modal.getInstance(document.getElementById('createRouteModal')).hide();
+            this.showSuccess(routeId ? 'Route updated successfully' : 'Route created successfully');
+            await this.loadRoutes();
         } catch (error) {
             console.error('Error saving route:', error);
             this.showError('Failed to save route: ' + error.message);
@@ -375,12 +364,8 @@ const RouteRegistryController = {
             const newStatus = currentStatus == 1 ? 0 : 1;
             const response = await window.API.system.toggleRouteStatus(id, newStatus);
 
-            if (response.success) {
-                this.showSuccess('Route status updated');
-                await this.loadRoutes();
-            } else {
-                this.showError(response.message || 'Failed to update status');
-            }
+            this.showSuccess('Route status updated');
+            await this.loadRoutes();
         } catch (error) {
             console.error('Error toggling status:', error);
             this.showError('Failed to update status');
@@ -401,12 +386,8 @@ const RouteRegistryController = {
         try {
             const response = await window.API.system.deleteRoute(id);
 
-            if (response.success) {
-                this.showSuccess('Route deleted successfully');
-                await this.loadRoutes();
-            } else {
-                this.showError(response.message || 'Failed to delete route');
-            }
+            this.showSuccess('Route deleted successfully');
+            await this.loadRoutes();
         } catch (error) {
             console.error('Error deleting route:', error);
             this.showError('Failed to delete route');

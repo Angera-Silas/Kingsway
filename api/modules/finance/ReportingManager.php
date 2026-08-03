@@ -354,7 +354,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate dashboard: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -396,7 +397,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['trends' => $trends]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get trends: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -417,7 +419,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['recent_transactions' => $rows]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get recent transactions: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -457,7 +460,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['aging_report' => $aging]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate aging report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -513,7 +517,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate budget report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -558,7 +563,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['expense_breakdown' => $breakdown]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate expense breakdown: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -618,7 +624,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate cash flow statement: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -645,11 +652,8 @@ class ReportingManager extends FileLifecycleBase
                 'download_url' => $this->generatedDownloadUrl($path),
             ]);
         } catch (Exception $e) {
-            return formatResponse(
-                false,
-                null,
-                'Failed to export report: ' . $e->getMessage()
-            );
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -684,7 +688,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get outstanding fees report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -711,7 +716,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get class fee collection report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -757,7 +763,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_class' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by class: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -798,7 +805,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_method' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by method: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -841,7 +849,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_type' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by student type: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -870,7 +879,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_daily' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get daily collections: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -912,7 +922,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_fee_type' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by fee type: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -973,7 +984,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['top_defaulters' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get top defaulters: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

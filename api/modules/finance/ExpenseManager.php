@@ -109,7 +109,8 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to record expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -181,7 +182,8 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to update expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -218,7 +220,8 @@ class ExpenseManager
             return formatResponse(true, $expense);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -319,7 +322,8 @@ class ExpenseManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list expenses: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -359,7 +363,8 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -399,7 +404,8 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to reject expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -459,7 +465,8 @@ class ExpenseManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get expense summary: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -505,7 +512,8 @@ class ExpenseManager
             ) {
                 return formatResponse(false, null, 'Expense not found');
             }
-            return formatResponse(false, null, 'Failed to delete expense: ' . $e->getMessage());
+            error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

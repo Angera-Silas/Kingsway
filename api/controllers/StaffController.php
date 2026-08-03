@@ -214,7 +214,8 @@ class StaffController extends BaseController
                 isset($params['academic_year_id']) ? (int)$params['academic_year_id'] : null
             ));
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -231,7 +232,8 @@ class StaffController extends BaseController
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result + ['assigned' => true], 'Role assigned successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -248,7 +250,8 @@ class StaffController extends BaseController
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(['revoked' => true], 'Role revoked successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -269,7 +272,8 @@ class StaffController extends BaseController
                 'Staff lifecycle records retrieved'
             );
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -283,7 +287,8 @@ class StaffController extends BaseController
             $actionId = $this->lifecycleService->createAction($data, $this->access->userId());
             return $this->created(['id' => $actionId], 'Lifecycle action created successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -341,7 +346,8 @@ class StaffController extends BaseController
         try {
             $mediaId = $this->api->uploadStaffMedia($staffId, $_FILES['file'], $type, $uploaderId, $description, $tags);
         } catch (\Exception $e) {
-            return $this->serverError('Upload failed: ' . $e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
 
         if (!$mediaId) {
@@ -628,7 +634,7 @@ class StaffController extends BaseController
         }
         if (!$staffId) return $this->badRequest('Staff ID is required');
         try { $this->access->requireSelfOr('staff.payslip.manage', (int)$staffId, ['system administrator','accountant']); }
-        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+        catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
 
         $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
         return $this->handleResponse($result);
@@ -727,7 +733,7 @@ class StaffController extends BaseController
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { return $this->forbidden($e->getMessage()); }
+        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
         $result = $this->api->getAttendance($data);
         return $this->handleResponse($result);
     }
@@ -1093,7 +1099,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->promotions($data));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1106,7 +1113,8 @@ class StaffController extends BaseController
             $id = $this->recordsService->createPromotion($data, $this->access->userId());
             return $this->created(['id' => $id], 'Promotion submitted for approval');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1122,7 +1130,8 @@ class StaffController extends BaseController
             $this->recordsService->decidePromotion($promotionId, $action, $this->access->userId(), $data['reason'] ?? null);
             return $this->success(null, "Promotion {$action}d");
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1138,7 +1147,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->offboarding($data));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1151,7 +1161,8 @@ class StaffController extends BaseController
             $id = $this->recordsService->createOffboarding($data, $this->access->userId());
             return $this->created(['id' => $id], 'Offboarding initiated');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1166,7 +1177,8 @@ class StaffController extends BaseController
             $this->recordsService->updateOffboarding($offId, $data, $this->access->userId());
             return $this->success(null, 'Offboarding updated');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1178,7 +1190,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->upcomingRetirements((int)($data['months'] ?? 12)));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1230,7 +1243,8 @@ class StaffController extends BaseController
     public function putOnboarding($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
-        if (!$id) return $this->error('onboarding id required');
+        if (!$id) error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         return $this->handleResponse($this->onboardingManager->updateOnboarding((int)$id, $data));
     }
 
@@ -1241,7 +1255,8 @@ class StaffController extends BaseController
     public function putOnboardingTask($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
-        if (!$id) return $this->error('task id required');
+        if (!$id) error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         return $this->handleResponse($this->onboardingManager->updateTaskStatus((int)$id, $data));
     }
 
@@ -1439,8 +1454,7 @@ class StaffController extends BaseController
             );
         } catch (\Throwable $e) {
             return $this->serverError(
-                'Failed to generate staff security passes',
-                $e->getMessage()
+                'Failed to generate staff security passes', 'An internal error occurred.'
             );
         }
     }
@@ -1475,11 +1489,7 @@ class StaffController extends BaseController
         try {
             $this->access->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401
-                ? $this->unauthorized($e->getMessage())
-                : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/staff/access-context */
@@ -1571,7 +1581,8 @@ class StaffController extends BaseController
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result, 'Role assigned');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1586,7 +1597,8 @@ class StaffController extends BaseController
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(null, 'Role removed');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1657,8 +1669,7 @@ class StaffController extends BaseController
             );
         } catch (\Throwable $e) {
             return $this->serverError(
-                'Failed to generate staff security pass',
-                $e->getMessage()
+                'Failed to generate staff security pass', 'An internal error occurred.'
             );
         }
     }
@@ -1692,7 +1703,8 @@ class StaffController extends BaseController
                 'Staff security pass issued successfully'
             );
         } catch (RuntimeException $exception) {
-            return $this->badRequest($exception->getMessage());
+            error_log('[StaffController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1755,7 +1767,7 @@ class StaffController extends BaseController
             $rows = $this->recordsService->performanceReviews($_GET ?? [], $id ? (int)$id : null);
             if($id) return $rows ? $this->success($rows[0]) : $this->notFound('Performance review not found');
             return $this->success($rows);
-        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews',$e->getMessage());}
+        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews', 'An internal error occurred.');}
     }
 
     /** POST /api/staff/performance-reviews */
@@ -1768,7 +1780,8 @@ class StaffController extends BaseController
             $this->access->audit('create_performance_review','staff_performance_review',$newId,null,$data);
             return $this->created(['id'=>$newId],'Performance review created');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1782,7 +1795,8 @@ class StaffController extends BaseController
             $this->access->audit('update_performance_review','staff_performance_review',(int)$id,$before,$data);
             return $this->success(['id'=>(int)$id],'Performance review updated');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1796,7 +1810,8 @@ class StaffController extends BaseController
             $this->access->audit('delete_performance_review','staff_performance_review',(int)$id,$before,null);
             return $this->success(null,'Performance review deleted');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1817,7 +1832,8 @@ class StaffController extends BaseController
         } catch (RuntimeException $error) {
             return $this->selfServiceError($error);
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1846,7 +1862,8 @@ class StaffController extends BaseController
         } catch (RuntimeException $error) {
             return $this->selfServiceError($error);
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1866,7 +1883,8 @@ class StaffController extends BaseController
         } catch (RuntimeException $error) {
             return $this->selfServiceError($error);
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1895,7 +1913,8 @@ class StaffController extends BaseController
         } catch (RuntimeException $error) {
             return $this->selfServiceError($error);
         } catch (\Throwable $error) {
-            return $this->serverError($error->getMessage());
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1927,11 +1946,16 @@ class StaffController extends BaseController
     private function selfServiceError(RuntimeException $error)
     {
         $code = (int) $error->getCode();
-        if ($code === 401) return $this->unauthorized($error->getMessage());
-        if ($code === 403) return $this->forbidden($error->getMessage());
-        if ($code === 409) return $this->conflict($error->getMessage());
-        if ($code === 422) return $this->unprocessable($error->getMessage());
-        return $this->serverError($error->getMessage());
+        if ($code === 401) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->unauthorized('An internal error occurred.');
+        if ($code === 403) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->forbidden('An internal error occurred.');
+        if ($code === 409) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->conflict('An internal error occurred.');
+        if ($code === 422) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->unprocessable('An internal error occurred.');
+        error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
     }
 
 
@@ -1957,7 +1981,8 @@ class StaffController extends BaseController
             $staffId=(int)($_GET['staff_id']??$data['staff_id']??$id??0);
             return $this->success($this->recordsService->roleAssignments($staffId));
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 

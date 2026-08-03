@@ -520,7 +520,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::generateIdCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to generate ID card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -599,7 +599,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::generateCardQrCode error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to generate QR code: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -632,7 +632,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardPrinted error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as printed: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -665,7 +665,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardIssued error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as issued: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -698,7 +698,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardLost error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as lost: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -786,7 +786,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::renewCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to renew card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -875,7 +875,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::replaceCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to replace card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -908,7 +908,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::revokeCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to revoke card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 

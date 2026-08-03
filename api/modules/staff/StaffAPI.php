@@ -640,18 +640,23 @@ class StaffAPI extends BaseAPI {
     {
         $stmt = $this->db->prepare("
             SELECT
-                COUNT(DISTINCT sca.id) AS active_assignments,
-                COUNT(DISTINCT CASE WHEN sca.role = 'class_teacher' THEN sca.class_id END) AS class_teacher_classes,
-                COUNT(DISTINCT CASE WHEN sca.role = 'subject_teacher' THEN sca.subject_id END) AS learning_areas_count,
-                COUNT(DISTINCT sca.class_id) AS classes_count,
-                SUM(COALESCE(sca.periods_per_week, 0)) AS assignment_periods_per_week
-            FROM staff_class_assignments sca
-            LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
-            WHERE sca.staff_id = ?
-              AND sca.status = 'active'
-              AND (ay.id IS NULL OR ay.status = 'active')
+                COUNT(DISTINCT t.id) AS active_assignments,
+                (SELECT COUNT(*) FROM academic_year_class_streams cs
+                 JOIN academic_year_classes ayc ON ayc.id = cs.academic_year_class_id
+                 JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                 WHERE cs.class_teacher_id = ? AND ay.status = 'active') AS class_teacher_classes,
+                COUNT(DISTINCT aycla.learning_area_id) AS learning_areas_count,
+                COUNT(DISTINCT ayc.class_id) AS classes_count,
+                (SELECT COUNT(*) FROM timetable_entries te WHERE te.teacher_id = ? AND te.status = 'scheduled') AS assignment_periods_per_week
+            FROM academic_year_class_learning_area_teachers t
+            JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
+            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+            JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
+            JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            WHERE t.staff_id = ?
+              AND ay.status = 'active'
         ");
-        $stmt->execute([$staffId]);
+        $stmt->execute([$staffId, $staffId, $staffId]);
         $assignment = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         $stmt = $this->db->prepare("
@@ -659,9 +664,9 @@ class StaffAPI extends BaseAPI {
                 COUNT(*) AS scheduled_periods,
                 COUNT(DISTINCT subject_id) AS scheduled_learning_areas,
                 COUNT(DISTINCT class_id) AS scheduled_classes
-            FROM class_schedules
+            FROM vw_timetable_entries
             WHERE teacher_id = ?
-              AND status = 'active'
+              AND status = 'scheduled'
         ");
         $stmt->execute([$staffId]);
         $schedule = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -1631,27 +1636,39 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT
                     s.*,
-                    u.email,
+                    p.email,
                     sc.category_name,
                     d.name AS department_name,
-                    CONCAT_WS(' ', supervisor.first_name, supervisor.last_name) AS supervisor_name,
+                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS supervisor_name,
                     (
-                        SELECT COUNT(DISTINCT sca.class_id)
-                        FROM staff_class_assignments sca
-                        WHERE sca.staff_id = s.id
-                          AND sca.status = 'active'
+                        SELECT COUNT(DISTINCT ayc.class_id)
+                        FROM academic_year_class_learning_area_teachers t
+                        JOIN academic_year_class_learning_areas aycla ON aycla.id = t.academic_year_class_learning_area_id
+                        JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                        JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
+                        JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                        WHERE t.staff_id = s.id AND ay.status = 'active'
+                    ) + (
+                        SELECT COUNT(DISTINCT ayc.class_id)
+                        FROM academic_year_class_streams cs
+                        JOIN academic_year_classes ayc ON ayc.id = cs.academic_year_class_id
+                        JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                        WHERE cs.class_teacher_id = s.id AND ay.status = 'active'
                     ) AS assigned_classes,
                     (
                         SELECT COUNT(DISTINCT cs.subject_id)
-                        FROM class_schedules cs
+                        FROM vw_timetable_entries cs
                         WHERE cs.teacher_id = s.id
-                          AND cs.status = 'active'
+                          AND cs.status = 'scheduled'
                     ) AS assigned_subjects
                 FROM staff s
-                INNER JOIN users u ON u.id = s.user_id
+                INNER JOIN persons p ON p.id = s.person_id
+                LEFT JOIN users u ON u.person_id = p.id
                 LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
+                LEFT JOIN persons sp ON sp.id = supervisor.person_id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.id = ?
                 LIMIT 1
             ";
@@ -1675,17 +1692,11 @@ class StaffAPI extends BaseAPI {
         try {
             $sql = "
                 SELECT 
-                    cs.*,
-                    cu.name as subject_name,
-                    c.name as class_name,
-                    r.name as room_name
-                FROM class_schedules cs
-                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
-                JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN rooms r ON cs.room_id = r.id
+                    cs.*
+                FROM vw_timetable_entries cs
                 WHERE cs.teacher_id = ?
                 ORDER BY 
-                    FIELD(cs.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
+                    cs.day_of_week,
                     cs.start_time
             ";
 
@@ -1709,10 +1720,11 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            $sql = "INSERT INTO staff_class_assignments (staff_id, class_id, academic_year_id, role, start_date) 
-                    VALUES (?, ?, 
-                        (SELECT id FROM academic_years WHERE status = 'active' LIMIT 1), 
-                        'class_teacher', CURDATE())";
+            $sql = "UPDATE academic_year_class_streams aycs
+                    JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                    SET aycs.class_teacher_id = ?
+                    WHERE ayc.class_id = ? AND ay.status = 'active'";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id, $data['class_id']]);
 
@@ -1735,12 +1747,60 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            // Note: Subjects are now assigned via class_schedules table
-            // This creates a basic schedule entry - adjust day/time as needed
-            $sql = "INSERT INTO class_schedules (teacher_id, subject_id, class_id, day_of_week, start_time, end_time) 
-                    VALUES (?, ?, ?, 'Monday', '08:00:00', '09:00:00')";
+            // Subjects are now assigned via timetable_entries (a scheduled Monday 08:00 lesson)
+            $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
+            if ($ayId <= 0) {
+                $ayId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+            }
+            if ($ayId <= 0) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active academic year found'
+                ], 400);
+            }
+            $stmt = $this->db->prepare(
+                "SELECT aycs.id FROM academic_year_class_streams aycs
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
+                 ORDER BY aycs.id LIMIT 1"
+            );
+            $stmt->execute([$ayId, $data['class_id']]);
+            $classStreamId = (int) $stmt->fetchColumn();
+            if ($classStreamId <= 0) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active class-stream found for the given class'
+                ], 400);
+            }
+            $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1");
+            $stmt->execute([$ayId]);
+            $termId = (int) $stmt->fetchColumn();
+            if ($termId <= 0) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No current term found for the academic year'
+                ], 400);
+            }
+            $stmt = $this->db->prepare("SELECT id FROM time_slots WHERE is_active = 1 AND start_time = '08:00:00' ORDER BY period_number LIMIT 1");
+            $stmt->execute();
+            $timeSlotId = (int) $stmt->fetchColumn();
+            if ($timeSlotId <= 0) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No matching time slot found'
+                ], 400);
+            }
+            $stmt = $this->db->prepare("SELECT learning_area_id FROM strands WHERE id = ? LIMIT 1");
+            $stmt->execute([$data['subject_id']]);
+            $learningAreaId = (int) $stmt->fetchColumn();
+            if ($learningAreaId <= 0) {
+                $learningAreaId = (int) $data['subject_id'];
+            }
+            $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
+            $sql = "INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, 'scheduled')";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $data['subject_id'], $data['class_id']]);
+            $stmt->execute([$entryId, $classStreamId, $termId, $timeSlotId, $learningAreaId, $id]);
 
             return $this->response([
                 'status' => 'success',

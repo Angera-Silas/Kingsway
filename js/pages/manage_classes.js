@@ -92,15 +92,9 @@ const ManageClassesController = {
       const academicYearId = this.state.currentAcademicYear;
       const params = academicYearId ? { academic_year_id: academicYearId } : {};
       
-      const res = await window.API.apiCall('/academic/classes', 'GET', params);
-      
-      if (res?.success) {
-        this.state.classes = res.data || [];
-        this.renderClassesTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load classes', 'error');
-      }
+      this.state.classes = await window.API.apiCall('/academic/classes', 'GET', params) || [];
+      this.renderClassesTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading classes:', error);
       this.showNotification('Failed to load classes', 'error');
@@ -109,15 +103,9 @@ const ManageClassesController = {
 
   async loadStreams() {
     try {
-      const res = await window.API.apiCall('/academic/class-streams', 'GET');
-      
-      if (res?.success) {
-        this.state.streams = res.data || [];
-        this.renderStreamsTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load streams', 'error');
-      }
+      this.state.streams = await window.API.apiCall('/academic/class-streams', 'GET') || [];
+      this.renderStreamsTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading streams:', error);
       this.showNotification('Failed to load streams', 'error');
@@ -129,15 +117,9 @@ const ManageClassesController = {
       const academicYearId = this.state.currentAcademicYear;
       const params = academicYearId ? { academic_year_id: academicYearId } : {};
       
-      const res = await window.API.apiCall('/academic/class-teachers', 'GET', params);
-      
-      if (res?.success) {
-        this.state.classTeachers = res.data || [];
-        this.renderClassTeachersTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load class teachers', 'error');
-      }
+      this.state.classTeachers = await window.API.apiCall('/academic/class-teachers', 'GET', params) || [];
+      this.renderClassTeachersTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading class teachers:', error);
       this.showNotification('Failed to load class teachers', 'error');
@@ -328,11 +310,9 @@ const ManageClassesController = {
     if (!select) return;
     
     try {
-      const res = await window.API.apiCall('/academic/classes', 'GET');
-      if (res?.success) {
-        select.innerHTML = '<option value="">Select Class</option>' + 
-          res.data.map(cls => `<option value="${cls.id}">${cls.name}</option>`).join('');
-      }
+      const data = await window.API.apiCall('/academic/classes', 'GET');
+      select.innerHTML = '<option value="">Select Class</option>' + 
+        (data || []).map(cls => `<option value="${cls.id}">${escapeHtml(cls.name)}</option>`).join('');
     } catch (error) {
       console.error('Error loading classes for dropdown:', error);
     }
@@ -342,11 +322,9 @@ const ManageClassesController = {
     if (!select) return;
     
     try {
-      const res = await window.API.apiCall('/staff/teachers', 'GET');
-      if (res?.success) {
-        select.innerHTML = '<option value="">Select Teacher</option>' + 
-          res.data.map(teacher => `<option value="${teacher.id}">${teacher.first_name} ${teacher.last_name}</option>`).join('');
-      }
+      const data = await window.API.apiCall('/staff/teachers', 'GET');
+      select.innerHTML = '<option value="">Select Teacher</option>' + 
+        (data || []).map(teacher => `<option value="${teacher.id}">${escapeHtml(teacher.first_name)} ${escapeHtml(teacher.last_name)}</option>`).join('');
     } catch (error) {
       console.error('Error loading teachers for dropdown:', error);
     }
@@ -366,23 +344,18 @@ const ManageClassesController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.apiCall(`/academic/classes/${editId}`, 'PUT', data);
+        await window.API.apiCall(`/academic/classes/${editId}`, 'PUT', data);
       } else {
-        res = await window.API.apiCall('/academic/classes', 'POST', data);
+        await window.API.apiCall('/academic/classes', 'POST', data);
       }
 
-      if (res?.success) {
-        this.showNotification(editId ? 'Class updated' : 'Class created', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('addClassModal'));
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadClasses();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification(editId ? 'Class updated' : 'Class created', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('addClassModal'));
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadClasses();
     } catch (error) {
       console.error('Error saving class:', error);
       this.showNotification('Failed to save class', 'error');
@@ -398,23 +371,18 @@ const ManageClassesController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.apiCall(`/academic/class-streams/${editId}`, 'PUT', data);
+        await window.API.apiCall(`/academic/class-streams/${editId}`, 'PUT', data);
       } else {
-        res = await window.API.apiCall('/academic/class-streams', 'POST', data);
+        await window.API.apiCall('/academic/class-streams', 'POST', data);
       }
 
-      if (res?.success) {
-        this.showNotification(editId ? 'Stream updated' : 'Stream created', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('addStreamModal'));
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadStreams();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification(editId ? 'Stream updated' : 'Stream created', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('addStreamModal'));
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadStreams();
     } catch (error) {
       console.error('Error saving stream:', error);
       this.showNotification('Failed to save stream', 'error');
@@ -434,17 +402,13 @@ const ManageClassesController = {
     }
 
     try {
-      const res = await window.API.apiCall('/academic/class-teachers', 'POST', data);
+      await window.API.apiCall('/academic/class-teachers', 'POST', data);
 
-      if (res?.success) {
-        this.showNotification('Class teacher assigned', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('assignClassTeacherModal'));
-        if (modal) modal.hide();
-        form.reset();
-        await this.loadClassTeachers();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification('Class teacher assigned', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('assignClassTeacherModal'));
+      if (modal) modal.hide();
+      form.reset();
+      await this.loadClassTeachers();
     } catch (error) {
       console.error('Error assigning class teacher:', error);
       this.showNotification('Failed to assign class teacher', 'error');
@@ -453,9 +417,8 @@ const ManageClassesController = {
 
   async editClass(classId) {
     try {
-      const res = await window.API.apiCall(`/academic/classes/${classId}`, 'GET');
-      if (res?.success && res.data) {
-        const cls = res.data;
+      const cls = await window.API.apiCall(`/academic/classes/${classId}`, 'GET');
+      if (cls) {
         const form = document.getElementById('addClassForm');
         if (form) {
           form.dataset.editId = classId;
@@ -475,9 +438,8 @@ const ManageClassesController = {
 
   async editStream(streamId) {
     try {
-      const res = await window.API.apiCall(`/academic/class-streams/${streamId}`, 'GET');
-      if (res?.success && res.data) {
-        const stream = res.data;
+      const stream = await window.API.apiCall(`/academic/class-streams/${streamId}`, 'GET');
+      if (stream) {
         const form = document.getElementById('addStreamForm');
         if (form) {
           form.dataset.editId = streamId;
@@ -497,9 +459,8 @@ const ManageClassesController = {
 
   async editClassTeacher(assignmentId) {
     try {
-      const res = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'GET');
-      if (res?.success && res.data) {
-        const assignment = res.data;
+      const assignment = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'GET');
+      if (assignment) {
         const form = document.getElementById('assignClassTeacherForm');
         if (form) {
           form.dataset.editId = assignmentId;
@@ -520,13 +481,9 @@ const ManageClassesController = {
   async deleteClass(classId) {
     if (!confirm('Are you sure you want to delete this class? This cannot be undone.')) return;
     try {
-      const res = await window.API.apiCall(`/academic/classes/${classId}`, 'DELETE');
-      if (res?.success) {
-        this.showNotification('Class deleted', 'success');
-        await this.loadClasses();
-      } else {
-        this.showNotification(res?.message || 'Failed to delete', 'error');
-      }
+      await window.API.apiCall(`/academic/classes/${classId}`, 'DELETE');
+      this.showNotification('Class deleted', 'success');
+      await this.loadClasses();
     } catch (error) {
       console.error('Error deleting class:', error);
       this.showNotification('Failed to delete class', 'error');
@@ -536,13 +493,9 @@ const ManageClassesController = {
   async deleteStream(streamId) {
     if (!confirm('Are you sure you want to delete this stream? This cannot be undone.')) return;
     try {
-      const res = await window.API.apiCall(`/academic/class-streams/${streamId}`, 'DELETE');
-      if (res?.success) {
-        this.showNotification('Stream deleted', 'success');
-        await this.loadStreams();
-      } else {
-        this.showNotification(res?.message || 'Failed to delete', 'error');
-      }
+      await window.API.apiCall(`/academic/class-streams/${streamId}`, 'DELETE');
+      this.showNotification('Stream deleted', 'success');
+      await this.loadStreams();
     } catch (error) {
       console.error('Error deleting stream:', error);
       this.showNotification('Failed to delete stream', 'error');
@@ -552,13 +505,9 @@ const ManageClassesController = {
   async removeClassTeacher(assignmentId) {
     if (!confirm('Are you sure you want to remove this class teacher assignment?')) return;
     try {
-      const res = await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
-      if (res?.success) {
-        this.showNotification('Class teacher removed', 'success');
-        await this.loadClassTeachers();
-      } else {
-        this.showNotification(res?.message || 'Failed to remove', 'error');
-      }
+      await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
+      this.showNotification('Class teacher removed', 'success');
+      await this.loadClassTeachers();
     } catch (error) {
       console.error('Error removing class teacher:', error);
       this.showNotification('Failed to remove class teacher', 'error');
