@@ -250,7 +250,7 @@ const AlumniController = {
         const a = this.state.alumni[index];
         if (!a) return;
         const name = `${a.first_name || ''} ${a.middle_name || ''} ${a.last_name || ''}`.trim();
-        if (!confirm(`Deactivate alumni record for ${name}?`)) return;
+        if (!(await window.confirmAction('Confirm Deletion', `Deactivate alumni record for ${name}?`, { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.apiCall('/students/alumni-delete', 'POST', { id: a.id });
             this.showNotification('Alumni deactivated', 'success');

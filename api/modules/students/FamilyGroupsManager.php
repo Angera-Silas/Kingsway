@@ -43,11 +43,11 @@ class FamilyGroupsManager
 
             if (!empty($search)) {
                 $conditions[] = "(
-                    p.first_name LIKE :search 
-                    OR p.last_name LIKE :search 
-                    OR p.id_number LIKE :search 
-                    OR p.phone_1 LIKE :search 
-                    OR p.email LIKE :search
+                    pp.first_name LIKE :search 
+                    OR pp.last_name LIKE :search 
+                    OR pp.national_id_no LIKE :search 
+                    OR pp.phone LIKE :search 
+                    OR pp.email LIKE :search
                 )";
                 $params['search'] = "%{$search}%";
             }
@@ -62,33 +62,34 @@ class FamilyGroupsManager
             $sql = "
                 SELECT 
                     p.id,
-                    p.first_name,
-                    p.middle_name,
-                    p.last_name,
-                    CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS full_name,
-                    p.id_number,
-                    p.gender,
-                    p.date_of_birth,
-                    p.phone_1,
-                    p.phone_2,
-                    p.email,
+                    pp.first_name,
+                    pp.middle_name,
+                    pp.last_name,
+                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS full_name,
+                    pp.national_id_no AS id_number,
+                    pp.gender,
+                    pp.dob AS date_of_birth,
+                    pp.phone AS phone_1,
+                    NULL AS phone_2,
+                    pp.email,
                     p.occupation,
                     p.address,
                     p.status,
                     p.created_at,
                     COUNT(DISTINCT sp.student_id) AS children_count,
                     COALESCE(
-                        (SELECT SUM(sfb.balance) 
-                         FROM student_fee_balances sfb 
-                         JOIN student_parents sp2 ON sfb.student_id = sp2.student_id 
+                        (SELECT SUM(vfb.balance) 
+                         FROM vw_student_fee_balances vfb 
+                         JOIN student_parents sp2 ON vfb.student_id = sp2.student_id 
                          WHERE sp2.parent_id = p.id),
                         0
                     ) AS total_fee_balance
                 FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
                 LEFT JOIN student_parents sp ON p.id = sp.parent_id
                 {$whereClause}
                 GROUP BY p.id
-                ORDER BY p.first_name, p.last_name
+                ORDER BY pp.first_name, pp.last_name
                 LIMIT :limit OFFSET :offset
             ";
 
@@ -144,18 +145,45 @@ class FamilyGroupsManager
     public function searchFamilyGroups(string $searchTerm = '', int $limit = 50, int $offset = 0): array
     {
         try {
-            $stmt = $this->pdo->prepare("CALL sp_search_family_groups(:search, :limit, :offset)");
-            $stmt->bindValue(':search', $searchTerm);
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    sp.parent_id,
+                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS parent_name,
+                    pp.email,
+                    COUNT(DISTINCT sp.student_id) AS child_count
+                FROM student_parents sp
+                JOIN parents pr ON pr.id = sp.parent_id
+                JOIN persons pp ON pp.id = pr.person_id
+                WHERE (
+                    pp.first_name LIKE :search OR
+                    pp.last_name LIKE :search OR
+                    pp.email LIKE :search
+                )
+                GROUP BY sp.parent_id, pp.first_name, pp.middle_name, pp.last_name, pp.email
+                ORDER BY pp.first_name, pp.last_name
+                LIMIT :limit OFFSET :offset
+            ");
+            $stmt->bindValue(':search', "%{$searchTerm}%");
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
             $stmt->execute();
 
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get total count from second result set
-            $stmt->nextRowset();
-            $totalRow = $stmt->fetch(PDO::FETCH_ASSOC);
-            $total = $totalRow['total_count'] ?? count($results);
+            $stmt = $this->pdo->prepare("
+                SELECT COUNT(DISTINCT sp.parent_id) AS total_count
+                FROM student_parents sp
+                JOIN parents pr ON pr.id = sp.parent_id
+                JOIN persons pp ON pp.id = pr.person_id
+                WHERE (
+                    pp.first_name LIKE :search OR
+                    pp.last_name LIKE :search OR
+                    pp.email LIKE :search
+                )
+            ");
+            $stmt->bindValue(':search', "%{$searchTerm}%");
+            $stmt->execute();
+            $total = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total_count'] ?? count($results);
 
             return [
                 'success' => true,
@@ -184,7 +212,27 @@ class FamilyGroupsManager
     public function getParentDetails(int $parentId): array
     {
         try {
-            $stmt = $this->pdo->prepare("CALL sp_get_family_group_details(:parent_id)");
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    p.id,
+                    pp.first_name,
+                    pp.middle_name,
+                    pp.last_name,
+                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS full_name,
+                    pp.national_id_no AS id_number,
+                    pp.gender,
+                    pp.dob AS date_of_birth,
+                    pp.phone AS phone_1,
+                    NULL AS phone_2,
+                    pp.email,
+                    p.occupation,
+                    p.address,
+                    p.status,
+                    p.created_at
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
+                WHERE p.id = :parent_id
+            ");
             $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
             $stmt->execute();
 
@@ -197,8 +245,27 @@ class FamilyGroupsManager
                 ];
             }
 
-            // Get children from second result set
-            $stmt->nextRowset();
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    ps.first_name,
+                    ps.last_name,
+                    CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) AS student_full_name,
+                    ps.gender,
+                    s.status,
+                    sp.relationship,
+                    sp.is_primary_contact,
+                    sp.is_emergency_contact,
+                    NULL AS financial_responsibility
+                FROM student_parents sp
+                JOIN students s ON s.id = sp.student_id
+                JOIN persons ps ON ps.id = s.person_id
+                WHERE sp.parent_id = :parent_id
+                ORDER BY ps.first_name, ps.last_name
+            ");
+            $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
+            $stmt->execute();
             $children = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return [
@@ -226,7 +293,24 @@ class FamilyGroupsManager
     public function getParentChildren(int $parentId): array
     {
         try {
-            $stmt = $this->pdo->prepare("CALL sp_get_parent_children(:parent_id)");
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    ps.first_name,
+                    ps.last_name,
+                    CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) AS student_full_name,
+                    ps.gender,
+                    s.status,
+                    sp.relationship,
+                    sp.is_primary_contact,
+                    sp.is_emergency_contact
+                FROM student_parents sp
+                JOIN students s ON s.id = sp.student_id
+                JOIN persons ps ON ps.id = s.person_id
+                WHERE sp.parent_id = :parent_id
+                ORDER BY ps.first_name, ps.last_name
+            ");
             $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
             $stmt->execute();
 
@@ -253,52 +337,49 @@ class FamilyGroupsManager
     public function createParent(array $data): array
     {
         try {
-            $sql = "CALL sp_create_parent(
-                :first_name,
-                :middle_name,
-                :last_name,
-                :id_number,
-                :gender,
-                :date_of_birth,
-                :phone_1,
-                :phone_2,
-                :email,
-                :occupation,
-                :address,
-                @parent_id,
-                @success
-            )";
+            $this->pdo->beginTransaction();
 
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->bindValue(':first_name', $data['first_name'] ?? '');
-            $stmt->bindValue(':middle_name', $data['middle_name'] ?? null);
-            $stmt->bindValue(':last_name', $data['last_name'] ?? '');
-            $stmt->bindValue(':id_number', $data['id_number'] ?? null);
-            $stmt->bindValue(':gender', $data['gender'] ?? 'other');
-            $stmt->bindValue(':date_of_birth', $data['date_of_birth'] ?? null);
-            $stmt->bindValue(':phone_1', $data['phone_1'] ?? '');
-            $stmt->bindValue(':phone_2', $data['phone_2'] ?? null);
-            $stmt->bindValue(':email', $data['email'] ?? null);
-            $stmt->bindValue(':occupation', $data['occupation'] ?? null);
-            $stmt->bindValue(':address', $data['address'] ?? null);
-            $stmt->execute();
+            $personId = $this->nextId('persons');
+            $stmt = $this->pdo->prepare("
+                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $personId,
+                $data['first_name'] ?? '',
+                $data['middle_name'] ?? null,
+                $data['last_name'] ?? '',
+                $data['date_of_birth'] ?? null,
+                $data['gender'] ?? 'other',
+                $data['id_number'] ?? null,
+                $data['email'] ?? null,
+                $data['phone_1'] ?? null,
+            ]);
 
-            // Get output parameters
-            $result = $this->pdo->query("SELECT @parent_id as parent_id, @success as success")->fetch(PDO::FETCH_ASSOC);
+            $parentId = $this->nextId('parents');
+            $stmt = $this->pdo->prepare("
+                INSERT INTO parents (id, person_id, occupation, address, status)
+                VALUES (?, ?, ?, ?, 'active')
+            ");
+            $stmt->execute([
+                $parentId,
+                $personId,
+                $data['occupation'] ?? null,
+                $data['address'] ?? null,
+            ]);
 
-            if ($result['success']) {
-                return [
-                    'success' => true,
-                    'message' => 'Parent created successfully',
-                    'data' => ['id' => (int) $result['parent_id']]
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Failed to create parent'
-                ];
-            }
+            $this->pdo->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Parent created successfully',
+                'data' => ['id' => $parentId]
+            ];
         } catch (Exception $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('FamilyGroupsManager::createParent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -316,52 +397,71 @@ class FamilyGroupsManager
     public function updateParent(int $parentId, array $data): array
     {
         try {
-            $sql = "CALL sp_update_parent(
-                :parent_id,
-                :first_name,
-                :middle_name,
-                :last_name,
-                :id_number,
-                :gender,
-                :date_of_birth,
-                :phone_1,
-                :phone_2,
-                :email,
-                :occupation,
-                :address,
-                @success
-            )";
+            $this->pdo->beginTransaction();
 
-            $stmt = $this->pdo->prepare($sql);
-            $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
-            $stmt->bindValue(':first_name', $data['first_name'] ?? null);
-            $stmt->bindValue(':middle_name', $data['middle_name'] ?? null);
-            $stmt->bindValue(':last_name', $data['last_name'] ?? null);
-            $stmt->bindValue(':id_number', $data['id_number'] ?? null);
-            $stmt->bindValue(':gender', $data['gender'] ?? null);
-            $stmt->bindValue(':date_of_birth', $data['date_of_birth'] ?? null);
-            $stmt->bindValue(':phone_1', $data['phone_1'] ?? null);
-            $stmt->bindValue(':phone_2', $data['phone_2'] ?? null);
-            $stmt->bindValue(':email', $data['email'] ?? null);
-            $stmt->bindValue(':occupation', $data['occupation'] ?? null);
-            $stmt->bindValue(':address', $data['address'] ?? null);
-            $stmt->execute();
-
-            // Get output parameter
-            $result = $this->pdo->query("SELECT @success as success")->fetch(PDO::FETCH_ASSOC);
-
-            if ($result['success']) {
-                return [
-                    'success' => true,
-                    'message' => 'Parent updated successfully'
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Failed to update parent'
-                ];
+            $personSets = [];
+            $personParams = [];
+            foreach ([
+                'first_name' => 'first_name',
+                'middle_name' => 'middle_name',
+                'last_name' => 'last_name',
+                'id_number' => 'national_id_no',
+                'gender' => 'gender',
+                'date_of_birth' => 'dob',
+                'phone_1' => 'phone',
+                'email' => 'email',
+            ] as $inputKey => $column) {
+                if (array_key_exists($inputKey, $data) && $data[$inputKey] !== null) {
+                    $personSets[] = "{$column} = COALESCE(:{$inputKey}, {$column})";
+                    $personParams[":{$inputKey}"] = $data[$inputKey];
+                }
             }
+
+            if ($personSets) {
+                $stmt = $this->pdo->prepare("
+                    UPDATE parents p
+                    JOIN persons pp ON pp.id = p.person_id
+                    SET " . implode(', ', $personSets) . "
+                    WHERE p.id = :parent_id
+                ");
+                foreach ($personParams as $key => $value) {
+                    $stmt->bindValue($key, $value);
+                }
+                $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
+                $stmt->execute();
+            }
+
+            $parentSets = [];
+            $parentParams = [];
+            foreach (['occupation', 'address'] as $column) {
+                if (array_key_exists($column, $data) && $data[$column] !== null) {
+                    $parentSets[] = "{$column} = COALESCE(:{$column}, {$column})";
+                    $parentParams[":{$column}"] = $data[$column];
+                }
+            }
+
+            if ($parentSets) {
+                $stmt = $this->pdo->prepare("
+                    UPDATE parents SET " . implode(', ', $parentSets) . " WHERE id = :parent_id
+                ");
+                foreach ($parentParams as $key => $value) {
+                    $stmt->bindValue($key, $value);
+                }
+                $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
+                $stmt->execute();
+            }
+
+            $this->pdo->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Parent updated successfully'
+            ];
         } catch (Exception $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            error_log('FamilyGroupsManager::updateParent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -380,40 +480,34 @@ class FamilyGroupsManager
     public function linkParentToStudent(int $parentId, int $studentId, array $linkData = []): array
     {
         try {
-            $sql = "CALL sp_link_parent_to_student(
-                :parent_id,
-                :student_id,
-                :relationship,
-                :is_primary_contact,
-                :is_emergency_contact,
-                :financial_responsibility,
-                @success
-            )";
-
-            $stmt = $this->pdo->prepare($sql);
+            $stmt = $this->pdo->prepare("
+                INSERT INTO student_parents (
+                    student_id, parent_id, relationship,
+                    is_primary_contact, is_emergency_contact
+                ) VALUES (
+                    :student_id, :parent_id, :relationship,
+                    :is_primary_contact, :is_emergency_contact
+                ) ON DUPLICATE KEY UPDATE
+                    relationship = :relationship2,
+                    is_primary_contact = :is_primary_contact2,
+                    is_emergency_contact = :is_emergency_contact2
+            ");
             $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
             $stmt->bindValue(':student_id', $studentId, PDO::PARAM_INT);
             $stmt->bindValue(':relationship', $linkData['relationship'] ?? 'guardian');
             $stmt->bindValue(':is_primary_contact', $linkData['is_primary_contact'] ?? 0, PDO::PARAM_INT);
             $stmt->bindValue(':is_emergency_contact', $linkData['is_emergency_contact'] ?? 0, PDO::PARAM_INT);
-            $stmt->bindValue(':financial_responsibility', $linkData['financial_responsibility'] ?? 100.00);
+            $stmt->bindValue(':relationship2', $linkData['relationship'] ?? 'guardian');
+            $stmt->bindValue(':is_primary_contact2', $linkData['is_primary_contact'] ?? 0, PDO::PARAM_INT);
+            $stmt->bindValue(':is_emergency_contact2', $linkData['is_emergency_contact'] ?? 0, PDO::PARAM_INT);
             $stmt->execute();
 
-            // Get output parameter
-            $result = $this->pdo->query("SELECT @success as success")->fetch(PDO::FETCH_ASSOC);
-
-            if ($result['success']) {
-                return [
-                    'success' => true,
-                    'message' => 'Parent linked to student successfully'
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Failed to link parent to student'
-                ];
-            }
+            return [
+                'success' => true,
+                'message' => 'Parent linked to student successfully'
+            ];
         } catch (Exception $e) {
+            error_log('FamilyGroupsManager::linkParentToStudent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -431,28 +525,26 @@ class FamilyGroupsManager
     public function unlinkParentFromStudent(int $parentId, int $studentId): array
     {
         try {
-            $sql = "CALL sp_unlink_parent_from_student(:parent_id, :student_id, @success)";
-
-            $stmt = $this->pdo->prepare($sql);
+            $stmt = $this->pdo->prepare("
+                DELETE FROM student_parents
+                WHERE parent_id = :parent_id AND student_id = :student_id
+            ");
             $stmt->bindValue(':parent_id', $parentId, PDO::PARAM_INT);
             $stmt->bindValue(':student_id', $studentId, PDO::PARAM_INT);
             $stmt->execute();
 
-            // Get output parameter
-            $result = $this->pdo->query("SELECT @success as success")->fetch(PDO::FETCH_ASSOC);
-
-            if ($result['success']) {
+            if ($stmt->rowCount() > 0) {
                 return [
                     'success' => true,
                     'message' => 'Parent unlinked from student successfully'
                 ];
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Parent-student link not found'
-                ];
             }
+            return [
+                'success' => false,
+                'message' => 'Parent-student link not found'
+            ];
         } catch (Exception $e) {
+            error_log('FamilyGroupsManager::unlinkParentFromStudent error: ' . $e->getMessage());
             return [
                 'success' => false,
                 'message' => 'An internal error occurred.'
@@ -472,17 +564,22 @@ class FamilyGroupsManager
                 SELECT 
                     s.id,
                     s.admission_no,
-                    CONCAT(s.first_name, COALESCE(CONCAT(' ', s.middle_name), ''), ' ', s.last_name) AS full_name,
-                    s.gender,
+                    CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS full_name,
+                    p.gender,
                     s.status,
                     c.name AS class_name,
-                    cs.stream_name
+                    sm.name AS stream_name
                 FROM students s
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN student_parents sp ON s.id = sp.student_id
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                WHERE sp.id IS NULL AND s.status = 'active'
-                ORDER BY c.name, s.first_name
+                LEFT JOIN student_academic_enrollments sae 
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                WHERE sp.student_id IS NULL AND s.status = 'active'
+                ORDER BY c.name, p.first_name
             ";
 
             $stmt = $this->pdo->query($sql);
@@ -513,20 +610,25 @@ class FamilyGroupsManager
                 SELECT 
                     s.id,
                     s.admission_no,
-                    CONCAT(s.first_name, COALESCE(CONCAT(' ', s.middle_name), ''), ' ', s.last_name) AS full_name,
-                    s.gender,
+                    CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS full_name,
+                    p.gender,
                     s.status,
                     c.name AS class_name,
-                    cs.stream_name,
-                    CONCAT(c.name, ' - ', cs.stream_name) AS class_stream
+                    sm.name AS stream_name,
+                    CONCAT(c.name, ' - ', sm.name) AS class_stream
                 FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae 
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 WHERE s.status = 'active'
                 AND s.id NOT IN (
                     SELECT student_id FROM student_parents WHERE parent_id = :parent_id
                 )
-                ORDER BY c.name, s.first_name
+                ORDER BY c.name, p.first_name
             ";
 
             $stmt = $this->pdo->prepare($sql);
@@ -577,7 +679,7 @@ class FamilyGroupsManager
                 SELECT COUNT(*) as total 
                 FROM students s 
                 LEFT JOIN student_parents sp ON s.id = sp.student_id 
-                WHERE sp.id IS NULL AND s.status = 'active'
+                WHERE sp.student_id IS NULL AND s.status = 'active'
             ");
             $stats['students_without_parents'] = (int) $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
@@ -665,10 +767,13 @@ class FamilyGroupsManager
     {
         try {
             $classes = $this->pdo
-                ->query("SELECT id, name FROM classes WHERE status IN ('active','completed') ORDER BY name ASC")
+                ->query("SELECT id, name FROM classes ORDER BY name ASC")
                 ->fetchAll(PDO::FETCH_ASSOC);
             $streams = $this->pdo
-                ->query("SELECT id, class_id, stream_name FROM class_streams WHERE status = 'active' ORDER BY stream_name ASC")
+                ->query("SELECT aycs.id, aycs.academic_year_class_id AS class_id, sm.name AS stream_name
+                         FROM academic_year_class_streams aycs
+                         JOIN streams sm ON sm.id = aycs.stream_id
+                         WHERE aycs.status = 'active' ORDER BY sm.name ASC")
                 ->fetchAll(PDO::FETCH_ASSOC);
 
             return [
@@ -704,18 +809,20 @@ class FamilyGroupsManager
             $stmt = $this->pdo->prepare("
                 SELECT
                     p.id AS parent_id,
-                    CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS parent_name,
-                    p.phone_1,
-                    p.email,
+                    CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) AS parent_name,
+                    pp.phone AS phone_1,
+                    pp.email,
                     p.status AS parent_status,
                     COUNT(sp.student_id) AS students_count,
-                    GROUP_CONCAT(CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) ORDER BY s.first_name SEPARATOR ', ') AS student_names
+                    GROUP_CONCAT(CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) ORDER BY ps.first_name SEPARATOR ', ') AS student_names
                 FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
                 LEFT JOIN student_parents sp ON sp.parent_id = p.id
                 LEFT JOIN students s ON s.id = sp.student_id
+                LEFT JOIN persons ps ON ps.id = s.person_id
                 WHERE p.status = 'active'
-                GROUP BY p.id, p.first_name, p.middle_name, p.last_name, p.phone_1, p.email, p.status
-                ORDER BY p.first_name, p.last_name
+                GROUP BY p.id, pp.first_name, pp.middle_name, pp.last_name, pp.phone, pp.email, p.status
+                ORDER BY pp.first_name, pp.last_name
                 LIMIT :limit OFFSET :offset
             ");
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
@@ -822,5 +929,15 @@ class FamilyGroupsManager
                 'message' => 'An internal error occurred.'
             ];
         }
+    }
+
+    /**
+     * Manual primary key for tables without AUTO_INCREMENT.
+     */
+    private function nextId(string $table): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
     }
 }

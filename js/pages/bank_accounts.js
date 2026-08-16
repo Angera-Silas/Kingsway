@@ -253,7 +253,7 @@
         /**
          * View account details
          */
-        viewAccount: function (id) {
+        viewAccount: async function (id) {
             var acc = this.data.find(function (a) { return a.id === id; });
             if (!acc) return;
 
@@ -264,7 +264,7 @@
                 "Branch: " + (acc.branch || "-") + "\n" +
                 "Balance: KES " + this.formatCurrency(acc.balance || acc.current_balance || 0) + "\n" +
                 "Status: " + (acc.status || "-");
-            alert(msg);
+            await window.infoDialog('Notice', msg);
         },
 
         /**
@@ -292,7 +292,7 @@
          * Delete account
          */
         deleteAccount: async function (id) {
-            if (!confirm("Are you sure you want to delete this bank account?")) return;
+            if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this bank account?", { confirmText: 'Delete', danger: true }))) return;
 
             try {
                 await API.callAPI("/accounts/bank-accounts/" + id, "DELETE");
@@ -420,11 +420,11 @@
                 .replace(/'/g, "&#39;");
         },
 
-        showNotification: function (message, type) {
+        showNotification: async function (message, type) {
             if (typeof showNotification === "function") {
                 showNotification(message, type || "info");
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
         },
 

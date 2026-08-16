@@ -46,8 +46,12 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             // Verify expense exists
             $stmt = $this->db->prepare("
                 SELECT e.*, 
-                       bli.category, bli.available_balance
+                       ec.name AS category_name,
+                       s.name AS vendor_name,
+                       (bli.allocated_amount - bli.spent_amount - bli.committed_amount) AS available_balance
                 FROM expenses e
+                LEFT JOIN expense_categories ec ON e.category_id = ec.id
+                LEFT JOIN suppliers s ON e.vendor_id = s.id
                 LEFT JOIN budget_line_items bli ON e.budget_line_item_id = bli.id
                 WHERE e.id = ?
             ");
@@ -62,11 +66,11 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             // Check for existing active workflow
             $stmt = $this->db->prepare("
                 SELECT wi.* FROM workflow_instances wi
-                WHERE wi.workflow_type = 'expense_approval'
+                WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
-                AND JSON_EXTRACT(wi.workflow_data, '$.expense_id') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.expense_id') = ?
             ");
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
 
             if ($stmt->fetch()) {
                 $this->db->rollBack();
@@ -89,8 +93,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 'expense_id' => $expenseId,
                 'description' => $expense['description'],
                 'amount' => $expense['amount'],
-                'category' => $expense['category'] ?? 'Uncategorized',
-                'vendor' => $expense['vendor'] ?? '',
+                'category' => $expense['category_name'] ?? 'Uncategorized',
+                'vendor' => $expense['vendor_name'] ?? '',
                 'budget_validation' => $budgetValidation,
                 'validation_notes' => $validationNotes,
                 'initiated_by' => $userId,
@@ -181,7 +185,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected during validation');
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'rejected',
@@ -250,7 +254,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ]);
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'approved',
@@ -268,7 +272,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by manager');
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'rejected',
@@ -326,13 +330,13 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             // Update expense with payment details
-            $workflowData = json_decode($instance['workflow_data'], true);
+            $workflowData = json_decode($instance['data_json'], true);
             $stmt = $this->db->prepare("
                 UPDATE expenses 
                 SET status = 'paid',
                     payment_method = ?,
-                    payment_reference = ?,
-                    payment_date = NOW(),
+                    reference_number = ?,
+                    paid_at = NOW(),
                     paid_by = ?
                 WHERE id = ?
             ");
@@ -377,14 +381,14 @@ return formatResponse(false, null, 'An internal error occurred.');
                        e.description as expense_description,
                        e.status as expense_status
                 FROM workflow_instances wi
-                INNER JOIN expenses e ON JSON_EXTRACT(wi.workflow_data, '$.expense_id') = e.id
-                WHERE wi.workflow_type = 'expense_approval'
-                AND JSON_EXTRACT(wi.workflow_data, '$.expense_id') = ?
-                ORDER BY wi.created_at DESC
+                INNER JOIN expenses e ON JSON_EXTRACT(wi.data_json, '$.expense_id') = e.id
+                WHERE wi.workflow_id = ?
+                AND JSON_EXTRACT(wi.data_json, '$.expense_id') = ?
+                ORDER BY wi.started_at DESC
                 LIMIT 1
             ");
 
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
             $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$workflow) {
@@ -395,7 +399,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt = $this->db->prepare("
                 SELECT * FROM workflow_stage_history
                 WHERE instance_id = ?
-                ORDER BY created_at ASC
+                ORDER BY processed_at ASC
             ");
             $stmt->execute([$workflow['id']]);
             $workflow['stage_history'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -531,14 +535,13 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->prepare("
                 SELECT id FROM workflow_instances
-                WHERE workflow_type = 'expense_approval'
-                AND JSON_EXTRACT(workflow_data, '$.expense_id') = ?
-                AND current_stage != 'completed'
-                AND current_stage != 'rejected'
-                ORDER BY created_at DESC
+                WHERE workflow_id = ?
+                AND JSON_EXTRACT(data_json, '$.expense_id') = ?
+                AND status IN ('pending', 'in_progress')
+                ORDER BY started_at DESC
                 LIMIT 1
             ");
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $result ? $result['id'] : null;
@@ -600,7 +603,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Stage-specific actions
             if ($stage === 'validation') {
                 if (!empty($data['expense_id'])) {
-                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'pending_validation' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'pending_approval' WHERE id = ?");
                     $stmt->execute([$data['expense_id']]);
                 }
             } elseif ($stage === 'approval') {
@@ -610,7 +613,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 }
             } elseif ($stage === 'payment') {
                 if (!empty($data['expense_id'])) {
-                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'approved_for_payment' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'approved' WHERE id = ?");
                     $stmt->execute([$data['expense_id']]);
                 }
             } elseif ($stage === 'completed') {

@@ -216,7 +216,7 @@ const RubricsController = {
     },
 
     async delete(id) {
-        if (!confirm('Delete this rubric criterion? This action cannot be undone.')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this rubric criterion? This action cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
         try {
             await callAPI(`/api/academic/assessment-rubrics/${id}`, 'DELETE');
             showNotification('Rubric deleted.');

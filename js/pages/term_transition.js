@@ -45,7 +45,34 @@ const termTransitionController = {
       const nameEl = document.getElementById('ttCurrentTermName');
       if (nameEl && this._currentTerm) nameEl.textContent = this._currentTerm.name;
 
-      // Pre-fill Term 2 dates if we have them
+      // Dynamic labels so the wizard works for any term pair (T1->T2, T2->T3).
+      if (this._currentTerm) {
+        const lbl1 = document.getElementById('ttStepLbl1');
+        if (lbl1) lbl1.textContent = `Review ${this._currentTerm.name}`;
+        const confirmName = document.getElementById('ttConfirmTermName');
+        if (confirmName) confirmName.textContent = this._currentTerm.name;
+      }
+      if (this._nextTerm) {
+        const n = this._nextTerm.name;
+        const lbl4 = document.getElementById('ttStepLbl4');
+        if (lbl4) lbl4.textContent = `Setup ${n}`;
+        const hdr = document.getElementById('ttNextTermHeader');
+        if (hdr) hdr.textContent = `${n} Setup`;
+        const sLbl = document.getElementById('ttNextTermStartLabel');
+        if (sLbl) sLbl.textContent = `${n} Start Date`;
+        const eLbl = document.getElementById('ttNextTermEndLabel');
+        if (eLbl) eLbl.textContent = `${n} End Date`;
+        const chk = document.getElementById('ttNextTermChecklistTitle');
+        if (chk) chk.textContent = `${n} Checklist`;
+        const actHdr = document.getElementById('ttActivateHeader');
+        if (actHdr) actHdr.textContent = `Activate ${n}`;
+        const doneTitle = document.getElementById('ttDoneTitle');
+        if (doneTitle) doneTitle.textContent = `${n} is Now Active!`;
+      }
+      const rolloverBtn = document.getElementById('ttRolloverBtn');
+      if (rolloverBtn) rolloverBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable' + (this._nextTerm ? ` to ${this._nextTerm.name}` : '');
+
+      // Pre-fill next term dates if we have them
       if (this._nextTerm) {
         const s = document.getElementById('ttTerm2Start');
         const e = document.getElementById('ttTerm2End');
@@ -131,8 +158,8 @@ const termTransitionController = {
     try {
       const [rLP, rAttn, rResults] = await Promise.allSettled([
         callAPI('/academic/lesson-plans-list?term_id=' + (term?.id || ''), 'GET'),
-        callAPI('/attendance/summary?term_id=' + (term?.id || ''), 'GET'),
-        callAPI('/academic/results-list?term_id=' + (term?.id || ''), 'GET'),
+        callAPI('/attendance/academic-summary?term_id=' + (term?.id || ''), 'GET'),
+        callAPI('/academic/grading-results?term_id=' + (term?.id || ''), 'GET'),
       ]);
 
       const lp      = this._extract(rLP);
@@ -282,13 +309,18 @@ const termTransitionController = {
         dates: {
           start_date: this._nextTerm.start_date,
           end_date: this._nextTerm.end_date,
+          half_term_start: document.getElementById('ttMidtermStart')?.value || null,
+          half_term_end: document.getElementById('ttMidtermEnd')?.value || null,
         },
       });
+      // Let the whole system know the school is now in a new term.
+      if (window.AcademicContext) await window.AcademicContext.refresh();
+      if (window.DataStore) window.DataStore.invalidateMany(['academic', 'timetable', 'attendance']);
       showNotification(`${this._nextTerm.name} is now active!`, 'success');
       this.goStep('done');
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Activation failed.'; errEl.classList.remove('d-none'); }
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Activate Term 2 Now'; }
+      if (btn) { btn.disabled = false; btn.innerHTML = `<i class="bi bi-play-fill me-1"></i> Activate ${this._nextTerm?.name || 'Next Term'} Now`; }
     }
   },
 

@@ -68,17 +68,18 @@ class SchedulesManager
                     a.title as activity_title,
                     a.description as activity_description,
                     a.status as activity_status,
-                    CONCAT(COALESCE(st.first_name, ''), ' ', COALESCE(st.last_name, '')) as coordinator_name
+                    CONCAT(COALESCE(sp.first_name, ''), ' ', COALESCE(sp.last_name, '')) as coordinator_name
                 FROM activity_schedule asch
                 JOIN activities a ON asch.activity_id = a.id
                 LEFT JOIN staff st ON a.started_by = st.id
+                LEFT JOIN persons sp ON sp.id = st.person_id
                 WHERE 1=1";
         $params = [];
         if (!empty($filters['term_id'])) {
             $sql .= " AND EXISTS (
-                        SELECT 1 FROM academic_terms at
-                        WHERE at.id = :term_id
-                          AND asch.schedule_date BETWEEN at.start_date AND at.end_date
+                        SELECT 1 FROM academic_year_terms ayt
+                        WHERE ayt.id = :term_id
+                          AND asch.schedule_date BETWEEN ayt.opening_date AND ayt.closing_date
                      )";
             $params['term_id'] = $filters['term_id'];
         }
@@ -114,17 +115,17 @@ class SchedulesManager
     // NON-TEACHING STAFF: Get duty schedules (cleaning, maintenance, kitchen, etc.)
     public function getStaffDutySchedule($staffId, $termId = null)
     {
-        $sql = "SELECT ds.*, d.name as department_name, r.name as room_name
-                FROM duty_schedules ds
-                LEFT JOIN departments d ON ds.department_id = d.id
-                LEFT JOIN rooms r ON ds.room_id = r.id
-                WHERE ds.staff_id = :staff_id";
+        $sql = "SELECT dsr.*, dt.name as department_name, NULL as room_name
+                FROM staff_duty_roster dsr
+                LEFT JOIN staff_duty_types dt ON dt.id = dsr.duty_type_id
+                WHERE dsr.staff_id = :staff_id";
         $params = ['staff_id' => $staffId];
         if ($termId) {
-            $sql .= " AND ds.term_id = :term_id";
+            $sql .= " AND dsr.date BETWEEN (SELECT opening_date FROM academic_year_terms WHERE id = :term_id)
+                                       AND (SELECT closing_date FROM academic_year_terms WHERE id = :term_id)";
             $params['term_id'] = $termId;
         }
-        $sql .= " ORDER BY ds.date, ds.start_time";
+        $sql .= " ORDER BY dsr.date, dsr.start_time";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -187,7 +188,7 @@ class SchedulesManager
                 $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
                 break;
             default:
-                throw new Exception('Unknown resource type');
+                throw new \InvalidArgumentException('Unknown resource type');
         }
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => $resourceId, 'start' => $start, 'end' => $end]);

@@ -634,7 +634,7 @@ return $this->serverError('An internal error occurred.');
         }
         if (!$staffId) return $this->badRequest('Staff ID is required');
         try { $this->access->requireSelfOr('staff.payslip.manage', (int)$staffId, ['system administrator','accountant']); }
-        catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
 
         $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
         return $this->handleResponse($result);
@@ -733,7 +733,7 @@ return $this->serverError('An internal error occurred.');
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         $result = $this->api->getAttendance($data);
         return $this->handleResponse($result);
     }
@@ -1489,7 +1489,7 @@ return $this->error('An internal error occurred.');
         try {
             $this->access->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/staff/access-context */
@@ -1541,6 +1541,33 @@ return $this->error('An internal error occurred.');
     {
         if ($denied = $this->guardStaffDomain('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         return $this->handleResponse($this->api->listNonTeaching($_GET ?? []));
+    }
+
+    /**
+     * GET /api/staff/key-contacts
+     * Curated leadership/admin contacts for the student/parent staff viewer.
+     * Self-service scoping: staff-view or student/parent-view accounts.
+     */
+    public function getKeyContacts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(
+            ['staff.directory.view', 'staff.view.directory', 'staff.view.contacts', 'staff.view.own',
+             'staff_view_directory', 'staff_view_contacts', 'staff_view_own', 'staff_view',
+             'students_view_own', 'students_view'],
+            [],
+            self::STAFF_DIRECTORY_VIEW_ROLES
+        )) {
+            return $this->forbidden('Access to staff key contacts is not available for this account');
+        }
+        try {
+            return $this->handleResponse($this->api->keyContacts());
+        } catch (\Throwable $e) {
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('Failed to load key contacts', 'An internal error occurred.');
+        }
     }
 
     /** Alias required by all_teachers.js: GET /api/staff/departments */
@@ -1946,16 +1973,24 @@ return $this->serverError('An internal error occurred.');
     private function selfServiceError(RuntimeException $error)
     {
         $code = (int) $error->getCode();
-        if ($code === 401) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
-return $this->unauthorized('An internal error occurred.');
-        if ($code === 403) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
-return $this->forbidden('An internal error occurred.');
-        if ($code === 409) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
-return $this->conflict('An internal error occurred.');
-        if ($code === 422) error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
-return $this->unprocessable('An internal error occurred.');
+        if ($code === 401) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->unauthorized('An internal error occurred.');
+        }
+        if ($code === 403) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->forbidden('An internal error occurred.');
+        }
+        if ($code === 409) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->conflict('An internal error occurred.');
+        }
+        if ($code === 422) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->unprocessable('An internal error occurred.');
+        }
         error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
-return $this->serverError('An internal error occurred.');
+        return $this->serverError('An internal error occurred.');
     }
 
 

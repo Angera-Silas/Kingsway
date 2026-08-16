@@ -170,7 +170,7 @@ class CommunicationsController extends BaseController
 
     public function index()
     {
-        return $this->success(['message' => 'Communications API is running']);
+        return $this->handleResponse($this->api->getSummary());
     }
 
     // --- SMS Callback Endpoints ---
@@ -551,6 +551,59 @@ class CommunicationsController extends BaseController
     public function postResend($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->resendCommunication($data));
+    }
+
+    // --- Internal User-to-User Messaging ---
+    /**
+     * GET /communications/conversations
+     *   → list conversations for the current user.
+     * GET /communications/conversations/{id}
+     *   → full thread for one conversation (marks messages read).
+     */
+    public function getConversations($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getUserId();
+        if ($userId === null) {
+            return $this->badRequest('Authentication required');
+        }
+        if ($id !== null) {
+            return $this->handleResponse($this->api->getConversationThread($userId, $id));
+        }
+        return $this->handleResponse($this->api->listConversations($userId));
+    }
+
+    /**
+     * POST /communications/conversations
+     *   → create a conversation and send the first message.
+     *     Body: { recipients: [userIds], subject?, message, priority? }
+     * POST /communications/conversations/{id}
+     *   → reply inside an existing conversation.
+     *     Body: { message, priority? }
+     */
+    public function postConversations($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getUserId();
+        if ($userId === null) {
+            return $this->badRequest('Authentication required');
+        }
+        if ($id !== null) {
+            return $this->handleResponse($this->api->sendConversationReply($userId, $id, $data));
+        }
+        return $this->handleResponse($this->api->createConversation($userId, $data));
+    }
+
+    /**
+     * GET /communications/recipients?q={term}
+     *   → search active system users to message (excludes self).
+     */
+    public function getRecipients($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getUserId();
+        if ($userId === null) {
+            return $this->badRequest('Authentication required');
+        }
+        $term = isset($data['q']) ? (string)$data['q'] : (string)($data['term'] ?? '');
+        return $this->handleResponse($this->api->searchMessageRecipients($userId, $term));
     }
 
     // --- Attachments CRUD ---

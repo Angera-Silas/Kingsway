@@ -12,19 +12,16 @@ const LessonPlansByClassController = (() => {
   async function loadData(page = 1) {
     try {
       pagination.page = page;
-      const params = new URLSearchParams({ page, limit: pagination.limit });
+      const params = { page, limit: pagination.limit };
 
       const cls = document.getElementById("classFilterLPC")?.value;
-      if (cls) params.append("class_id", cls);
+      if (cls) params.class_id = cls;
       const coverage = document.getElementById("coverageFilter")?.value;
-      if (coverage) params.append("coverage", coverage);
+      if (coverage) params.coverage = coverage;
       const search = document.getElementById("searchByClass")?.value;
-      if (search) params.append("search", search);
+      if (search) params.search = search;
 
-      const response = await window.API.apiCall(
-        `/academic/lesson-plans/by-class?${params.toString()}`,
-        "GET",
-      );
+      const response = await window.API.academic.getLessonPlansByClass(params);
       const data = response?.data || response || [];
       classData = Array.isArray(data) ? data : data.classes || data.data || [];
       if (data.pagination) pagination = { ...pagination, ...data.pagination };
@@ -131,9 +128,8 @@ const LessonPlansByClassController = (() => {
 
   async function viewDetail(classId) {
     try {
-      const resp = await window.API.apiCall(
-        `/academic/lesson-plans/by-class/${classId}`,
-        "GET",
+      const resp = await window.API.academic.getLessonPlansByClassDetail(
+        classId,
       );
       const detail = resp?.data || resp;
       const subjects = detail?.subjects || detail?.data || [];

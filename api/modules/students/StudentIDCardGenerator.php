@@ -71,7 +71,7 @@ class StudentIDCardGenerator extends BaseAPI
             }
 
             $statement = $this->db->prepare(
-                "UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?"
+                "UPDATE persons SET photo_url = ? WHERE id = (SELECT person_id FROM students WHERE id = ?)"
             );
             $statement->execute([$photoUrl, $studentId]);
 
@@ -147,10 +147,6 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'qr_codes',
                 $filename
             );
-
-            // Update student record with QR code path
-            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$webPath, $studentId]);
 
             $this->logAction('create', $studentId, "Generated enhanced QR code: {$webPath}");
             
@@ -246,37 +242,58 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $statement = $this->db->prepare(
                 "SELECT
-                    s.*,
-                    ce.academic_year_id,
-                    ce.class_id AS enrollment_class_id,
-                    ce.stream_id AS enrollment_stream_id,
+                    s.id,
+                    s.admission_no,
+                    per.photo_url,
+                    s.status,
+                    s.student_type_id,
+                    s.assessment_number,
+                    s.assessment_status,
+                    s.nemis_number,
+                    s.nemis_status,
+                    s.blood_group,
+                    s.created_at,
+                    s.updated_at,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    per.gender,
+                    per.dob AS date_of_birth,
+                    sae.academic_year_id,
+                    ayc.class_id AS enrollment_class_id,
+                    aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
-                    cs.stream_name,
+                    sm.name AS stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_enrollments ce
-                    ON ce.id = (
-                        SELECT ce_current.id
-                        FROM class_enrollments ce_current
+                 JOIN persons per ON per.id = s.person_id
+                 LEFT JOIN student_academic_enrollments sae
+                    ON sae.id = (
+                        SELECT sae_current.id
+                        FROM student_academic_enrollments sae_current
                         INNER JOIN academic_years ay_current
-                            ON ay_current.id = ce_current.academic_year_id
-                        WHERE ce_current.student_id = s.id
-                          AND ce_current.enrollment_status = 'active'
+                            ON ay_current.id = sae_current.academic_year_id
+                        WHERE sae_current.student_id = s.id
+                          AND sae_current.enrollment_status = 'active'
                         ORDER BY ay_current.is_current DESC,
                                  ay_current.start_date DESC,
-                                 ce_current.id DESC
+                                 sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN class_streams cs
-                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                 LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c
-                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                    ON c.id = ayc.class_id
                  LEFT JOIN academic_years ay
-                    ON ay.id = ce.academic_year_id
+                    ON ay.id = sae.academic_year_id
                  WHERE s.id IN ({$placeholders})
                    AND s.status = 'active'
-                 ORDER BY c.level_id, c.name, cs.stream_name,
-                          s.first_name, s.last_name"
+                 ORDER BY c.name, sm.name,
+                          per.first_name, per.last_name"
             );
             $statement->execute($studentIds);
             $students = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -414,33 +431,54 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $statement = $this->db->prepare(
                 "SELECT
-                    s.*,
-                    ce.academic_year_id,
-                    ce.class_id AS enrollment_class_id,
-                    ce.stream_id AS enrollment_stream_id,
+                    s.id,
+                    s.admission_no,
+                    per.photo_url,
+                    s.status,
+                    s.student_type_id,
+                    s.assessment_number,
+                    s.assessment_status,
+                    s.nemis_number,
+                    s.nemis_status,
+                    s.blood_group,
+                    s.created_at,
+                    s.updated_at,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    per.gender,
+                    per.dob AS date_of_birth,
+                    sae.academic_year_id,
+                    ayc.class_id AS enrollment_class_id,
+                    aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
-                    cs.stream_name,
+                    sm.name AS stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_enrollments ce
-                    ON ce.id = (
-                        SELECT ce_current.id
-                        FROM class_enrollments ce_current
+                 JOIN persons per ON per.id = s.person_id
+                 LEFT JOIN student_academic_enrollments sae
+                    ON sae.id = (
+                        SELECT sae_current.id
+                        FROM student_academic_enrollments sae_current
                         INNER JOIN academic_years ay_current
-                            ON ay_current.id = ce_current.academic_year_id
-                        WHERE ce_current.student_id = s.id
-                          AND ce_current.enrollment_status = 'active'
+                            ON ay_current.id = sae_current.academic_year_id
+                        WHERE sae_current.student_id = s.id
+                          AND sae_current.enrollment_status = 'active'
                         ORDER BY ay_current.is_current DESC,
                                  ay_current.start_date DESC,
-                                 ce_current.id DESC
+                                 sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN class_streams cs
-                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                 LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c
-                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                    ON c.id = ayc.class_id
                  LEFT JOIN academic_years ay
-                    ON ay.id = ce.academic_year_id
+                    ON ay.id = sae.academic_year_id
                  WHERE s.id = ?
                  LIMIT 1"
             );
@@ -575,18 +613,23 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $sql = "SELECT s.id
                     FROM students s
-                    INNER JOIN class_streams cs
-                        ON cs.id = s.stream_id
-                    WHERE cs.class_id = ?
+                    JOIN persons per ON per.id = s.person_id
+                    INNER JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                    INNER JOIN academic_year_class_streams aycs
+                        ON aycs.id = sae.academic_year_class_stream_id
+                    INNER JOIN academic_year_classes ayc
+                        ON ayc.id = aycs.academic_year_class_id
+                    WHERE ayc.class_id = ?
                       AND s.status = 'active'";
             $params = [(int) $classId];
 
             if ($streamId !== null) {
-                $sql .= " AND s.stream_id = ?";
+                $sql .= " AND aycs.stream_id = ?";
                 $params[] = (int) $streamId;
             }
 
-            $sql .= " ORDER BY s.first_name, s.last_name";
+            $sql .= " ORDER BY per.first_name, per.last_name";
 
             $statement = $this->db->prepare($sql);
             $statement->execute($params);
@@ -693,9 +736,9 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->prepare("
                 SELECT ay.year_code AS academic_year
-                FROM class_enrollments ce
-                LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
-                WHERE ce.student_id = ? AND ce.enrollment_status = 'active'
+                FROM student_academic_enrollments sae
+                LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                 ORDER BY ay.year_code DESC
                 LIMIT 1
             ");

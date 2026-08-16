@@ -26,6 +26,7 @@ use function App\API\Includes\formatResponse;
 class StudentAdmissionWorkflow extends WorkflowHandler {
     private AdmissionPolicy $policy;
     private AdmissionPaymentService $paymentService;
+    private bool $parentPreExisting = false;
 
     public function __construct() {
         parent::__construct('student_admission');
@@ -40,25 +41,42 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
      * Role: Registrar/Parent
      * Creates admission application and starts workflow
      */
-    public function submitApplication($data) {
+    public function submitApplication($data, $files = []) {
         try {
-            // Validate required fields
-            $required = ['applicant_name', 'date_of_birth', 'gender', 'grade_applying_for', 'academic_year', 'parent_id'];
-            foreach ($required as $field) {
-                if (empty($data[$field])) {
-                    throw new Exception("Missing required field: $field");
-                }
+            // Normalize payload for every channel. The admin panel sends the
+            // canonical field names; the public website sends child_/parent_
+            // form fields. Both converge here.
+            $applicantName = trim($data['applicant_name'] ?? $data['child_name'] ?? '');
+            $dob = trim($data['date_of_birth'] ?? $data['child_dob'] ?? '');
+            $gender = trim($data['gender'] ?? $data['child_gender'] ?? '');
+            $gradeRaw = trim($data['grade_applying_for'] ?? $data['grade'] ?? '');
+            $academicYear = $data['academic_year'] ?? (int) date('Y', strtotime('+6 months'));
+
+            if ($applicantName === '' || $dob === '' || $gender === '' || $gradeRaw === '') {
+                throw new Exception('Missing required applicant details.');
             }
 
             $applicationSource = $this->policy->resolveApplicationSource($data);
             $admissionCategory = $this->policy->resolveAdmissionCategory($data);
             $targetTermId = $this->policy->resolveTargetTermId($data);
-            $normalizedGrade = $this->policy->normalizeGrade((string) $data['grade_applying_for']);
+            $normalizedGrade = $this->policy->normalizeGrade((string) $gradeRaw);
             $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
             $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
 
             // Generate application number (format: ADM/2025/001)
-            $app_no = $this->generateApplicationNumber($data['academic_year']);
+            $app_no = $this->generateApplicationNumber((int) $academicYear);
+
+            $this->db->beginTransaction();
+
+            // Resolve the parent/guardian inside the transaction so person/parent
+            // rows created here roll back if the application insert fails. Admin
+            // passes parent_id (parents.id). Public forms pass identity fields
+            // (phone / national id / email) so we can find an existing person or
+            // create a new one — never duplicate a person record.
+            $parentId = $this->resolveParentId($data);
+            if (!$parentId) {
+                throw new Exception('Parent/guardian information is required.');
+            }
 
             $sql = "INSERT INTO admission_applications (
                 application_no, applicant_name, date_of_birth, gender,
@@ -78,43 +96,53 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'app_no' => $app_no,
-                'name' => $data['applicant_name'],
-                'dob' => $data['date_of_birth'],
-                'gender' => $data['gender'],
+                'name' => $applicantName,
+                'dob' => $dob,
+                'gender' => $gender,
                 'grade' => $normalizedGrade,
-                'year' => $data['academic_year'],
-                'parent' => $data['parent_id'],
+                'year' => $academicYear,
+                'parent' => $parentId,
                 'application_source' => $applicationSource,
                 'admission_category' => $admissionCategory,
                 'target_term_id' => $targetTermId,
                 'requires_interview' => $requiresInterview,
                 'interview_policy_reason' => $interviewReason,
-                'prev_school' => $data['previous_school'] ?? null,
-                'has_needs' => $data['has_special_needs'] ?? 0,
-                'needs_details' => $data['special_needs_details'] ?? null
+                'prev_school' => $data['previous_school'] ?? $data['child_prev_school'] ?? null,
+                'has_needs' => isset($data['has_special_needs']) ? (int) $data['has_special_needs'] : (!empty($data['special_needs']) ? 1 : 0),
+                'needs_details' => $data['special_needs_details'] ?? $data['special_needs'] ?? null
             ]);
 
             $application_id = $this->db->lastInsertId();
 
+            // Persist any documents uploaded with the submission (public path).
+            if (!empty($files)) {
+                $this->storeSubmittedDocuments($application_id, $normalizedGrade, $files);
+            }
+
+            $initiatorId = (int) ($this->user_id ?? 1);
+
             $workflow_data = [
                 'application_no' => $app_no,
-                'applicant_name' => $data['applicant_name'],
+                'applicant_name' => $applicantName,
                 'grade' => $normalizedGrade,
-                'parent_id' => (int) $data['parent_id'],
+                'parent_id' => (int) $parentId,
                 'application_source' => $applicationSource,
                 'admission_category' => $admissionCategory,
                 'target_term_id' => $targetTermId,
                 'requires_interview' => (bool) $requiresInterview,
                 'interview_policy_reason' => $interviewReason,
-                'created_by' => (int) $this->user_id,
-                'submitted_by' => (int) $this->user_id
+                'created_by' => $initiatorId,
+                'submitted_by' => $initiatorId
             ];
 
-            $instance_id = $this->startWorkflow('admission_application', $application_id, $workflow_data);
+            $instance_id = $this->startWorkflow('admission_application', $application_id, $workflow_data, $initiatorId);
+
+            $this->db->commit();
 
             return formatResponse(true, [
                 'application_id' => $application_id,
                 'application_no' => $app_no,
+                'ref' => $app_no,
                 'workflow_instance_id' => $instance_id,
                 'current_stage' => 'application_received',
                 'next_stage' => 'application_review',
@@ -125,7 +153,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                     'admission_category' => $admissionCategory,
                     'target_term_id' => $targetTermId,
                 ],
-                'required_documents' => $this->getRequiredDocuments($normalizedGrade, $admissionCategory)
+                'required_documents' => $this->getRequiredDocuments($normalizedGrade, $admissionCategory, $this->parentWasExisting($parentId))
             ], 'Application submitted successfully');
 
         } catch (Exception $e) {
@@ -134,7 +162,186 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             }
             $this->logError('admission_submit_failed', $e->getMessage());
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return formatResponse(false, null, 'An internal error occurred.');
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Resolve the parent/guardian id for an application.
+     *
+     * Smart dedupe: admin passes a parents.id directly; public submissions pass
+     * identity details (phone / national id / email / name). We search persons
+     * by identity first so a parent who already exists — including staff who are
+     * parents, whose persons row was created on onboarding — is linked to their
+     * existing parents row instead of creating duplicates.
+     */
+    private function resolveParentId(array $data): int
+    {
+        // Explicit parents.id (admin panel / parent portal).
+        $parentId = (int) ($data['parent_id'] ?? 0);
+        if ($parentId > 0) {
+            $exists = $this->scalar("SELECT id FROM parents WHERE id = ?", [$parentId]);
+            if ($exists) {
+                $this->parentPreExisting = true;
+                return $parentId;
+            }
+            throw new Exception('Selected parent/guardian does not exist.');
+        }
+
+        // Public form: identity-based find-or-create.
+        $phone = trim((string) ($data['parent_phone'] ?? ''));
+        $nationalId = trim((string) ($data['parent_id'] ?? $data['parent_national_id'] ?? ''));
+        $email = trim((string) ($data['parent_email'] ?? ''));
+        $name = trim((string) ($data['parent_name'] ?? ''));
+        $address = trim((string) ($data['parent_address'] ?? ''));
+
+        // 1. Match an existing parent by identity.
+        if ($phone !== '' || $nationalId !== '' || $email !== '') {
+            $criteria = [];
+            $params = [];
+            if ($phone !== '') {
+                $criteria[] = 'pe.phone = ?';
+                $params[] = $phone;
+            }
+            if ($nationalId !== '') {
+                $criteria[] = 'pe.national_id_no = ?';
+                $params[] = $nationalId;
+            }
+            if ($email !== '') {
+                $criteria[] = 'pe.email = ?';
+                $params[] = $email;
+            }
+            $stmt = $this->db->prepare(
+                "SELECT pr.id FROM parents pr JOIN persons pe ON pe.id = pr.person_id
+                 WHERE " . implode(' OR ', $criteria) . " LIMIT 1"
+            );
+            $stmt->execute($params);
+            $existing = $stmt->fetchColumn();
+            if ($existing) {
+                $this->parentPreExisting = true;
+                return (int) $existing;
+            }
+        }
+
+        // 2. An existing person that is not yet a parent (staff who are parents).
+        if ($phone !== '' || $nationalId !== '' || $email !== '') {
+            $criteria = [];
+            $params = [];
+            if ($phone !== '') {
+                $criteria[] = 'phone = ?';
+                $params[] = $phone;
+            }
+            if ($nationalId !== '') {
+                $criteria[] = 'national_id_no = ?';
+                $params[] = $nationalId;
+            }
+            if ($email !== '') {
+                $criteria[] = 'email = ?';
+                $params[] = $email;
+            }
+            $stmt = $this->db->prepare(
+                "SELECT id FROM persons WHERE " . implode(' OR ', $criteria) . " LIMIT 1"
+            );
+            $stmt->execute($params);
+            $personId = $stmt->fetchColumn();
+            if ($personId) {
+                return $this->createParentForPerson((int) $personId, $address);
+            }
+        }
+
+        // 3. Brand new person + parent.
+        if ($name === '') {
+            throw new Exception('Parent/guardian name is required.');
+        }
+        $nameParts = explode(' ', $name, 2);
+        $firstName = $nameParts[0] ?? '';
+        $lastName = $nameParts[1] ?? $firstName;
+
+        $personId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM persons");
+        $stmt = $this->db->prepare(
+            "INSERT INTO persons (id, first_name, last_name, email, phone, national_id_no)
+             VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        $stmt->execute([
+            $personId,
+            $firstName,
+            $lastName,
+            $email !== '' ? $email : null,
+            $phone !== '' ? $phone : null,
+            $nationalId !== '' ? $nationalId : null,
+        ]);
+
+        return $this->createParentForPerson($personId, $address);
+    }
+
+    private function createParentForPerson(int $personId, string $address = ''): int
+    {
+        $parentId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM parents");
+        $stmt = $this->db->prepare(
+            "INSERT INTO parents (id, person_id, address, status)
+             VALUES (?, ?, ?, 'active')"
+        );
+        $stmt->execute([$parentId, $personId, $address !== '' ? $address : null]);
+        return $parentId;
+    }
+
+    private function parentWasExisting(int $parentId): bool
+    {
+        return $this->parentPreExisting;
+    }
+
+    private function scalar(string $sql, array $params = [])
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchColumn();
+    }
+
+    private function storeSubmittedDocuments(int $applicationId, string $grade, array $files): void
+    {
+        $requiredConfig = $this->getRequiredDocuments($grade);
+        $requiredTypes = [];
+        foreach ($requiredConfig as $type => $config) {
+            if (!empty($config['mandatory'])) {
+                $requiredTypes[] = $type;
+            }
+        }
+
+        $docMeta = [
+            'birth_certificate'      => ['label' => 'Birth Certificate'],
+            'passport_photo'         => ['label' => 'Passport Photo'],
+            'parent_id'              => ['label' => 'Parent/Guardian ID'],
+            'previous_school_report' => ['label' => 'Previous School Report'],
+            'immunization_card'      => ['label' => 'Immunization Card'],
+            'progress_report'        => ['label' => 'Progress Report'],
+            'leaving_certificate'    => ['label' => 'Leaving Certificate'],
+            'transfer_letter'        => ['label' => 'Transfer Letter'],
+            'medical_records'        => ['label' => 'Health / Medical Records'],
+            'other'                  => ['label' => 'Other (e.g. Student Portfolio)'],
+        ];
+
+        $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+        $docInsert = $this->db->prepare(
+            "INSERT INTO admission_documents
+             (application_id, document_type, document_path, is_mandatory, verification_status, created_at)
+             VALUES (?, ?, ?, ?, 'pending', NOW())"
+        );
+
+        foreach ($files as $docType => $file) {
+            if (!isset($docMeta[$docType])) {
+                continue;
+            }
+            if (empty($file['name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                continue;
+            }
+            $mediaId = $mediaManager->upload(
+                $file, 'students/documents', $applicationId, null, null, 'admission document', '', $docType
+            );
+            $documentPath = $mediaManager->getFileUrl($mediaId)
+                ?: $mediaManager->getPreviewUrl($mediaId)
+                ?: (string) $mediaId;
+            $isMandatory = in_array($docType, $requiredTypes, true) ? 1 : 0;
+            $docInsert->execute([$applicationId, $docType, $documentPath, $isMandatory]);
         }
     }
 
@@ -781,78 +988,47 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('Admission application not found');
             }
 
-            // Dedup guard: existing provisional/created student for this application.
-            $stmt = $this->db->prepare("SELECT student_id FROM admission_applications WHERE id = :id AND enrolled_student_id IS NOT NULL LIMIT 1");
-            $stmt->execute(['id' => $applicationId]);
-            $existingStudentId = $stmt->fetchColumn();
-            if ($existingStudentId) {
+            if (!empty($application['enrolled_student_id'])) {
                 $this->db->commit();
                 return formatResponse(true, [
-                    'student_id' => (int) $existingStudentId,
+                    'student_id' => (int) $application['enrolled_student_id'],
                     'admission_number' => $application['admission_no'] ?? null,
                     'reused' => true
                 ], 'Student already created for this application.');
             }
-
-            // Resolve the applied class by name, then a real stream (NOT NULL + capacity trigger).
-            $classId = null;
-            $className = trim((string) ($application['grade_applying_for'] ?? ''));
-            if ($className !== '') {
-                $stmt = $this->db->prepare("SELECT id FROM classes WHERE name = :name LIMIT 1");
-                $stmt->execute(['name' => $className]);
-                $classId = $stmt->fetchColumn() ?: null;
-            }
-            if (!$classId) {
-                throw new Exception("Could not resolve a class for grade '{$className}'");
-            }
-
-            $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = :class_id AND status = 'active' ORDER BY id ASC LIMIT 1");
-            $stmt->execute(['class_id' => $classId]);
-            $streamId = $stmt->fetchColumn() ?: null;
-            if (!$streamId) {
-                throw new Exception("No active class stream configured for '{$className}'");
-            }
-
-            $academicYearId = (int) ($application['academic_year'] ?? date('Y'));
-            $studentNumber = $this->generateStudentNumber($academicYearId, (int) $classId);
-
-            $names = explode(' ', trim((string) $application['applicant_name']));
-            $firstName = $names[0] ?? 'Applicant';
-            $lastName = isset($names[1]) ? implode(' ', array_slice($names, 1)) : '';
 
             $studentTypeId = $this->resolveDefaultStudentTypeId();
             if (!$studentTypeId) {
                 throw new Exception('Unable to resolve an active student type');
             }
 
-            $sql = "INSERT INTO students (
-                admission_no, first_name, last_name, date_of_birth,
-                gender, stream_id, student_type_id, admission_date, status, application_id
-            ) VALUES (
-                :student_no, :first_name, :last_name, :dob,
-                :gender, :stream_id, :student_type_id, CURDATE(), 'inactive', :application_id
-            )";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                'student_no' => $studentNumber,
-                'first_name' => $firstName,
-                'last_name' => $lastName,
-                'dob' => $application['date_of_birth'],
-                'gender' => $application['gender'],
-                'stream_id' => (int) $streamId,
-                'student_type_id' => (int) $studentTypeId,
+            $proc = $this->db->prepare("CALL sp_register_applicant_as_student(:application_id, :operator_id, :student_type_id, @out_student_id, @out_admission_no)");
+            $proc->execute([
                 'application_id' => $applicationId,
+                'operator_id' => (int) ($this->user_id ?? 1),
+                'student_type_id' => $studentTypeId,
             ]);
-            $studentId = (int) $this->db->lastInsertId();
+            $proc->closeCursor();
 
-            // Link the parent record from the application, if present.
-            if (!empty($application['parent_id'])) {
-                $this->linkParentToStudent($studentId, (int) $application['parent_id']);
+            $out = $this->db->query("SELECT @out_student_id AS student_id, @out_admission_no AS admission_no")->fetch(PDO::FETCH_ASSOC);
+            $studentId = (int) ($out['student_id'] ?? 0);
+            $admissionNo = $out['admission_no'] ?? null;
+            if (!$studentId) {
+                throw new Exception('Student creation via proc returned no ID');
             }
 
-            // Write back linkage to the application row.
-            $stmt = $this->db->prepare("UPDATE admission_applications SET enrolled_student_id = :student_id WHERE id = :id");
-            $stmt->execute(['student_id' => $studentId, 'id' => $applicationId]);
+            $postedPaymentCount = 0;
+            if ($this->paymentService->hasPositivePayment((int) $applicationId)) {
+                try {
+                    $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
+                        (int) $applicationId, (int) $studentId,
+                        !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                        (int) ($this->user_id ?? 1), (string) ($application['application_no'] ?? '')
+                    );
+                } catch (\Exception $e) {
+                    error_log('[admission] postApplicationPaymentsToStudent failed: ' . $e->getMessage());
+                }
+            }
 
             $this->db->commit();
 
@@ -860,22 +1036,20 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $applicationId,
                 'fees_payment',
                 'provisional_student_created',
-                ['student_id' => $studentId, 'student_number' => $studentNumber, 'admission_number' => $studentNumber],
+                ['student_id' => $studentId, 'admission_number' => $admissionNo],
                 'Provisional student created — awaiting fee payment'
             );
 
             return formatResponse(true, [
                 'student_id' => $studentId,
-                'admission_number' => $studentNumber,
-                'class_id' => (int) $classId,
-                'stream_id' => (int) $streamId
+                'admission_number' => $admissionNo
             ], 'Provisional student created successfully.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return formatResponse(false, null, 'An internal error occurred.');
+            return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -902,7 +1076,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('No student record linked to this application');
             }
 
-            $cardGenerator = new \App\Modules\Students\StudentIDCardGenerator();
+            $cardGenerator = new \App\API\Modules\students\StudentIDCardGenerator();
             $qrResult = $cardGenerator->generateEnhancedQRCode($studentId);
             $qrToken = is_array($qrResult) && !empty($qrResult['data']['qr_token']) ? $qrResult['data']['qr_token'] : null;
             if (!$qrToken) {
@@ -1010,9 +1184,12 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('No provisional student linked — run create provisional student first');
             }
 
-            // Get assigned class and stream from workflow data.
             $instance_data = json_decode($instance['data_json'], true) ?: [];
             $class_id = $instance_data['assigned_class_id'] ?? null;
+            $academic_year_id = (int) $this->getCurrentAcademicYearId();
+            if (!$academic_year_id) {
+                throw new Exception('No active academic year found for enrollment');
+            }
             $studentTypeId = $this->resolveDefaultStudentTypeId();
             if (!$studentTypeId) {
                 throw new Exception('Unable to resolve an active student type for enrollment');
@@ -1021,60 +1198,52 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Determine stream: prefer assigned, else the provisional student's stream.
             $stream_id = $instance_data['assigned_stream_id'] ?? null;
             if (!$stream_id) {
-                $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = :id LIMIT 1");
-                $stmt->execute(['id' => $student_id]);
-                $stream_id = $stmt->fetchColumn() ?: null;
+                $streamStmt = $this->db->prepare("SELECT id FROM streams ORDER BY id ASC LIMIT 1");
+                $streamStmt->execute();
+                $stream_id = $streamStmt->fetchColumn() ?: null;
             }
-            if (!$stream_id) {
-                $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = :class_id LIMIT 1");
-                $stmt->execute(['class_id' => $class_id]);
-                $stream_id = $stmt->fetchColumn() ?: null;
-            }
-            if (!$stream_id) {
-                throw new Exception('No class stream is configured for the selected placement class');
+            if (!$stream_id || !$class_id) {
+                throw new Exception('No class/stream is configured for the selected placement');
             }
 
-            // Get current academic year
-            $academic_year_id = (int) $this->getCurrentAcademicYearId();
-            if (!$academic_year_id) {
-                throw new Exception('No active academic year found for enrollment');
-            }
-
-            // Activate the provisional student and lock in placement.
-            $stmt = $this->db->prepare("
-                UPDATE students
-                SET status = 'active', stream_id = :stream_id, student_type_id = :student_type_id,
-                    admission_date = CURDATE()
-                WHERE id = :id
+            $aycsId = null;
+            $aycsStmt = $this->db->prepare("
+                SELECT aycs.id FROM academic_year_class_streams aycs
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id AND aycs.stream_id = :stream_id
+                LIMIT 1
             ");
-            $stmt->execute([
-                'stream_id' => (int) $stream_id,
-                'student_type_id' => (int) $studentTypeId,
-                'id' => $student_id,
+            $aycsStmt->execute(['year_id' => $academic_year_id, 'class_id' => $class_id, 'stream_id' => $stream_id]);
+            $aycsId = $aycsStmt->fetchColumn() ?: null;
+
+            if (!$aycsId) {
+                $insertAycs = $this->db->prepare("
+                    INSERT INTO academic_year_class_streams (id, academic_year_class_id, stream_id, status)
+                    SELECT COALESCE(MAX(id), 0) + 1, ayc.id, :stream_id, 'active'
+                    FROM academic_year_class_streams
+                    CROSS JOIN (SELECT ayc2.id FROM academic_year_classes ayc2 WHERE ayc2.academic_year_id = :year_id AND ayc2.class_id = :class_id LIMIT 1) ayc
+                ");
+                $insertAycs->execute(['stream_id' => $stream_id, 'year_id' => $academic_year_id, 'class_id' => $class_id]);
+                $aycsId = (int) $this->db->lastInsertId();
+            }
+
+            $enrollment_date = date('Y-m-d');
+
+            $proc = $this->db->prepare("CALL sp_place_application_into_class(:application_id, :aycs_id, :enrollment_date, :operator_id, :student_type_id, @out_student_id, @out_admission_no, @out_enrollment_id, @out_obligations)");
+            $proc->execute([
+                'application_id' => $application_id,
+                'aycs_id' => (int) $aycsId,
+                'enrollment_date' => $enrollment_date,
+                'operator_id' => (int) ($this->user_id ?? 1),
+                'student_type_id' => $studentTypeId,
             ]);
+            $proc->closeCursor();
 
-            // Create class enrollment record using stored procedure
-            if ($class_id && $stream_id) {
-                $stmt = $this->db->prepare("CALL sp_complete_student_enrollment(:student_id, :class_id, :stream_id, :year_id, @enr_id, @fees)");
-                $stmt->execute([
-                    'student_id' => $student_id,
-                    'class_id' => $class_id,
-                    'stream_id' => $stream_id,
-                    'year_id' => $academic_year_id
-                ]);
-                $stmt->closeCursor();
+            $out = $this->db->query("SELECT @out_student_id AS student_id, @out_admission_no AS admission_no, @out_enrollment_id AS enrollment_id, @out_obligations AS obligations_generated")->fetch(PDO::FETCH_ASSOC);
+            $student_id = (int) ($out['student_id'] ?? 0);
+            $enrollment_id = $out['enrollment_id'] ?? null;
+            $fee_obligations_created = (int) ($out['obligations_generated'] ?? 0);
 
-                $result = $this->db->query("SELECT @enr_id as enrollment_id, @fees as fee_obligations")->fetch(PDO::FETCH_ASSOC);
-                $enrollment_id = $result['enrollment_id'];
-                $fee_obligations_created = $result['fee_obligations'];
-            }
-
-            // Link parent from application
-            if (!empty($application['parent_id'])) {
-                $this->linkParentToStudent($student_id, (int) $application['parent_id']);
-            }
-
-            // Post admission payments that were captured before enrollment.
             $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
                 (int) $application_id,
                 (int) $student_id,
@@ -1083,16 +1252,9 @@ return formatResponse(false, null, 'An internal error occurred.');
                 (string) ($application['application_no'] ?? '')
             );
 
-            // Update application status and link created student
-            $stmt = $this->db->prepare("UPDATE admission_applications SET status = 'enrolled', enrolled_student_id = :student_id, enrolled_at = NOW() WHERE id = :id");
-            $stmt->execute([
-                'student_id' => (int) $student_id,
-                'id' => (int) $application_id,
-            ]);
-
             $instance_data['student_id'] = (int) $student_id;
-            $instance_data['enrollment_id'] = $enrollment_id ?? null;
-            $instance_data['fee_obligations_created'] = $fee_obligations_created ?? 0;
+            $instance_data['enrollment_id'] = $enrollment_id;
+            $instance_data['fee_obligations_created'] = $fee_obligations_created;
             $instance_data['payments_posted'] = $postedPaymentCount;
             $instance_data['enrollment_date'] = date('Y-m-d H:i:s');
             $instance_data['enrollment_completed'] = true;
@@ -1161,15 +1323,15 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'id' => $applicationId,
             ]);
 
-            $stmt = $this->db->prepare("INSERT INTO admission_enrollment_confirmations
-                (application_id, student_id, confirmed_by, confirmed_at, notes, created_at)
-                VALUES (:application_id, :student_id, :confirmed_by, NOW(), :notes, NOW())
-                ON DUPLICATE KEY UPDATE notes = VALUES(notes)");
-            $stmt->execute([
-                'application_id' => $applicationId,
-                'student_id' => (int) $application['enrolled_student_id'],
-                'confirmed_by' => (int) $this->user_id,
-                'notes' => $notes,
+            \App\API\Includes\FileLogger::write('events', [
+                'type' => 'event',
+                'event_type' => 'enrollment_director_confirmed',
+                'event_data' => [
+                    'application_id' => (int) $applicationId,
+                    'student_id' => (int) $application['enrolled_student_id'],
+                    'confirmed_by' => (int) $this->user_id,
+                    'notes' => $notes,
+                ],
             ]);
 
             $instanceData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
@@ -1212,9 +1374,17 @@ return formatResponse(false, null, 'An internal error occurred.');
         return sprintf("ADM/%s/%03d", $year, $num);
     }
 
+    private function getCurrentAcademicYearId(): int
+    {
+        $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
+        if ($yearId <= 0) {
+            $yearId = (int) $this->db->query("SELECT id FROM academic_years WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+        }
+        return $yearId;
+    }
+
     private function generateStudentNumber(int $year, ?int $classId = null): string
     {
-        $classCode = 'STD';
         if ($classId) {
             $classStmt = $this->db->prepare("SELECT name FROM classes WHERE id = :class_id LIMIT 1");
             $classStmt->execute(['class_id' => $classId]);
@@ -1248,8 +1418,8 @@ return formatResponse(false, null, 'An internal error occurred.');
         return substr($normalized, 0, 10);
     }
 
-    private function getRequiredDocuments($grade, string $category = 'standard') {
-        return $this->policy->getRequiredDocuments((string) $grade, $category);
+    private function getRequiredDocuments($grade, string $category = 'standard', bool $isExistingParent = false) {
+        return $this->policy->getRequiredDocuments((string) $grade, $category, $isExistingParent);
     }
 
     private function getApplicationGrade($application_id) {
@@ -1386,17 +1556,21 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         $sumStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(fsd.amount), 0) AS total_fees
-            FROM fee_structures_detailed fsd
-            WHERE fsd.level_id = :level_id
-              AND fsd.academic_year = :academic_year
-              AND fsd.term_id = :term_id
-              AND fsd.student_type_id = :student_type_id
-              AND fsd.status = 'active'
+            SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
+            FROM academic_year_fee_schedules ayfs
+            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
+            WHERE ayc.class_id IN (SELECT c2.id FROM classes c2 WHERE c2.level_id = :level_id)
+              AND ayc.academic_year_id = :academic_year_id
+              AND ayfs.academic_year_term_id = :term_id
+              AND ayfs.student_type_id = :student_type_id
+              AND ayfs.status = 'active'
         ");
+        $ayStmt = $this->db->prepare("SELECT id FROM academic_years WHERE year_code = :year LIMIT 1");
+        $ayStmt->execute(['year' => (string) $academicYear]);
+        $academicYearId = (int) ($ayStmt->fetchColumn() ?: 0);
         $sumStmt->execute([
-            'level_id' => (int) $context['level_id'],
-            'academic_year' => $academicYear,
+            'level_id' => (int) ($context['level_id'] ?? 0),
+            'academic_year_id' => $academicYearId ?: $academicYear,
             'term_id' => $termId,
             'student_type_id' => $studentTypeId
         ]);
@@ -1406,18 +1580,18 @@ return formatResponse(false, null, 'An internal error occurred.');
             return $totalFees;
         }
 
-        // Fallback: use whichever student type has active fee lines for this level/term/year.
         $fallbackStmt = $this->db->prepare("
-            SELECT COALESCE(SUM(fsd.amount), 0) AS total_fees
-            FROM fee_structures_detailed fsd
-            WHERE fsd.level_id = :level_id
-              AND fsd.academic_year = :academic_year
-              AND fsd.term_id = :term_id
-              AND fsd.status = 'active'
+            SELECT COALESCE(SUM(ayfs.amount), 0) AS total_fees
+            FROM academic_year_fee_schedules ayfs
+            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
+            WHERE ayc.class_id IN (SELECT c2.id FROM classes c2 WHERE c2.level_id = :level_id)
+              AND ayc.academic_year_id = :academic_year_id
+              AND ayfs.academic_year_term_id = :term_id
+              AND ayfs.status = 'active'
         ");
         $fallbackStmt->execute([
-            'level_id' => (int) $context['level_id'],
-            'academic_year' => $academicYear,
+            'level_id' => (int) ($context['level_id'] ?? 0),
+            'academic_year_id' => $academicYearId ?: $academicYear,
             'term_id' => $termId
         ]);
 
@@ -1427,27 +1601,31 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function resolveAcademicTermId(int $academicYear): ?int
     {
         $stmt = $this->db->prepare("
-            SELECT id
-            FROM academic_terms
-            WHERE year = :year
-              AND status = 'current'
-            ORDER BY (status = 'current') DESC, term_number ASC
+            SELECT ayt.id
+            FROM academic_year_terms ayt
+            JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ay.year_code = :year_code
+              AND ayt.status = 'current'
+            ORDER BY t.id ASC
             LIMIT 1
         ");
-        $stmt->execute(['year' => $academicYear]);
+        $stmt->execute(['year_code' => (string) $academicYear]);
         $termId = $stmt->fetchColumn();
         if ($termId) {
             return (int) $termId;
         }
 
         $fallbackStmt = $this->db->prepare("
-            SELECT id
-            FROM academic_terms
-            WHERE year = :year
-            ORDER BY term_number ASC
+            SELECT ayt.id
+            FROM academic_year_terms ayt
+            JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ay.year_code = ?
+            ORDER BY t.id ASC
             LIMIT 1
         ");
-        $fallbackStmt->execute(['year' => $academicYear]);
+        $fallbackStmt->execute([(string) $academicYear]);
         $fallbackTermId = $fallbackStmt->fetchColumn();
 
         return $fallbackTermId ? (int) $fallbackTermId : null;
@@ -1517,47 +1695,37 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $isPrimaryContact = $existingCount === 0 ? 1 : 0;
         $isEmergencyContact = $isPrimaryContact;
-        $financialResponsibility = $existingCount === 0 ? 100.00 : 0.00;
 
         $sql = "INSERT INTO student_parents (
                     student_id,
                     parent_id,
                     relationship,
                     is_primary_contact,
-                    is_emergency_contact,
-                    financial_responsibility,
-                    created_at,
-                    updated_at
+                    is_emergency_contact
                 ) VALUES (
                     :student_id,
                     :parent_id,
                     :relationship,
                     :is_primary_contact,
-                    :is_emergency_contact,
-                    :financial_responsibility,
-                    NOW(),
-                    NOW()
+                    :is_emergency_contact
                 )
                 ON DUPLICATE KEY UPDATE
                     relationship = VALUES(relationship),
                     is_primary_contact = VALUES(is_primary_contact),
-                    is_emergency_contact = VALUES(is_emergency_contact),
-                    financial_responsibility = VALUES(financial_responsibility),
-                    updated_at = NOW()";
+                    is_emergency_contact = VALUES(is_emergency_contact)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             'student_id' => $student_id,
             'parent_id' => $parent_id,
             'relationship' => $relationship,
             'is_primary_contact' => $isPrimaryContact,
-            'is_emergency_contact' => $isEmergencyContact,
-            'financial_responsibility' => $financialResponsibility
+            'is_emergency_contact' => $isEmergencyContact
         ]);
 
         if ($isPrimaryContact === 1) {
             $unsetStmt = $this->db->prepare("
                 UPDATE student_parents
-                SET is_primary_contact = 0, updated_at = NOW()
+                SET is_primary_contact = 0
                 WHERE student_id = :student_id AND parent_id != :parent_id
             ");
             $unsetStmt->execute([
@@ -1573,7 +1741,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             SELECT relationship
             FROM student_parents
             WHERE parent_id = :parent_id
-            ORDER BY is_primary_contact DESC, is_emergency_contact DESC, id ASC
+            ORDER BY is_primary_contact DESC, is_emergency_contact DESC
             LIMIT 1
         ");
         $existingStmt->execute(['parent_id' => $parent_id]);
@@ -1619,23 +1787,14 @@ return formatResponse(false, null, 'An internal error occurred.');
             (string) $venue
         );
 
-        $smsStmt = $this->db->prepare("
-            CALL sp_send_sms_to_parents(
-                :parent_ids,
-                :message,
-                :template_id,
-                :message_type,
-                :sent_by
-            )
-        ");
-        $smsStmt->execute([
+        \App\API\Includes\FileLogger::write('communications', [
+            'type' => 'sms_queue',
+            'message_type' => 'admission_interview',
             'parent_ids' => (string) $application['parent_id'],
             'message' => $message,
             'template_id' => null,
-            'message_type' => 'admission_interview',
-            'sent_by' => (int) $this->user_id
+            'sent_by' => (int) $this->user_id,
         ]);
-        $smsStmt->closeCursor();
 
         $this->logAction('sms_sent', $application_id, "Interview notification queued for $date at $time");
     }
@@ -1661,24 +1820,58 @@ return formatResponse(false, null, 'An internal error occurred.');
             number_format((float) $fees, 2)
         );
 
-        $smsStmt = $this->db->prepare("
-            CALL sp_send_sms_to_parents(
-                :parent_ids,
-                :message,
-                :template_id,
-                :message_type,
-                :sent_by
-            )
-        ");
-        $smsStmt->execute([
+        \App\API\Includes\FileLogger::write('communications', [
+            'type' => 'sms_queue',
+            'message_type' => 'admission_offer',
             'parent_ids' => (string) $application['parent_id'],
             'message' => $message,
             'template_id' => null,
-            'message_type' => 'admission_offer',
-            'sent_by' => (int) $this->user_id
+            'sent_by' => (int) $this->user_id,
         ]);
-        $smsStmt->closeCursor();
 
         $this->logAction('placement_offer_sent', $application_id, "Placement offer sent. Total fees: $fees");
+    }
+
+    /**
+     * Check if a parent already exists by national ID number.
+     * Returns ['parent_id' => int, 'person_id' => int, 'first_name' => ..., ...] or null.
+     */
+    private function findExistingParentByNationalId(string $nationalIdNo): ?array
+    {
+        $stmt = $this->db->prepare("
+            SELECT p.id AS person_id, p.first_name, p.last_name, p.email, p.phone,
+                   p.national_id_no, p.gender, p.dob,
+                   par.id AS parent_id, par.occupation, par.address
+            FROM persons p
+            JOIN parents par ON par.person_id = p.id
+            WHERE p.national_id_no = :id_no
+            LIMIT 1
+        ");
+        $stmt->execute(['id_no' => $nationalIdNo]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    /**
+     * Look up all children for a given parent (via student_parents junction).
+     */
+    private function getParentChildren(int $parentId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT s.id AS student_id, s.admission_no,
+                   CONCAT(ps.first_name, ' ', COALESCE(ps.middle_name,''), ' ', ps.last_name) AS child_name,
+                   s.status, c.name AS class_name, ay.year_code
+            FROM student_parents sp
+            JOIN students s ON s.id = sp.student_id
+            JOIN persons ps ON ps.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
+            WHERE sp.parent_id = ?
+            ORDER BY s.admission_date DESC
+        ");
+        $stmt->execute([$parentId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 }

@@ -468,7 +468,7 @@ if ($appBase === '.') $appBase = '';
           <select id="jobType"><option value="Full-Time">Full-Time</option><option value="Part-Time">Part-Time</option><option value="Contract">Contract</option></select>
         </div>
         <div class="col-md-4 ws-form-group"><label>Deadline *</label><input type="date" id="jobDeadline"></div>
-        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani Campus"></div>
+        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani, Kenya"></div>
         <div class="col-12 ws-form-group"><label>Description *</label><textarea id="jobDescription" rows="4" placeholder="Role description…"></textarea></div>
         <div class="col-12 ws-form-group"><label>Requirements (one per line)</label><textarea id="jobRequirements" rows="4" placeholder="P1 or B.Ed (Primary Education)&#10;TSC Registration&#10;2+ years experience"></textarea></div>
         <div class="col-12 ws-form-group"><label>Responsibilities (one per line)</label><textarea id="jobResponsibilities" rows="4" placeholder="Deliver CBC-aligned lessons&#10;Maintain class registers"></textarea></div>

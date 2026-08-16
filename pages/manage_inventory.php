@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Inventory Page
- * HTML structure only - logic will be in js/pages/inventory.js
+ * HTML structure only - logic in js/pages/manage_inventory.js
  * Embedded in app_layout.php
  * 
  * Role-based access:

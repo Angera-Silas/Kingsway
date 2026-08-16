@@ -23,11 +23,12 @@ use function App\API\Includes\formatResponse;
  * - sp_record_cash_payment
  * 
  * Integrates with tables:
- * - payment_transactions
- * - payment_allocations_detailed
+ * - payments
  * - mpesa_transactions
  * - bank_transactions
  * - payment_reconciliations
+ * - student_fee_obligations
+ * - academic_year_fee_schedules
  */
 class PaymentManager
 {
@@ -100,17 +101,9 @@ class PaymentManager
                 $data['notes'] ?? null          // p_notes
             ]);
 
-            // The stored procedure doesn't return a result set, so we need to fetch the payment_id from the database
-            // Get the latest payment ID for this student from the payment_transactions table
-            $stmt = $this->db->prepare("
-                SELECT id FROM payment_transactions 
-                WHERE student_id = ? 
-                ORDER BY created_at DESC 
-                LIMIT 1
-            ");
-            $stmt->execute([$data['student_id']]);
+            // The stored procedure returns the generated payment id in its result set.
             $paymentResult = $stmt->fetch(PDO::FETCH_ASSOC);
-            $paymentId = $paymentResult['id'] ?? null;
+            $paymentId = $paymentResult['transaction_id'] ?? null;
 
             if (!$paymentId) {
                 return formatResponse(false, null, 'Payment was processed but ID could not be retrieved');
@@ -122,8 +115,13 @@ class PaymentManager
             }
 
             // If bank payment, record bank transaction details
-            if ($data['payment_method'] === 'bank' && !empty($data['bank_data'])) {
-                $this->recordBankTransaction($paymentId, $data['bank_data']);
+            $bankMethod = strtolower((string)($data['payment_method'] ?? ''));
+            if (in_array($bankMethod, ['bank', 'bank_transfer'], true) && !empty($data['bank_data'])) {
+                $bankData = is_array($data['bank_data']) ? $data['bank_data'] : [];
+                if (!isset($bankData['student_id'])) {
+                    $bankData['student_id'] = $data['student_id'];
+                }
+                $this->recordBankTransaction($paymentId, $bankData);
             }
 
             // No need for $this->db->commit() - the stored procedure already committed
@@ -166,7 +164,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $mpesaData['amount'],
             $mpesaData['transaction_date'] ?? date('Y-m-d H:i:s'),
             $mpesaData['status'] ?? 'processed',
-            (string) $paymentId  // link back to payment_transactions.id
+            (string) $paymentId  // link back to payments.id
         ]);
     }
 
@@ -179,23 +177,29 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function recordBankTransaction($paymentId, $bankData)
     {
         // bank_transactions has no payment_id column; transaction_ref is the unique key
+        // student_id is NOT NULL, so it must be set from the surrounding payment context.
+        $studentId = $bankData['student_id'] ?? null;
+
         $stmt = $this->db->prepare("
             INSERT INTO bank_transactions (
-                transaction_ref, amount,
-                transaction_date, bank_name, account_number, narration, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                student_id, transaction_ref, amount,
+                transaction_date, bank_name, account_number, narration, status,
+                source_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual_entry')
             ON DUPLICATE KEY UPDATE
-                status = VALUES(status)
+                status = VALUES(status),
+                narration = VALUES(narration)
         ");
 
         return $stmt->execute([
+            $studentId,
             $bankData['transaction_ref'] ?? 'BNK-' . $paymentId . '-' . time(),
             $bankData['amount'],
             $bankData['transaction_date'] ?? date('Y-m-d H:i:s'),
             $bankData['bank_name'] ?? null,
             $bankData['account_number'] ?? null,
             $bankData['narration'] ?? null,
-            $bankData['status'] ?? 'processed'
+            $bankData['status'] ?? 'pending'
         ]);
     }
 
@@ -216,7 +220,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Verify payment exists
             $stmt = $this->db->prepare("
-                SELECT id, amount_paid AS amount, student_id FROM payment_transactions WHERE id = ?
+                SELECT id, amount, student_id FROM payments WHERE id = ?
             ");
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -226,21 +230,16 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Payment not found');
             }
 
-            // The live procedure contract is:
-            // (payment_id, student_id, allocation_amount, term_id, year_id, allocated_by).
-            // Detailed allocations use payment_allocations_detailed separately.
-            $procedure = $this->db->prepare("CALL sp_allocate_payment(?, ?, ?, ?, ?, ?)");
-            $detail = $this->db->prepare("
-                INSERT INTO payment_allocations_detailed (
-                    payment_transaction_id,
-                    student_fee_obligation_id,
-                    amount_allocated,
-                    allocated_by,
-                    notes
-                ) VALUES (?, ?, ?, ?, ?)
+            // The live schema represents allocations as the payments rows themselves, so
+            // allocation details are recorded against the payment row (notes column).
+            $notesStmt = $this->db->prepare("
+                UPDATE payments
+                SET notes = CONCAT(COALESCE(notes, ''), ?)
+                WHERE id = ?
             ");
 
             $allocated = 0.0;
+            $allocationNotes = [];
             foreach ($allocations as $allocation) {
                 $amount = (float) ($allocation['amount'] ?? $allocation['amount_allocated'] ?? 0);
                 $obligationId = (int) ($allocation['student_fee_obligation_id'] ?? 0);
@@ -248,39 +247,55 @@ return formatResponse(false, null, 'An internal error occurred.');
                     throw new Exception('Each allocation requires a positive amount and student_fee_obligation_id');
                 }
 
-                $obligationStmt = $this->db->prepare(
-                    'SELECT student_id, term_id, academic_year FROM student_fee_obligations WHERE id = ? LIMIT 1'
-                );
+                $obligationStmt = $this->db->prepare("
+                    SELECT sae.student_id,
+                           sfo.academic_year_id,
+                           ayt.term_id
+                    FROM student_fee_obligations sfo
+                    INNER JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+                    LEFT JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+                    WHERE sfo.id = ?
+                    LIMIT 1
+                ");
                 $obligationStmt->execute([$obligationId]);
                 $obligation = $obligationStmt->fetch(PDO::FETCH_ASSOC);
                 if (!$obligation) {
                     throw new Exception("Student fee obligation {$obligationId} not found");
                 }
 
-                $procedure->execute([
-                    $paymentId,
-                    (int) $obligation['student_id'],
-                    $amount,
-                    (int) $obligation['term_id'],
-                    (int) $obligation['academic_year'],
-                    $this->user_id ?? null,
+                \App\API\Includes\FileLogger::write('finance', [
+                    'type' => 'audit',
+                    'action' => 'ALLOCATE_PAYMENT',
+                    'entity' => 'payments',
+                    'entity_id' => $paymentId,
+                    'user_id' => $this->user_id ?? null,
+                    'details' => [
+                        'student_id' => (int) $obligation['student_id'],
+                        'allocated_amount' => $amount,
+                        'term_id' => (int) $obligation['term_id'],
+                        'academic_year_id' => (int) $obligation['academic_year_id'],
+                    ],
+                    'status' => 'success',
                 ]);
-                while ($procedure->nextRowset()) {
-                    // Drain procedure result sets before the next execution.
-                }
 
-                $detail->execute([
-                    $paymentId,
+                $allocationNotes[] = sprintf(
+                    'Allocation: obligation %d amount %s (by %s)%s',
                     $obligationId,
-                    $amount,
-                    $this->user_id ?? null,
-                    $allocation['notes'] ?? null,
-                ]);
+                    number_format($amount, 2),
+                    $this->user_id ?? 'system',
+                    (isset($allocation['notes']) && $allocation['notes'] !== null && $allocation['notes'] !== '')
+                        ? ' | ' . $allocation['notes']
+                        : ''
+                );
                 $allocated += $amount;
             }
 
             if ($allocated > (float) $payment['amount']) {
                 throw new Exception('Allocation total exceeds payment amount');
+            }
+
+            if (!empty($allocationNotes)) {
+                $notesStmt->execute(["\n" . implode("\n", $allocationNotes), $paymentId]);
             }
 
             $this->db->commit();
@@ -305,12 +320,27 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT pt.*, s.admission_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                SELECT p.id,
+                       p.student_id,
+                       p.receipt_no,
+                       p.amount,
+                       p.method AS payment_method,
+                       p.reference AS reference_no,
+                       p.payment_date,
+                       p.parent_id,
+                       p.received_by,
+                       p.status,
+                       p.notes,
+                       p.created_at,
+                       p.updated_at,
+                       s.admission_no,
+                       CONCAT(ps.first_name, ' ', ps.last_name) as student_name,
                        u.username as received_by_name
-                FROM payment_transactions pt
-                INNER JOIN students s ON pt.student_id = s.id
-                LEFT JOIN users u ON pt.received_by = u.id
-                WHERE pt.id = ?
+                FROM payments p
+                INNER JOIN students s ON p.student_id = s.id
+                LEFT JOIN persons ps ON ps.id = s.person_id
+                LEFT JOIN users u ON p.received_by = u.id
+                WHERE p.id = ?
             ");
 
             $stmt->execute([$paymentId]);
@@ -320,22 +350,19 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Payment not found');
             }
 
-            // Get payment allocations
-            $stmt = $this->db->prepare("
-                SELECT pad.*, 
-                       sfo.fee_structure_detail_id,
-                       fsd.fee_type_id,
-                       ft.name as fee_type_name,
-                       ft.code as fee_type_code
-                FROM payment_allocations_detailed pad
-                LEFT JOIN student_fee_obligations sfo ON sfo.id = pad.student_fee_obligation_id
-                LEFT JOIN fee_structures_detailed fsd ON fsd.id = sfo.fee_structure_detail_id
-                LEFT JOIN fee_types ft ON ft.id = fsd.fee_type_id
-                WHERE pad.payment_transaction_id = ?
-            ");
-
-            $stmt->execute([$paymentId]);
-            $payment['allocations'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // The live schema has no allocation table; a payment row is itself
+            // the allocation, so derive a single allocation entry from it.
+            $payment['allocations'] = [[
+                'payment_transaction_id' => $payment['id'],
+                'student_fee_obligation_id' => null,
+                'amount_allocated' => $payment['amount'],
+                'allocated_by' => $payment['received_by'],
+                'notes' => $payment['notes'],
+                'fee_structure_detail_id' => null,
+                'fee_type_id' => null,
+                'fee_type_name' => null,
+                'fee_type_code' => null,
+            ]];
 
             // Get M-Pesa details if applicable
             if ($payment['payment_method'] === 'mpesa') {
@@ -378,9 +405,13 @@ return formatResponse(false, null, 'An internal error occurred.');
             $offset = ($page - 1) * $limit;
 
             $baseSql = "
-                FROM payment_transactions pt
+                FROM payments pt
                 INNER JOIN students s ON s.id = pt.student_id
-                LEFT JOIN academic_terms at ON at.id = pt.term_id
+                LEFT JOIN persons ps ON ps.id = s.person_id
+                LEFT JOIN academic_years ay ON pt.payment_date BETWEEN ay.start_date AND ay.end_date
+                LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id
+                    AND pt.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
+                LEFT JOIN terms t ON t.id = ayt.term_id
                 WHERE 1 = 1
             ";
             $params = [];
@@ -391,12 +422,12 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             if (!empty($filters['academic_year'])) {
-                $baseSql .= " AND pt.academic_year = ?";
+                $baseSql .= " AND ay.id = ?";
                 $params[] = (int) $filters['academic_year'];
             }
 
             if (!empty($filters['payment_method'])) {
-                $baseSql .= " AND pt.payment_method = ?";
+                $baseSql .= " AND pt.method = ?";
                 $params[] = $filters['payment_method'];
             }
 
@@ -419,8 +450,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $search = '%' . $filters['search'] . '%';
                 $baseSql .= " AND (
                     s.admission_no LIKE ?
-                    OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?
-                    OR pt.reference_no LIKE ?
+                    OR CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) LIKE ?
+                    OR pt.reference LIKE ?
                     OR pt.receipt_no LIKE ?
                 )";
                 $params[] = $search;
@@ -434,18 +465,18 @@ return formatResponse(false, null, 'An internal error occurred.');
                     pt.id,
                     pt.student_id,
                     s.admission_no AS student_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    pt.amount_paid AS amount,
+                    CONCAT_WS(' ', ps.first_name, ps.middle_name, ps.last_name) AS student_name,
+                    pt.amount AS amount,
                     pt.payment_date AS transaction_date,
-                    pt.payment_method,
-                    pt.reference_no AS transaction_ref,
+                    pt.method AS payment_method,
+                    pt.reference AS transaction_ref,
                     pt.receipt_no,
                     pt.status,
                     pt.notes AS details,
-                    pt.term_id,
-                    at.name AS term_name,
-                    at.term_number,
-                    pt.academic_year,
+                    ayt.term_id AS term_id,
+                    t.name AS term_name,
+                    t.id AS term_number,
+                    ay.id AS academic_year,
                     pt.created_at,
                     pt.updated_at
                 {$baseSql}
@@ -464,10 +495,10 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $summarySql = "
                 SELECT
-                    COALESCE(SUM(pt.amount_paid), 0) AS total_amount,
-                    COALESCE(SUM(CASE WHEN pt.status = 'pending' THEN pt.amount_paid ELSE 0 END), 0) AS pending_amount,
-                    COALESCE(SUM(CASE WHEN pt.status IN ('confirmed','successful') THEN pt.amount_paid ELSE 0 END), 0) AS confirmed_amount,
-                    COALESCE(SUM(CASE WHEN DATE(pt.payment_date) = CURDATE() AND pt.status IN ('confirmed','successful') THEN pt.amount_paid ELSE 0 END), 0) AS today_amount
+                    COALESCE(SUM(pt.amount), 0) AS total_amount,
+                    COALESCE(SUM(CASE WHEN pt.status = 'pending' THEN pt.amount ELSE 0 END), 0) AS pending_amount,
+                    COALESCE(SUM(CASE WHEN pt.status = 'confirmed' THEN pt.amount ELSE 0 END), 0) AS confirmed_amount,
+                    COALESCE(SUM(CASE WHEN DATE(pt.payment_date) = CURDATE() AND pt.status = 'confirmed' THEN pt.amount ELSE 0 END), 0) AS today_amount
                 {$baseSql}
             ";
             $summaryStmt = $this->db->prepare($summarySql);
@@ -521,7 +552,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Verify payment exists and is not already reversed
             $stmt = $this->db->prepare("
-                SELECT * FROM payment_transactions WHERE id = ? AND status != 'reversed'
+                SELECT * FROM payments WHERE id = ? AND status != 'reversed'
             ");
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -532,7 +563,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             // Update payment status to reversed.
-            // payment_transactions has no reversal_reason/reversed_by/reversed_at columns.
+            // payments has no reversal_reason/reversed_by/reversed_at columns.
             // Store reversal context in the notes column.
             $reversalNote = sprintf(
                 '[REVERSED] Reason: %s | By: %s | At: %s',
@@ -541,7 +572,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 date('Y-m-d H:i:s')
             );
             $stmt = $this->db->prepare("
-                UPDATE payment_transactions
+                UPDATE payments
                 SET status = 'reversed',
                     notes = CONCAT(COALESCE(notes,''), ?)
                 WHERE id = ?
@@ -549,30 +580,9 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $stmt->execute(["\n" . $reversalNote, $paymentId]);
 
-            // Reverse allocations - update student fee balances
-            $stmt = $this->db->prepare("
-                SELECT * FROM payment_allocations_detailed WHERE payment_id = ?
-            ");
-            $stmt->execute([$paymentId]);
-            $allocations = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            foreach ($allocations as $allocation) {
-                // Add back the amount to student's balance
-                $stmt = $this->db->prepare("
-                    UPDATE student_fee_balances 
-                    SET balance = balance + ?,
-                        total_paid = total_paid - ?
-                    WHERE student_id = ? AND academic_year = ?
-                ");
-
-                $stmt->execute([
-                    $allocation['amount'],
-                    $allocation['amount'],
-                    $payment['student_id'],
-                    $payment['academic_year'] ?? date('Y')
-                ]);
-            }
-
+            // Reversing the payment status is sufficient: the fee balance views
+            // (vw_student_fee_balances) only count payments with a confirmed
+            // status, so a reversed payment no longer contributes to amount_paid.
             $this->db->commit();
 
             return formatResponse(true, ['message' => 'Payment reversed successfully']);
@@ -615,7 +625,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     SELECT st.id, ?, ?, ?
                     FROM school_transactions st
                     WHERE st.reference = (
-                        SELECT reference_no FROM payment_transactions WHERE id = ? LIMIT 1
+                        SELECT reference COLLATE utf8mb4_general_ci FROM payments WHERE id = ? LIMIT 1
                     )
                     LIMIT 1
                 ");
@@ -633,7 +643,7 @@ return formatResponse(false, null, 'An internal error occurred.');
 
                     // Mark payment as confirmed once reconciled
                     $this->db->prepare(
-                        "UPDATE payment_transactions SET status = 'confirmed' WHERE id = ? AND status = 'pending'"
+                        "UPDATE payments SET status = 'confirmed' WHERE id = ? AND status = 'pending'"
                     )->execute([$match['payment_id']]);
                 }
             }
@@ -662,37 +672,40 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getPaymentSummary($filters = [])
     {
         try {
-            $amountExpr = \App\API\Includes\sql_coalesce_existing_columns('payment_transactions', ['amount_paid', 'amount'], '0', 300, true);
+            $amountExpr = 'COALESCE(p.amount, 0)';
 
             $sql = "SELECT 
                         COUNT(*) as total_transactions,
                         SUM($amountExpr) as total_amount,
                         AVG($amountExpr) as average_amount,
-                        payment_method,
-                        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count,
-                        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
-                        COUNT(CASE WHEN status = 'reversed' THEN 1 END) as reversed_count
-                    FROM payment_transactions
+                        p.method AS payment_method,
+                        COUNT(CASE WHEN p.status = 'confirmed' THEN 1 END) as completed_count,
+                        COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_count,
+                        COUNT(CASE WHEN p.status = 'reversed' THEN 1 END) as reversed_count
+                    FROM payments p
                     WHERE 1=1";
 
             $params = [];
 
             if (!empty($filters['academic_year'])) {
-                $sql .= " AND academic_year = ?";
-                $params[] = $filters['academic_year'];
+                $sql .= " AND EXISTS (
+                    SELECT 1 FROM academic_years ay
+                    WHERE ay.id = ? AND p.payment_date BETWEEN ay.start_date AND ay.end_date
+                )";
+                $params[] = (int) $filters['academic_year'];
             }
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND payment_date >= ?";
+                $sql .= " AND p.payment_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND payment_date <= ?";
+                $sql .= " AND p.payment_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
-            $sql .= " GROUP BY payment_method";
+            $sql .= " GROUP BY p.method";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -735,12 +748,13 @@ return formatResponse(false, null, 'An internal error occurred.');
             $this->db->beginTransaction();
 
             // Call stored procedure sp_record_cash_payment
+            // Live signature: (p_student_id, p_amount, p_payment_method, p_payment_date)
             $stmt = $this->db->prepare("CALL sp_record_cash_payment(?, ?, ?, ?)");
             $stmt->execute([
                 $data['student_id'],
                 $data['amount'],
-                $data['received_by'],
-                $data['notes'] ?? null
+                $data['payment_method'] ?? 'cash',
+                $data['payment_date'] ?? date('Y-m-d H:i:s')
             ]);
 
             $this->db->commit();
@@ -759,7 +773,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     }
 
     /**
-     * Get parent payment activity using view
+     * Get parent payment activity
      * @param int $parentId Parent ID
      * @param array $filters Optional filters
      * @return array Response
@@ -767,25 +781,47 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function getParentPaymentActivity($parentId, $filters = [])
     {
         try {
-            $sql = "SELECT * FROM vw_parent_payment_activity WHERE parent_id = ?";
+            $sql = "SELECT
+                        p.id,
+                        p.student_id,
+                        p.receipt_no,
+                        p.amount,
+                        p.payment_date,
+                        p.method AS payment_method,
+                        p.reference,
+                        p.status,
+                        p.notes,
+                        s.admission_no,
+                        CONCAT(ps.first_name, ' ', ps.last_name) AS student_name,
+                        ay.id AS academic_year,
+                        ayt.term_id AS term_id,
+                        t.name AS term_name
+                    FROM payments p
+                    INNER JOIN students s ON p.student_id = s.id
+                    LEFT JOIN persons ps ON ps.id = s.person_id
+                    LEFT JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    LEFT JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id
+                        AND p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
+                    LEFT JOIN terms t ON t.id = ayt.term_id
+                    WHERE p.parent_id = ?";
             $params = [$parentId];
 
             if (!empty($filters['academic_year'])) {
-                $sql .= " AND academic_year = ?";
-                $params[] = $filters['academic_year'];
+                $sql .= " AND ay.id = ?";
+                $params[] = (int) $filters['academic_year'];
             }
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND payment_date >= ?";
+                $sql .= " AND p.payment_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND payment_date <= ?";
+                $sql .= " AND p.payment_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
-            $sql .= " ORDER BY payment_date DESC";
+            $sql .= " ORDER BY p.payment_date DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -847,6 +883,29 @@ return formatResponse(false, null, 'An internal error occurred.');
                 $params[] = $search;
             }
 
+            if (!empty($filters['class_id'])) {
+                $baseSql .= " AND id IN (SELECT sae.student_id FROM student_academic_enrollments sae "
+                    . "JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id "
+                    . "JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id "
+                    . "WHERE ayc.class_id = ?)";
+                $params[] = (int) $filters['class_id'];
+            }
+
+            if (!empty($filters['balance_only'])) {
+                $baseSql .= " AND current_balance > 0";
+            }
+
+            if (!empty($filters['amount_range'])) {
+                if (preg_match('/^(\d+)\s*-\s*(\d+)$/', (string) $filters['amount_range'], $m)) {
+                    $baseSql .= " AND current_balance BETWEEN ? AND ?";
+                    $params[] = (float) $m[1];
+                    $params[] = (float) $m[2];
+                } elseif (preg_match('/^(\d+)\+$/', (string) $filters['amount_range'], $m)) {
+                    $baseSql .= " AND current_balance >= ?";
+                    $params[] = (float) $m[1];
+                }
+            }
+
             $page = max(1, (int) ($filters['page'] ?? 1));
             $limit = (int) ($filters['limit'] ?? 25);
             if ($limit < 1) {
@@ -906,7 +965,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $stmt = $this->db->prepare("
                 SELECT * FROM vw_student_payment_status_enhanced 
-                WHERE student_id = ?
+                WHERE id = ?
             ");
             $stmt->execute([$studentId]);
             $status = $stmt->fetch(PDO::FETCH_ASSOC);

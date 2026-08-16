@@ -348,10 +348,10 @@
       add("»", this.currentPage + 1, this.currentPage >= total);
     },
 
-    viewMessage: function (index) {
+    viewMessage: async function (index) {
       const item = this.filtered[index];
       if (!item) return;
-      alert("Recipients: " + (item.recipient_type || item.recipient_summary || "—") +
+      await window.infoDialog('Notice', "Recipients: " + (item.recipient_type || item.recipient_summary || "—") +
         "\nType: " + (item.category || "—") +
         "\nStatus: " + (item.status || "—") +
         "\n\n" + String(item.content || item.message || item.subject || "No message").substring(0, 1600));
@@ -359,7 +359,7 @@
 
     resendMessage: async function (index) {
       const item = this.filtered[index];
-      if (!item || !confirm("Resend this WhatsApp message?")) return;
+      if (!item || !(await window.confirmAction('Confirm', "Resend this WhatsApp message?"))) return;
       const id = item.id || item.communication_id;
       if (!id) { this.notify("Missing ID", "error"); return; }
       try {

@@ -130,7 +130,7 @@ const accountantMpesaDashboardController = Object.assign(
 
     handleMatchPayment: async function (id, receipt) {
       var self = this;
-      var studentId = prompt("Enter Student ID or Admission Number to match payment " + receipt + ":");
+      var studentId = await window.promptAction('Input', "Enter Student ID or Admission Number to match payment " + receipt + ":");
       if (!studentId) {
         return;
       }

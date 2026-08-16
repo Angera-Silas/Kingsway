@@ -107,7 +107,13 @@ const StaffLeaveController = {
     } catch (e) { this.notify(e.message, 'error'); }
   },
 
-  notify(m, t = 'info') { window.API?.showNotification?.(m, t) || alert(m); },
+  async notify(m, t = 'info') {
+    if (window.API && typeof window.API.showNotification === 'function') {
+      window.API.showNotification(m, t);
+    } else {
+      await window.infoDialog('Notice', m);
+    }
+  },
   esc(v) { const d = document.createElement('div'); d.textContent = String(v ?? ''); return d.innerHTML; }
 };
 

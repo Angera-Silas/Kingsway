@@ -481,7 +481,7 @@ const staffManagementController = {
   },
 
   deleteStaff: async function (staffId) {
-    if (!confirm("Are you sure you want to delete this staff member?")) return;
+    if (!(await window.confirmAction("Confirm Deletion", "Are you sure you want to delete this staff member?", { confirmText: "Delete", danger: true }))) return;
 
     try {
       await window.API.staff.delete(staffId);
@@ -1191,7 +1191,7 @@ const staffManagementController = {
   },
 
   removeAssignment: async function (assignmentId) {
-    if (!confirm("Remove this assignment?")) return;
+    if (!(await window.confirmAction("Confirm Deletion", "Remove this assignment?", { confirmText: "Delete", danger: true }))) return;
     try {
       await window.API.apiCall(`/staff/assignments/remove/${assignmentId}`, "DELETE");
       showNotification("Assignment removed", "success");
@@ -1690,7 +1690,7 @@ const staffManagementController = {
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
 
-    if (!confirm(`Generate payslip for ${this.getMonthName(month)} ${year}?`)) return;
+    if (!(await window.confirmAction("Confirm", `Generate payslip for ${this.getMonthName(month)} ${year}?`))) return;
 
     try {
       await window.API.staff.generateDetailedPayslip(staffId, month, year);
@@ -1705,7 +1705,7 @@ const staffManagementController = {
   // ==================== DEACTIVATION ====================
 
   deactivateStaff: async function (staffId) {
-    if (!confirm("Are you sure you want to deactivate this staff member? They will no longer be able to access the system.")) return;
+    if (!(await window.confirmAction("Confirm", "Are you sure you want to deactivate this staff member? They will no longer be able to access the system."))) return;
     try {
       await window.API.staff.update(staffId, { status: "inactive" });
       showNotification("Staff deactivated successfully", "success");
@@ -1718,7 +1718,7 @@ const staffManagementController = {
   },
 
   activateStaff: async function (staffId) {
-    if (!confirm("Reactivate this staff member?")) return;
+    if (!(await window.confirmAction("Confirm", "Reactivate this staff member?"))) return;
     try {
       await window.API.staff.update(staffId, { status: "active" });
       showNotification("Staff reactivated successfully", "success");

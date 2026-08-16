@@ -203,7 +203,7 @@ const FeeDefaultersController = {
       this.showNotification("Select students first", "warning");
       return;
     }
-    if (!confirm(`Send fee reminders to ${ids.length} parent(s)?`)) return;
+    if (!(await window.confirmAction('Confirm', `Send fee reminders to ${ids.length} parent(s)?`))) return;
 
     try {
       const res = await window.API.communications?.sendBulkFeeReminders({

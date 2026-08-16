@@ -190,7 +190,7 @@ const activitiesController = {
   },
 
   deleteActivity: async function (id) {
-    if (!confirm('Delete this activity? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this activity? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.delete(id);
       API.showNotification('Activity deleted', 'success');
@@ -305,7 +305,7 @@ const activitiesController = {
   },
 
   deleteCategory: async function (id) {
-    if (!confirm('Delete this category?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this category?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteCategory(id);
       API.showNotification('Category deleted', 'success');
@@ -406,7 +406,7 @@ const activitiesController = {
   },
 
   withdrawParticipant: async function (id) {
-    if (!confirm('Withdraw this participant?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Withdraw this participant?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.withdrawParticipant(id, 'Withdrawn by admin');
       API.showNotification('Participant withdrawn', 'success');
@@ -517,7 +517,7 @@ const activitiesController = {
   },
 
   deleteSchedule: async function (id) {
-    if (!confirm('Delete this schedule?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this schedule?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteSchedule(id);
       API.showNotification('Schedule deleted', 'success');
@@ -631,7 +631,7 @@ const activitiesController = {
   },
 
   deleteResource: async function (id) {
-    if (!confirm('Delete this resource?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this resource?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteResource(id);
       API.showNotification('Resource deleted', 'success');

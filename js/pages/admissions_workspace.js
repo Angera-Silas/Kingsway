@@ -2158,8 +2158,8 @@ const admissionsWorkspaceController = {
         });
     },
 
-    completeEnrollment: function(applicationId) {
-        if (!confirm("Complete enrollment and create the student record for this application?")) {
+    completeEnrollment: async function(applicationId) {
+        if (!(await window.confirmAction('Confirm', "Complete enrollment and create the student record for this application?"))) {
             return;
         }
 

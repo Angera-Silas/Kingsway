@@ -17,11 +17,14 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h4 class="mb-1"><i class="bi bi-calendar-alt me-2"></i>School Events</h4>
-                    <p class="text-muted mb-0">Plan and manage school events and activities</p>
+                    <p class="text-muted mb-0">Plan and manage school events and activities (synced with the academic calendar)</p>
                 </div>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
-                    <i class="bi bi-plus-lg me-1"></i> New Event
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" onclick="SchoolEventsController.syncNow()"><i class="bi bi-arrow-repeat me-1"></i> Sync Calendar</button>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
+                        <i class="bi bi-plus-lg me-1"></i> New Event
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -59,12 +62,18 @@
                 <div class="col-md-4">
                     <select class="form-select" id="filterEventType">
                         <option value="">All Types</option>
-                        <option value="academic">Academic</option>
+                        <option value="exam">Exam</option>
+                        <option value="holiday">Holiday</option>
+                        <option value="school_holiday">School Holiday</option>
+                        <option value="public_holiday">Public Holiday</option>
+                        <option value="half_day">Half Day</option>
+                        <option value="special_event">Special Event</option>
+                        <option value="opening">Term Opening</option>
+                        <option value="closing">Term Closing</option>
                         <option value="sports">Sports</option>
                         <option value="cultural">Cultural</option>
-                        <option value="religious">Religious</option>
                         <option value="meeting">Meeting</option>
-                        <option value="other">Other</option>
+                        <option value="general">General</option>
                     </select>
                 </div>
                 <div class="col-md-4">
@@ -72,7 +81,7 @@
                         <option value="">All Status</option>
                         <option value="upcoming">Upcoming</option>
                         <option value="ongoing">Ongoing</option>
-                        <option value="completed">Completed</option>
+                        <option value="past">Completed / Past</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
                 </div>

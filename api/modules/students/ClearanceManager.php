@@ -8,15 +8,41 @@ use Exception;
 use function App\API\Includes\formatResponse;
 /**
  * Clearance Manager
- * 
- * Manages multi-department clearance tracking for student transfers
- * Provides utilities for checking clearance status across all departments
+ *
+ * Manages multi-department clearance tracking for student transfers.
+ * Built on the normalized `student_clearances` table (clearance_type enum:
+ * finance/library/uniform/property/academic) linked to transfer requests in
+ * `student_transitions` via `transfer_request_id`. The retired
+ * `clearance_departments` / `student_transfers` tables no longer exist.
  */
 class ClearanceManager extends BaseAPI
 {
-    public function __construct()
+    /**
+     * The five clearance types (live `student_clearances.clearance_type` enum).
+     */
+    private function departmentTypes(): array
     {
-        parent::__construct('clearance');
+        return [
+            ['code' => 'FINANCE',  'name' => 'Finance',   'is_mandatory' => true,  'sort_order' => 1, 'description' => 'Fee settlement verification'],
+            ['code' => 'LIBRARY',  'name' => 'Library',   'is_mandatory' => true,  'sort_order' => 2, 'description' => 'Library books return'],
+            ['code' => 'UNIFORM',  'name' => 'Uniform',   'is_mandatory' => true,  'sort_order' => 3, 'description' => 'Uniform items return'],
+            ['code' => 'PROPERTY', 'name' => 'Property',  'is_mandatory' => true,  'sort_order' => 4, 'description' => 'School property return'],
+            ['code' => 'ACADEMIC', 'name' => 'Academic',  'is_mandatory' => false, 'sort_order' => 5, 'description' => 'Academic records completion'],
+        ];
+    }
+
+    /**
+     * Map a department code to its clearance_type value.
+     */
+    private function typeForCode(string $code): ?string
+    {
+        $code = strtoupper(trim($code));
+        foreach ($this->departmentTypes() as $dept) {
+            if ($dept['code'] === $code) {
+                return strtolower($dept['code']);
+            }
+        }
+        return null;
     }
 
     /**
@@ -26,12 +52,11 @@ class ClearanceManager extends BaseAPI
     public function getDepartments()
     {
         try {
-            $stmt = $this->db->query("
-                SELECT * FROM clearance_departments 
-                WHERE is_active = TRUE 
-                ORDER BY sort_order
-            ");
-            $departments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $departments = array_map(function (array $dept) {
+                $dept['is_active'] = true;
+                $dept['check_procedure'] = null;
+                return $dept;
+            }, $this->departmentTypes());
 
             return formatResponse(true, $departments, 'Departments retrieved successfully');
 
@@ -50,44 +75,40 @@ class ClearanceManager extends BaseAPI
     public function checkStudentClearance($studentId)
     {
         try {
-            // Get all active departments
-            $stmt = $this->db->query("
-                SELECT * FROM clearance_departments 
-                WHERE is_active = TRUE 
-                ORDER BY sort_order
+            $stmt = $this->db->prepare("
+                SELECT clearance_type, status, amount_outstanding, notes
+                FROM student_clearances
+                WHERE student_id = ? AND transfer_request_id IS NULL
+                ORDER BY id ASC
             ");
-            $departments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $stmt->execute([$studentId]);
+            $existing = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $existing[$row['clearance_type']] = $row;
+            }
 
             $clearanceStatus = [];
 
-            foreach ($departments as $dept) {
+            foreach ($this->departmentTypes() as $dept) {
+                $type = strtolower($dept['code']);
+                $row = $existing[$type] ?? null;
+
                 $status = [
                     'department_code' => $dept['code'],
                     'department_name' => $dept['name'],
                     'is_mandatory' => (bool) $dept['is_mandatory'],
                     'is_cleared' => false,
-                    'has_issues' => false,
+                    'has_issues' => true,
                     'issue_description' => null,
-                    'outstanding_amount' => 0.00
+                    'outstanding_amount' => 0.00,
                 ];
 
-                // Run automated check if procedure exists
-                if ($dept['check_procedure']) {
-                    try {
-                        $stmt = $this->db->prepare("CALL {$dept['check_procedure']}(?, @is_cleared, @outstanding, @description)");
-                        $stmt->execute([$studentId]);
-
-                        $result = $this->db->query("SELECT @is_cleared as is_cleared, @outstanding as outstanding, @description as description")->fetch(PDO::FETCH_ASSOC);
-
-                        $status['is_cleared'] = (bool) $result['is_cleared'];
-                        $status['has_issues'] = !$result['is_cleared'];
-                        $status['issue_description'] = $result['description'];
-                        $status['outstanding_amount'] = $result['outstanding'] ?? 0.00;
-                    } catch (Exception $e) {
-                        $status['error'] = 'Check procedure failed: ' . $e->getMessage();
-                    }
+                if ($row) {
+                    $status['is_cleared'] = $row['status'] === 'cleared';
+                    $status['has_issues'] = $row['status'] !== 'cleared';
+                    $status['issue_description'] = $row['status'] === 'blocked' ? ($row['notes'] ?? 'Blocked') : ($row['status'] === 'pending' ? 'Pending verification' : null);
+                    $status['outstanding_amount'] = (float) ($row['amount_outstanding'] ?? 0);
                 } else {
-                    // Manual clearance required
                     $status['manual_check_required'] = true;
                     $status['issue_description'] = 'Manual verification required';
                 }
@@ -147,25 +168,21 @@ class ClearanceManager extends BaseAPI
 
                 $currentUserId = $this->getCurrentUserId();
 
+                $notes = trim(
+                    'Waiver granted: ' . $data['waiver_reason']
+                    . ($data['resolution_notes'] ?? null ? ' | ' . $data['resolution_notes'] : '')
+                );
+
                 $sql = "UPDATE student_clearances SET
                     status = 'cleared',
-                    waiver_granted = TRUE,
-                    waiver_granted_by = ?,
-                    waiver_reason = ?,
-                    resolution_notes = ?,
-                    cleared_by = ?,
-                    cleared_at = NOW(),
+                    checked_by = ?,
+                    checked_at = NOW(),
+                    notes = ?,
                     updated_at = NOW()
                 WHERE id = ?";
 
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $currentUserId,
-                    $data['waiver_reason'],
-                    $data['resolution_notes'] ?? 'Waiver granted',
-                    $currentUserId,
-                    $clearanceId
-                ]);
+                $stmt->execute([$currentUserId, $notes, $clearanceId]);
 
                 if ($stmt->rowCount() === 0) {
                     $this->db->rollBack();
@@ -177,8 +194,9 @@ class ClearanceManager extends BaseAPI
                 }
             }
         } catch (Exception $e) {
-            // ensure any open transaction is rolled back
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('grantWaiver', $e->getMessage());
             $response = formatResponse(false, null, 'Failed to grant waiver: ' . $e->getMessage());
         }
@@ -189,7 +207,7 @@ class ClearanceManager extends BaseAPI
     /**
      * Bulk clear student for multiple departments
      * Useful for students with no issues
-     * @param int $transferId Transfer ID
+     * @param int $transferId Transfer request ID (student_transitions.id)
      * @param array $departmentCodes Array of department codes to clear
      * @return array Response
      */
@@ -201,28 +219,35 @@ class ClearanceManager extends BaseAPI
             $currentUserId = $this->getCurrentUserId();
             $clearedCount = 0;
 
-            foreach ($departmentCodes as $code) {
-                // Get department
-                $stmt = $this->db->prepare("SELECT id FROM clearance_departments WHERE code = ? AND is_active = TRUE");
-                $stmt->execute([$code]);
-                $dept = $stmt->fetch(PDO::FETCH_ASSOC);
+            $stmt = $this->db->prepare("SELECT student_id FROM student_transitions WHERE id = ?");
+            $stmt->execute([$transferId]);
+            $studentId = $stmt->fetchColumn();
 
-                if (!$dept) {
+            if (!$studentId) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Transfer request not found');
+            }
+
+            foreach ($departmentCodes as $code) {
+                $type = $this->typeForCode((string) $code);
+                if (!$type) {
                     continue; // Skip invalid departments
                 }
 
-                // Update or insert clearance
                 $stmt = $this->db->prepare("
-                    INSERT INTO student_clearances (transfer_id, department_id, status, cleared_by, cleared_at, has_issues)
-                    VALUES (?, ?, 'cleared', ?, NOW(), FALSE)
-                    ON DUPLICATE KEY UPDATE 
-                        status = 'cleared',
-                        cleared_by = VALUES(cleared_by),
-                        cleared_at = VALUES(cleared_at),
-                        has_issues = FALSE,
-                        updated_at = NOW()
+                    UPDATE student_clearances
+                    SET status = 'cleared', checked_by = ?, checked_at = NOW(), updated_at = NOW()
+                    WHERE transfer_request_id = ? AND clearance_type = ?
                 ");
-                $stmt->execute([$transferId, $dept['id'], $currentUserId]);
+                $stmt->execute([$currentUserId, $transferId, $type]);
+
+                if ($stmt->rowCount() === 0) {
+                    $stmt = $this->db->prepare("
+                        INSERT INTO student_clearances (student_id, transfer_request_id, clearance_type, status, checked_by, checked_at)
+                        VALUES (?, ?, ?, 'cleared', ?, NOW())
+                    ");
+                    $stmt->execute([$studentId, $transferId, $type, $currentUserId]);
+                }
                 $clearedCount++;
             }
 
@@ -235,7 +260,9 @@ class ClearanceManager extends BaseAPI
             ], "{$clearedCount} departments cleared successfully");
 
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('bulkClear', $e->getMessage());
             return formatResponse(false, null, 'Failed to bulk clear: ' . $e->getMessage());
         }
@@ -253,37 +280,36 @@ class ClearanceManager extends BaseAPI
             $params = [];
 
             if (!empty($filters['from_date'])) {
-                $where[] = 'st.request_date >= ?';
+                $where[] = 'st.decided_at >= ?';
                 $params[] = $filters['from_date'];
             }
 
             if (!empty($filters['to_date'])) {
-                $where[] = 'st.request_date <= ?';
+                $where[] = 'st.decided_at <= ?';
                 $params[] = $filters['to_date'];
             }
 
             if (!empty($filters['status'])) {
-                $where[] = 'st.status = ?';
+                $where[] = 'st.executed_at IS NOT NULL';
                 $params[] = $filters['status'];
             }
 
             $whereClause = implode(' AND ', $where);
 
             $stmt = $this->db->prepare("
-                SELECT 
-                    cd.name as department,
+                SELECT
+                    sc.clearance_type AS department,
                     COUNT(sc.id) as total_clearances,
                     SUM(CASE WHEN sc.status = 'cleared' THEN 1 ELSE 0 END) as cleared,
                     SUM(CASE WHEN sc.status = 'blocked' THEN 1 ELSE 0 END) as blocked,
                     SUM(CASE WHEN sc.status = 'pending' THEN 1 ELSE 0 END) as pending,
-                    SUM(CASE WHEN sc.waiver_granted THEN 1 ELSE 0 END) as waivers_granted,
-                    SUM(sc.outstanding_amount) as total_outstanding
+                    0 AS waivers_granted,
+                    COALESCE(SUM(sc.amount_outstanding), 0) as total_outstanding
                 FROM student_clearances sc
-                JOIN clearance_departments cd ON sc.department_id = cd.id
-                JOIN student_transfers st ON sc.transfer_id = st.id
+                JOIN student_transitions st ON sc.transfer_request_id = st.id
                 WHERE {$whereClause}
-                GROUP BY cd.id, cd.name
-                ORDER BY cd.sort_order
+                GROUP BY sc.clearance_type
+                ORDER BY MIN(st.id)
             ");
             $stmt->execute($params);
             $summary = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -296,4 +322,3 @@ class ClearanceManager extends BaseAPI
         }
     }
 }
-

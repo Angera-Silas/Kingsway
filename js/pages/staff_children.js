@@ -4,6 +4,21 @@
  * Uses api.js for all API calls
  */
 
+function escapeHtml(value) {
+  if (value == null) return "";
+  return String(value).replace(
+    /[&<>"']/g,
+    (m) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[m],
+  );
+}
+
 const StaffChildrenController = {
   data: {
     staffChildren: [],
@@ -389,9 +404,11 @@ const StaffChildrenController = {
    */
   removeStaffChild: async function (id) {
     if (
-      !confirm(
-        "Are you sure you want to remove this child link? This will stop fee deductions for this child."
-      )
+      !(await window.confirmAction(
+        "Confirm Deletion",
+        "Are you sure you want to remove this child link? This will stop fee deductions for this child.",
+        { confirmText: "Delete", danger: true }
+      ))
     ) {
       return;
     }
@@ -413,8 +430,20 @@ const StaffChildrenController = {
   /**
    * View staff deductions
    */
-  viewStaffDeductions: function (staffId, staffName) {
+  viewStaffDeductions: function (staffId) {
     this.data.selectedStaffId = staffId;
+
+    const staff = this.data.staffList.find(
+      (s) => String(s.id) === String(staffId)
+    );
+    const linked = this.data.staffChildren.find(
+      (c) => String(c.staff_id) === String(staffId)
+    );
+    const staffName =
+      (staff &&
+        `${staff.first_name || ""} ${staff.last_name || ""}`.trim()) ||
+      linked?.staff_name ||
+      "";
     document.getElementById("staffNameTitle").textContent = staffName;
     document.getElementById("deductionSummary").style.display = "none";
     document.getElementById("staffDeductionsContainer").innerHTML =
@@ -451,9 +480,9 @@ const StaffChildrenController = {
       } else {
         document.getElementById(
           "staffDeductionsContainer"
-        ).innerHTML = `<p class="text-danger text-center">${
+        ).innerHTML = `<p class="text-danger text-center">${escapeHtml(
           response?.message || "Failed to calculate deductions"
-        }</p>`;
+        )}</p>`;
       }
     } catch (error) {
       console.error("Error calculating deductions:", error);
@@ -494,16 +523,16 @@ const StaffChildrenController = {
     children.forEach((child) => {
       html += `
                 <tr>
-                    <td>${child.student_name}</td>
-                    <td>${child.class || child.class_name || "N/A"}</td>
-                    <td><span class="badge bg-info">${this.getOrdinal(
-                      child.child_number || child.child_order
+                    <td>${escapeHtml(child.student_name)}</td>
+                    <td>${escapeHtml(child.class || child.class_name || "N/A")}</td>
+                    <td><span class="badge bg-info">${escapeHtml(
+                      this.getOrdinal(child.child_number || child.child_order)
                     )}</span></td>
                     <td class="text-end">KES ${this.formatNumber(
                       child.gross_fees ?? child.term_fees ?? 0
                     )}</td>
                     <td class="text-end text-success">${
-                      child.staff_discount_percentage ?? child.discount_percent ?? 0
+                      escapeHtml(child.staff_discount_percentage ?? child.discount_percent ?? 0)
                     }%</td>
                     <td class="text-end text-success">KES ${this.formatNumber(
                       child.staff_discount_amount ?? child.discount_amount ?? 0
@@ -614,21 +643,21 @@ const StaffChildrenController = {
                 <div class="card mb-3">
                     <div class="card-header bg-light d-flex justify-content-between align-items-center">
                         <div>
-                            <strong><i class="bi bi-person-badge"></i> ${
+                            <strong><i class="bi bi-person-badge"></i> ${escapeHtml(
                               staff.staff_name
-                            }</strong>
-                            <span class="badge bg-secondary ms-2">${
+                            )}</strong>
+                            <span class="badge bg-secondary ms-2">${escapeHtml(
                               staff.staff_department
-                            }</span>
+                            )}</span>
                             <span class="badge bg-info ms-2">${
                               staff.children.length
                             } Child${
         staff.children.length > 1 ? "ren" : ""
       }</span>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="staffChildrenController.viewStaffDeductions(${
+                        <button class="btn btn-sm btn-primary" onclick="staffChildrenController.viewStaffDeductions(${escapeHtml(
                           staff.staff_id
-                        }, '${staff.staff_name}')">
+                        )})">
                             <i class="bi bi-calculator"></i> View Deductions
                         </button>
                     </div>
@@ -661,35 +690,37 @@ const StaffChildrenController = {
         html += `
                     <tr>
                         <td>
-                            ${child.student_name || "Unknown"}
-                            <span class="badge bg-secondary ms-1">${this.getOrdinal(
-                              index + 1
+                            ${escapeHtml(child.student_name || "Unknown")}
+                            <span class="badge bg-secondary ms-1">${escapeHtml(
+                              this.getOrdinal(index + 1)
                             )}</span>
                         </td>
-                        <td>${child.admission_no || child.admission_number || "N/A"}</td>
-                        <td>${classLabel}</td>
-                        <td><span class="text-capitalize">${
+                        <td>${escapeHtml(
+                          child.admission_no || child.admission_number || "N/A"
+                        )}</td>
+                        <td>${escapeHtml(classLabel)}</td>
+                        <td><span class="text-capitalize">${escapeHtml(
                           child.relationship || "N/A"
-                        }</span></td>
+                        )}</span></td>
                         <td>
                             <span class="badge ${
                               statusBadge[child.fee_deduction_status] ||
                               "bg-secondary"
                             }">
-                                ${(
-                                  child.fee_deduction_status || "active"
-                                ).toUpperCase()}
+                                ${escapeHtml(
+                                  (child.fee_deduction_status || "active").toUpperCase()
+                                )}
                             </span>
                         </td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="staffChildrenController.showEditModal(${
+                            <button class="btn btn-sm btn-outline-primary" onclick="staffChildrenController.showEditModal(${escapeHtml(
                               child.id
-                            })" title="Edit">
+                            )})" title="Edit">
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="staffChildrenController.removeStaffChild(${
+                            <button class="btn btn-sm btn-outline-danger" onclick="staffChildrenController.removeStaffChild(${escapeHtml(
                               child.id
-                            })" title="Remove">
+                            )})" title="Remove">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </td>
@@ -777,22 +808,22 @@ const StaffChildrenController = {
   /**
    * Show success message
    */
-  showSuccess: function (message) {
+  async showSuccess(message) {
     if (window.showToast) {
       window.showToast(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog("Notice", message);
     }
   },
 
   /**
    * Show error message
    */
-  showError: function (message) {
+  async showError(message) {
     if (window.showToast) {
       window.showToast(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog("Notice", "Error: " + message);
     }
   },
 };

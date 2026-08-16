@@ -73,7 +73,7 @@ const InternAssignedSubjectsController = {
 
   async loadAcademicYears() {
     try {
-      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const years = await window.API.academic.listYears() || [];
       const yearSelect = document.getElementById('academicYearSelect');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
@@ -109,7 +109,7 @@ const InternAssignedSubjectsController = {
         params.term_id = this.state.currentTerm;
       }
 
-      this.state.subjects = await window.API.apiCall('/academic/intern-subjects', 'GET', params) || [];
+      this.state.subjects = await window.API.academic.getInternSubjects(params) || [];
       this.renderSubjectsTable();
       this.updateStats();
     } catch (error) {

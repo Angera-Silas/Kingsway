@@ -43,6 +43,11 @@
       return !!document.getElementById("announcementsList");
     },
 
+    on: function (id, event, fn) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener(event, fn);
+    },
+
     bindEvents: function () {
       const self = this;
 
@@ -177,7 +182,7 @@
 
           return `
             <div class="col-md-6 col-lg-4 mb-3">
-              <div class="card h-100 border-${this.priorityBorder(item.priority)}">
+              <div class="card app-ann-card h-100 border-0 shadow-sm">
                 <div class="card-body d-flex flex-column">
                   <div class="d-flex justify-content-between align-items-start mb-2">
                     <h6 class="card-title mb-0">${this.escapeHtml(item.subject)}</h6>
@@ -258,7 +263,7 @@
       this.setValue("title", item ? item.subject : "");
       this.setValue("content", item ? item.body : "");
       this.setValue("category", item ? item.category : "general");
-      this.setValue("priority", item ? item.priority : "normal");
+      this.setValue("priority", item ? item.priority : "medium");
       this.setValue("audience", item ? item.audience : "all");
       this.setValue("publish_date", item ? this.toDateTimeLocal(item.publish_date) : "");
       this.setValue("expiry_date", item ? this.toDateTimeLocal(item.expiry_date) : "");
@@ -286,7 +291,7 @@
         publish_date: this.value("publish_date") || null,
         expiry_date: this.value("expiry_date") || null,
         send_notification: !!document.getElementById("send_notification")?.checked,
-        priority: this.value("priority") || "normal",
+        priority: this.value("priority") || "medium",
       };
 
       const publishDate = metadata.publish_date;
@@ -321,15 +326,26 @@
       const item = this.filtered[index];
       if (!item) return;
 
-      alert(
-        `Title: ${item.subject}\nStatus: ${item.status}\nAudience: ${item.audience}\nCategory: ${item.category}\n\n${item.body}`
-      );
+      const titleEl = document.getElementById("viewAnnouncementTitle");
+      const metaEl = document.getElementById("viewAnnouncementMeta");
+      const contentEl = document.getElementById("viewAnnouncementContent");
+      if (!titleEl || !metaEl || !contentEl) return;
+
+      titleEl.innerHTML = `${this.statusBadge(item.status)} ${this.escapeHtml(item.subject)}`;
+      metaEl.innerHTML = `
+        <span class="badge rounded-pill bg-light text-dark border"><i class="bi bi-tag me-1"></i>${this.escapeHtml(item.category)}</span>
+        <span class="badge rounded-pill bg-light text-dark border"><i class="bi bi-people me-1"></i>${this.escapeHtml(item.audience)}</span>
+        <span class="badge rounded-pill ${item.priority === "urgent" ? "bg-danger" : item.priority === "high" ? "bg-warning text-dark" : "bg-light text-dark border"}"><i class="bi bi-flag me-1"></i>${this.escapeHtml(item.priority)}</span>
+        <span class="badge rounded-pill bg-light text-dark border"><i class="bi bi-calendar-event me-1"></i>${this.formatDate(item.publish_date || item.created_at)}</span>
+      `;
+      contentEl.innerHTML = this.escapeHtml(item.body).replace(/\n/g, "<br>");
+      new bootstrap.Modal(document.getElementById("viewAnnouncementModal")).show();
     },
 
     remove: async function (index) {
       const item = this.filtered[index];
       if (!item) return;
-      if (!confirm("Delete this announcement?")) return;
+      if (!(await window.confirmAction('Confirm Deletion', "Delete this announcement?", { confirmText: 'Delete', danger: true }))) return;
 
       try {
         await window.API.communications.deleteCommunication(item.id);

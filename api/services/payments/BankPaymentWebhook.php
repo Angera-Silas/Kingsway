@@ -126,10 +126,10 @@ class BankPaymentWebhook
                 return formatResponse(false, null, "Payment amount exceeds outstanding balance. Max allowed: " . number_format($maxAllowed, 2));
             }
 
-            // Check for duplicate transaction - FIX: Use row locking to prevent race condition
+            // Check for duplicate transaction - FIX: Use row locking to prevent race condition (3NF: payments table)
             $stmt = $this->db->prepare("
-                SELECT id FROM payment_transactions 
-                WHERE reference_no = ?
+                SELECT id FROM payments 
+                WHERE reference = ?
                 LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
@@ -158,10 +158,10 @@ class BankPaymentWebhook
                 $narration . ' - ' . $student['admission_number']  // p_notes
             ]);
 
-            // Get the payment ID
+            // Get the payment ID (3NF: payments table)
             $stmt = $this->db->prepare("
-                SELECT id FROM payment_transactions 
-                WHERE reference_no = ? 
+                SELECT id FROM payments 
+                WHERE reference = ? 
                 ORDER BY id DESC LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
@@ -177,8 +177,8 @@ class BankPaymentWebhook
                     INSERT INTO bank_transactions (
                         student_id, transaction_ref, amount, transaction_date,
                         bank_name, account_number, narration, status,
-                        webhook_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', ?)
+                        source_type, webhook_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', 'api_callback', ?)
                 ");
 
                 $stmt->execute([
@@ -282,12 +282,13 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function getStudentByAdmission($accountNumber)
     {
         try {
-            $admissionCol = $this->resolveAdmissionColumn();
-            $sql = "SELECT s.id, s.first_name, s.last_name, s." . $admissionCol . " AS admission_number, 
+$admissionCol = $this->resolveAdmissionColumn();
+            $sql = "SELECT s.id, p.first_name, p.last_name, s." . $admissionCol . " AS admission_number, 
                            COALESCE(sp.parent_id, 0) AS parent_id
                     FROM students s
+                    LEFT JOIN persons p ON p.id = s.person_id
                     LEFT JOIN student_parents sp ON s.id = sp.student_id
-                    WHERE s." . $admissionCol . " = ? 
+                    WHERE s." . $admissionCol . " = ?
                     LIMIT 1";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$accountNumber]);
@@ -369,19 +370,15 @@ return formatResponse(false, null, 'An internal error occurred.');
             ];
             $mappedSource = $sourceMap[$source] ?? 'generic_bank';
 
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_webhooks_log (
-                    source, webhook_data, status, created_at
-                ) VALUES (?, ?, 'received', NOW())
-            ");
-
-            $stmt->execute([
-                $mappedSource,
-                json_encode($data)
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => $mappedSource,
+                'webhook_data' => $data,
+                'status' => 'received',
             ]);
 
             // Also log to file
-            $logFile = __DIR__ . '/../../../../logs/bank_webhooks.log';
+            $logFile = dirname(__DIR__, 3) . '/logs/bank_webhooks.log';
             $logDir = dirname($logFile);
 
             $storage = new \App\API\Services\UploadService();
@@ -405,9 +402,10 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function getStudentOutstandingBalance($studentId)
     {
         try {
+            // 3NF: derive from student_fee_obligations via vw_student_fee_balances (amount_due - amount_paid - waivers)
             $stmt = $this->db->prepare("
                 SELECT COALESCE(SUM(balance), 0) as outstanding
-                FROM student_fees
+                FROM vw_student_fee_balances
                 WHERE student_id = ? AND balance > 0
             ");
             $stmt->execute([$studentId]);
@@ -457,19 +455,15 @@ return formatResponse(false, null, 'An internal error occurred.');
             ];
             $mappedSource = $sourceMap[$source] ?? 'generic_bank';
 
-            // Truncate error message to fit in database column
+            // Truncate error message to keep the structured entry compact
             $truncatedError = substr($error, 0, 500);
 
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_webhooks_log (
-                    source, webhook_data, status, error_message, created_at
-                ) VALUES (?, ?, 'failed', ?, NOW())
-            ");
-
-            $stmt->execute([
-                $mappedSource,
-                json_encode($data),
-                $truncatedError
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => $mappedSource,
+                'webhook_data' => $data,
+                'status' => 'failed',
+                'error_message' => $truncatedError,
             ]);
 
         } catch (Exception $e) {
@@ -486,11 +480,12 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Get student contact info - note: students may not have direct phone/email
             // Contact info is typically stored in parent or student_contacts tables
             $stmt = $this->db->prepare("
-                SELECT COALESCE(p.phone_1, '') as parent_phone, 
-                       COALESCE(p.email, '') as parent_email
+                SELECT COALESCE(pp.phone, '') as parent_phone, 
+                       COALESCE(pp.email, '') as parent_email
                 FROM students s
                 LEFT JOIN student_parents sp ON s.id = sp.student_id
                 LEFT JOIN parents p ON sp.parent_id = p.id
+                LEFT JOIN persons pp ON pp.id = p.person_id
                 WHERE s.id = ?
                 LIMIT 1
             ");

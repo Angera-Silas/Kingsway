@@ -67,10 +67,16 @@ class StaffAPI extends BaseAPI {
         return $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
     }
 
-    // Persist an uploaded photo URL onto the staff profile record.
+    // Persist an uploaded photo URL. Identity (incl. photo) lives on `persons` in the 4NF schema,
+    // so the write targets persons.photo_url via the staff→person link (staff.profile_pic_url dropped).
     public function setProfilePicUrl($staffId, $url)
     {
-        $stmt = $this->db->prepare("UPDATE staff SET profile_pic_url = ? WHERE id = ?");
+        $stmt = $this->db->prepare("
+            UPDATE persons p
+            JOIN staff s ON s.person_id = p.id
+            SET p.photo_url = ?
+            WHERE s.id = ?
+        ");
         $stmt->execute([$url, $staffId]);
         return true;
     }
@@ -97,8 +103,8 @@ class StaffAPI extends BaseAPI {
             $sortMap = [
                 'id' => 's.id',
                 'staff_no' => 's.staff_no',
-                'first_name' => 's.first_name',
-                'last_name' => 's.last_name',
+                'first_name' => 'p.first_name',
+                'last_name' => 'p.last_name',
                 'department' => 'd.name',
                 'position' => 'display_position',
                 'status' => 's.status',
@@ -110,11 +116,9 @@ class StaffAPI extends BaseAPI {
             if (!empty($search)) {
                 $where[] = "(
                     s.staff_no LIKE ?
-                    OR s.first_name LIKE ?
-                    OR s.last_name LIKE ?
-                    OR u.first_name LIKE ?
-                    OR u.last_name LIKE ?
-                    OR u.email LIKE ?
+                    OR p.first_name LIKE ?
+                    OR p.last_name LIKE ?
+                    OR p.email LIKE ?
                     OR d.name LIKE ?
                     OR sc.category_name LIKE ?
                     OR st.name LIKE ?
@@ -128,12 +132,10 @@ class StaffAPI extends BaseAPI {
                     $searchTerm,
                     $searchTerm,
                     $searchTerm,
-                    $searchTerm,
-                    $searchTerm,
                 ];
             }
             if (!empty($request['department_id'])) {
-                $where[] = 's.department_id = ?';
+                $where[] = 'sda.department_id = ?';
                 $bindings[] = (int) $request['department_id'];
             }
             if (!empty($request['staff_type_id'])) {
@@ -150,8 +152,10 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT COUNT(*)
                 FROM staff s
-                LEFT JOIN users u ON s.user_id = u.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN users u ON u.person_id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
                 $whereSql
@@ -165,12 +169,14 @@ class StaffAPI extends BaseAPI {
                 SELECT
                     s.*,
                     s.position AS raw_position,
-                    s.first_name AS first_name,
-                    s.last_name AS last_name,
-                    CONCAT_WS(' ', s.first_name, s.last_name) AS full_name,
-                    u.first_name AS user_first_name,
-                    u.last_name AS user_last_name,
-                    u.email AS email,
+                    p.first_name AS first_name,
+                    p.last_name AS last_name,
+                    CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
+                    p.first_name AS user_first_name,
+                    p.last_name AS user_last_name,
+                    p.email AS email,
+                    p.phone AS phone,
+                    p.gender AS gender,
                     u.status as user_status,
                     r.id as role_id,
                     r.name as role_name,
@@ -184,7 +190,7 @@ class StaffAPI extends BaseAPI {
                             SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
                             FROM user_roles ur
                             INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
-                            WHERE ur.user_id = s.user_id
+                            WHERE ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)
                         ), ''),
                         r.name
                     ) AS role_names,
@@ -215,11 +221,22 @@ class StaffAPI extends BaseAPI {
                         WHEN 3 THEN 'admin'
                         ELSE NULL
                     END as staff_type,
-                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = s.user_id) AS role_count
+                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)) AS role_count,
+                    sda.department_id AS department_id,
+                    spp.kra_pin AS kra_pin,
+                    spp.nssf_no AS nssf_no,
+                    spp.nhif_no AS nhif_no
                 FROM staff s
-                LEFT JOIN users u ON s.user_id = u.id
-                LEFT JOIN roles r ON u.role_id = r.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN users u ON u.person_id = s.person_id
+                LEFT JOIN roles r ON r.id = (
+                    SELECT ur2.role_id FROM user_roles ur2
+                    WHERE ur2.user_id = u.id
+                    ORDER BY ur2.id ASC LIMIT 1
+                )
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
                 $whereSql
@@ -299,11 +316,14 @@ class StaffAPI extends BaseAPI {
             $staffPresentToday = (int)$presentStmt->fetchColumn();
 
             $deptStmt = $this->db->query("
-                SELECT d.name AS department, COUNT(s.id) AS count
+                SELECT d.name AS department, COUNT(DISTINCT s.id) AS count
                 FROM staff s
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda
+                    ON sda.staff_id = s.id
+                   AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.status = 'active'
-                GROUP BY s.department_id, d.name
+                GROUP BY sda.department_id, d.name
                 ORDER BY count DESC
             ");
 
@@ -319,6 +339,64 @@ class StaffAPI extends BaseAPI {
                     'timestamp' => date('Y-m-d H:i:s'),
                 ],
             ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Key contacts for students/parents (viewer_staff page).
+     *
+     * Returns only school leadership / administration staff (name, role, phone,
+     * email) — deliberately curated, no personal details. Consumers: the
+     * parent/student "Staff" page. RBAC is enforced at the controller layer.
+     */
+    public function keyContacts(): array
+    {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
+                        COALESCE(ur.name, s.position, st.name, 'Administration') AS role,
+                        p.phone AS phone,
+                        p.email AS email,
+                        s.id AS staff_id
+                   FROM staff s
+                   INNER JOIN persons p ON p.id = s.person_id
+                   LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                   LEFT JOIN users u ON u.person_id = s.person_id
+                   LEFT JOIN user_roles ul ON ul.user_id = u.id
+                   LEFT JOIN roles ur ON ur.id = ul.role_id
+                  WHERE s.status = 'active'
+                    AND (
+                           LOWER(COALESCE(ur.name, '')) IN (
+                             'director', 'headteacher', 'school administrator',
+                             'system administrator', 'deputy head - academic',
+                             'deputy head academic', 'deputy head - discipline',
+                             'deputy head discipline'
+                           )
+                           OR (
+                             s.staff_type_id = 3
+                             AND LOWER(COALESCE(s.position, '')) IN (
+                               'director', 'headteacher', 'school administrator',
+                               'deputy head - academic', 'deputy head - discipline'
+                             )
+                           )
+                         )
+                  ORDER BY FIELD(
+                             LOWER(COALESCE(ur.name, s.position, '')),
+                             'director', 'headteacher', 'school administrator',
+                             'deputy head - academic', 'deputy head - discipline'
+                           ),
+                           p.first_name, p.last_name"
+            );
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $row['icon'] = '👤';
+            }
+            unset($row);
+
+            return $this->response(['status' => 'success', 'data' => $rows]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -341,27 +419,34 @@ class StaffAPI extends BaseAPI {
                 "s.status <> 'inactive'",
                 "(
                     LOWER(COALESCE(st.name, '')) = 'teaching staff'
-                    OR NULLIF(TRIM(COALESCE(s.tsc_no, '')), '') IS NOT NULL
                     OR COALESCE(assign.assignment_count, 0) > 0
                     OR COALESCE(role_summary.teaching_role_count, 0) > 0
                 )",
             ];
             $params = [];
             if (!empty($filters['department_id'])) {
-                $where[] = 's.department_id = ?';
+                // Department membership now lives in staff_department_assignments (a staff may
+                // belong to several departments over time); match any active assignment.
+                $where[] = "EXISTS (
+                    SELECT 1 FROM staff_department_assignments sda
+                    WHERE sda.staff_id = s.id AND sda.department_id = ?
+                      AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                )";
                 $params[] = (int)$filters['department_id'];
             }
             $subjectId = $filters['subject_id'] ?? $filters['learning_area_id'] ?? null;
             if (!empty($subjectId)) {
+                // Teaching load is now academic_year_class_learning_area_teachers → learning-area context.
                 $where[] = "EXISTS (
                     SELECT 1
-                    FROM staff_class_assignments subject_filter
-                    LEFT JOIN academic_years subject_year
-                        ON subject_year.id = subject_filter.academic_year_id
+                    FROM academic_year_class_learning_area_teachers subject_filter
+                    JOIN academic_year_class_learning_areas sf_area
+                        ON sf_area.id = subject_filter.academic_year_class_learning_area_id
+                    JOIN academic_year_classes sf_ayc ON sf_ayc.id = sf_area.academic_year_class_id
+                    JOIN academic_years subject_year ON subject_year.id = sf_ayc.academic_year_id
                     WHERE subject_filter.staff_id = s.id
-                      AND subject_filter.status = 'active'
-                      AND (subject_year.id IS NULL OR subject_year.status = 'active')
-                      AND subject_filter.subject_id = ?
+                      AND subject_year.status = 'active'
+                      AND sf_area.learning_area_id = ?
                 )";
                 $params[] = (int) $subjectId;
             }
@@ -379,22 +464,21 @@ class StaffAPI extends BaseAPI {
                     s.id,
                     s.staff_no AS employee_id,
                     s.staff_no,
-                    s.first_name,
-                    s.last_name,
-                    s.phone,
-                    s.gender,
+                    p.first_name,
+                    p.last_name,
+                    p.phone,
+                    p.gender,
                     s.employment_date,
                     s.contract_type,
-                    s.work_start_time,
-                    s.work_end_time,
-                    u.email,
-                    s.profile_pic_url AS photo_url,
-                    s.department_id,
+                    dar.work_start_time,
+                    dar.work_end_time,
+                    p.email,
+                    p.photo_url,
+                    sda.department_id,
                     d.name AS department_name,
                     s.position,
                     s.status,
-                    s.user_id,
-                    s.tsc_no,
+                    u.id AS user_id,
                     st.name AS staff_type_name,
                     sc.category_name AS staff_category_name,
                     COALESCE(role_summary.teaching_role_names, '') AS role_name,
@@ -420,10 +504,15 @@ class StaffAPI extends BaseAPI {
                     CASE WHEN COALESCE(assign.hod_count, 0) > 0
                          THEN 1 ELSE 0 END AS is_hod
                 FROM staff s
-                LEFT JOIN users u ON u.id = s.user_id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN users u ON u.person_id = s.person_id
                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-                LEFT JOIN departments d ON d.id = s.department_id
+                LEFT JOIN staff_department_assignments sda
+                    ON sda.staff_id = s.id
+                   AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN department_attendance_rules dar ON dar.department_id = sda.department_id
                 LEFT JOIN (
                     SELECT
                         ur.user_id,
@@ -436,35 +525,37 @@ class StaffAPI extends BaseAPI {
                       AND r.is_active = 1
                       AND r.name IN ($teachingRoleSql)
                     GROUP BY ur.user_id
-                ) role_summary ON role_summary.user_id = s.user_id
+                ) role_summary ON role_summary.user_id = u.id
                 LEFT JOIN (
                     SELECT
-                        sca.staff_id,
-                        GROUP_CONCAT(DISTINCT sca.role ORDER BY sca.role SEPARATOR ', ') AS assignment_roles,
-                        GROUP_CONCAT(DISTINCT sca.subject_id ORDER BY la.name SEPARATOR ',') AS subject_ids,
+                        t.staff_id,
+                        GROUP_CONCAT(DISTINCT t.role ORDER BY t.role SEPARATOR ', ') AS assignment_roles,
+                        GROUP_CONCAT(DISTINCT aycla.learning_area_id ORDER BY la.name SEPARATOR ',') AS subject_ids,
                         GROUP_CONCAT(DISTINCT la.name ORDER BY la.name SEPARATOR ', ') AS learning_areas,
-                        COUNT(DISTINCT sca.subject_id) AS subjects_count,
-                        GROUP_CONCAT(DISTINCT sca.class_id ORDER BY c.name SEPARATOR ',') AS class_ids,
+                        COUNT(DISTINCT aycla.learning_area_id) AS subjects_count,
+                        GROUP_CONCAT(DISTINCT ayc.class_id ORDER BY c.name SEPARATOR ',') AS class_ids,
                         GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS classes,
                         GROUP_CONCAT(DISTINCT sl.id ORDER BY sl.id SEPARATOR ',') AS school_level_ids,
                         GROUP_CONCAT(DISTINCT sl.name ORDER BY sl.id SEPARATOR ', ') AS school_levels,
-                        SUM(CASE WHEN sca.role = 'class_teacher' THEN 1 ELSE 0 END) AS class_teacher_count,
-                        SUM(CASE WHEN sca.role = 'subject_teacher' THEN 1 ELSE 0 END) AS subject_teacher_count,
-                        SUM(CASE WHEN sca.role = 'assistant_teacher' THEN 1 ELSE 0 END) AS assistant_teacher_count,
-                        SUM(CASE WHEN sca.role = 'head_of_department' THEN 1 ELSE 0 END) AS hod_count,
-                        COUNT(DISTINCT sca.id) AS assignment_count,
-                        SUM(COALESCE(sca.periods_per_week, 0)) AS periods_per_week
-                    FROM staff_class_assignments sca
-                    LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
-                    LEFT JOIN learning_areas la ON la.id = sca.subject_id
-                    INNER JOIN classes c ON c.id = sca.class_id
+                        SUM(CASE WHEN t.role = 'class_teacher' THEN 1 ELSE 0 END) AS class_teacher_count,
+                        SUM(CASE WHEN t.role = 'subject_teacher' THEN 1 ELSE 0 END) AS subject_teacher_count,
+                        SUM(CASE WHEN t.role = 'assistant' THEN 1 ELSE 0 END) AS assistant_teacher_count,
+                        SUM(CASE WHEN t.role = 'hod' THEN 1 ELSE 0 END) AS hod_count,
+                        COUNT(DISTINCT t.id) AS assignment_count,
+                        SUM(COALESCE(aycla.planned_weeks, 0)) AS periods_per_week
+                    FROM academic_year_class_learning_area_teachers t
+                    JOIN academic_year_class_learning_areas aycla
+                        ON aycla.id = t.academic_year_class_learning_area_id
+                    JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                    JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                    LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
+                    INNER JOIN classes c ON c.id = ayc.class_id
                     LEFT JOIN school_levels sl ON sl.id = c.level_id
-                    WHERE sca.status = 'active'
-                      AND (ay.id IS NULL OR ay.status = 'active')
-                    GROUP BY sca.staff_id
+                    WHERE ay.status = 'active'
+                    GROUP BY t.staff_id
                 ) assign ON assign.staff_id = s.id
                 WHERE " . implode(' AND ', $where) . "
-                ORDER BY s.first_name, s.last_name
+                ORDER BY p.first_name, p.last_name
             ");
             $stmt->execute($params);
 
@@ -602,30 +693,34 @@ class StaffAPI extends BaseAPI {
     {
         $stmt = $this->db->prepare("
             SELECT
-                sca.id,
-                sca.role,
-                sca.subject_id AS learning_area_id,
+                t.id,
+                t.role,
+                aycla.learning_area_id AS learning_area_id,
                 la.name AS learning_area_name,
                 c.id AS class_id,
                 c.name AS class_name,
                 sl.name AS school_level,
-                cs.stream_name,
+                str.name AS stream_name,
                 ay.year_name AS academic_year,
-                sca.periods_per_week,
-                sca.start_date,
-                sca.end_date,
-                sca.status,
-                sca.notes
-            FROM staff_class_assignments sca
-            LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
-            LEFT JOIN learning_areas la ON la.id = sca.subject_id
-            INNER JOIN classes c ON c.id = sca.class_id
+                aycla.planned_weeks AS periods_per_week,
+                ayt.opening_date AS start_date,
+                ayt.closing_date AS end_date,
+                aycla.status,
+                aycla.notes
+            FROM academic_year_class_learning_area_teachers t
+            JOIN academic_year_class_learning_areas aycla
+                ON aycla.id = t.academic_year_class_learning_area_id
+            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+            JOIN academic_years ay ON ay.id = ayc.academic_year_id
+            LEFT JOIN academic_year_terms ayt ON ayt.id = t.academic_year_term_id
+            LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
+            INNER JOIN classes c ON c.id = ayc.class_id
             LEFT JOIN school_levels sl ON sl.id = c.level_id
-            LEFT JOIN class_streams cs ON cs.id = COALESCE(sca.stream_id, sca.class_stream_id)
-            WHERE sca.staff_id = ?
-              AND sca.status = 'active'
-              AND (ay.id IS NULL OR ay.status = 'active')
-            ORDER BY c.name, la.name, sca.role
+            LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN streams str ON str.id = aycs.stream_id
+            WHERE t.staff_id = ?
+              AND ay.status = 'active'
+            ORDER BY c.name, la.name, t.role
         ");
         $stmt->execute([$staffId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -760,11 +855,18 @@ class StaffAPI extends BaseAPI {
     private function getTeacherPerformanceSnapshot(int $staffId): array
     {
         $stmt = $this->db->prepare("
-            SELECT review_period, review_type, review_date, overall_score, performance_grade,
-                   overall_rating, strengths, areas_for_improvement, recommendations, status
-            FROM staff_performance_reviews
-            WHERE staff_id = ?
-            ORDER BY review_date DESC, id DESC
+            SELECT
+                pr.period AS review_period,
+                pr.review_date,
+                pr.rating AS overall_rating,
+                pr.status,
+                pr.notes,
+                (SELECT COALESCE(ROUND(AVG(prk.score), 1), 0)
+                   FROM performance_review_kpis prk
+                  WHERE prk.review_id = pr.id) AS overall_score
+            FROM performance_reviews pr
+            WHERE pr.staff_id = ?
+            ORDER BY pr.review_date DESC, pr.id DESC
             LIMIT 3
         ");
         $stmt->execute([$staffId]);
@@ -797,12 +899,13 @@ class StaffAPI extends BaseAPI {
         $stmt = $this->db->prepare("
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
-                SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS submitted,
-                SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS drafts,
-                MAX(lesson_date) AS latest_lesson_date
-            FROM lesson_plans
-            WHERE teacher_id = ?
+                SUM(CASE WHEN lp.status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN lp.status = 'delivered' THEN 1 ELSE 0 END) AS submitted,
+                SUM(CASE WHEN lp.status = 'draft' THEN 1 ELSE 0 END) AS drafts,
+                MAX(acd.date) AS latest_lesson_date
+            FROM lesson_plans lp
+            LEFT JOIN academic_year_calendar_days acd ON acd.id = lp.academic_year_calendar_day_id
+            WHERE lp.teacher_id = ?
         ");
         $stmt->execute([$staffId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -836,26 +939,30 @@ class StaffAPI extends BaseAPI {
     public function listNonTeaching(array $filters = []): array
     {
         try {
-            $where = ["s.status <> 'inactive'", "NOT (LOWER(COALESCE(st.name,'')) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $where = ["s.status <> 'inactive'", "LOWER(COALESCE(st.name,'')) NOT LIKE '%teach%'"];
             $params = [];
             if (!empty($filters['department_id'])) {
-                $where[] = 's.department_id = ?';
+                $where[] = 'sda.department_id = ?';
                 $params[] = (int)$filters['department_id'];
             }
 
             $stmt = $this->db->prepare("
-                SELECT s.*, d.name AS department_name, st.name AS staff_type_name,
+                SELECT s.*, p.first_name, p.last_name, p.email, p.phone, p.gender,
+                       d.name AS department_name, st.name AS staff_type_name,
                        CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
                 FROM staff s
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                LEFT JOIN departments d ON d.id = s.department_id
-                LEFT JOIN staff sp ON sp.id = s.supervisor_id
-                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
+                LEFT JOIN persons sp ON sp.id = supervisor.person_id
+                LEFT JOIN user_roles ur ON ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)
                 LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY s.id
-                ORDER BY d.name, s.first_name, s.last_name
+                ORDER BY d.name, p.first_name, p.last_name
             ");
             $stmt->execute($params);
 
@@ -991,10 +1098,11 @@ class StaffAPI extends BaseAPI {
                 'salary' => $data['salary'] ?? null,
                 'gender' => $data['gender'] ?? null,
                 'marital_status' => $data['marital_status'] ?? null,
-                'tsc_no' => $data['tsc_no'] ?? null,
                 'address' => $data['address'] ?? null,
-                'profile_pic_url' => $data['profile_pic_url'] ?? null,
-                'documents_folder' => $data['documents_folder'] ?? null,
+                // tsc_no / profile_pic_url / documents_folder are dropped in the 4NF schema.
+                // Identity photo lives on persons.photo_url (set via setProfilePicUrl / the
+                // post-create placeholder block); TSC number and the documents folder have no
+                // column in the normalized model, so they are not passed downstream.
                 'staff_type_id' => $staffTypeId
             ], function ($v) {
                 return $v !== null && $v !== '';
@@ -1034,8 +1142,15 @@ class StaffAPI extends BaseAPI {
                 'staff_info' => $staffInfo
             ];
 
-            // If a user with this email or username already exists, add staff for that user instead of creating a duplicate user
-            $existingUserStmt = $this->db->prepare('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1');
+            // If a user with this email or username already exists, add staff for that user instead of creating a duplicate user.
+            // Email now lives on persons (4NF), so match through the persons join.
+            $existingUserStmt = $this->db->prepare('
+                SELECT u.id
+                FROM users u
+                JOIN persons p ON p.id = u.person_id
+                WHERE p.email = ? OR u.username = ?
+                LIMIT 1
+            ');
             $existingUserStmt->execute([$data['email'], $username]);
             $existingUser = $existingUserStmt->fetch(PDO::FETCH_ASSOC);
             if ($existingUser) {
@@ -1046,7 +1161,7 @@ class StaffAPI extends BaseAPI {
                 }
                 $stmt = $this->db->prepare("
                     UPDATE users
-                    SET password = ?,
+                    SET password_hash = ?,
                         status = 'active',
                         force_password_change = 1,
                         password_changed_at = NULL,
@@ -1063,7 +1178,12 @@ class StaffAPI extends BaseAPI {
                 // Determine created user ID (returned in data or fetch by email as fallback)
                 $userId = $userResult['data']['id'] ?? null;
                 if (!$userId) {
-                    $stmt = $this->db->prepare("SELECT id FROM users WHERE email = ?");
+                    $stmt = $this->db->prepare("
+                        SELECT u.id
+                        FROM users u
+                        JOIN persons p ON p.id = u.person_id
+                        WHERE p.email = ?
+                    ");
                     $stmt->execute([$data['email']]);
                     $row = $stmt->fetch();
                     if ($row) {
@@ -1075,15 +1195,21 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
-            // Expect UsersAPI.create to have created the staff row.
-            $stmt = $this->db->prepare("SELECT id, staff_no, profile_pic_url, documents_folder FROM staff WHERE user_id = ?");
+            // Expect UsersAPI.create to have created the staff row. staff links to users only
+            // through persons (staff.person_id = users.person_id); the photo lives on persons.photo_url.
+            $stmt = $this->db->prepare("
+                SELECT s.id, s.staff_no, p.photo_url
+                FROM staff s
+                JOIN users u ON u.person_id = s.person_id
+                JOIN persons p ON p.id = s.person_id
+                WHERE u.id = ?
+            ");
             $stmt->execute([$userId]);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
                 $staffId = $existing['id'];
                 $staffNo = $existing['staff_no'];
-                $profilePic = $existing['profile_pic_url'] ?? null;
-                $docsFolder = $existing['documents_folder'] ?? null;
+                $profilePic = $existing['photo_url'] ?? null;
             } else {
                 throw new Exception('Staff record was not created by UsersAPI');
             }
@@ -1114,34 +1240,21 @@ class StaffAPI extends BaseAPI {
                 error_log('Manual staff invitation delivery failed: ' . $mailError->getMessage());
             }
 
-            // Ensure placeholders for profile picture and documents folder
-            $placeholderPic = $this->managedPublicUrl(
-                'staff_photo',
-                'staff_avatar.jpeg'
-            );
-            $defaultDocsFolder = $this->uploads()->applicationUploadPath(
-                'staff',
-                'documents',
-                (string) $staffNo
-            );
-            $needUpdate = false;
-            $updateParams = [];
-            $updateFields = [];
+            // Ensure a placeholder profile picture. In the normalized schema the photo is a
+            // person attribute (persons.photo_url); staff no longer carries profile_pic_url or a
+            // documents_folder column (document storage is handled by the upload service).
             if (empty($profilePic)) {
-                $updateFields[] = 'profile_pic_url = ?';
-                $updateParams[] = $placeholderPic;
-                $needUpdate = true;
-            }
-            if (empty($docsFolder)) {
-                $updateFields[] = 'documents_folder = ?';
-                $updateParams[] = $defaultDocsFolder;
-                $needUpdate = true;
-            }
-            if ($needUpdate) {
-                $updateParams[] = $staffId;
-                $sql = 'UPDATE staff SET ' . implode(', ', $updateFields) . ' WHERE id = ?';
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($updateParams);
+                $placeholderPic = $this->managedPublicUrl(
+                    'staff_photo',
+                    'staff_avatar.jpeg'
+                );
+                $stmt = $this->db->prepare("
+                    UPDATE persons p
+                    JOIN staff s ON s.person_id = p.id
+                    SET p.photo_url = ?
+                    WHERE s.id = ?
+                ");
+                $stmt->execute([$placeholderPic, $staffId]);
             }
 
             // Physical directories are created lazily by UploadService when a
@@ -1243,45 +1356,55 @@ class StaffAPI extends BaseAPI {
                 return $this->response(['status' => 'error', 'message' => 'Staff not found'], 404);
             }
 
-                        $stmt = $this->db->prepare("SELECT user_id FROM staff WHERE id = ?");
-                        $stmt->execute([$id]);
-                        $userId = $stmt->fetchColumn();
+            // Resolve the person + user behind this staff row (4NF: staff→persons; users→persons).
+            $link = $this->db->prepare("
+                SELECT s.person_id, u.id AS user_id
+                FROM staff s
+                LEFT JOIN users u ON u.person_id = s.person_id
+                WHERE s.id = ?
+            ");
+            $link->execute([$id]);
+            $linkRow = $link->fetch(PDO::FETCH_ASSOC) ?: [];
+            $personId = (int)($linkRow['person_id'] ?? 0) ?: null;
+            $userId   = (int)($linkRow['user_id'] ?? 0) ?: null;
 
-                        if ($userId) {
-                            $userUpdates = [];
-                            $userParams = [];
+            // Identity fields live on `persons` (shared by staff + users). Route them there.
+            if ($personId) {
+                $personUpdates = [];
+                $personParams = [];
+                $personMap = [
+                    'first_name'    => 'first_name',
+                    'middle_name'   => 'middle_name',
+                    'last_name'     => 'last_name',
+                    'email'         => 'email',
+                    'phone'         => 'phone',
+                    'gender'        => 'gender',
+                    'national_id_no'=> 'national_id_no',
+                    'date_of_birth' => 'dob',
+                    'dob'           => 'dob',
+                ];
+                foreach ($personMap as $in => $col) {
+                    if (array_key_exists($in, $data)) {
+                        $personUpdates[] = "$col = ?";
+                        $personParams[] = $data[$in];
+                    }
+                }
+                if ($personUpdates) {
+                    $personParams[] = $personId;
+                    $this->db->prepare("UPDATE persons SET " . implode(', ', $personUpdates) . " WHERE id = ?")
+                             ->execute($personParams);
+                }
+            }
 
-                            if (isset($data['first_name'])) {
-                                $userUpdates[] = 'first_name = ?';
-                                $userParams[] = $data['first_name'];
-                            }
-                            if (isset($data['last_name'])) {
-                                $userUpdates[] = 'last_name = ?';
-                                $userParams[] = $data['last_name'];
-                            }
-                            if (isset($data['email'])) {
-                                $userUpdates[] = 'email = ?';
-                                $userParams[] = $data['email'];
-                            }
-                            if (isset($data['user_status'])) {
-                                $userUpdates[] = 'status = ?';
-                                $userParams[] = $data['user_status'];
-                            }
-
-                            if (!empty($data['role_id'])) {
-                                $roleId = (int) $data['role_id'];
-                                $userUpdates[] = 'role_id = ?';
-                                $userParams[] = $roleId;
-
-                                $usersApi = new UsersAPI();
-                                $usersApi->assignRoleToUser($userId, $roleId);
-                            }
-
-                            if (!empty($userUpdates)) {
-                                $userParams[] = $userId;
-                                $sql = "UPDATE users SET " . implode(', ', $userUpdates) . " WHERE id = ?";
-                                $stmt = $this->db->prepare($sql);
-                    $stmt->execute($userParams);
+            // Account-level fields on `users`. Identity/role columns were dropped from users:
+            // status is the only writable column here; role changes go through the user_roles junction.
+            if ($userId) {
+                if (isset($data['user_status'])) {
+                    $this->db->prepare("UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?")
+                             ->execute([$data['user_status'], $userId]);
+                }
+                if (!empty($data['role_id'])) {
+                    (new UsersAPI())->assignRoleToUser($userId, (int)$data['role_id']);
                 }
             }
 
@@ -1297,32 +1420,22 @@ class StaffAPI extends BaseAPI {
                 $data['staff_type_id'] = $map[$key] ?? null;
             }
 
+            // Employment fields that remain on the `staff` table (marital_status/address/tsc_no/
+            // profile_pic_url/documents_folder are dropped; department_id moved to a junction).
             $updates = [];
             $params = [];
             $allowedFields = [
                 'staff_no',
                 'staff_type_id',
                 'staff_category_id',
-                'department_id',
                 'supervisor_id',
                 'position',
                 'employment_date',
                 'contract_type',
-                'phone',
-                'nssf_no',
-                'kra_pin',
-                'nhif_no',
+                'salary',
                 'bank_name',
                 'bank_account',
-                'salary',
-                'gender',
-                'marital_status',
-                'tsc_no',
-                'address',
-                'profile_pic_url',
-                'documents_folder',
                 'status',
-                'date_of_birth'
             ];
 
             foreach ($allowedFields as $field) {
@@ -1333,10 +1446,63 @@ class StaffAPI extends BaseAPI {
             }
 
             if (!empty($updates)) {
+                $updates[] = "updated_at = NOW()";
                 $params[] = $id;
                 $sql = "UPDATE staff SET " . implode(', ', $updates) . " WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute($params);
+            }
+
+            // Statutory/bank details normalise to staff_payroll_profiles (upsert the active row).
+            $payrollCols = [];
+            $payrollVals = [];
+            $payrollMap = ['kra_pin' => 'kra_pin', 'nssf_no' => 'nssf_no', 'nhif_no' => 'nhif_no',
+                           'bank_name' => 'bank_name', 'bank_account' => 'bank_account', 'salary' => 'basic_salary'];
+            foreach ($payrollMap as $in => $col) {
+                if (array_key_exists($in, $data)) {
+                    $payrollCols[$col] = $data[$in];
+                }
+            }
+            if ($payrollCols) {
+                $has = $this->db->prepare("SELECT id FROM staff_payroll_profiles WHERE staff_id = ? LIMIT 1");
+                $has->execute([$id]);
+                if ($has->fetchColumn()) {
+                    $set = implode(', ', array_map(fn($c) => "$c = ?", array_keys($payrollCols)));
+                    $vals = array_values($payrollCols);
+                    $vals[] = $id;
+                    $this->db->prepare("UPDATE staff_payroll_profiles SET $set, updated_at = NOW() WHERE staff_id = ?")
+                             ->execute($vals);
+                } else {
+                    $cols = array_keys($payrollCols);
+                    $ph = implode(', ', array_fill(0, count($cols), '?'));
+                    $this->db->prepare(
+                        "INSERT INTO staff_payroll_profiles (staff_id, " . implode(', ', $cols) . ", status, created_at, updated_at)
+                         VALUES (?, $ph, 'active', NOW(), NOW())"
+                    )->execute(array_merge([$id], array_values($payrollCols)));
+                }
+            }
+
+            // Department membership normalises to staff_department_assignments (current = effective_to IS NULL).
+            if (array_key_exists('department_id', $data) && $data['department_id']) {
+                $newDept = (int)$data['department_id'];
+                $curr = $this->db->prepare(
+                    "SELECT department_id FROM staff_department_assignments
+                     WHERE staff_id = ? AND effective_to IS NULL ORDER BY id DESC LIMIT 1"
+                );
+                $curr->execute([$id]);
+                $currentDept = (int)$curr->fetchColumn();
+                if ($currentDept !== $newDept) {
+                    // Close the old membership (history) and append the new one — never overwrite.
+                    $this->db->prepare(
+                        "UPDATE staff_department_assignments SET effective_to = CURDATE()
+                         WHERE staff_id = ? AND effective_to IS NULL"
+                    )->execute([$id]);
+                    $deptNextId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_department_assignments")->fetchColumn();
+                    $this->db->prepare(
+                        "INSERT INTO staff_department_assignments (id, staff_id, department_id, role, effective_from, created_at)
+                         VALUES (?, ?, ?, ?, CURDATE(), NOW())"
+                    )->execute([$deptNextId, $id, $newDept, $data['department_role'] ?? 'member']);
+                }
             }
 
             // Update qualifications if provided
@@ -1345,24 +1511,26 @@ class StaffAPI extends BaseAPI {
                 $stmt = $this->db->prepare("DELETE FROM staff_qualifications WHERE staff_id = ?");
                 $stmt->execute([$id]);
 
-                // Add new qualifications
+                // Add new qualifications (4NF columns: qualification_type/title/year_obtained/description)
                 foreach ($data['qualification_details'] as $qual) {
                     $sql = "
                         INSERT INTO staff_qualifications (
                             staff_id,
-                            degree,
+                            qualification_type,
+                            title,
                             institution,
-                            year,
-                            details
-                        ) VALUES (?, ?, ?, ?, ?)
+                            year_obtained,
+                            description
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                     ";
                     $stmt = $this->db->prepare($sql);
                     $stmt->execute([
                         $id,
-                        $qual['degree'],
+                        $qual['qualification_type'] ?? 'degree',
+                        $qual['title'] ?? $qual['degree'] ?? '',
                         $qual['institution'],
-                        $qual['year'],
-                        $qual['details'] ?? null
+                        $qual['year_obtained'] ?? $qual['year'] ?? null,
+                        $qual['description'] ?? $qual['details'] ?? null
                     ]);
                 }
             }
@@ -1373,7 +1541,7 @@ class StaffAPI extends BaseAPI {
                 $stmt = $this->db->prepare("DELETE FROM staff_experience WHERE staff_id = ?");
                 $stmt->execute([$id]);
 
-                // Add new experience
+                // Add new experience (4NF column: responsibilities, not description)
                 foreach ($data['experience_details'] as $exp) {
                     $sql = "
                         INSERT INTO staff_experience (
@@ -1382,7 +1550,7 @@ class StaffAPI extends BaseAPI {
                             position,
                             start_date,
                             end_date,
-                            description
+                            responsibilities
                         ) VALUES (?, ?, ?, ?, ?, ?)
                     ";
                     $stmt = $this->db->prepare($sql);
@@ -1392,7 +1560,7 @@ class StaffAPI extends BaseAPI {
                         $exp['position'],
                         $exp['start_date'],
                         $exp['end_date'] ?? null,
-                        $exp['description'] ?? null
+                        $exp['responsibilities'] ?? $exp['description'] ?? null
                     ]);
                 }
             }
@@ -1477,20 +1645,30 @@ class StaffAPI extends BaseAPI {
     private function getTeachingSchedule($id) {
         try {
             $sql = "
-                SELECT 
-                    ts.*, 
+                SELECT
+                    t.id,
+                    t.staff_id AS teacher_id,
+                    t.role,
+                    aycla.learning_area_id AS subject_id,
                     la.name as subject_name,
+                    ayc.class_id,
                     c.name as class_name,
-                    cs.stream_name
-                FROM teacher_subjects ts
-                JOIN learning_areas la ON ts.subject_id = la.id
-                JOIN classes c ON ts.class_id = c.id
-                JOIN class_streams cs ON c.id = cs.class_id
-                WHERE ts.teacher_id = ? AND c.academic_year = ?
+                    str.name AS stream_name,
+                    ay.year_name AS academic_year
+                FROM academic_year_class_learning_area_teachers t
+                JOIN academic_year_class_learning_areas aycla
+                    ON aycla.id = t.academic_year_class_learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_years ay ON ay.id = ayc.academic_year_id
+                JOIN learning_areas la ON la.id = aycla.learning_area_id
+                JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                LEFT JOIN streams str ON str.id = aycs.stream_id
+                WHERE t.staff_id = ? AND ay.status = 'active'
             ";
-            
+
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, CURRENT_YEAR]);
+            $stmt->execute([$id]);
             $schedule = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -1531,14 +1709,15 @@ class StaffAPI extends BaseAPI {
     private function getLeaveHistory($id) {
         try {
             $sql = "
-                SELECT 
+                SELECT
                     sl.*,
                     lt.name as leave_type,
                     lt.days_allowed,
-                    CONCAT(s.first_name, ' ', s.last_name) as approved_by_name
+                    CONCAT(p.first_name, ' ', p.last_name) as approved_by_name
                 FROM staff_leaves sl
                 JOIN leave_types lt ON sl.leave_type_id = lt.id
                 LEFT JOIN staff s ON sl.approved_by = s.id
+                LEFT JOIN persons p ON p.id = s.person_id
                 WHERE sl.staff_id = ?
                 ORDER BY sl.start_date DESC
             ";
@@ -1563,8 +1742,8 @@ class StaffAPI extends BaseAPI {
                 SELECT 
                     sd.*,
                     d.name as department_name,
-                    CASE WHEN d.hod_id = ? THEN true ELSE false END as is_hod
-                FROM staff_departments sd
+                    CASE WHEN d.head_id = ? THEN true ELSE false END as is_hod
+                FROM staff_department_assignments sd
                 JOIN departments d ON sd.department_id = d.id
                 WHERE sd.staff_id = ?
             ";
@@ -1831,14 +2010,16 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT
                     sa.*,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     s.staff_no,
                     s.id AS staff_id,
                     d.name AS department_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                JOIN departments d ON s.department_id = d.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sa.date BETWEEN ? AND ?
             ";
             $bindings = [
@@ -1849,7 +2030,7 @@ class StaffAPI extends BaseAPI {
                 $sql .= " AND sa.staff_id = ?";
                 $bindings[] = (int) $params['staff_id'];
             }
-            $sql .= " ORDER BY sa.date DESC, s.first_name, s.last_name";
+            $sql .= " ORDER BY sa.date DESC, p.first_name, p.last_name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
@@ -1874,24 +2055,27 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
+            $attendanceId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_attendance")->fetchColumn();
             $sql = "
                 INSERT INTO staff_attendance (
+                    id,
                     staff_id,
                     date,
                     status,
-                    check_in_time,
-                    check_out_time,
+                    check_in,
+                    check_out,
                     notes
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     status = VALUES(status),
-                    check_in_time = VALUES(check_in_time),
-                    check_out_time = VALUES(check_out_time),
+                    check_in = VALUES(check_in),
+                    check_out = VALUES(check_out),
                     notes = VALUES(notes)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $attendanceId,
                 $data['staff_id'],
                 $data['date'],
                 $data['status'],
@@ -1912,16 +2096,18 @@ class StaffAPI extends BaseAPI {
     public function getLeaves($params) {
         try {
             $sql = "
-                SELECT 
+                SELECT
                     sl.*,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     s.staff_no,
                     s.id as staff_id,
                     d.name as department_name
                 FROM staff_leaves sl
                 JOIN staff s ON sl.staff_id = s.id
-                JOIN departments d ON s.department_id = d.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sl.start_date >= ? AND sl.end_date <= ?
                 ORDER BY sl.start_date DESC
             ";
@@ -2052,15 +2238,17 @@ class StaffAPI extends BaseAPI {
 
     private function getStaffWithUserData($id) {
         $sql = "
-            SELECT 
+            SELECT
                 s.*,
                 s.position AS raw_position,
-                s.first_name AS first_name,
-                s.last_name AS last_name,
-                CONCAT_WS(' ', s.first_name, s.last_name) AS full_name,
-                u.first_name AS user_first_name,
-                u.last_name AS user_last_name,
-                u.email AS email,
+                p.first_name AS first_name,
+                p.last_name AS last_name,
+                CONCAT_WS(' ', p.first_name, p.last_name) AS full_name,
+                p.first_name AS user_first_name,
+                p.last_name AS user_last_name,
+                p.email AS email,
+                p.phone AS phone,
+                p.gender AS gender,
                 u.status as user_status,
                 r.id as role_id,
                 r.name as role_name,
@@ -2074,7 +2262,7 @@ class StaffAPI extends BaseAPI {
                         SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
                         FROM user_roles ur
                         INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
-                        WHERE ur.user_id = s.user_id
+                        WHERE ur.user_id = (SELECT id FROM users WHERE person_id = s.person_id)
                     ), ''),
                     r.name
                 ) AS role_names,
@@ -2106,9 +2294,15 @@ class StaffAPI extends BaseAPI {
                     ELSE NULL
                 END as staff_type
             FROM staff s
-            LEFT JOIN users u ON s.user_id = u.id
-            LEFT JOIN roles r ON u.role_id = r.id
-            LEFT JOIN departments d ON s.department_id = d.id
+            JOIN persons p ON p.id = s.person_id
+            LEFT JOIN users u ON u.person_id = s.person_id
+            LEFT JOIN roles r ON r.id = (
+                SELECT ur2.role_id FROM user_roles ur2
+                WHERE ur2.user_id = u.id
+                ORDER BY ur2.id ASC LIMIT 1
+            )
+            LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+            LEFT JOIN departments d ON d.id = sda.department_id
             LEFT JOIN staff_types st ON s.staff_type_id = st.id
             LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
             WHERE s.id = ?
@@ -2125,22 +2319,34 @@ class StaffAPI extends BaseAPI {
         return 'Kwps-' . substr(bin2hex(random_bytes(4)), 0, 8) . '!';
     }
 
+    /**
+     * Materialise the operational artefacts a newly-created staff member needs, under the
+     * normalized 3NF/4NF schema. Idempotent: safe to call repeatedly (each block guards on
+     * existence). Three artefacts:
+     *   1. staff_employment_profiles — the employment context row (department/position/contract).
+     *   2. Onboarding = a workflow_instances header (reference_type='staff_onboarding',
+     *      reference_id = staff.id) + onboarding_tasks seeded from onboarding_task_templates.
+     *      The flat staff_onboarding_progress table is gone; progress is DERIVED from task
+     *      statuses by vw_staff_onboarding_progress, never stored.
+     *   3. emergency_contacts (person-keyed) — only when a distinct emergency contact was
+     *      supplied. The staff's own email/phone already live on `persons`, so they are NOT
+     *      mirrored here (that was the old staff_communication_profiles concern, now dropped).
+     */
     private function ensureStaffOnboardingArtifacts(
         int $staffId,
         int $userId,
         array $staffInfo,
         array $data
     ): void {
-        $stmt = $this->db->prepare('SELECT 1 FROM staff_onboarding_progress WHERE staff_id = ? LIMIT 1');
-        $stmt->execute([$staffId]);
-        if (!$stmt->fetchColumn()) {
-            $this->db->prepare("
-                INSERT INTO staff_onboarding_progress
-                    (staff_id, user_id, password_completed, profile_completed, communication_completed, onboarding_status, created_at, updated_at)
-                VALUES (?, ?, 0, 0, 0, 'invited', NOW(), NOW())
-            ")->execute([$staffId, $userId]);
-        }
+        // Resolve identity/employment facts we need for both the profile and the task due dates.
+        $ctx = $this->db->prepare('SELECT person_id, staff_type_id FROM staff WHERE id = ? LIMIT 1');
+        $ctx->execute([$staffId]);
+        $ctxRow = $ctx->fetch(PDO::FETCH_ASSOC) ?: [];
+        $personId = (int)($ctxRow['person_id'] ?? 0) ?: null;
+        $staffTypeId = (int)($ctxRow['staff_type_id'] ?? 0) ?: null;
+        $employmentDate = $staffInfo['employment_date'] ?? date('Y-m-d');
 
+        // 1. Employment context row (staff.department_id is dropped; membership lives here).
         $stmt = $this->db->prepare('SELECT 1 FROM staff_employment_profiles WHERE staff_id = ? LIMIT 1');
         $stmt->execute([$staffId]);
         if (!$stmt->fetchColumn()) {
@@ -2152,22 +2358,123 @@ class StaffAPI extends BaseAPI {
                 $staffId,
                 $staffInfo['department_id'] ?? null,
                 $staffInfo['position'] ?? 'Staff',
-                $staffInfo['employment_date'] ?? date('Y-m-d'),
+                $employmentDate,
                 $staffInfo['contract_type'] ?? 'permanent',
             ]);
         }
 
-        $stmt = $this->db->prepare('SELECT 1 FROM staff_communication_profiles WHERE staff_id = ? LIMIT 1');
+        // 2. Onboarding workflow instance + seeded tasks (skip if one already exists for this staff).
+        $stmt = $this->db->prepare(
+            "SELECT id FROM workflow_instances
+             WHERE reference_type = 'staff_onboarding' AND reference_id = ? LIMIT 1"
+        );
         $stmt->execute([$staffId]);
-        if (!$stmt->fetchColumn()) {
+        $onboardingId = (int)$stmt->fetchColumn();
+
+        if (!$onboardingId) {
+            $workflowDefId = $this->resolveStaffOnboardingWorkflowId();
             $this->db->prepare("
-                INSERT INTO staff_communication_profiles
-                    (staff_id, primary_email, primary_phone, created_at, updated_at)
-                VALUES (?, ?, ?, NOW(), NOW())
+                INSERT INTO workflow_instances
+                    (workflow_id, reference_type, reference_id, current_stage, status, started_by, started_at, data_json)
+                VALUES (?, 'staff_onboarding', ?, 'onboarding', 'in_progress', ?, NOW(), ?)
             ")->execute([
+                $workflowDefId,
                 $staffId,
-                $data['communication_email'] ?? $data['email'] ?? null,
-                $data['communication_phone'] ?? $staffInfo['phone'] ?? null,
+                $userId,
+                json_encode([
+                    'staff_no'   => $staffInfo['staff_no'] ?? null,
+                    'position'   => $staffInfo['position'] ?? null,
+                    'invited_at' => date('Y-m-d H:i:s'),
+                ]),
+            ]);
+            $onboardingId = (int)$this->db->lastInsertId();
+            $this->seedOnboardingTasks($onboardingId, $staffTypeId, $employmentDate, $staffInfo['department_id'] ?? null);
+        }
+
+        // 3. Emergency contact — only when a real third-party contact is supplied.
+        $ecName  = $data['emergency_contact_name'] ?? null;
+        $ecPhone = $data['emergency_contact_phone'] ?? null;
+        if ($personId && ($ecName || $ecPhone)) {
+            $exists = $this->db->prepare(
+                'SELECT 1 FROM emergency_contacts WHERE person_id = ? AND name = ? LIMIT 1'
+            );
+            $exists->execute([$personId, (string)$ecName]);
+            if (!$exists->fetchColumn()) {
+                $this->db->prepare("
+                    INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                    VALUES (?, ?, ?, ?, NOW())
+                ")->execute([
+                    $personId,
+                    $ecName ?: 'Emergency Contact',
+                    $ecPhone,
+                    $data['emergency_contact_relationship'] ?? null,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Resolve the workflow_definitions.id for the 'staff_onboarding' workflow, creating a
+     * minimal definition if none is seeded. workflow_instances.workflow_id is NOT NULL, so a
+     * definition must exist before an onboarding instance can be written.
+     */
+    private function resolveStaffOnboardingWorkflowId(): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM workflow_definitions WHERE code = 'staff_onboarding' LIMIT 1");
+        $stmt->execute();
+        $id = (int)$stmt->fetchColumn();
+        if ($id) {
+            return $id;
+        }
+        $this->db->prepare("
+            INSERT INTO workflow_definitions (code, name, description, category, is_active, created_at, updated_at)
+            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 1, NOW(), NOW())
+        ")->execute();
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * Seed onboarding_tasks for a new onboarding instance from the active task templates.
+     * Templates whose applies_to_type_ids is set are filtered to the staff's type; NULL/empty
+     * applies-to means the template applies to everyone. Due dates are derived from the
+     * employment date + the template's days_from_start.
+     */
+    private function seedOnboardingTasks(int $onboardingId, ?int $staffTypeId, string $employmentDate, ?int $departmentId): void
+    {
+        $tpl = $this->db->prepare("
+            SELECT task_name, description, category, days_from_start, priority
+            FROM onboarding_task_templates
+            WHERE status = 'active'
+              AND (
+                    applies_to_type_ids IS NULL
+                 OR applies_to_type_ids = ''
+                 OR JSON_CONTAINS(applies_to_type_ids, CAST(? AS JSON))
+              )
+            ORDER BY display_order, id
+        ");
+        $tpl->execute([$staffTypeId ?? 0]);
+        $templates = $tpl->fetchAll(PDO::FETCH_ASSOC);
+        if (!$templates) {
+            return;
+        }
+
+        $insert = $this->db->prepare("
+            INSERT INTO onboarding_tasks
+                (onboarding_id, task_name, description, category, department_id, due_date, priority, sequence, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL ? DAY), ?, ?, 'pending', NOW(), NOW())
+        ");
+        $seq = 0;
+        foreach ($templates as $t) {
+            $insert->execute([
+                $onboardingId,
+                $t['task_name'],
+                $t['description'] ?? null,
+                $t['category'] ?? null,
+                $departmentId,
+                $employmentDate,
+                (int)($t['days_from_start'] ?? 0),
+                $t['priority'] ?? 'medium',
+                ++$seq,
             ]);
         }
     }
@@ -2280,12 +2587,14 @@ class StaffAPI extends BaseAPI {
                 SELECT
                     sc.*,
                     s.staff_no,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     d.name as department_name
                 FROM staff_contracts sc
                 JOIN staff s ON sc.staff_id = s.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN departments d ON d.id = sda.department_id
             ";
 
             if (!empty($where)) {
@@ -2424,18 +2733,14 @@ class StaffAPI extends BaseAPI {
             $year = (int) ($filters['year'] ?? date('Y'));
             $period = $filters['payroll_period'] ?? sprintf('%04d-%02d', $year, $month);
 
+            // Reads the shipped vw_payslip_detailed (flattens payslips/payslip_items/payroll_runs
+            // back to the legacy per-staff payroll row shape). payroll_period is derived in the view
+            // as YYYY-MM, so it filters directly.
             $sql = "
-                SELECT
-                    sp.*, 
-                    s.staff_no,
-                    s.first_name,
-                    s.last_name,
-                    d.name as department_name
-                FROM staff_payroll sp
-                JOIN staff s ON sp.staff_id = s.id
-                LEFT JOIN departments d ON s.department_id = d.id
-                WHERE sp.payroll_period = ?
-                ORDER BY s.last_name, s.first_name
+                SELECT *
+                FROM vw_payslip_detailed
+                WHERE payroll_period = ?
+                ORDER BY staff_name
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -2468,8 +2773,8 @@ class StaffAPI extends BaseAPI {
                     COALESCE(SUM(gross_salary), 0) as gross_payroll,
                     COALESCE(SUM(total_deductions), 0) as total_deductions,
                     COALESCE(SUM(net_salary), 0) as net_payroll,
-                    SUM(CASE WHEN status != 'paid' THEN 1 ELSE 0 END) as pending_approval
-                FROM staff_payroll
+                    SUM(CASE WHEN payment_status <> 'paid' THEN 1 ELSE 0 END) as pending_approval
+                FROM vw_payslip_detailed
                 WHERE payroll_period = ?
             ";
 
@@ -2759,7 +3064,9 @@ class StaffAPI extends BaseAPI {
      */
     public function getStaffAssignments($staffId, $academicYearId = null, $includeHistory = false) {
         try {
-            $result = $this->service->getAssignmentManager()->getStaffAssignments($staffId, $academicYearId, $includeHistory);
+            $filters = ['staff_id' => $staffId];
+            if ($academicYearId) { $filters['academic_year_id'] = $academicYearId; }
+            $result = $this->service->getAssignmentManager()->getStaffAssignments($filters);
             return formatResponse(true, $result, 'Assignments retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
@@ -2783,7 +3090,7 @@ class StaffAPI extends BaseAPI {
      */
     public function getCurrentAssignments($staffId) {
         try {
-            $result = $this->service->getAssignmentManager()->getCurrentAssignments($staffId);
+            $result = $this->service->getAssignmentManager()->getCurrentAssignments(['staff_id' => $staffId]);
             return formatResponse(true, $result, 'Current assignments retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
@@ -2827,13 +3134,14 @@ class StaffAPI extends BaseAPI {
     public function listInternalOpportunities($staffId)
     {
         $stmt = $this->db->prepare(
-            "SELECT j.id, j.title, j.department, j.job_type, j.location,
+            "SELECT j.id, j.title, d.name AS department, j.job_type, j.location,
                     j.description, j.requirements, j.responsibilities,
                     j.deadline, j.status,
                     a.id AS application_id,
                     a.status AS application_status,
                     a.created_at AS applied_at
              FROM job_vacancies j
+             LEFT JOIN departments d ON d.id = j.department_id
              LEFT JOIN job_applications a
                     ON a.job_id = j.id
                    AND a.applicant_type = 'internal'
@@ -2868,10 +3176,13 @@ class StaffAPI extends BaseAPI {
             }
 
             $profileStmt = $this->db->prepare(
-                "SELECT s.id, s.first_name, s.last_name, s.phone, s.tsc_no,
-                        s.position, s.department_id, u.email
+                "SELECT s.id, p.first_name, p.last_name, p.phone,
+                        s.position, sda.department_id, p.email
                  FROM staff s
-                 INNER JOIN users u ON u.id = s.user_id
+                 INNER JOIN persons p ON p.id = s.person_id
+                 LEFT JOIN staff_department_assignments sda
+                        ON sda.staff_id = s.id
+                       AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                  WHERE s.id = ? AND s.status IN ('active', 'on_leave')
                  LIMIT 1"
             );
@@ -2909,7 +3220,8 @@ class StaffAPI extends BaseAPI {
                 $profile['last_name'],
                 $profile['email'],
                 $profile['phone'] ?: 'Not provided',
-                $profile['tsc_no'],
+                null, // tsc_number: TSC no. dropped from staff in the normalized schema
+
                 $statement !== ''
                     ? $statement
                     : 'Internal application submitted through staff self-service.',

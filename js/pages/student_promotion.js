@@ -228,11 +228,11 @@ const StudentPromotionController = {
         return `
           <tr>
             <td><input type="checkbox" class="candidate-checkbox" data-id="${s.id}"></td>
-            <td>${this.escape(s.admission_no || "-")}</td>
-            <td><strong>${this.escape(s.full_name || "-")}</strong></td>
-            <td>${this.escape(s.current_class || "-")}</td>
-            <td>${this.escape(s.current_stream || "-")}</td>
-            <td>${this.escape(s.current_year || "-")}</td>
+            <td>${this.escapeHtml(s.admission_no || "-")}</td>
+            <td><strong>${this.escapeHtml(s.full_name || "-")}</strong></td>
+            <td>${this.escapeHtml(s.current_class || "-")}</td>
+            <td>${this.escapeHtml(s.current_stream || "-")}</td>
+            <td>${this.escapeHtml(s.current_year || "-")}</td>
             <td><span class="badge bg-success">Promote</span></td>
             <td>
               <select class="form-select form-select-sm action-select" data-id="${s.id}" onchange="StudentPromotionController.setAction(${s.id}, this.value)">
@@ -328,7 +328,7 @@ const StudentPromotionController = {
       notes: document.querySelector(`.notes-input[data-id="${id}"]`)?.value || null,
     }));
 
-    if (!confirm(`Promote ${students.length} students from ${fromYearId} to ${toYearId}?`)) {
+    if (!(await window.confirmAction('Confirm', `Promote ${students.length} students from ${fromYearId} to ${toYearId}?`))) {
       return;
     }
 
@@ -390,7 +390,7 @@ const StudentPromotionController = {
         <td>${b.id || "-"}</td>
         <td>${b.from_academic_year || "-"}</td>
         <td>${b.to_academic_year || "-"}</td>
-        <td><span class="badge bg-${b.status === 'completed' ? 'success' : 'secondary'}">${this.escape(b.status || "-")}</span></td>
+        <td><span class="badge bg-${b.status === 'completed' ? 'success' : 'secondary'}">${this.escapeHtml(b.status || "-")}</span></td>
         <td>${b.total_students_processed || b.students_count || 0}</td>
         <td>${b.total_promoted || 0}</td>
         <td>${b.created_at || "-"}</td>
@@ -422,7 +422,7 @@ const StudentPromotionController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
@@ -443,7 +443,7 @@ const StudentPromotionController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -468,7 +468,7 @@ const StudentPromotionController = {
       return;
     }
 
-    alert(message);
+    window.infoDialog('Notice', message);
   },
 };
 

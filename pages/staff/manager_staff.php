@@ -110,13 +110,20 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/all_staff.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/all_staff.js") ?>"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof StaffController !== 'undefined') {
-            StaffController.init({ view: 'manager' });
+    (function () {
+        function boot() {
+            if (typeof StaffController !== 'undefined') {
+                StaffController.init({ view: 'manager' });
+            }
         }
-    });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+        } else {
+            boot();
+        }
+    })();
 
     function closeModal(modalId) {
         document.getElementById(modalId).classList.remove('show');

@@ -24,7 +24,12 @@ class CsrfMiddleware
         'payments/index',
         'payments/mpesa-b2c-callback',
         'payments/mpesa-b2c-timeout',
+        'payments/c2b-validation',
+        'payments/c2b-confirmation',
+        'payments/mpesa-c2b-validation',
         'payments/mpesa-c2b-confirmation',
+        'payments/mpesa-stk-callback',
+        'payments/mpesa-result',
         'payments/kcb-validation',
         'payments/kcb-transfer-callback',
         'payments/kcb-notification',
@@ -54,8 +59,11 @@ class CsrfMiddleware
         'website/history',
         'website/values',
         'website/departments',
-        'website/steps',
         'website/benefits',
+        'public/job-applications',
+        'public/inquiries',
+        'public/applications',
+        'public/subscribers',
     ];
 
     public static function handle(): void

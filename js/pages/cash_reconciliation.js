@@ -71,9 +71,8 @@ const cashReconcController = {
         callAPI('/finance/cash-reconciliation?date=' + date, 'GET'),
       ]);
 
-      const collections = this._extract(rCollections);
-      const reconciled  = this._extract(rReconciled);
-      const reconRecord = Array.isArray(reconciled) ? reconciled[0] : reconciled;
+      const collections = this._extractList(rCollections);
+      const reconRecord = this._extractOne(rReconciled);
 
       this._systemTotal = collections.reduce((s, c) => s + Number(c.amount || 0), 0);
       this._set('crSystemTotal', 'KES ' + this._systemTotal.toLocaleString());
@@ -87,22 +86,26 @@ const cashReconcController = {
         if (!collections.length) {
           systemTable.innerHTML = '<tr><td colspan="3" class="text-center py-3 text-muted">No cash transactions found for this date.</td></tr>';
         } else {
-          systemTable.innerHTML = collections.map(c => `
-            <tr>
-              <td class="text-muted small">${this._esc(c.time || c.created_at?.split('T')[1]?.substring(0,5) || '—')}</td>
-              <td>${this._esc(c.description || c.student_name || c.purpose || '—')}</td>
+          systemTable.innerHTML = collections.map(c => {
+            const time = (c.payment_date || '').split(' ')[1]?.substring(0, 5) || c.created_at?.split('T')[1]?.substring(0, 5) || '—';
+            const desc = (c.source === 'transport' ? 'Transport — ' : '') +
+              (c.student_name || c.reference || c.receipt_no || '—');
+            return `<tr>
+              <td class="text-muted small">${this._esc(time)}</td>
+              <td>${this._esc(desc)}</td>
               <td class="text-end fw-semibold">KES ${Number(c.amount||0).toLocaleString()}</td>
-            </tr>`).join('') +
-            `<tr class="table-primary fw-bold">
-              <td colspan="2">System Total</td>
-              <td class="text-end">KES ${this._systemTotal.toLocaleString()}</td>
             </tr>`;
+          }).join('') +
+          `<tr class="table-primary fw-bold">
+            <td colspan="2">System Total</td>
+            <td class="text-end">KES ${this._systemTotal.toLocaleString()}</td>
+          </tr>`;
         }
       }
 
       // If already reconciled, show status + physical total
-      if (reconRecord && reconRecord.physical_count) {
-        const physical = Number(reconRecord.physical_count);
+      if (reconRecord && reconRecord.physical_cash_count) {
+        const physical = Number(reconRecord.physical_cash_count);
         const variance = physical - this._systemTotal;
         this._set('crPhysicalTotal', 'KES ' + physical.toLocaleString());
         this._setVariance(variance);
@@ -152,19 +155,13 @@ const cashReconcController = {
     if (!physicalTotal) { showNotification('Please enter the physical cash count.', 'warning'); return; }
 
     const notes = document.getElementById('crNotes')?.value || '';
-    const denomBreakdown = {};
-    this._denominations.forEach(d => {
-      denomBreakdown[d.value] = Number(document.getElementById(d.id)?.value || 0);
-    });
 
     try {
       await callAPI('/finance/cash-reconciliation', 'POST', {
-        date,
-        system_total:    this._systemTotal,
-        physical_count:  physicalTotal,
-        variance:        physicalTotal - this._systemTotal,
+        reconciliation_date:  date,
+        system_cash_total:    this._systemTotal,
+        physical_cash_count:  physicalTotal,
         notes,
-        denomination_breakdown: denomBreakdown,
       });
       showNotification('Reconciliation submitted successfully.', 'success');
       await Promise.all([this.loadDay(date), this._loadHistory()]);
@@ -178,26 +175,26 @@ const cashReconcController = {
     if (!tbody) return;
     try {
       const r = await callAPI('/finance/cash-reconciliation', 'GET');
-      const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const items = Array.isArray(r) ? r : (r?.sessions ? r.sessions : []);
 
       if (!items.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3 text-muted">No reconciliation history yet.</td></tr>';
         return;
       }
 
-      const statusCls = { submitted: 'success', pending: 'warning', discrepancy: 'danger' };
+      const statusCls = { draft: 'warning', approved: 'success', escalated: 'danger' };
       tbody.innerHTML = items.map(h => {
         const variance = Number(h.variance || 0);
-        const status   = (h.status || 'pending').toLowerCase();
+        const status   = (h.status || 'draft').toLowerCase();
         return `<tr>
-          <td>${this._esc(h.date || '—')}</td>
-          <td class="text-end">KES ${Number(h.system_total||0).toLocaleString()}</td>
-          <td class="text-end">KES ${Number(h.physical_count||0).toLocaleString()}</td>
+          <td>${this._esc(h.reconciliation_date || '—')}</td>
+          <td class="text-end">KES ${Number(h.system_cash_total||0).toLocaleString()}</td>
+          <td class="text-end">KES ${Number(h.physical_cash_count||0).toLocaleString()}</td>
           <td class="text-end fw-bold ${variance===0?'text-success':variance>0?'text-info':'text-danger'}">
             ${variance>=0?'+':''}KES ${Math.abs(variance).toLocaleString()}
           </td>
-          <td class="text-center"><span class="badge bg-${statusCls[status]||'secondary'}">${this._esc(h.status||'—')}</span></td>
-          <td>${this._esc(h.submitted_by || h.created_by || '—')}</td>
+          <td class="text-center"><span class="badge bg-${statusCls[status]||'secondary'}">${this._esc(status.charAt(0).toUpperCase() + status.slice(1))}</span></td>
+          <td>${this._esc(h.cashier_name || '—')}</td>
           <td class="text-center">
             <button class="btn btn-sm btn-outline-primary" onclick="cashReconcController.viewDetail(${h.id})">View</button>
           </td>
@@ -214,16 +211,17 @@ const cashReconcController = {
     this._viewModal.show();
     try {
       const r = await callAPI('/finance/cash-reconciliation/' + id, 'GET');
-      const d = r?.data ?? r ?? {};
+      const d = r ?? {};
       if (body) {
         body.innerHTML = `
           <div class="row g-3">
-            <div class="col-md-4"><strong>Date:</strong> ${this._esc(d.date||'—')}</div>
-            <div class="col-md-4"><strong>System Total:</strong> KES ${Number(d.system_total||0).toLocaleString()}</div>
-            <div class="col-md-4"><strong>Physical Count:</strong> KES ${Number(d.physical_count||0).toLocaleString()}</div>
+            <div class="col-md-4"><strong>Date:</strong> ${this._esc(d.reconciliation_date||'—')}</div>
+            <div class="col-md-4"><strong>System Total:</strong> KES ${Number(d.system_cash_total||0).toLocaleString()}</div>
+            <div class="col-md-4"><strong>Physical Count:</strong> KES ${Number(d.physical_cash_count||0).toLocaleString()}</div>
             <div class="col-md-4"><strong>Variance:</strong> KES ${Number(d.variance||0).toLocaleString()}</div>
-            <div class="col-md-4"><strong>Submitted By:</strong> ${this._esc(d.submitted_by||'—')}</div>
+            <div class="col-md-4"><strong>Submitted By:</strong> ${this._esc(d.cashier_name||'—')}</div>
             <div class="col-md-4"><strong>Status:</strong> ${this._esc(d.status||'—')}</div>
+            ${d.variance_reason ? `<div class="col-12"><strong>Variance Reason:</strong><p class="mt-1">${this._esc(d.variance_reason)}</p></div>` : ''}
             ${d.notes ? `<div class="col-12"><strong>Notes:</strong><p class="mt-1">${this._esc(d.notes)}</p></div>` : ''}
           </div>`;
       }
@@ -232,10 +230,20 @@ const cashReconcController = {
     }
   },
 
-  _extract: function (settled) {
+  _extractList: function (settled) {
     if (settled.status !== 'fulfilled') return [];
     const r = settled.value;
-    return Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+    if (Array.isArray(r)) return r;
+    if (r && Array.isArray(r.collections)) return r.collections;
+    if (r && Array.isArray(r.sessions)) return r.sessions;
+    return [];
+  },
+
+  _extractOne: function (settled) {
+    if (settled.status !== 'fulfilled') return null;
+    const r = settled.value;
+    if (Array.isArray(r)) return r[0] || null;
+    return r || null;
   },
 
   _set: (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; },

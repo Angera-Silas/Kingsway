@@ -132,6 +132,55 @@ return [
                 ['label' => 'Job Inspector', 'url' => 'job_inspector'],
             ]
         ],
+
+        // System Features — orphan features wired to the System Admin sidebar
+        // (assessment_overview, salary_advances, staff_schedule,
+        //  student_timeline, term_transition, year_rollover are school-domain
+        //  features awaiting role-scoped placement; kept reachable here).
+        [
+            'label' => 'System Features',
+            'url' => null,
+            'icon' => 'fas fa-cubes',
+            'subitems' => [
+                ['label' => 'Initialize School', 'url' => 'school_initialization'],
+                ['label' => 'WhatsApp Management', 'url' => 'manage_whatsapp'],
+                ['label' => 'Assessment Overview', 'url' => 'assessment_overview'],
+                ['label' => 'Salary Advances', 'url' => 'salary_advances'],
+                ['label' => 'Staff Schedule', 'url' => 'staff_schedule'],
+                ['label' => 'Student Timeline', 'url' => 'student_timeline'],
+                ['label' => 'Term Transition', 'url' => 'term_transition'],
+                ['label' => 'Year Rollover', 'url' => 'year_rollover'],
+            ]
+        ],
+
+        [
+            'label' => 'Communications',
+            'url' => null,
+            'icon' => 'fas fa-comments',
+            'subitems' => [
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
+                ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'SMS', 'url' => 'manage_sms'],
+                ['label' => 'Email', 'url' => 'manage_email'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Gallery', 'url' => 'manage_website'],
+                ['label' => 'Downloads', 'url' => 'manage_website'],
+                ['label' => 'Vacancies', 'url' => 'manage_website'],
+                ['label' => 'Applications', 'url' => 'manage_website'],
+                ['label' => 'Inquiries', 'url' => 'manage_website'],
+                ['label' => 'Page Content', 'url' => 'manage_website'],
+                ['label' => 'Settings', 'url' => 'manage_website'],
+            ]
+        ],
     ],
 
     // =========================================================================
@@ -171,8 +220,7 @@ return [
             'icon' => 'fas fa-calendar',
             'subitems' => [
                 ['label' => 'Academic Years', 'url' => 'academic_years'],
-                ['label' => 'Schedule Terms', 'url' => 'manage_terms'],               // DIRECTOR schedules terms
-                ['label' => 'Term Dates', 'url' => 'term_dates'],
+                ['label' => 'Manage Terms', 'url' => 'manage_terms'],               // DIRECTOR schedules terms
                 ['label' => 'Year Calendar', 'url' => 'year_calendar'],
             ]
         ],
@@ -330,10 +378,27 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'Email', 'url' => 'manage_email'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Gallery', 'url' => 'manage_website'],
+                ['label' => 'Downloads', 'url' => 'manage_website'],
+                ['label' => 'Vacancies', 'url' => 'manage_website'],
+                ['label' => 'Applications', 'url' => 'manage_website'],
+                ['label' => 'Inquiries', 'url' => 'manage_website'],
+                ['label' => 'Page Content', 'url' => 'manage_website'],
+                ['label' => 'Settings', 'url' => 'manage_website'],
             ]
         ],
 
@@ -483,18 +548,19 @@ return [
             'icon' => 'fas fa-graduation-cap',
             'subitems' => [
                 ['label' => 'Academic Years', 'url' => 'academic_years'],
-                ['label' => 'Schedule Terms', 'url' => 'manage_terms'],               // Admin can also schedule terms
-                ['label' => 'Term Dates', 'url' => 'term_dates'],
+                ['label' => 'Manage Terms', 'url' => 'manage_terms'],               // Admin can also schedule terms
                 ['label' => 'Year Calendar', 'url' => 'year_calendar'],
+                ['label' => 'Term Transition', 'url' => 'term_transition'],
+                ['label' => 'Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'View Timetable', 'url' => 'manage_timetable'],
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
                 ['label' => 'View Results', 'url' => 'view_results'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
-                ['label' => 'CBC Curriculum', 'url' => 'view_curriculum_cbc'],
-                ['label' => 'CBC Manager', 'url' => 'view_cbc_curriculum'],
-                ['label' => 'Assessment Rubrics', 'url' => 'view_assessment_rubrics'],
-                ['label' => 'Grading Scales', 'url' => 'view_grading_scales'],
-                ['label' => 'Student Portfolio', 'url' => 'view_student_portfolio'],
+                ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
+                ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
+                ['label' => 'Assessment Rubrics', 'url' => 'assessment_rubrics'],
+                ['label' => 'Grading Scales', 'url' => 'grading_scales'],
+                ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
 
             ]
         ],
@@ -505,10 +571,10 @@ return [
             'url' => null,
             'icon' => 'fas fa-file-alt',
             'subitems' => [
-                ['label' => 'Exam Schedule', 'url' => 'view_exam_schedule'],
-                ['label' => 'Supervision Roster', 'url' => 'view_supervision_roster'],
-                ['label' => 'Grading Status', 'url' => 'view_grading_status'],
-                ['label' => 'Results Moderation', 'url' => 'view_exam_moderation'],
+                ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
+                ['label' => 'Supervision Roster', 'url' => 'supervision_roster'],
+                ['label' => 'Grading Status', 'url' => 'grading_status'],
+                ['label' => 'Results Moderation', 'url' => 'exam_moderation'],
                 ['label' => 'View Results', 'url' => 'view_results'],
             ]
         ],
@@ -541,6 +607,8 @@ return [
             'subitems' => [
                 ['label' => 'School Events', 'url' => 'school_events'],
                 ['label' => 'Manage Calendar', 'url' => 'manage_calendar_events'],
+                ['label' => 'Manage Holidays', 'url' => 'manage_holidays'],
+                ['label' => 'Staff Meetings', 'url' => 'manage_staff_meetings'],
                 ['label' => 'Assemblies', 'url' => 'assemblies'],
             ]
         ],
@@ -571,10 +639,12 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'Manage Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
                 ['label' => 'Email', 'url' => 'manage_email'],
+                ['label' => 'WhatsApp', 'url' => 'manage_whatsapp'],
             ]
         ],
 
@@ -587,6 +657,38 @@ return [
                 ['label' => 'Enrollment Reports', 'url' => 'enrollment_reports'],
                 ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
                 ['label' => 'Financial Summary', 'url' => 'finance_reports'],
+            ]
+        ],
+
+        /*school public website management - manage website content(about school, mission, vision, logo, contact info, news, events, gallery)
+        and all data about the school visible on our public pages like -  
+            about.php
+            contact.php
+            downloads.php
+            event-detail.php
+            events.php - We have some events that must not be posted to web page, eg. internal events, so we need to manage which events are visible on the website and which are not.
+            index.php
+            job-detail.php
+            news-article.php
+            news.php - all department heads should have permissions to post news articles to the website, but only the school administrator can approve and publish them.
+            careers.php - the jobs that the school advertises on the website should be managed by the school administrator, and only approved jobs should be visible on the website.
+            admissions.php
+            offline.html
+        */
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Gallery', 'url' => 'manage_website'],
+                ['label' => 'Downloads', 'url' => 'manage_website'],
+                ['label' => 'Vacancies', 'url' => 'manage_website'],
+                ['label' => 'Applications', 'url' => 'manage_website'],
+                ['label' => 'Inquiries', 'url' => 'manage_website'],
+                ['label' => 'Page Content', 'url' => 'manage_website'],
+                ['label' => 'Settings', 'url' => 'manage_website'],
             ]
         ],
 
@@ -758,9 +860,25 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
                 ['label' => 'SMS', 'url' => 'manage_sms'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Gallery', 'url' => 'manage_website'],
+                ['label' => 'Downloads', 'url' => 'manage_website'],
+                ['label' => 'Vacancies', 'url' => 'manage_website'],
+                ['label' => 'Applications', 'url' => 'manage_website'],
+                ['label' => 'Inquiries', 'url' => 'manage_website'],
+                ['label' => 'Page Content', 'url' => 'manage_website'],
             ]
         ],
 
@@ -942,9 +1060,20 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
                 ['label' => 'Parent Messaging', 'url' => 'manage_email'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Applications', 'url' => 'manage_website'],
             ]
         ],
 
@@ -1072,7 +1201,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
@@ -1184,7 +1313,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
@@ -1281,7 +1410,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
@@ -1414,6 +1543,18 @@ return [
                 ['label' => 'Inventory Expenses', 'url' => 'inventory_expenses'],
             ]
         ],
+
+        [
+            'label' => 'Communications',
+            'url' => null,
+            'icon' => 'fas fa-comments',
+            'subitems' => [
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
+                ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                ['label' => 'SMS', 'url' => 'manage_sms'],
+                ['label' => 'Email', 'url' => 'manage_email'],
+            ]
+        ],
     ],
 
     // =========================================================================
@@ -1494,7 +1635,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
@@ -1560,6 +1701,7 @@ return [
             ]
         ],
 
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
     ],
 
@@ -1642,7 +1784,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
                 ['label' => 'Parent Notifications', 'url' => 'manage_communications'],
             ]
@@ -1708,8 +1850,19 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'Gallery', 'url' => 'manage_website'],
             ]
         ],
 
@@ -1752,7 +1905,7 @@ return [
         ],
 
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Messages', 'url' => 'manage_communications', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1822,7 +1975,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
@@ -1844,7 +1997,7 @@ return [
     // =========================================================================
     32 => [
         ['label' => 'Dashboard', 'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        
+
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
@@ -1858,7 +2011,7 @@ return [
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Messages', 'url' => 'manage_communications', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1867,7 +2020,7 @@ return [
     // =========================================================================
     33 => [
         ['label' => 'Dashboard', 'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        
+
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
@@ -1880,7 +2033,7 @@ return [
             ]
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Messages', 'url' => 'manage_communications', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1890,12 +2043,12 @@ return [
     // =========================================================================
     34 => [
         ['label' => 'Dashboard', 'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        
+
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Messages', 'url' => 'manage_communications', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2024,8 +2177,18 @@ return [
             'url' => null,
             'icon' => 'fas fa-comments',
             'subitems' => [
-                ['label' => 'Messages', 'url' => 'manage_communications'],
+                ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
+            ]
+        ],
+
+        [
+            'label' => 'Website Management',
+            'url' => null,
+            'icon' => 'fas fa-globe',
+            'subitems' => [
+                ['label' => 'News Articles', 'url' => 'manage_website'],
+                ['label' => 'Events', 'url' => 'manage_website'],
             ]
         ],
 
@@ -2050,13 +2213,13 @@ return [
     // =========================================================================
     64 => [
         ['label' => 'Dashboard', 'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        
+
         ['label' => 'Timetable', 'url' => 'timetable', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
         ['label' => 'My Attendance', 'url' => 'my_attendance', 'icon' => 'fas fa-clipboard-check', 'subitems' => []],
         ['label' => 'Leave Requests', 'url' => 'staff_leave', 'icon' => 'fas fa-calendar-check', 'subitems' => []],
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
-        ['label' => 'Messages', 'url' => 'manage_communications', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
     ],
 
 ];

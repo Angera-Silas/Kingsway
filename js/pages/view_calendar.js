@@ -17,13 +17,7 @@ const ViewCalendarController = (() => {
 
     async function loadData() {
         try {
-            const params = new URLSearchParams({ month: currentMonth + 1, year: currentYear });
-            const type = document.getElementById('eventTypeFilter')?.value;
-            if (type) params.append('type', type);
-            const search = document.getElementById('searchEvents')?.value;
-            if (search) params.append('search', search);
-
-            const response = await window.API.apiCall(`/academic/calendar?${params.toString()}`, 'GET');
+            const response = await window.API.schedules.getEvents();
             const data = response?.data || response || [];
             events = Array.isArray(data) ? data : (data.events || data.data || []);
 
@@ -125,6 +119,13 @@ const ViewCalendarController = (() => {
             const color = typeColors[evt.type || evt.event_type] || 'secondary';
             const date = new Date(evt.start_date || evt.date);
             const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const startT = evt.start_time || (evt.start_at ? String(evt.start_at).substring(11, 16) : '') || '';
+            const endT = evt.end_time || (evt.end_at ? String(evt.end_at).substring(11, 16) : '') || '';
+            const endDate = evt.end_date && evt.end_date !== (evt.start_date || evt.date)
+                ? new Date(evt.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                : '';
+            const rangeStr = [dateStr, endDate].filter(Boolean).join(' – ');
+            const timeStr = [startT, endT].filter(Boolean).join(' – ');
             return `
                 <div class="list-group-item list-group-item-action" onclick="ViewCalendarController.viewEvent(${evt.id})">
                     <div class="d-flex justify-content-between align-items-start">
@@ -132,7 +133,7 @@ const ViewCalendarController = (() => {
                             <span class="badge bg-${color} me-2">${evt.type || evt.event_type || 'event'}</span>
                             <strong>${evt.title || evt.name}</strong>
                         </div>
-                        <small class="text-muted">${dateStr}</small>
+                        <small class="text-muted">${rangeStr}${timeStr ? ' · ' + timeStr : ''}</small>
                     </div>
                     ${evt.description ? `<small class="text-muted d-block mt-1">${evt.description.substring(0, 60)}...</small>` : ''}
                 </div>
@@ -148,11 +149,13 @@ const ViewCalendarController = (() => {
         document.getElementById('eventId').value = event?.id || '';
         document.getElementById('eventTitle').value = event?.title || event?.name || '';
         document.getElementById('eventStartDate').value = event?.start_date || defaultDate || '';
+        document.getElementById('eventStartTime').value = event?.start_time || (event?.start_at ? String(event.start_at).substring(11, 16) : '') || '';
         document.getElementById('eventEndDate').value = event?.end_date || '';
+        document.getElementById('eventEndTime').value = event?.end_time || (event?.end_at ? String(event.end_at).substring(11, 16) : '') || '';
         document.getElementById('eventType').value = event?.type || event?.event_type || 'academic';
         document.getElementById('eventColor').value = event?.color || 'primary';
         document.getElementById('eventDescription').value = event?.description || '';
-        document.getElementById('eventVenue').value = event?.venue || '';
+        document.getElementById('eventVenue').value = event?.venue || event?.location || '';
         document.getElementById('eventModalLabel').textContent = event ? 'Edit Event' : 'Add Event';
         new bootstrap.Modal(document.getElementById('eventModal')).show();
     }
@@ -160,23 +163,25 @@ const ViewCalendarController = (() => {
     async function save() {
         const id = document.getElementById('eventId').value;
         const payload = {
-            title: document.getElementById('eventTitle').value,
+            name: document.getElementById('eventTitle').value,
             start_date: document.getElementById('eventStartDate').value,
+            start_time: document.getElementById('eventStartTime').value || null,
             end_date: document.getElementById('eventEndDate').value || null,
+            end_time: document.getElementById('eventEndTime').value || null,
             type: document.getElementById('eventType').value,
-            color: document.getElementById('eventColor').value,
             description: document.getElementById('eventDescription').value || null,
-            venue: document.getElementById('eventVenue').value || null
+            location: document.getElementById('eventVenue').value || null,
+            status: 'upcoming'
         };
-        if (!payload.title || !payload.start_date) {
+        if (!payload.name || !payload.start_date) {
             showNotification('Please fill required fields', 'error');
             return;
         }
         try {
             if (id) {
-                await window.API.apiCall(`/academic/calendar/${id}`, 'PUT', payload);
+                await window.API.schedules.updateEvent(id, payload);
             } else {
-                await window.API.apiCall('/academic/calendar', 'POST', payload);
+                await window.API.schedules.createEvent(payload);
             }
             bootstrap.Modal.getInstance(document.getElementById('eventModal')).hide();
             showNotification(id ? 'Event updated' : 'Event created', 'success');
@@ -187,11 +192,10 @@ const ViewCalendarController = (() => {
     }
 
     async function viewEvent(id) {
-        try {
-            const resp = await window.API.apiCall(`/academic/calendar/${id}`, 'GET');
-            const evt = resp?.data || resp;
+        const evt = events.find((e) => String(e.id) === String(id));
+        if (evt) {
             openModal(evt);
-        } catch (e) {
+        } else {
             showNotification('Failed to load event', 'error');
         }
     }

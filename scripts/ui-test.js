@@ -17,11 +17,13 @@ const TEST_PAGES = [
 ];
 
 (async () => {
-  const baseUrl = process.env.BASE_URL || "http://localhost/Kingsway";
+  const baseUrl = process.env.BASE_URL || "https://localhost/Kingsway";
   console.log("Testing UI at:", baseUrl);
 
   const browser = await puppeteer.launch({
     headless: true,
+    executablePath:
+      process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome",
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
   const page = await browser.newPage();
@@ -65,6 +67,49 @@ const TEST_PAGES = [
       test("Login form detected", () => {});
     } else {
       warn("Login form not found - may use different auth method");
+    }
+
+    // ── Authenticated session bootstrap ─────────────────────────────────
+    // The route tests below require an authenticated session. Log in via the
+    // API and seed the same web-storage auth keys the app's own login flow
+    // writes, so the dashboard shell and route pages render fully.
+    const testUser = process.env.TEST_USER || "test_scholadmin";
+    const testPass = process.env.TEST_PASS || "TempPass@123";
+    try {
+      const loginResp = await page.evaluate(async (u) => {
+        const r = await fetch(`${u.baseUrl}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: u.user,
+            password: u.pass,
+            remember_me: false,
+          }),
+        });
+        const json = await r.json();
+        if (!json.data || !json.data.token) return null;
+        const d = json.data;
+        localStorage.setItem("auth_storage_mode", "local");
+        localStorage.setItem("user_data", JSON.stringify(d.user));
+        localStorage.setItem(
+          "user_permissions",
+          JSON.stringify(d.permissions || [])
+        );
+        localStorage.setItem("user_roles", JSON.stringify(d.roles || []));
+        const uid = (d.user && (d.user.id || d.user.user_id)) || "1";
+        localStorage.setItem(`token_${uid}`, d.token);
+        localStorage.setItem("active_user_id", String(uid));
+        localStorage.setItem("csrf_token", d.csrf_token || "");
+        return true;
+      }, { baseUrl, user: testUser, pass: testPass });
+
+      if (loginResp) {
+        test("Test user logged in", () => {});
+      } else {
+        warn(`Test login failed for ${testUser} — authenticated routes will render the login shell`);
+      }
+    } catch (e) {
+      warn(`Test login threw: ${e.message}`);
     }
 
     // ── App layout smoke test ──────────────────────────────────────────

@@ -364,18 +364,18 @@
       add("»", this.currentPage + 1, this.currentPage >= total);
     },
 
-    viewEmail: function (index) {
+    viewEmail: async function (index) {
       const item = this.filtered[index];
       if (!item) return;
       const subject = item.subject || "(No Subject)";
       const content = String(item.content || item.message || "No content").substring(0, 1600);
       const recipient = item.recipient_summary || item.recipient_type || "—";
-      alert("Subject: " + subject + "\nRecipients: " + recipient + "\nType: " + (item.category || "—") + "\nStatus: " + (item.status || "—") + "\n\n" + content);
+      await window.infoDialog('Notice', "Subject: " + subject + "\nRecipients: " + recipient + "\nType: " + (item.category || "—") + "\nStatus: " + (item.status || "—") + "\n\n" + content);
     },
 
     resendEmail: async function (index) {
       const item = this.filtered[index];
-      if (!item || !confirm("Resend this email?")) return;
+      if (!item || !(await window.confirmAction('Confirm', "Resend this email?"))) return;
       const id = item.id || item.communication_id;
       if (!id) { this.notify("Missing ID", "error"); return; }
       try {

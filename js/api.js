@@ -1316,6 +1316,15 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "academic_update",
     DELETE: "academic_update",
   },
+  "/academic/supervision-roster": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/supervision-roster-auto-generate": {
+    POST: "academic_update",
+  },
   "/academic/schemes-of-work": {
     GET: "academic_view",
     POST: "academic_update",
@@ -1338,7 +1347,21 @@ const ENDPOINT_PERMISSIONS = {
     GET: "academic_view",
     POST: "academic_create",
     PUT: "academic_update",
+    DELETE: "academic_delete",
   },
+  "/academic/my-teachers": [
+    "students_view_own",
+    "students_view",
+    "academic_view_own",
+    "academic_view",
+  ],
+  "/academic/parent-class-teachers": [
+    "students_parents_view",
+    "students_view_own",
+    "students_view",
+    "academic_view_own",
+    "academic_view",
+  ],
 
   // Attendance
   "/attendance/index": "attendance_view",
@@ -1357,6 +1380,20 @@ const ENDPOINT_PERMISSIONS = {
     POST: "finance_create",
     PUT: "finance_update",
   },
+
+  // M-Pesa (Daraja) outbound API triggers — all require finance permissions.
+  // Client-side gate only; server RBAC is enforced in PaymentsController.
+  "/payments/mpesa-stk-push": { POST: "finance_create" },
+  "/payments/mpesa-stk-query": { POST: "finance_view" },
+  "/payments/mpesa-c2b-register": { POST: "finance_create" },
+  "/payments/mpesa-c2b-simulate": { POST: "finance_create" },
+  "/payments/mpesa-transaction-status": { POST: "finance_create" },
+  "/payments/mpesa-account-balance": { POST: "finance_view" },
+  "/payments/mpesa-reversal": { POST: "finance_create" },
+  "/payments/mpesa-qr": { POST: "finance_create" },
+  "/payments/mpesa-b2b": { POST: "finance_create" },
+  "/payments/mpesa-b2c": { POST: "finance_create" },
+  "/payments/mpesa-results": { GET: "finance_view" },
 
   // Staff
   // Staff-domain controllers enforce their canonical StaffAccess permissions
@@ -1379,6 +1416,12 @@ const ENDPOINT_PERMISSIONS = {
   // New staff endpoints for UI controllers
   "/staff/teachers": null,
   "/staff/non-teaching": null,
+  "/staff/key-contacts": [
+    "staff_view_own",
+    "staff_view_contacts",
+    "students_view_own",
+    "students_view",
+  ],
   "/staff/performance-review-history": "staff_performance_view",
   "/staff/academic-kpi-summary": "staff_performance_view",
   "/staff/performance-reviews": "staff_performance_view",
@@ -1420,6 +1463,10 @@ const ENDPOINT_PERMISSIONS = {
     GET: "activities_view",
     POST: "activities_create",
     PUT: "activities_update",
+  },
+  "/activities/sports": {
+    GET: "activities_view",
+    POST: "activities_create",
   },
 
   // Inventory
@@ -1481,6 +1528,31 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-report-conflict": "schedules_create",
   "/schedules/timetable-time-slots": "schedules_view",
   "/schedules/rooms-get": "schedules_view",
+  "/schedules/exam-get": "schedules_view",
+  "/schedules/exam-create": "schedules_create",
+  "/schedules/exam-bulk-generate": "schedules_create",
+  "/schedules/events-get": "schedules_view",
+  "/schedules/events-create": "schedules_create",
+  "/schedules/events-update": "schedules_update",
+  "/schedules/events-delete": "schedules_update",
+  "/schedules/holidays-get": "schedules_view",
+  "/schedules/holidays-create": "schedules_create",
+  "/schedules/holidays-update": "schedules_update",
+  "/schedules/holidays-delete": "schedules_update",
+  "/schedules/holidays-apply": "schedules_update",
+
+  // Meetings (internal staff meetings - heads/HODs/deputies/class teachers)
+  "/meetings/meetings-get": "schedules_view",
+  "/meetings/staff-list": "schedules_view",
+  "/meetings/meetings-create": "schedules_create",
+  "/meetings/meetings-update": "schedules_update",
+  "/meetings/meetings-delete": "schedules_update",
+  "/meetings/meetings-respond": "schedules_update",
+  "/meetings/meetings-remind": "schedules_update",
+  "/schedules/activity-get": "schedules_view",
+  "/schedules/activity-create": "schedules_create",
+  "/schedules/route-get": "schedules_view",
+  "/schedules/route-create": "schedules_create",
 
   // Reports
   "/reports/index": "reports_view",
@@ -1499,6 +1571,18 @@ const ENDPOINT_PERMISSIONS = {
     "system.rbac.manage",
     "system_roles_edit",
   ],
+  "/system/dashboards": {
+    GET: "system_view",
+    POST: "system_manage",
+    PUT: "system_manage",
+    DELETE: "system_manage",
+  },
+  "/system/widgets": {
+    GET: "system_view",
+    POST: "system_manage",
+    PUT: "system_manage",
+    DELETE: "system_manage",
+  },
   "/system/permissions": {
     GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
     POST: "system.rbac.manage",
@@ -2404,12 +2488,155 @@ function createFormData(data, files = {}) {
   return formData;
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// App Dialog helpers — professional Bootstrap modals replacing the
+// native alert()/confirm()/prompt(). Dynamically created, shared globally.
+// ────────────────────────────────────────────────────────────────────────
+
+let _appDialogEl = null;
+let _appDialogResolve = null;
+
+function ensureAppDialog() {
+  if (_appDialogEl) return _appDialogEl;
+  _appDialogEl = document.createElement("div");
+  _appDialogEl.className = "modal fade";
+  _appDialogEl.id = "appDialogModal";
+  _appDialogEl.setAttribute("tabindex", "-1");
+  _appDialogEl.setAttribute("aria-hidden", "true");
+  _appDialogEl.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="appDialogTitle"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="appDialogMessage"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="appDialogCancelBtn" data-bs-dismiss="modal"></button>
+          <button type="button" class="btn btn-primary" id="appDialogConfirmBtn"></button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(_appDialogEl);
+  _appDialogEl.addEventListener("hidden.bs.modal", () => {
+    if (_appDialogResolve) {
+      _appDialogResolve(false);
+      _appDialogResolve = null;
+    }
+  });
+  return _appDialogEl;
+}
+
+function openAppDialog({
+  title = "Confirm",
+  message = "",
+  confirmText = "OK",
+  cancelText = null,
+  danger = false,
+  prompt = false,
+  promptValue = "",
+}) {
+  const el = ensureAppDialog();
+  document.getElementById("appDialogTitle").textContent = title;
+  const msgEl = document.getElementById("appDialogMessage");
+  msgEl.textContent = message;
+
+  const confirmBtn = document.getElementById("appDialogConfirmBtn");
+  confirmBtn.textContent = confirmText;
+  confirmBtn.className = "btn " + (danger ? "btn-danger" : "btn-primary");
+
+  const cancelBtn = document.getElementById("appDialogCancelBtn");
+  cancelBtn.style.display = cancelText ? "" : "none";
+  cancelBtn.textContent = cancelText || "";
+
+  if (prompt) {
+    msgEl.style.display = "none";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "form-control";
+    input.id = "appDialogPromptInput";
+    input.value = promptValue;
+    input.addEventListener("click", (e) => e.stopPropagation());
+    msgEl.after(input);
+  } else {
+    const existing = document.getElementById("appDialogPromptInput");
+    if (existing) existing.remove();
+    msgEl.style.display = "";
+  }
+
+  return new Promise((resolve) => {
+    _appDialogResolve = (result) => {
+      resolve(result);
+      _appDialogResolve = null;
+    };
+    const modal = bootstrap.Modal.getOrCreateInstance(el);
+    confirmBtn.onclick = () => {
+      const result = prompt
+        ? document.getElementById("appDialogPromptInput").value
+        : true;
+      _appDialogResolve(result);
+      modal.hide();
+    };
+    cancelBtn.onclick = () => {
+      _appDialogResolve(prompt ? null : false);
+      modal.hide();
+    };
+    modal.show();
+  });
+}
+
+// Promise<boolean> — resolves true when the user confirms.
+async function confirmAction(title, message, options = {}) {
+  if (typeof bootstrap === "undefined") {
+    return window.confirm(message);
+  }
+  return openAppDialog({
+    title: title || "Confirm",
+    message: message || "Are you sure?",
+    confirmText: options.confirmText || "Confirm",
+    cancelText: options.cancelText || "Cancel",
+    danger: options.danger || false,
+  });
+}
+
+// Promise<string|null> — resolves the typed value, or null when cancelled.
+async function promptAction(title, message, defaultValue = "", options = {}) {
+  if (typeof bootstrap === "undefined") {
+    return window.prompt(message, defaultValue);
+  }
+  return openAppDialog({
+    title: title || "Input",
+    message: message || "",
+    confirmText: options.confirmText || "OK",
+    cancelText: options.cancelText || "Cancel",
+    prompt: true,
+    promptValue: defaultValue,
+  });
+}
+
+// Promise<void> — informational dialog, resolves on dismissal.
+async function infoDialog(title, message, options = {}) {
+  if (typeof bootstrap === "undefined") {
+    window.alert(message);
+    return;
+  }
+  await openAppDialog({
+    title: title || "Information",
+    message: message || "",
+    confirmText: options.confirmText || "OK",
+    danger: options.danger || false,
+  });
+}
+
 //attach API to window for global access
 window.API = {
   apiCall,
   // Alias so controllers using API.callAPI() instead of API.apiCall() work
   callAPI: apiCall,
   showNotification,
+  confirmAction,
+  promptAction,
+  infoDialog,
   applyPermissionContract,
   state: APIState,
   appState: AppState,
@@ -2980,20 +3207,10 @@ window.API = {
       apiCall("/students/attendance-mark", "POST", data),
 
     // Import
-    importExisting: async (data) =>
-      apiCall("/students/import-existing", "POST", data),
     importAddExisting: async (data) =>
       apiCall("/students/import-add-existing", "POST", data),
     importAddMultiple: async (data) =>
       apiCall("/students/import-add-multiple", "POST", data),
-    getImportTemplate: async () =>
-      apiCall(
-        "/students/import-template",
-        "GET",
-        null,
-        {},
-        { isDownload: true },
-      ),
 
     // Academic Year
     getCurrentAcademicYear: async () =>
@@ -3087,6 +3304,10 @@ window.API = {
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
     getContext: async () => apiCall("/academic/context", "GET"),
+    // Self-scoped teacher directory for the student/parent staff viewer.
+    myTeachers: async () => apiCall("/academic/my-teachers", "GET"),
+    parentClassTeachers: async () =>
+      apiCall("/academic/parent-class-teachers", "GET"),
     get: async (id = null) =>
       id ? apiCall(`/academic/${id}`, "GET") : apiCall("/academic", "GET"),
     create: async (data) => apiCall("/academic", "POST", data),
@@ -3117,6 +3338,22 @@ window.API = {
     approveResults: async (data) =>
       apiCall("/academic/exams-approve-results", "POST", data),
 
+    // Exam schedules + supervision roster
+    listExamSchedules: async (params = {}) =>
+      apiCall("/academic/exam-schedule", "GET", null, params),
+    listSupervisionRoster: async (params = {}) =>
+      apiCall("/academic/supervision-roster", "GET", null, params),
+    getSupervisionRoster: async (id) =>
+      apiCall(`/academic/supervision-roster/${id}`, "GET"),
+    createSupervisionRoster: async (data) =>
+      apiCall("/academic/supervision-roster", "POST", data),
+    updateSupervisionRoster: async (id, data) =>
+      apiCall(`/academic/supervision-roster/${id}`, "PUT", data),
+    deleteSupervisionRoster: async (id) =>
+      apiCall(`/academic/supervision-roster/${id}`, "DELETE"),
+    autoGenerateSupervisionRoster: async () =>
+      apiCall("/academic/supervision-roster-auto-generate", "POST"),
+
     // Promotions workflow
     startPromotionsWorkflow: async (data) =>
       apiCall("/academic/promotions-start-workflow", "POST", data),
@@ -3140,6 +3377,8 @@ window.API = {
       apiCall("/academic/assessments-mark-and-grade", "POST", data),
     analyzeResults: async (data) =>
       apiCall("/academic/assessments-analyze-results", "POST", data),
+    getAssessmentTypes: async (params) =>
+      apiCall("/academic/assessment-types", "GET", null, params),
 
     // Reports workflow
     startReportsWorkflow: async (data) =>
@@ -3226,6 +3465,8 @@ window.API = {
     createTerm: async (data) => apiCall("/academic/terms/create", "POST", data),
     listTerms: async (params) =>
       apiCall("/academic/terms-list", "GET", null, params),
+    getTerms: async (params) =>
+      apiCall("/academic/terms", "GET", null, params),
     getTerm: async (id) => apiCall(`/academic/terms/get/${id}`, "GET"),
     updateTerm: async (id, data) =>
       apiCall(`/academic/terms/update/${id}`, "PUT", data),
@@ -3298,14 +3539,16 @@ window.API = {
       apiCall("/academic/curriculum-units-create", "POST", data),
     listCurriculumUnits: async (params) =>
       apiCall("/academic/curriculum-units-list", "GET", null, params),
+    getCurriculumUnits: async (params) =>
+      apiCall("/academic/curriculum-units-list", "GET", null, params),
     getCurriculumUnit: async (id = null) =>
       id
         ? apiCall(`/academic/curriculum-units-get/${id}`, "GET")
         : apiCall("/academic/curriculum-units-get", "GET"),
     updateCurriculumUnit: async (id, data) =>
-      apiCall("/academic/curriculum-units-update", "PUT", { id, ...data }),
+      apiCall(`/academic/curriculum-units-update/${id}`, "PUT", data),
     deleteCurriculumUnit: async (id) =>
-      apiCall("/academic/curriculum-units-delete", "DELETE", { id }),
+      apiCall(`/academic/curriculum-units-delete/${id}`, "DELETE"),
 
     // Topics
     createTopic: async (data) =>
@@ -3361,6 +3604,42 @@ window.API = {
       id
         ? apiCall(`/academic/scheme-of-work-get/${id}`, "GET")
         : apiCall("/academic/scheme-of-work-get", "GET"),
+
+    // Teacher portal (identity resolved server-side from JWT)
+    getMyClasses: async (params = {}) =>
+      apiCall("/academic/my-classes", "GET", null, params),
+    getInternClasses: async (params = {}) =>
+      apiCall("/academic/intern-classes", "GET", null, params),
+    getInternSubjects: async (params = {}) =>
+      apiCall("/academic/intern-subjects", "GET", null, params),
+    getMySubjects: async (params = {}) =>
+      apiCall("/academic/my-subjects", "GET", null, params),
+    getMySchemes: async (params = {}) =>
+      apiCall("/academic/my-schemes", "GET", null, params),
+    getSubjectSchemes: async (params = {}) =>
+      apiCall("/academic/subject-schemes", "GET", null, params),
+    getSyllabus: async (params = {}) =>
+      apiCall("/academic/syllabus", "GET", null, params),
+    getMySyllabus: async (params = {}) =>
+      apiCall("/academic/my-syllabus", "GET", null, params),
+    getYearCalendar: async () => apiCall("/academic/year-calendar", "GET"),
+    getCalendarDays: async (yearId) => apiCall(`/academic/calendar/days/${yearId}`, "GET"),
+    updateCalendarDay: async (dayId, payload) => apiCall(`/academic/calendar/day/${dayId}`, "PUT", payload),
+    getYearHistory: async () => apiCall("/academic/year-history", "GET"),
+    getLessonPlansByClass: async (params = {}) =>
+      apiCall("/academic/lesson-plans/by-class", "GET", null, params),
+    getLessonPlansByClassDetail: async (classId) =>
+      apiCall(`/academic/lesson-plans/by-class/${classId}`, "GET"),
+
+    // Curriculum CRUD (legacy flat endpoint)
+    createCurriculumEntry: async (data) =>
+      apiCall("/academic/curriculum", "POST", data),
+    updateCurriculumEntry: async (id, data) =>
+      apiCall(`/academic/curriculum/${id}`, "PUT", data),
+    deleteCurriculumEntry: async (id) =>
+      apiCall(`/academic/curriculum/${id}`, "DELETE"),
+    getCurriculumEntry: async (id) =>
+      apiCall(`/academic/curriculum/${id}`, "GET"),
 
     // Teachers
     listTeachers: async (params = {}) =>
@@ -3600,18 +3879,10 @@ window.API = {
         apiCall(`/activities/sports/teams/${id}`, "GET"),
       createTeam: async (data) =>
         apiCall("/activities/sports/teams", "POST", data),
-      updateTeam: async (id, data) =>
-        apiCall(`/activities/sports/teams/${id}`, "PUT", data),
-      deleteTeam: async (id) =>
-        apiCall(`/activities/sports/teams/${id}`, "DELETE"),
 
       // Team Members
       listTeamMembers: async (params = {}) =>
         apiCall("/activities/sports/team-members", "GET", null, params),
-      addTeamMember: async (data) =>
-        apiCall("/activities/sports/team-members", "POST", data),
-      removeTeamMember: async (id) =>
-        apiCall(`/activities/sports/team-members/${id}`, "DELETE"),
 
       // Fixtures
       listFixtures: async (params = {}) =>
@@ -3620,38 +3891,12 @@ window.API = {
         apiCall(`/activities/sports/fixtures/${id}`, "GET"),
       createFixture: async (data) =>
         apiCall("/activities/sports/fixtures", "POST", data),
-      updateFixture: async (id, data) =>
-        apiCall(`/activities/sports/fixtures/${id}`, "PUT", data),
-      deleteFixture: async (id) =>
-        apiCall(`/activities/sports/fixtures/${id}`, "DELETE"),
       recordResult: async (id, data) =>
         apiCall(`/activities/sports/fixtures/record-result/${id}`, "POST", data),
-
-      // Player Stats
-      getPlayerStats: async (params = {}) =>
-        apiCall("/activities/sports/player-stats", "GET", null, params),
-      getPlayerCareerStats: async (playerId) =>
-        apiCall(`/activities/sports/player-stats/career/${playerId}`, "GET"),
 
       // Standings
       getStandings: async (params = {}) =>
         apiCall("/activities/sports/standings", "GET", null, params),
-      updateStandings: async (data) =>
-        apiCall("/activities/sports/standings", "POST", data),
-
-      // Dashboard / Service
-      getDashboardStats: async (params = {}) =>
-        apiCall("/activities/sports/dashboard-stats", "GET", null, params),
-      getSeasonSummary: async (params = {}) =>
-        apiCall("/activities/sports/season-summary", "GET", null, params),
-      getTopScorers: async (params = {}) =>
-        apiCall("/activities/sports/top-scorers", "GET", null, params),
-      getHeadToHead: async (teamId, opponent, params = {}) =>
-        apiCall("/activities/sports/head-to-head", "GET", null, { team_id: teamId, opponent, ...params }),
-      getUpcomingFixtures: async (days = 14) =>
-        apiCall("/activities/sports/upcoming-fixtures", "GET", null, { days }),
-      getRecentResults: async (limit = 10) =>
-        apiCall("/activities/sports/recent-results", "GET", null, { limit }),
     },
   },
 
@@ -4115,6 +4360,10 @@ window.API = {
       apiCall("/finance/fees-delete-annual-structure", "POST", data),
     listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
     listStudentTypes: async () => apiCall("/finance/student-types-list", "GET"),
+    createFeeStructureBundle: async (data) =>
+      apiCall("/finance/fees-create-bundle", "POST", data),
+    getFeeStructureBundleGrid: async (params) =>
+      apiCall("/finance/fees-bundle-grid", "GET", null, params),
     generateFeeInvoice: async (data) =>
       apiCall("/finance/fee-invoices-generate", "POST", data),
     generateFeeInvoicesBatch: async (data) =>
@@ -4455,6 +4704,8 @@ window.API = {
         ? apiCall(`/staff/departments-get/${id}`, "GET")
         : apiCall("/staff/departments-get", "GET"),
     getAll: async (params = {}) => apiCall("/staff", "GET", null, params),
+    // Curated leadership/admin contacts for the student/parent staff viewer.
+    keyContacts: async () => apiCall("/staff/key-contacts", "GET"),
 
     // Assignments
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
@@ -4737,44 +4988,50 @@ window.API = {
     // Routes
     getRoute: async (id = null) =>
       id
-        ? apiCall(`/transport/route/${id}`, "GET")
-        : apiCall("/transport/route", "GET"),
+        ? apiCall(`/transport/transport-route/${id}`, "GET")
+        : apiCall("/transport/transport-route", "GET"),
     getAllRoutes: async (params) =>
       apiCall("/transport/all-routes", "GET", null, params),
-    createRoute: async (data) => apiCall("/transport/route", "POST", data),
+    createRoute: async (data) =>
+      apiCall("/transport/transport-route", "POST", data),
     updateRoute: async (id, data) =>
-      apiCall(`/transport/route/${id}`, "PUT", data),
-    deleteRoute: async (id) => apiCall(`/transport/route/${id}`, "DELETE"),
+      apiCall(`/transport/transport-route/${id}`, "PUT", data),
+    deleteRoute: async (id) =>
+      apiCall(`/transport/transport-route/${id}`, "DELETE"),
 
     // Stops
     getStop: async (id = null) =>
       id
-        ? apiCall(`/transport/stop/${id}`, "GET")
-        : apiCall("/transport/stop", "GET"),
+        ? apiCall(`/transport/transport-stop/${id}`, "GET")
+        : apiCall("/transport/transport-stop", "GET"),
     getAllStops: async (params) =>
       apiCall("/transport/all-stops", "GET", null, params),
-    createStop: async (data) => apiCall("/transport/stop", "POST", data),
+    createStop: async (data) =>
+      apiCall("/transport/transport-stop", "POST", data),
     updateStop: async (id, data) =>
-      apiCall(`/transport/stop/${id}`, "PUT", data),
-    deleteStop: async (id) => apiCall(`/transport/stop/${id}`, "DELETE"),
+      apiCall(`/transport/transport-stop/${id}`, "PUT", data),
+    deleteStop: async (id) =>
+      apiCall(`/transport/transport-stop/${id}`, "DELETE"),
 
     // Vehicles
     getVehicle: async (id = null) =>
       id
-        ? apiCall(`/transport/vehicle/${id}`, "GET")
-        : apiCall("/transport/vehicle", "GET"),
+        ? apiCall(`/transport/transport-vehicle/${id}`, "GET")
+        : apiCall("/transport/transport-vehicle", "GET"),
 
     // Drivers
     getDriver: async (id = null) =>
       id
-        ? apiCall(`/transport/driver/${id}`, "GET")
-        : apiCall("/transport/driver", "GET"),
+        ? apiCall(`/transport/transport-driver/${id}`, "GET")
+        : apiCall("/transport/transport-driver", "GET"),
     getAllDrivers: async (params) =>
       apiCall("/transport/all-drivers", "GET", null, params),
-    createDriver: async (data) => apiCall("/transport/driver", "POST", data),
+    createDriver: async (data) =>
+      apiCall("/transport/transport-driver", "POST", data),
     updateDriver: async (id, data) =>
-      apiCall(`/transport/driver/${id}`, "PUT", data),
-    deleteDriver: async (id) => apiCall(`/transport/driver/${id}`, "DELETE"),
+      apiCall(`/transport/transport-driver/${id}`, "PUT", data),
+    deleteDriver: async (id) =>
+      apiCall(`/transport/transport-driver/${id}`, "DELETE"),
     assignDriver: async (data) =>
       apiCall("/transport/driver-assign", "POST", data),
 
@@ -4845,6 +5102,11 @@ window.API = {
   },
 
   // Boarding/Dormitory endpoints
+  chapel: {
+    getServices: async (params = {}) =>
+      apiCall("/chapel/services", "GET", null, params),
+  },
+
   boarding: {
     // Dormitories
     getDormitories: async () => apiCall("/boarding/dormitories", "GET"),
@@ -4855,15 +5117,6 @@ window.API = {
       apiCall(`/boarding/dormitories/${id}`, "PUT", data),
     deleteDormitory: async (id) =>
       apiCall(`/boarding/dormitories/${id}`, "DELETE"),
-
-    // Beds
-    getBeds: async (dormId = null) =>
-      dormId
-        ? apiCall(`/boarding/beds?dormitory_id=${dormId}`, "GET")
-        : apiCall("/boarding/beds", "GET"),
-    assignBed: async (data) => apiCall("/boarding/beds/assign", "POST", data),
-    unassignBed: async (bedId) =>
-      apiCall(`/boarding/beds/unassign/${bedId}`, "PUT"),
 
     // Roll Call
     getRollCalls: async (params = {}) =>
@@ -4887,29 +5140,10 @@ window.API = {
     rejectExeat: async (id, reason) =>
       apiCall(`/boarding/exeats/reject/${id}`, "PUT", { reason }),
 
-    // Food Store
-    getFoodStore: async () => apiCall("/boarding/food-store", "GET"),
-    addFoodItem: async (data) => apiCall("/boarding/food-store", "POST", data),
-    updateFoodItem: async (id, data) =>
-      apiCall(`/boarding/food-store/${id}`, "PUT", data),
-    recordConsumption: async (data) =>
-      apiCall("/boarding/food-store/consume", "POST", data),
-
     // Menu Planning
     getMenus: async (params = {}) =>
       apiCall("/boarding/menus", "GET", null, params),
     createMenu: async (data) => apiCall("/boarding/menus", "POST", data),
-    updateMenu: async (id, data) =>
-      apiCall(`/boarding/menus/${id}`, "PUT", data),
-    deleteMenu: async (id) => apiCall(`/boarding/menus/${id}`, "DELETE"),
-
-    // Chapel Services
-    getChapelServices: async (params = {}) =>
-      apiCall("/boarding/chapel-services", "GET", null, params),
-    createChapelService: async (data) =>
-      apiCall("/boarding/chapel-services", "POST", data),
-    updateChapelService: async (id, data) =>
-      apiCall(`/boarding/chapel-services/${id}`, "PUT", data),
 
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
@@ -4953,6 +5187,8 @@ window.API = {
         ? apiCall(`/schedules/exam-get/${id}`, "GET")
         : apiCall("/schedules/exam-get", "GET"),
     createExam: async (data) => apiCall("/schedules/exam-create", "POST", data),
+    bulkGenerateExams: async (data) =>
+      apiCall("/schedules/exam-bulk-generate", "POST", data),
 
     // Events
     getEvents: async (id = null) =>
@@ -4961,6 +5197,9 @@ window.API = {
         : apiCall("/schedules/events-get", "GET"),
     createEvent: async (data) =>
       apiCall("/schedules/events-create", "POST", data),
+    syncEvents: async () => apiCall("/schedules/events-sync", "POST", {}),
+    markExamWeek: async (data) =>
+      apiCall("/schedules/calendar-mark-exam-week", "POST", data),
 
     // Activity schedules
     getActivity: async (id = null) =>
@@ -4977,14 +5216,6 @@ window.API = {
         : apiCall("/schedules/rooms-get", "GET"),
     createRoom: async (data) =>
       apiCall("/schedules/rooms-create", "POST", data),
-
-    // Reports
-    getReports: async (id = null) =>
-      id
-        ? apiCall(`/schedules/reports-get/${id}`, "GET")
-        : apiCall("/schedules/reports-get", "GET"),
-    createReport: async (data) =>
-      apiCall("/schedules/reports-create", "POST", data),
 
     // Routes
     getRoute: async (id = null) =>
@@ -5052,12 +5283,48 @@ window.API = {
     updateSchedule: async (data) =>
       apiCall("/schedules/timetable-create", "POST", data),
     addEvent: async (data) => apiCall("/schedules/events-create", "POST", data),
-    updateEvent: async (id, data) => apiCall(`/schedules/${id}`, "PUT", data),
-    deleteEvent: async (id) => apiCall(`/schedules/${id}`, "DELETE"),
+    updateEvent: async (id, data) =>
+      apiCall(`/schedules/events-update/${id}`, "PUT", data),
+    deleteEvent: async (id) =>
+      apiCall(`/schedules/events-delete/${id}`, "DELETE"),
     getHolidays: async () =>
       apiCall("/schedules/events-get?type=holiday", "GET"),
     setHoliday: async (data) =>
       apiCall("/schedules/events-create", "POST", { ...data, type: "holiday" }),
+
+    // Holiday registry (UI-managed; single source of truth for all holidays)
+    listHolidays: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/schedules/holidays-get?${qs}` : "/schedules/holidays-get", "GET");
+    },
+    createHoliday: async (data) =>
+      apiCall("/schedules/holidays-create", "POST", data),
+    updateHoliday: async (id, data) =>
+      apiCall(`/schedules/holidays-update/${id}`, "PUT", data),
+    deleteHoliday: async (id) =>
+      apiCall(`/schedules/holidays-delete/${id}`, "DELETE"),
+    applyHolidays: async (data = {}) =>
+      apiCall("/schedules/holidays-apply", "POST", data),
+  },
+
+  // Internal staff meetings (heads/HODs/deputies/class teachers) - integrated
+  // with the academic calendar (linked school_events row carries venue/link).
+  meetings: {
+    list: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/meetings/meetings-get?${qs}` : "/meetings/meetings-get", "GET");
+    },
+    get: async (id) => apiCall(`/meetings/meetings-get/${id}`, "GET"),
+    create: async (data) => apiCall("/meetings/meetings-create", "POST", data),
+    update: async (id, data) =>
+      apiCall(`/meetings/meetings-update/${id}`, "PUT", data),
+    remove: async (id) =>
+      apiCall(`/meetings/meetings-delete/${id}`, "DELETE"),
+    respond: async (meetingId, status) =>
+      apiCall("/meetings/meetings-respond", "POST", { meeting_id: meetingId, status }),
+    remind: async (id) =>
+      apiCall(`/meetings/meetings-remind/${id}`, "POST", {}),
+    staffList: async () => apiCall("/meetings/staff-list", "GET"),
   },
 
   // Reports endpoints
@@ -5330,6 +5597,24 @@ window.API = {
         `/payments/mpesa-reconcile-history?mpesa_id=${encodeURIComponent(mpesaId)}`,
         "GET",
       ),
+
+    // === Outbound M-Pesa (Daraja) API triggers ===
+    // All 10 APIs are drivable from the app. Async results (transaction
+    // status, account balance, reversal, B2B, B2C) land on the webhook sinks
+    // and can be read back via getMpesaResults().
+    stkPush: async (data) => apiCall("/payments/mpesa-stk-push", "POST", data),
+    stkQuery: async (data) => apiCall("/payments/mpesa-stk-query", "POST", data),
+    c2bRegister: async (data) => apiCall("/payments/mpesa-c2b-register", "POST", data),
+    c2bSimulate: async (data) => apiCall("/payments/mpesa-c2b-simulate", "POST", data),
+    transactionStatus: async (data) =>
+      apiCall("/payments/mpesa-transaction-status", "POST", data),
+    accountBalance: async () => apiCall("/payments/mpesa-account-balance", "POST"),
+    reversal: async (data) => apiCall("/payments/mpesa-reversal", "POST", data),
+    qr: async (data) => apiCall("/payments/mpesa-qr", "POST", data),
+    b2b: async (data) => apiCall("/payments/mpesa-b2b", "POST", data),
+    b2c: async (data) => apiCall("/payments/mpesa-b2c", "POST", data),
+    getMpesaResults: async (params = {}) =>
+      apiCall("/payments/mpesa-results", "GET", null, params),
   },
 
   // Accounts endpoints (bank accounts, transactions)
@@ -5658,7 +5943,6 @@ window.API = {
       apiCall("/dashboard/system-admin/api-load", "GET"),
 
     // Shared dashboard statistics retained from the superseded duplicate block.
-    getStudentStats: async () => apiCall("/students/stats", "GET"),
     getTodayAttendance: async () => apiCall("/attendance/today", "GET"),
     getTeachingStats: async () => apiCall("/staff/stats", "GET"),
     getFeesCollected: async () => apiCall("/payments/stats", "GET"),
@@ -5672,10 +5956,6 @@ window.API = {
       apiCall("/admissions/pending", "GET"),
     getMyClassAttendance: async () =>
       apiCall("/attendance/my-class", "GET"),
-    getMyClassAssessments: async () =>
-      apiCall("/assessments/my-results", "GET"),
-    getMyLessonPlan: async () =>
-      apiCall("/schedules/my-lessons", "GET"),
     getFeeStatusByStudent: async () =>
       apiCall("/payments/fee-status", "GET"),
     getMonthlyFinancialReport: async () =>
@@ -6144,3 +6424,8 @@ window.API = {
 
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
+
+// Global dialog helpers — native alert()/confirm()/prompt() replacements
+window.confirmAction = confirmAction;
+window.promptAction = promptAction;
+window.infoDialog = infoDialog;

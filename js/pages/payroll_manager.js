@@ -1631,11 +1631,11 @@ const PayrollManagerController = {
     return months[parseInt(monthNum)] || "";
   },
 
-  showSuccess: function (message) {
+  showSuccess: async function (message) {
     if (typeof showNotification === "function") {
       showNotification(message, "success");
     } else {
-      alert("✅ " + message);
+      await window.infoDialog('Notice', "✅ " + message);
     }
   },
 
@@ -1704,11 +1704,11 @@ const PayrollManagerController = {
     });
   },
 
-  showError: function (message) {
+  showError: async function (message) {
     if (typeof showNotification === "function") {
       showNotification(message, "error");
     } else {
-      alert("❌ " + message);
+      await window.infoDialog('Notice', "❌ " + message);
     }
   },
 };

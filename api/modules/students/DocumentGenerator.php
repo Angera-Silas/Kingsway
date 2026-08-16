@@ -43,24 +43,35 @@ class DocumentGenerator extends BaseAPI
         try {
             // Get transfer and student details
             $stmt = $this->db->prepare("
-                SELECT 
-                    st.*,
-                    s.first_name, s.last_name, s.admission_no, s.date_of_birth, s.assessment_number, s.nemis_number,
-                    s.admission_date,
+                SELECT
+                    tr.id,
+                    tr.id AS transfer_no,
+                    tr.transition_type AS transfer_type,
+                    tr.reason AS transfer_reason,
+                    tr.decided_at AS effective_date,
+                    p.first_name, p.last_name, p.dob AS date_of_birth,
+                    s.admission_no, s.assessment_number, s.nemis_number, s.admission_date,
                     cc.name as current_class_name,
-                    cs.name as current_stream_name,
-                    p.first_name as parent_first_name,
-                    p.last_name as parent_last_name,
-                    p.phone_1 as parent_phone,
-                    apr.first_name as approved_by_name,
-                    apr.last_name as approved_by_lastname
-                FROM student_transfers st
-                JOIN students s ON st.student_id = s.id
-                LEFT JOIN classes cc ON st.current_class_id = cc.id
-                LEFT JOIN class_streams cs ON st.current_stream_id = cs.id
-                LEFT JOIN parents p ON s.id IN (SELECT student_id FROM student_parents WHERE parent_id = p.id LIMIT 1)
-                LEFT JOIN users apr ON st.approved_by = apr.id
-                WHERE st.id = ?
+                    sm.name as current_stream_name,
+                    par.first_name as parent_first_name,
+                    par.last_name as parent_last_name,
+                    par.phone as parent_phone,
+                    ap.first_name as approved_by_name,
+                    ap.last_name as approved_by_lastname
+                FROM student_transitions tr
+                JOIN students s ON tr.student_id = s.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.academic_year_id = tr.academic_year_id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes cc ON cc.id = ayc.class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN student_parents sp ON sp.student_id = s.id AND sp.is_primary_contact = 1
+                LEFT JOIN persons par ON par.id = sp.parent_id
+                LEFT JOIN users au ON au.id = tr.decided_by
+                LEFT JOIN persons ap ON ap.id = au.person_id
+                WHERE tr.id = ?
             ");
             $stmt->execute([$transferId]);
             $data = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -68,6 +79,8 @@ class DocumentGenerator extends BaseAPI
             if (!$data) {
                 return formatResponse(false, null, 'Transfer not found');
             }
+
+            $data['leaving_certificate_no'] = 'LC-' . date('Y') . '-' . $transferId;
 
             // Get school configuration
             $schoolConfig = $this->getSchoolConfig();
@@ -79,14 +92,6 @@ class DocumentGenerator extends BaseAPI
             $filename = "leaving_certificate_{$data['transfer_no']}_" . time() . ".html";
             $filepath = $this->writePrintable($filename, $html);
             $viewUrl = $this->generatedDownloadUrl($filepath, true);
-
-            // Update transfer record with file path
-            $this->db->prepare("
-                UPDATE student_transfers SET 
-                    leaving_certificate_path = ?,
-                    leaving_certificate_generated_at = NOW()
-                WHERE id = ?
-            ")->execute([$filepath, $transferId]);
 
             $this->logAction('create', $transferId, "Leaving certificate generated: {$filename}");
 
@@ -112,15 +117,23 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function generateClearanceForm($transferId)
     {
         try {
-            // Get transfer and clearance details
+            // Get transfer details
             $stmt = $this->db->prepare("
-                SELECT st.*, s.first_name, s.last_name, s.admission_no,
-                       cc.name as current_class_name, cs.name as current_stream_name
-                FROM student_transfers st
-                JOIN students s ON st.student_id = s.id
-                LEFT JOIN classes cc ON st.current_class_id = cc.id
-                LEFT JOIN class_streams cs ON st.current_stream_id = cs.id
-                WHERE st.id = ?
+                SELECT tr.id AS transfer_no,
+                       tr.transition_type AS transfer_type,
+                       tr.decided_at AS effective_date,
+                       p.first_name, p.last_name, s.admission_no,
+                       cc.name as current_class_name, sm.name as current_stream_name
+                FROM student_transitions tr
+                JOIN students s ON tr.student_id = s.id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.academic_year_id = tr.academic_year_id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes cc ON cc.id = ayc.class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                WHERE tr.id = ?
             ");
             $stmt->execute([$transferId]);
             $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -131,13 +144,17 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Get clearance details
             $stmt = $this->db->prepare("
-                SELECT sc.*, cd.name as dept_name, cd.code as dept_code,
-                       u.first_name as cleared_by_name
+                SELECT sc.*,
+                       UPPER(sc.clearance_type) AS dept_code,
+                       UPPER(sc.clearance_type) AS dept_name,
+                       sc.notes AS issue_description,
+                       sc.checked_at AS cleared_at,
+                       p.first_name as cleared_by_name
                 FROM student_clearances sc
-                JOIN clearance_departments cd ON sc.department_id = cd.id
-                LEFT JOIN users u ON sc.cleared_by = u.id
-                WHERE sc.transfer_id = ?
-                ORDER BY cd.sort_order
+                LEFT JOIN users u ON sc.checked_by = u.id
+                LEFT JOIN persons p ON p.id = u.person_id
+                WHERE sc.transfer_request_id = ?
+                ORDER BY sc.id
             ");
             $stmt->execute([$transferId]);
             $clearances = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -151,10 +168,6 @@ return formatResponse(false, null, 'An internal error occurred.');
             $filename = "clearance_form_{$transfer['transfer_no']}_" . time() . ".html";
             $filepath = $this->writePrintable($filename, $html);
             $viewUrl = $this->generatedDownloadUrl($filepath, true);
-
-            // Update transfer record
-            $this->db->prepare("UPDATE student_transfers SET clearance_form_path = ? WHERE id = ?")
-                ->execute([$filepath, $transferId]);
 
             $this->logAction('create', $transferId, "Clearance form generated: {$filename}");
 
@@ -487,7 +500,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         
         // Fallback to database (legacy)
         try {
-            $stmt = $this->db->query("SELECT config_key, config_value FROM school_configuration");
+            $stmt = $this->db->query("SELECT setting_key, setting_value FROM school_settings");
             $configs = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
             return [

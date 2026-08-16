@@ -5,6 +5,7 @@ use App\Config;
 use App\API\Includes\BaseAPI;
 use App\API\Modules\academic\AcademicYearManager;
 use App\API\Modules\students\PromotionManager;
+use App\API\Services\AdmissionNumberService;
 use PDO;
 use Exception;
 
@@ -47,13 +48,13 @@ class StudentsAPI extends BaseAPI
 
                 if (!empty($visibilityScope['stream_ids'])) {
                     $placeholders = implode(',', array_fill(0, count($visibilityScope['stream_ids']), '?'));
-                    $scopeClauses[] = "s.stream_id IN ($placeholders)";
+                    $scopeClauses[] = "aycs.id IN ($placeholders)";
                     $bindings = array_merge($bindings, $visibilityScope['stream_ids']);
                 }
 
                 if (!empty($visibilityScope['class_ids'])) {
                     $placeholders = implode(',', array_fill(0, count($visibilityScope['class_ids']), '?'));
-                    $scopeClauses[] = "cs.class_id IN ($placeholders)";
+                    $scopeClauses[] = "ayc.class_id IN ($placeholders)";
                     $bindings = array_merge($bindings, $visibilityScope['class_ids']);
                 }
 
@@ -65,7 +66,7 @@ class StudentsAPI extends BaseAPI
             }
 
             if (!empty($search)) {
-                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
+                $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ?)";
                 $searchTerm = "%$search%";
                 $bindings = array_merge($bindings, [$searchTerm, $searchTerm, $searchTerm]);
             }
@@ -73,13 +74,13 @@ class StudentsAPI extends BaseAPI
             // Optional filters
             $classId = $params['class_id'] ?? $_GET['class_id'] ?? null;
             if (!empty($classId)) {
-                $conditions[] = "cs.class_id = ?";
+                $conditions[] = "ayc.class_id = ?";
                 $bindings[] = $classId;
             }
 
             $streamId = $params['stream_id'] ?? $_GET['stream_id'] ?? null;
             if (!empty($streamId)) {
-                $conditions[] = "s.stream_id = ?";
+                $conditions[] = "aycs.id = ?";
                 $bindings[] = $streamId;
             }
 
@@ -91,7 +92,7 @@ class StudentsAPI extends BaseAPI
 
             $gender = $params['gender'] ?? $_GET['gender'] ?? null;
             if (!empty($gender)) {
-                $conditions[] = "s.gender = ?";
+                $conditions[] = "per.gender = ?";
                 $bindings[] = $gender;
             }
 
@@ -132,13 +133,16 @@ class StudentsAPI extends BaseAPI
             $feeSummaryWhere = '';
             $joinBindings = [];
             if ($currentAcademicYear !== null) {
-                $feeSummaryWhere = "WHERE academic_year = ?";
+                $feeSummaryWhere = "WHERE CAST(SUBSTRING(academic_year, 1, 4) AS UNSIGNED) = ?";
                 $joinBindings[] = $currentAcademicYear;
             }
 
             $joins = "
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams cs ON cs.id = aycs.stream_id
                 LEFT JOIN student_types st ON s.student_type_id = st.id
                 LEFT JOIN (
                     SELECT
@@ -147,8 +151,8 @@ class StudentsAPI extends BaseAPI
                         SUM(amount_paid) AS total_paid,
                         SUM(amount_waived) AS total_waived,
                         SUM(balance) AS total_balance,
-                        MIN(CASE WHEN balance > 0 THEN due_date END) AS earliest_balance_due
-                    FROM student_fee_obligations
+                        MIN(CASE WHEN balance > 0 THEN latest_due_date END) AS earliest_balance_due
+                    FROM vw_student_fee_balances
                     {$feeSummaryWhere}
                     GROUP BY student_id
                 ) fee_summary ON fee_summary.student_id = s.id
@@ -158,6 +162,7 @@ class StudentsAPI extends BaseAPI
             $sql = "
                 SELECT COUNT(*) 
                 FROM students s
+                JOIN persons per ON per.id = s.person_id
                 {$joins}
                 $where
             ";
@@ -169,10 +174,15 @@ class StudentsAPI extends BaseAPI
             $sql = "
                 SELECT 
                     s.*,
-                    cs.class_id as class_id,
+                    ayc.class_id as class_id,
                     c.name as class_name,
-                    cs.stream_name,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                    cs.name AS stream_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    per.first_name AS first_name,
+                    per.middle_name AS middle_name,
+                    per.last_name AS last_name,
+                    per.gender,
+                    per.dob AS date_of_birth,
                     st.name AS student_type_name,
                     st.name AS student_type,
                     st.code AS student_type_code,
@@ -185,38 +195,42 @@ class StudentsAPI extends BaseAPI
                     COALESCE(fee_summary.total_paid, 0) AS total_paid,
                     COALESCE(fee_summary.total_balance, 0) AS fee_balance,
                     (
-                        SELECT CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name)
+                        SELECT CONCAT_WS(' ', parp.first_name, parp.middle_name, parp.last_name)
                         FROM student_parents sp
-                        JOIN parents p ON p.id = sp.parent_id
+                        JOIN parents par ON par.id = sp.parent_id
+                        JOIN persons parp ON parp.id = par.person_id
                         WHERE sp.student_id = s.id
-                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
                         LIMIT 1
                     ) AS parent_name,
                     (
-                        SELECT p.phone_1
+                        SELECT parp.phone
                         FROM student_parents sp
-                        JOIN parents p ON p.id = sp.parent_id
+                        JOIN parents par ON par.id = sp.parent_id
+                        JOIN persons parp ON parp.id = par.person_id
                         WHERE sp.student_id = s.id
-                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
                         LIMIT 1
                     ) AS parent_phone,
                     (
-                        SELECT p.email
+                        SELECT parp.email
                         FROM student_parents sp
-                        JOIN parents p ON p.id = sp.parent_id
+                        JOIN parents par ON par.id = sp.parent_id
+                        JOIN persons parp ON parp.id = par.person_id
                         WHERE sp.student_id = s.id
-                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
                         LIMIT 1
                     ) AS parent_email,
                     (
-                        SELECT p.address
+                        SELECT par.address
                         FROM student_parents sp
-                        JOIN parents p ON p.id = sp.parent_id
+                        JOIN parents par ON par.id = sp.parent_id
                         WHERE sp.student_id = s.id
-                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
                         LIMIT 1
                     ) AS parent_address
                 FROM students s
+                JOIN persons per ON per.id = s.person_id
                 {$joins}
                 $where
                 ORDER BY $sort $order
@@ -422,9 +436,12 @@ class StudentsAPI extends BaseAPI
         }
 
         $stmt = $this->db->prepare("
-            SELECT s.stream_id, cs.class_id
+            SELECT sae.academic_year_class_stream_id AS stream_id, ayc.class_id
             FROM students s
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
+            LEFT JOIN student_academic_enrollments sae 
+                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
             WHERE s.id = ?
             LIMIT 1
         ");
@@ -512,7 +529,7 @@ class StudentsAPI extends BaseAPI
 
         $email = strtolower(trim((string) ($user['email'] ?? '')));
         if ($email !== '') {
-            $conditions[] = 'LOWER(p.email) = ?';
+            $conditions[] = 'LOWER(pp.email) = ?';
             $bindings[] = $email;
         }
 
@@ -526,8 +543,7 @@ class StudentsAPI extends BaseAPI
         $phones = array_values(array_unique(array_filter($phones)));
 
         foreach ($phones as $phone) {
-            $conditions[] = '(p.phone_1 = ? OR p.phone_2 = ?)';
-            $bindings[] = $phone;
+            $conditions[] = 'pp.phone = ?';
             $bindings[] = $phone;
         }
 
@@ -535,7 +551,7 @@ class StudentsAPI extends BaseAPI
             $firstName = strtolower(trim((string) ($user['first_name'] ?? '')));
             $lastName = strtolower(trim((string) ($user['last_name'] ?? '')));
             if ($firstName !== '' && $lastName !== '') {
-                $conditions[] = '(LOWER(p.first_name) = ? AND LOWER(p.last_name) = ?)';
+                $conditions[] = '(LOWER(pp.first_name) = ? AND LOWER(pp.last_name) = ?)';
                 $bindings[] = $firstName;
                 $bindings[] = $lastName;
             }
@@ -547,6 +563,7 @@ class StudentsAPI extends BaseAPI
 
         $sql = "SELECT DISTINCT p.id
                 FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
                 WHERE " . implode(' OR ', array_map(static fn($condition) => "({$condition})", $conditions));
 
         $stmt = $this->db->prepare($sql);
@@ -610,11 +627,16 @@ class StudentsAPI extends BaseAPI
 
         if ($academicYearId !== null) {
             $stmt = $this->db->prepare("
-                SELECT DISTINCT class_id, stream_id
-                FROM staff_class_assignments
-                WHERE staff_id = ?
-                  AND academic_year_id = ?
-                  AND status = 'active'
+                SELECT DISTINCT ayc.class_id, aycs.id AS stream_id
+                FROM academic_year_class_learning_area_teachers la_teachers
+                JOIN academic_year_class_learning_areas la 
+                    ON la.id = la_teachers.academic_year_class_learning_area_id
+                JOIN academic_year_classes ayc 
+                    ON ayc.id = la.academic_year_class_id
+                LEFT JOIN academic_year_class_streams aycs 
+                    ON aycs.academic_year_class_id = ayc.id
+                WHERE la_teachers.staff_id = ?
+                  AND ayc.academic_year_id = ?
             ");
             $stmt->execute([$staffId, $academicYearId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -631,10 +653,12 @@ class StudentsAPI extends BaseAPI
 
         if (empty($scope['stream_ids'])) {
             $streamStmt = $this->db->prepare("
-                SELECT DISTINCT id AS stream_id, class_id
-                FROM class_streams
-                WHERE teacher_id = ?
-                  AND status = 'active'
+                SELECT DISTINCT aycs.id AS stream_id, ayc.class_id
+                FROM academic_year_class_streams aycs
+                JOIN streams sm ON sm.id = aycs.stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE aycs.class_teacher_id = ?
+                  AND aycs.status = 'active'
             ");
             $streamStmt->execute([$staffId]);
             $streamRows = $streamStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -659,10 +683,12 @@ class StudentsAPI extends BaseAPI
     {
         if ($academicYear !== null) {
             $stmt = $this->db->prepare("
-                SELECT id
-                FROM academic_terms
-                WHERE year = ? AND status = 'current'
-                ORDER BY term_number ASC
+                SELECT ayt.id
+                FROM academic_year_terms ayt
+                JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
+                  AND ayt.status = 'current'
+                ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) ASC
                 LIMIT 1
             ");
             $stmt->execute([$academicYear]);
@@ -672,10 +698,11 @@ class StudentsAPI extends BaseAPI
             }
 
             $stmt = $this->db->prepare("
-                SELECT id
-                FROM academic_terms
-                WHERE year = ?
-                ORDER BY term_number DESC
+                SELECT ayt.id
+                FROM academic_year_terms ayt
+                JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
+                ORDER BY (SELECT code FROM terms WHERE id = ayt.term_id) DESC
                 LIMIT 1
             ");
             $stmt->execute([$academicYear]);
@@ -686,10 +713,11 @@ class StudentsAPI extends BaseAPI
         }
 
         $stmt = $this->db->query("
-            SELECT id
-            FROM academic_terms
-            WHERE status = 'current'
-            ORDER BY year DESC, term_number ASC
+            SELECT ayt.id
+            FROM academic_year_terms ayt
+            WHERE ayt.status = 'current'
+            ORDER BY ayt.academic_year_id DESC,
+                     (SELECT code FROM terms WHERE id = ayt.term_id) ASC
             LIMIT 1
         ");
         $termId = $stmt->fetchColumn();
@@ -698,9 +726,10 @@ class StudentsAPI extends BaseAPI
         }
 
         $stmt = $this->db->query("
-            SELECT id
-            FROM academic_terms
-            ORDER BY year DESC, term_number DESC
+            SELECT ayt.id
+            FROM academic_year_terms ayt
+            ORDER BY ayt.academic_year_id DESC,
+                     (SELECT code FROM terms WHERE id = ayt.term_id) DESC
             LIMIT 1
         ");
 
@@ -733,7 +762,7 @@ class StudentsAPI extends BaseAPI
             SELECT parent_id
             FROM student_parents
             WHERE student_id = ?
-            ORDER BY is_primary_contact DESC, is_emergency_contact DESC, id ASC
+            ORDER BY is_primary_contact DESC, is_emergency_contact DESC, parent_id ASC
             LIMIT 1
         ");
         $stmt->execute([$studentId]);
@@ -772,9 +801,6 @@ class StudentsAPI extends BaseAPI
         $isEmergency = array_key_exists('is_emergency_contact', $parentData)
             ? (int) !empty($parentData['is_emergency_contact'])
             : $isPrimary;
-        $financialResponsibility = isset($parentData['financial_responsibility']) && is_numeric($parentData['financial_responsibility'])
-            ? (float) $parentData['financial_responsibility']
-            : ($existingCount === 0 ? 100.00 : 0.00);
 
         $stmt = $this->db->prepare("
             INSERT INTO student_parents (
@@ -782,30 +808,25 @@ class StudentsAPI extends BaseAPI
                 parent_id,
                 relationship,
                 is_primary_contact,
-                is_emergency_contact,
-                financial_responsibility,
-                created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+                is_emergency_contact
+            ) VALUES (?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 relationship = VALUES(relationship),
                 is_primary_contact = VALUES(is_primary_contact),
-                is_emergency_contact = VALUES(is_emergency_contact),
-                updated_at = NOW()
+                is_emergency_contact = VALUES(is_emergency_contact)
         ");
         $stmt->execute([
             $studentId,
             $parentId,
             $relationship,
             $isPrimary,
-            $isEmergency,
-            $financialResponsibility
+            $isEmergency
         ]);
 
         if ($isPrimary) {
             $stmt = $this->db->prepare("
                 UPDATE student_parents
-                SET is_primary_contact = 0, updated_at = NOW()
+                SET is_primary_contact = 0
                 WHERE student_id = ? AND parent_id != ?
             ");
             $stmt->execute([$studentId, $parentId]);
@@ -817,10 +838,24 @@ class StudentsAPI extends BaseAPI
         $sql = "
             SELECT
                 s.*,
-                cs.class_id as class_id,
+                per.first_name AS first_name,
+                per.middle_name AS middle_name,
+                per.last_name AS last_name,
+                per.gender,
+                per.dob AS date_of_birth,
+                per.photo_url,
+                (
+                    SELECT sic.qr_code_path
+                    FROM student_id_cards sic
+                    WHERE sic.student_id = s.id
+                      AND sic.qr_code_path IS NOT NULL
+                    ORDER BY sic.id DESC
+                    LIMIT 1
+                ) AS qr_code_path,
+                ayc.class_id as class_id,
                 c.name as class_name,
-                cs.stream_name,
-                CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                sm.name AS stream_name,
+                CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                 st.name AS student_type_name,
                 st.name AS student_type,
                 st.code AS student_type_code,
@@ -830,27 +865,30 @@ class StudentsAPI extends BaseAPI
                     ELSE 'day'
                 END AS boarding_status,
                 (
-                    SELECT CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name)
+                    SELECT CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name)
                     FROM student_parents sp
                     JOIN parents p ON p.id = sp.parent_id
+                    JOIN persons pp ON pp.id = p.person_id
                     WHERE sp.student_id = s.id
-                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
                     LIMIT 1
                 ) AS parent_name,
                 (
-                    SELECT p.phone_1
+                    SELECT pp.phone
                     FROM student_parents sp
                     JOIN parents p ON p.id = sp.parent_id
+                    JOIN persons pp ON pp.id = p.person_id
                     WHERE sp.student_id = s.id
-                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
                     LIMIT 1
                 ) AS parent_phone,
                 (
-                    SELECT p.email
+                    SELECT pp.email
                     FROM student_parents sp
                     JOIN parents p ON p.id = sp.parent_id
+                    JOIN persons pp ON pp.id = p.person_id
                     WHERE sp.student_id = s.id
-                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
                     LIMIT 1
                 ) AS parent_email,
                 (
@@ -858,7 +896,7 @@ class StudentsAPI extends BaseAPI
                     FROM student_parents sp
                     JOIN parents p ON p.id = sp.parent_id
                     WHERE sp.student_id = s.id
-                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
                     LIMIT 1
                 ) AS parent_occupation,
                 (
@@ -866,12 +904,17 @@ class StudentsAPI extends BaseAPI
                     FROM student_parents sp
                     JOIN parents p ON p.id = sp.parent_id
                     WHERE sp.student_id = s.id
-                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+                    ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
                     LIMIT 1
                 ) AS parent_address
             FROM students s
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
-            LEFT JOIN classes c ON cs.class_id = c.id
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae 
+                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN streams sm ON sm.id = aycs.stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
             LEFT JOIN student_types st ON s.student_type_id = st.id
             WHERE s.id = ?
         ";
@@ -943,12 +986,21 @@ class StudentsAPI extends BaseAPI
         }
     }
 
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
     private function resolveClassFromStream(int $streamId): ?array
     {
         $stmt = $this->db->prepare("
-            SELECT cs.id, cs.class_id, cs.stream_name
-            FROM class_streams cs
-            WHERE cs.id = ?
+            SELECT aycs.id, ayc.class_id, aycs.stream_id AS stream_id, sm.name AS stream_name
+            FROM academic_year_class_streams aycs
+            JOIN streams sm ON sm.id = aycs.stream_id
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE aycs.id = ?
             LIMIT 1
         ");
         $stmt->execute([$streamId]);
@@ -959,19 +1011,37 @@ class StudentsAPI extends BaseAPI
     private function getClassAssignmentId(int $academicYearId, int $classId, int $streamId): ?int
     {
         $stmt = $this->db->prepare("
-            SELECT id
-            FROM class_year_assignments
-            WHERE academic_year_id = ?
-              AND class_id = ?
-              AND stream_id = ?
-              AND status IN ('active', 'planning')
-            ORDER BY status = 'active' DESC, id DESC
+            SELECT aycs.id
+            FROM academic_year_class_streams aycs
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.academic_year_id = ?
+              AND ayc.class_id = ?
+              AND aycs.stream_id = ?
+              AND aycs.status IN ('active', 'planning')
+            ORDER BY aycs.status = 'active' DESC, aycs.id DESC
             LIMIT 1
         ");
         $stmt->execute([$academicYearId, $classId, $streamId]);
         $assignmentId = $stmt->fetchColumn();
 
         return $assignmentId ? (int) $assignmentId : null;
+    }
+
+    private function getActiveEnrollmentStreamId(int $studentId): int
+    {
+        $stmt = $this->db->prepare("
+            SELECT aycs.id
+            FROM student_academic_enrollments sae
+            JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            WHERE sae.student_id = ?
+              AND sae.enrollment_status = 'active'
+            ORDER BY sae.id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$studentId]);
+        $streamId = $stmt->fetchColumn();
+
+        return $streamId ? (int) $streamId : 0;
     }
 
     private function ensureClassEnrollment(
@@ -995,12 +1065,16 @@ class StudentsAPI extends BaseAPI
         }
 
         $classId = (int) $stream['class_id'];
-        $assignmentId = $this->getClassAssignmentId($academicYearId, $classId, $streamId);
+        $masterStreamId = (int) ($stream['stream_id'] ?? 0);
+        $assignmentId = $this->getClassAssignmentId($academicYearId, $classId, $masterStreamId);
+        if ($assignmentId === null) {
+            $assignmentId = $streamId;
+        }
         $enrollmentStatus = $this->mapStudentStatusToEnrollmentStatus($studentStatus);
 
         $existingStmt = $this->db->prepare("
-            SELECT id, class_id, stream_id, special_notes
-            FROM class_enrollments
+            SELECT id, academic_year_class_stream_id
+            FROM student_academic_enrollments
             WHERE student_id = ? AND academic_year_id = ?
             LIMIT 1
         ");
@@ -1008,30 +1082,17 @@ class StudentsAPI extends BaseAPI
         $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
-            $note = $reason ? trim($reason) : null;
             $updateStmt = $this->db->prepare("
-                UPDATE class_enrollments
-                SET class_id = ?,
-                    stream_id = ?,
-                    class_assignment_id = ?,
+                UPDATE student_academic_enrollments
+                SET academic_year_class_stream_id = ?,
                     enrollment_status = ?,
-                    special_notes = CASE
-                        WHEN ? IS NULL OR ? = '' THEN special_notes
-                        WHEN special_notes IS NULL OR special_notes = '' THEN ?
-                        ELSE CONCAT(special_notes, '\n', ?)
-                    END,
-                    updated_at = NOW()
+                    enrolled_on = COALESCE(enrolled_on, ?)
                 WHERE id = ?
             ");
             $updateStmt->execute([
-                $classId,
-                $streamId,
                 $assignmentId,
                 $enrollmentStatus,
-                $note,
-                $note,
-                $note,
-                $note,
+                date('Y-m-d'),
                 (int) $existing['id']
             ]);
 
@@ -1041,41 +1102,32 @@ class StudentsAPI extends BaseAPI
         $admissionDateStmt = $this->db->prepare("SELECT admission_date FROM students WHERE id = ? LIMIT 1");
         $admissionDateStmt->execute([$studentId]);
         $enrollmentDate = $admissionDateStmt->fetchColumn() ?: date('Y-m-d');
-        $promotionStatus = $enrollmentStatus === 'graduated'
-            ? 'graduated'
-            : ($enrollmentStatus === 'transferred' ? 'transferred' : 'pending');
+
+        $newEnrollmentId = $this->nextId('student_academic_enrollments');
 
         $insertStmt = $this->db->prepare("
-            INSERT INTO class_enrollments (
+            INSERT INTO student_academic_enrollments (
+                id,
                 student_id,
                 academic_year_id,
-                class_id,
-                stream_id,
-                class_assignment_id,
-                enrollment_date,
-                enrollment_status,
-                promotion_status,
-                special_notes,
-                created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                academic_year_class_stream_id,
+                enrolled_on,
+                enrollment_status
+            ) VALUES (?, ?, ?, ?, ?, ?)
         ");
         $insertStmt->execute([
+            $newEnrollmentId,
             $studentId,
             $academicYearId,
-            $classId,
-            $streamId,
             $assignmentId,
             $enrollmentDate,
-            $enrollmentStatus,
-            $promotionStatus,
-            $reason
+            $enrollmentStatus
         ]);
 
-        return (int) $this->db->lastInsertId();
+        return $newEnrollmentId;
     }
 
-    private function generateStudentFeeObligationsForCurrentYear(int $studentId, ?int $academicYearId = null): int
+    private function generateStudentFeeObligationsForCurrentYear(int $studentId, ?int $academicYearId = null, array $sponsorship = []): int
     {
         $academicYearRecord = null;
 
@@ -1103,11 +1155,14 @@ class StudentsAPI extends BaseAPI
         }
 
         $studentStmt = $this->db->prepare("
-            SELECT s.student_type_id, s.is_sponsored, s.sponsor_waiver_percentage,
+            SELECT s.student_type_id,
                    c.level_id AS level_id
             FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
-            LEFT JOIN classes c ON c.id = cs.class_id
+            LEFT JOIN student_academic_enrollments sae 
+                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
             WHERE s.id = ?
             LIMIT 1
         ");
@@ -1119,17 +1174,19 @@ class StudentsAPI extends BaseAPI
         }
 
         $structureStmt = $this->db->prepare("
-            SELECT id, term_id, amount, due_date
-            FROM fee_structures_detailed
-            WHERE level_id = ?
-              AND academic_year = ?
-              AND student_type_id = ?
-              AND status IN ('approved', 'active')
-            ORDER BY term_id ASC, id ASC
+            SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount, ayfs.due_date
+            FROM academic_year_fee_schedules ayfs
+            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
+            JOIN classes c ON c.id = ayc.class_id
+            WHERE c.level_id = ?
+              AND ayfs.academic_year_id = ?
+              AND ayfs.student_type_id = ?
+              AND ayfs.status = 'active'
+            ORDER BY ayfs.academic_year_term_id ASC, ayfs.id ASC
         ");
         $structureStmt->execute([
             (int) $studentMeta['level_id'],
-            $academicYear,
+            $academicYearId,
             (int) $studentMeta['student_type_id']
         ]);
         $feeStructures = $structureStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -1138,23 +1195,25 @@ class StudentsAPI extends BaseAPI
             return 0;
         }
 
-        $isSponsored = (int) ($studentMeta['is_sponsored'] ?? 0) === 1;
-        $waiverPercent = (float) ($studentMeta['sponsor_waiver_percentage'] ?? 0);
+        $isSponsored = !empty($sponsorship['is_sponsored']);
+        $waiverPercent = (float) ($sponsorship['sponsor_waiver_percentage'] ?? 0);
+        if ($waiverPercent > 0) {
+            $isSponsored = true;
+        }
         $createdCount = 0;
 
         foreach ($feeStructures as $row) {
             $existsStmt = $this->db->prepare("
-                SELECT id
-                FROM student_fee_obligations
-                WHERE student_id = ?
-                  AND fee_structure_detail_id = ?
-                  AND academic_year = ?
+                SELECT sfo.id
+                FROM student_fee_obligations sfo
+                JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+                WHERE sae.student_id = ?
+                  AND sfo.academic_year_fee_schedule_id = ?
                 LIMIT 1
             ");
             $existsStmt->execute([
                 $studentId,
-                (int) $row['id'],
-                $academicYear
+                (int) $row['id']
             ]);
 
             if ($existsStmt->fetchColumn()) {
@@ -1168,45 +1227,45 @@ class StudentsAPI extends BaseAPI
             $waivedAmount = min($waivedAmount, $amountDue);
             $netBalance = max(0, $amountDue - $waivedAmount);
             $status = $netBalance <= 0 ? 'paid' : 'pending';
-            $paymentStatus = $netBalance <= 0 ? 'waived' : 'pending';
             $dueDate = !empty($row['due_date']) ? $row['due_date'] : date('Y-m-d', strtotime('+30 days'));
+
+            // Resolve active enrollment id for this student+year
+            $enrStmt = $this->db->prepare("
+                SELECT id FROM student_academic_enrollments
+                WHERE student_id = ? AND academic_year_id = ? AND enrollment_status = 'active'
+                LIMIT 1
+            ");
+            $enrStmt->execute([$studentId, $academicYearId]);
+            $enrollmentId = $enrStmt->fetchColumn() ?: null;
+            if (!$enrollmentId) {
+                continue;
+            }
 
             $insertStmt = $this->db->prepare("
                 INSERT INTO student_fee_obligations (
-                    student_id,
-                    academic_year,
-                    term_id,
-                    fee_structure_detail_id,
+                    id,
+                    student_academic_enrollment_id,
+                    academic_year_id,
+                    academic_year_term_id,
+                    academic_year_fee_schedule_id,
                     amount_due,
-                    amount_paid,
-                    amount_waived,
                     status,
                     due_date,
-                    year_balance,
-                    term_balance,
-                    previous_year_balance,
-                    previous_term_balance,
                     is_sponsored,
-                    sponsored_waiver_amount,
-                    payment_status,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, NOW(), NOW())
+                    sponsored_waiver_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $insertStmt->execute([
-                $studentId,
-                $academicYear,
+                $this->nextId('student_fee_obligations'),
+                $enrollmentId,
+                $academicYearId,
                 (int) $row['term_id'],
                 (int) $row['id'],
                 $amountDue,
-                $waivedAmount,
                 $status,
                 $dueDate,
-                $netBalance,
-                $netBalance,
                 $isSponsored ? 1 : 0,
-                $waivedAmount,
-                $paymentStatus
+                $waivedAmount
             ]);
             $createdCount++;
         }
@@ -1233,7 +1292,7 @@ class StudentsAPI extends BaseAPI
 
         $enrollmentStmt = $this->db->prepare("
             SELECT id
-            FROM class_enrollments
+            FROM student_academic_enrollments
             WHERE student_id = ? AND academic_year_id = ?
             LIMIT 1
         ");
@@ -1242,82 +1301,42 @@ class StudentsAPI extends BaseAPI
 
         $note = $reason ?: 'Internal class/stream transfer';
         $userId = $this->getCurrentUserId();
+        $transitionId = $this->nextId('student_transitions');
 
         $sql = "
-            INSERT INTO student_promotions (
-                batch_id,
-                from_enrollment_id,
-                to_enrollment_id,
-                from_academic_year_id,
-                to_academic_year_id,
+            INSERT INTO student_transitions (
+                id,
                 student_id,
-                current_class_id,
-                current_stream_id,
-                promoted_to_class_id,
-                promoted_to_stream_id,
-                from_academic_year,
-                to_academic_year,
-                from_term_id,
-                promotion_status,
-                promotion_reason,
-                approved_by,
-                approval_date,
-                approval_notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'transferred', ?, ?, NOW(), ?)
-            ON DUPLICATE KEY UPDATE
-                current_class_id = VALUES(current_class_id),
-                current_stream_id = VALUES(current_stream_id),
-                promoted_to_class_id = VALUES(promoted_to_class_id),
-                promoted_to_stream_id = VALUES(promoted_to_stream_id),
-                promotion_status = 'transferred',
-                promotion_reason = VALUES(promotion_reason),
-                approved_by = VALUES(approved_by),
-                approval_date = NOW(),
-                approval_notes = VALUES(approval_notes),
-                updated_at = NOW()
+                from_student_academic_enrollment_id,
+                to_student_academic_enrollment_id,
+                academic_year_id,
+                transition_type,
+                reason,
+                decided_by,
+                decided_at,
+                executed_at
+            ) VALUES (?, ?, ?, ?, ?, 'internal', ?, ?, NOW(), NOW())
         ";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            0,
-            $enrollmentId ?: null,
-            $enrollmentId ?: null,
-            $academicYearId,
-            $academicYearId,
+            $transitionId,
             $studentId,
-            (int) $from['class_id'],
-            $fromStreamId,
-            (int) $to['class_id'],
-            $toStreamId,
-            $academicYear,
-            $academicYear,
-            $termId,
+            $enrollmentId ?: null,
+            $enrollmentId ?: null,
+            $academicYearId,
             $note,
-            $userId,
-            $note
+            $userId
         ]);
 
-        if ($this->db->lastInsertId()) {
-            return (int) $this->db->lastInsertId();
-        }
-
-        $lookupStmt = $this->db->prepare("
-            SELECT id
-            FROM student_promotions
-            WHERE student_id = ? AND from_academic_year = ? AND to_academic_year = ?
-            LIMIT 1
-        ");
-        $lookupStmt->execute([$studentId, $academicYear, $academicYear]);
-        $id = $lookupStmt->fetchColumn();
-
-        return $id ? (int) $id : null;
+        return $transitionId;
     }
 
     // Create new student
     public function create($data)
     {
         try {
-            $required = ['admission_no', 'first_name', 'last_name', 'stream_id', 'date_of_birth', 'gender', 'admission_date', 'parent_info'];
+            $required = ['first_name', 'last_name', 'stream_id', 'date_of_birth', 'gender', 'admission_date', 'parent_info'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -1325,6 +1344,23 @@ class StudentsAPI extends BaseAPI
                     'message' => 'Missing required fields',
                     'fields' => $missing
                 ], 400);
+            }
+
+            // admission_no: optional. When absent it is auto-generated from the
+            // configured admission_no_format; when present it must match that
+            // format so manual creates stay consistent with the admission workflow.
+            $admissionNoService = new AdmissionNumberService($this->db);
+            $admissionNo = trim((string) ($data['admission_no'] ?? ''));
+            if ($admissionNo !== '') {
+                if (!$admissionNoService->isValid($admissionNo)) {
+                    return $this->response([
+                        'status' => 'error',
+                        'message' => 'Invalid admission_no. Expected format: ' . $admissionNoService->getFormat()
+                    ], 400);
+                }
+            } else {
+                $admissionYear = $this->getCurrentAcademicYearValue() ?? (int) date('Y', strtotime($data['admission_date']));
+                $admissionNo = $admissionNoService->generate($admissionYear);
             }
 
             // parent_info must include either a parent_id or basic contact info
@@ -1375,15 +1411,28 @@ class StudentsAPI extends BaseAPI
             // Start transaction so parent linking and student insert are atomic
             $this->db->beginTransaction();
 
+            $newStudentId = $this->nextId('students');
+            $newPersonId = $this->nextId('persons');
+
+            $personStmt = $this->db->prepare("
+                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            $personStmt->execute([
+                $newPersonId,
+                $data['first_name'],
+                $data['middle_name'] ?? null,
+                $data['last_name'],
+                $data['date_of_birth'] ?? null,
+                $data['gender'] ?? null,
+                $data['photo_url'] ?? null
+            ]);
+
             $sql = "
                 INSERT INTO students (
+                    id,
+                    person_id,
                     admission_no,
-                    first_name,
-                    middle_name,
-                    last_name,
-                    date_of_birth,
-                    gender,
-                    stream_id,
                     student_type_id,
                     admission_date,
                     assessment_number,
@@ -1391,25 +1440,16 @@ class StudentsAPI extends BaseAPI
                     nemis_number,
                     nemis_status,
                     status,
-                    photo_url,
-                    qr_code_path,
-                    is_sponsored,
-                    sponsor_name,
-                    sponsor_type,
-                    sponsor_waiver_percentage,
+                    application_id,
                     blood_group
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['admission_no'],
-                $data['first_name'],
-                $data['middle_name'] ?? null,
-                $data['last_name'],
-                $data['date_of_birth'],
-                $data['gender'],
-                $data['stream_id'],
+                $newStudentId,
+                $newPersonId,
+                $admissionNo,
                 $data['student_type_id'] ?? null,
                 $data['admission_date'],
                 $data['assessment_number'] ?? null,
@@ -1417,16 +1457,11 @@ class StudentsAPI extends BaseAPI
                 $data['nemis_number'] ?? null,
                 $data['nemis_status'] ?? 'not_assigned',
                 $data['status'] ?? 'active',
-                $data['photo_url'] ?? null,
-                $data['qr_code_path'] ?? null,
-                $data['is_sponsored'] ?? 0,
-                $data['sponsor_name'] ?? null,
-                $data['sponsor_type'] ?? null,
-                $data['sponsor_waiver_percentage'] ?? null,
+                $data['application_id'] ?? null,
                 $data['blood_group'] ?? null
             ]);
 
-            $studentId = $this->db->lastInsertId();
+            $studentId = $newStudentId;
 
             // Link parent as part of student creation
             try {
@@ -1450,7 +1485,10 @@ class StudentsAPI extends BaseAPI
                         (string) ($data['status'] ?? 'active'),
                         'Initial enrollment'
                     );
-                    $feeObligationsCreated = $this->generateStudentFeeObligationsForCurrentYear((int) $studentId);
+                    $feeObligationsCreated = $this->generateStudentFeeObligationsForCurrentYear((int) $studentId, null, [
+                        'is_sponsored' => !empty($data['is_sponsored']),
+                        'sponsor_waiver_percentage' => $data['sponsor_waiver_percentage'] ?? 0
+                    ]);
                 } catch (Exception $e) {
                     // Log but don't fail - enrollment and fees can be created later.
                     error_log("Warning: Could not create enrollment/fees for student $studentId: " . $e->getMessage());
@@ -1480,6 +1518,7 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Student created successfully',
                 'data' => [
                     'id' => $studentId,
+                    'admission_no' => $admissionNo,
                     'enrollment_id' => $enrollmentId,
                     'fee_obligations_created' => $feeObligationsCreated
                 ]
@@ -1504,19 +1543,18 @@ class StudentsAPI extends BaseAPI
         $paymentMethod = $this->normalizePaymentMethod($paymentData['method'] ?? '');
         $paymentDate = $paymentData['payment_date'] ?? date('Y-m-d H:i:s');
         $receiptNo = $paymentData['receipt_no'] ?? ('ADM-' . date('YmdHis') . '-' . $studentId);
+        $paymentId = $this->nextId('payments');
 
-        $sql = "INSERT INTO payment_transactions (
-            student_id, parent_id, academic_year, term_id, amount_paid,
-            payment_date, payment_method, reference_no, receipt_no,
-            received_by, status, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, NOW(), NOW())";
+        $sql = "INSERT INTO payments (
+            id, student_id, parent_id, amount, payment_date, method, reference,
+            receipt_no, received_by, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
+            $paymentId,
             $studentId,
             $parentId,
-            $academicYear,
-            $termId,
             $paymentData['amount'],
             $paymentDate,
             $paymentMethod,
@@ -1525,74 +1563,6 @@ class StudentsAPI extends BaseAPI
             $receivedBy,
             $paymentData['notes'] ?? 'Initial admission payment'
         ]);
-
-        $paymentId = $this->db->lastInsertId();
-
-        $remainingAmount = $paymentData['amount'];
-
-        $stmt = $this->db->prepare("
-            SELECT id, balance
-            FROM student_fee_obligations 
-            WHERE student_id = ?
-                AND balance > 0
-                AND status IN ('pending', 'partial', 'arrears')
-            ORDER BY due_date ASC
-        ");
-        $stmt->execute([$studentId]);
-        $obligations = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-
-        foreach ($obligations as $obligation) {
-            if ($remainingAmount <= 0) {
-                break;
-            }
-
-            $paymentForThis = min($remainingAmount, $obligation['balance']);
-
-            $stmt = $this->db->prepare("
-                UPDATE student_fee_obligations 
-                SET amount_paid = amount_paid + ?,
-                    status = CASE
-                        WHEN (amount_paid + ? + amount_waived) >= amount_due THEN 'paid'
-                        WHEN (amount_paid + ? + amount_waived) > 0 THEN 'partial'
-                        ELSE 'pending'
-                    END,
-                    payment_status = CASE 
-                        WHEN (amount_paid + ? + amount_waived) >= amount_due THEN 'paid'
-                        WHEN (amount_paid + ? + amount_waived) > 0 THEN 'partial'
-                        ELSE 'pending'
-                    END,
-                    updated_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $paymentForThis,
-                $paymentForThis,
-                $paymentForThis,
-                $paymentForThis,
-                $paymentForThis,
-                $paymentForThis,
-                $obligation['id']
-            ]);
-
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_allocations_detailed (
-                    payment_transaction_id,
-                    student_fee_obligation_id,
-                    amount_allocated,
-                    allocated_by,
-                    notes
-                ) VALUES (?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $paymentId,
-                $obligation['id'],
-                $paymentForThis,
-                $receivedBy,
-                $paymentData['notes'] ?? 'Initial admission payment allocation'
-            ]);
-
-            $remainingAmount -= $paymentForThis;
-        }
 
         if ($academicYear !== null && $termId !== null) {
             $this->refreshStudentPaymentSummary($studentId, $academicYear, $termId);
@@ -1605,7 +1575,7 @@ class StudentsAPI extends BaseAPI
     public function update($id, $data)
     {
         try {
-            $stmt = $this->db->prepare("SELECT id, stream_id, status FROM students WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT id, status FROM students WHERE id = ?");
             $stmt->execute([$id]);
             $existingStudent = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$existingStudent) {
@@ -1628,28 +1598,47 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            // Person-level fields (normalized into persons)
+            $personFieldMap = [
+                'first_name' => 'first_name',
+                'middle_name' => 'middle_name',
+                'last_name' => 'last_name',
+                'date_of_birth' => 'dob',
+                'gender' => 'gender',
+                'photo_url' => 'photo_url',
+            ];
+            $personUpdates = [];
+            $personParams = [];
+            foreach ($personFieldMap as $inputKey => $column) {
+                if (isset($data[$inputKey])) {
+                    $personUpdates[] = "{$column} = ?";
+                    $personParams[] = $data[$inputKey];
+                }
+            }
+
+            if (!empty($personUpdates)) {
+                $personParams[] = $id;
+                $personSql = "
+                    UPDATE persons
+                    SET " . implode(', ', $personUpdates) . "
+                    WHERE id = (SELECT person_id FROM students WHERE id = ?)
+                ";
+                $stmt = $this->db->prepare($personSql);
+                $stmt->execute($personParams);
+            }
+
+            // Student-level fields
             $updates = [];
             $params = [];
             $allowedFields = [
                 'admission_no',
-                'first_name',
-                'middle_name',
-                'last_name',
-                'date_of_birth',
-                'gender',
-                'stream_id',
                 'student_type_id',
                 'admission_date',
                 'status',
-                'photo_url',
                 'assessment_number',
                 'assessment_status',
                 'nemis_number',
                 'nemis_status',
-                'is_sponsored',
-                'sponsor_name',
-                'sponsor_type',
-                'sponsor_waiver_percentage',
                 'blood_group'
             ];
 
@@ -1667,7 +1656,7 @@ class StudentsAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $currentStreamId = (int) ($existingStudent['stream_id'] ?? 0);
+            $currentStreamId = $this->getActiveEnrollmentStreamId($id);
             $nextStreamId = isset($data['stream_id']) ? (int) $data['stream_id'] : $currentStreamId;
             $currentStatus = (string) ($existingStudent['status'] ?? 'active');
             $nextStatus = (string) ($data['status'] ?? $currentStatus);
@@ -1802,97 +1791,160 @@ class StudentsAPI extends BaseAPI
             throw new Exception('Invalid gender value. Must be: male, female, or other');
         }
 
-        // Robust parent lookup: check by phone_1, phone_2, email, or name+phone
-        $stmt = $this->db->prepare("SELECT id, phone_1, phone_2, email, first_name, last_name FROM parents WHERE phone_1 = ? OR phone_2 = ? OR (email IS NOT NULL AND email = ?) LIMIT 1");
-        $stmt->execute([$parentData['phone_1'] ?? null, $parentData['phone_2'] ?? null, $parentData['email'] ?? null]);
-        $existingParent = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($existingParent) {
-            $parentId = $existingParent['id'];
-            // Update missing info if provided
-            $updates = [];
-            $params = [];
-            if (!empty($parentData['first_name']) && $parentData['first_name'] !== $existingParent['first_name']) {
-                $updates[] = 'first_name = ?';
-                $params[] = $parentData['first_name'];
-            }
-            if (!empty($parentData['last_name']) && $parentData['last_name'] !== $existingParent['last_name']) {
-                $updates[] = 'last_name = ?';
-                $params[] = $parentData['last_name'];
-            }
-            if (!empty($parentData['phone_1']) && $parentData['phone_1'] !== $existingParent['phone_1']) {
-                $updates[] = 'phone_1 = ?';
-                $params[] = $parentData['phone_1'];
-            }
-            if (!empty($parentData['phone_2']) && $parentData['phone_2'] !== $existingParent['phone_2']) {
-                $updates[] = 'phone_2 = ?';
-                $params[] = $parentData['phone_2'];
-            }
-            if (!empty($parentData['email']) && $parentData['email'] !== $existingParent['email']) {
-                $updates[] = 'email = ?';
-                $params[] = $parentData['email'];
-            }
-            if (!empty($updates)) {
-                $params[] = $existingParent['id'];
-                $sql = 'UPDATE parents SET ' . implode(', ', $updates) . ' WHERE id = ?';
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($params);
-            }
-        } else {
-            // Create new parent
-            $sql = "INSERT INTO parents (first_name, last_name, gender, phone_1, phone_2, email, occupation, address, status, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())";
-            $stmt = $this->db->prepare($sql);
+        // Robust parent lookup: match existing person+parent by phone or email
+        $parentId = null;
+        if (!empty($parentData['phone_1']) || !empty($parentData['phone_2']) || !empty($parentData['email'])) {
+            $stmt = $this->db->prepare("
+                SELECT p.id
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
+                WHERE pp.phone = ? OR pp.phone = ? OR (pp.email IS NOT NULL AND pp.email = ?)
+                LIMIT 1
+            ");
             $stmt->execute([
-                $parentData['first_name'],
-                $parentData['last_name'],
-                $parentData['gender'] ?? 'other',
                 $parentData['phone_1'] ?? null,
                 $parentData['phone_2'] ?? null,
-                $parentData['email'] ?? null,
-                $parentData['occupation'] ?? null,
-                $parentData['address'] ?? null
+                $parentData['email'] ?? null
             ]);
-            $parentId = $this->db->lastInsertId();
+            $parentId = $stmt->fetchColumn() ?: null;
+        }
+
+        if ($parentId) {
+            // Update person-level details on the matched parent
+            $this->updateParentRecord((int) $parentId, $parentData);
+        } else {
+            $parentId = $this->createParentRecord($parentData);
         }
 
         // Create student-parent relationship if not exists
-        $this->linkStudentParent($studentId, $parentId, $parentData);
+        $this->linkStudentParent($studentId, (int) $parentId, $parentData);
+    }
+
+    /**
+     * Create a person + parent pair and return the parent id.
+     */
+    private function createParentRecord(array $parentData): int
+    {
+        $personId = $this->nextId('persons');
+        $stmt = $this->db->prepare("
+            INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, national_id_no, email, phone)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $personId,
+            $parentData['first_name'] ?? '',
+            $parentData['middle_name'] ?? null,
+            $parentData['last_name'] ?? '',
+            $parentData['date_of_birth'] ?? null,
+            $parentData['gender'] ?? 'other',
+            $parentData['id_number'] ?? null,
+            $parentData['email'] ?? null,
+            $parentData['phone_1'] ?? null
+        ]);
+
+        $parentId = $this->nextId('parents');
+        $stmt = $this->db->prepare("
+            INSERT INTO parents (id, person_id, occupation, address, status)
+            VALUES (?, ?, ?, ?, 'active')
+        ");
+        $stmt->execute([
+            $parentId,
+            $personId,
+            $parentData['occupation'] ?? null,
+            $parentData['address'] ?? null
+        ]);
+
+        return $parentId;
+    }
+
+    /**
+     * Update person-level + parent-level details for an existing parent.
+     */
+    private function updateParentRecord(int $parentId, array $parentData): void
+    {
+        $personFieldMap = [
+            'first_name' => 'first_name',
+            'middle_name' => 'middle_name',
+            'last_name' => 'last_name',
+            'id_number' => 'national_id_no',
+            'gender' => 'gender',
+            'date_of_birth' => 'dob',
+            'phone_1' => 'phone',
+            'phone_2' => 'phone',
+            'email' => 'email',
+        ];
+
+        $personSets = [];
+        $personParams = [];
+        foreach ($personFieldMap as $inputKey => $column) {
+            if (!empty($parentData[$inputKey])) {
+                $personSets[] = "{$column} = ?";
+                $personParams[] = $parentData[$inputKey];
+            }
+        }
+
+        if (!empty($personSets)) {
+            $personParams[] = $parentId;
+            $stmt = $this->db->prepare("
+                UPDATE parents p
+                JOIN persons pp ON pp.id = p.person_id
+                SET " . implode(', ', $personSets) . "
+                WHERE p.id = ?
+            ");
+            $stmt->execute($personParams);
+        }
+
+        $parentSets = [];
+        $parentParams = [];
+        foreach (['occupation', 'address'] as $column) {
+            if (array_key_exists($column, $parentData) && $parentData[$column] !== null) {
+                $parentSets[] = "{$column} = ?";
+                $parentParams[] = $parentData[$column];
+            }
+        }
+
+        if (!empty($parentSets)) {
+            $parentParams[] = $parentId;
+            $stmt = $this->db->prepare("
+                UPDATE parents SET " . implode(', ', $parentSets) . " WHERE id = ?
+            ");
+            $stmt->execute($parentParams);
+        }
     }
 
     private function getStudentParents($studentId)
     {
         $sql = "
             SELECT 
-                sp.id as student_parent_id,
+                sp.parent_id AS student_parent_id,
                 sp.student_id,
                 sp.parent_id,
                 sp.relationship,
                 sp.is_primary_contact,
                 sp.is_emergency_contact,
-                sp.financial_responsibility,
-                p.first_name,
-                p.middle_name,
-                p.last_name,
-                CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) as full_name,
-                p.gender,
-                p.date_of_birth,
-                p.id_number,
-                p.phone_1,
-                p.phone_2,
-                p.phone_1 as phone,
-                p.phone_1 as phone1,
-                p.phone_2 as phone2,
-                p.email,
+                pp.first_name,
+                pp.middle_name,
+                pp.last_name,
+                CONCAT_WS(' ', pp.first_name, pp.middle_name, pp.last_name) as full_name,
+                pp.gender,
+                pp.dob AS date_of_birth,
+                pp.national_id_no AS id_number,
+                pp.phone AS phone_1,
+                NULL AS phone_2,
+                pp.phone AS phone,
+                pp.phone AS phone1,
+                NULL AS phone2,
+                pp.email,
                 p.occupation,
                 p.address,
                 p.status,
                 p.created_at,
                 p.updated_at
             FROM parents p
+            JOIN persons pp ON pp.id = p.person_id
             JOIN student_parents sp ON p.id = sp.parent_id
             WHERE sp.student_id = ?
-            ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.id ASC
+            ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC, sp.parent_id ASC
         ";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$studentId]);
@@ -1902,39 +1954,40 @@ class StudentsAPI extends BaseAPI
     private function getFeeSummary($studentId)
     {
         $academicYear = $this->getCurrentAcademicYearValue();
+        $where = ['vfb.student_id = ?'];
+        $bindings = [$studentId];
+
+        if ($academicYear !== null) {
+            $where[] = 'CAST(SUBSTRING(vfb.academic_year, 1, 4) AS UNSIGNED) = ?';
+            $bindings[] = $academicYear;
+        }
+
         $obligationSql = "
             SELECT
                 COALESCE(SUM(amount_due), 0) AS total_fees,
                 COALESCE(SUM(amount_paid), 0) AS total_paid,
                 COALESCE(SUM(amount_waived), 0) AS total_waived,
                 COALESCE(SUM(balance), 0) AS balance,
-                MIN(CASE WHEN balance > 0 THEN due_date END) AS earliest_due_date
-            FROM student_fee_obligations
-            WHERE student_id = ?
+                MIN(CASE WHEN balance > 0 THEN latest_due_date END) AS earliest_due_date
+            FROM vw_student_fee_balances vfb
+            WHERE " . implode(' AND ', $where) . "
         ";
-        $obligationBindings = [$studentId];
-
-        if ($academicYear !== null) {
-            $obligationSql .= " AND academic_year = ?";
-            $obligationBindings[] = $academicYear;
-        }
-
         $stmt = $this->db->prepare($obligationSql);
-        $stmt->execute($obligationBindings);
+        $stmt->execute($bindings);
         $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         $paymentSql = "
             SELECT
                 MAX(payment_date) AS last_payment_date,
                 COUNT(*) AS number_of_payments
-            FROM payment_transactions
+            FROM payments
             WHERE student_id = ?
                 AND status = 'confirmed'
         ";
         $paymentBindings = [$studentId];
 
         if ($academicYear !== null) {
-            $paymentSql .= " AND academic_year = ?";
+            $paymentSql .= " AND YEAR(payment_date) = ?";
             $paymentBindings[] = $academicYear;
         }
 
@@ -1968,14 +2021,15 @@ class StudentsAPI extends BaseAPI
     {
         $sql = "
             SELECT 
-                MONTH(date) as month,
-                YEAR(date) as year,
-                COUNT(CASE WHEN status = 'present' THEN 1 END) as present_days,
-                COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_days,
-                COUNT(CASE WHEN status = 'late' THEN 1 END) as late_days
-            FROM student_attendance
-            WHERE student_id = ?
-            GROUP BY YEAR(date), MONTH(date)
+                MONTH(sa.date) as month,
+                YEAR(sa.date) as year,
+                COUNT(CASE WHEN sa.status = 'present' THEN 1 END) as present_days,
+                COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as absent_days,
+                COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as late_days
+            FROM student_attendance sa
+            JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+            WHERE sae.student_id = ?
+            GROUP BY YEAR(sa.date), MONTH(sa.date)
             ORDER BY year DESC, month DESC
             LIMIT 12
         ";
@@ -2003,17 +2057,16 @@ class StudentsAPI extends BaseAPI
         $dateFrom = $params['date_from'] ?? null;
         $dateTo = $params['date_to'] ?? null;
 
-        $where = ['sa.student_id = ?'];
+        $where = ['sae.student_id = ?'];
         $bindings = [$id];
 
         if (!empty($termId) && ctype_digit((string) $termId)) {
-            $where[] = 'sa.term_id = ?';
+            $where[] = 'ayt.id = ?';
             $bindings[] = (int) $termId;
         }
 
         if (!empty($academicYear)) {
-            $where[] = '(at.year = ? OR YEAR(sa.date) = ?)';
-            $bindings[] = (int) $academicYear;
+            $where[] = 'YEAR(sa.date) = ?';
             $bindings[] = (int) $academicYear;
         }
 
@@ -2055,24 +2108,31 @@ class StudentsAPI extends BaseAPI
         $sql = "
             SELECT
                 sa.id,
-                sa.student_id,
+                sae.student_id,
                 sa.date,
                 sa.status,
                 sa.check_in_time,
                 sa.check_out_time,
                 sa.absence_reason,
                 sa.notes,
-                sa.class_id,
-                sa.term_id,
+                ayc.class_id,
+                ayt.id AS term_id,
                 sa.session_id,
                 sa.marked_by,
-                at.name AS term_name,
-                at.term_number,
-                at.year AS academic_year,
+                t.name AS term_name,
+                SUBSTRING(t.code, 2) AS term_number,
+                CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
                 ats.name AS session_name,
-                ats.session_type
+                ats.type AS session_type
             FROM student_attendance sa
-            LEFT JOIN academic_terms at ON sa.term_id = at.id
+            JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN academic_year_terms ayt
+                ON ayt.academic_year_id = sae.academic_year_id
+               AND sa.date BETWEEN ayt.opening_date AND ayt.closing_date
+            LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
+            LEFT JOIN terms t ON t.id = ayt.term_id
             LEFT JOIN attendance_sessions ats ON sa.session_id = ats.id
             WHERE " . implode(' AND ', $where) . "
             ORDER BY sa.date DESC, sa.id DESC
@@ -2130,7 +2190,7 @@ class StudentsAPI extends BaseAPI
         }
 
         if (!empty($academicYear)) {
-            $where[] = 'at.year = ?';
+            $where[] = 'CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?';
             $bindings[] = (int) $academicYear;
         }
 
@@ -2139,11 +2199,11 @@ class StudentsAPI extends BaseAPI
                 tss.id,
                 tss.student_id,
                 tss.term_id,
-                at.name AS term_name,
-                at.term_number,
-                at.year AS academic_year,
+                t.name AS term_name,
+                SUBSTRING(t.code, 2) AS term_number,
+                CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
                 tss.subject_id,
-                COALESCE(la.name, cu.name, CONCAT('Subject #', tss.subject_id)) AS subject_name,
+                COALESCE(la.name, CONCAT('Subject #', tss.subject_id)) AS subject_name,
                 tss.formative_total,
                 tss.formative_max,
                 tss.formative_percentage,
@@ -2159,11 +2219,12 @@ class StudentsAPI extends BaseAPI
                 tss.assessment_count,
                 tss.calculated_at
             FROM term_subject_scores tss
-            LEFT JOIN academic_terms at ON tss.term_id = at.id
+            LEFT JOIN academic_year_terms ayt ON tss.term_id = ayt.id
+            LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            LEFT JOIN terms t ON t.id = ayt.term_id
             LEFT JOIN learning_areas la ON tss.subject_id = la.id
-            LEFT JOIN curriculum_units cu ON tss.subject_id = cu.id
             WHERE " . implode(' AND ', $where) . "
-            ORDER BY at.year DESC, at.term_number DESC, subject_name ASC
+            ORDER BY ay.year_code DESC, t.id DESC, subject_name ASC
         ";
 
         $stmt = $this->db->prepare($sql);
@@ -2175,22 +2236,22 @@ class StudentsAPI extends BaseAPI
         }
 
         // Fallback source: raw assessment results where rollups are missing
-        $fallbackWhere = ['ar.student_id = ?'];
+        $fallbackWhere = ['sae.student_id = ?'];
         $fallbackBindings = [$id];
 
         if (!empty($termId) && ctype_digit((string) $termId)) {
-            $fallbackWhere[] = 'a.term_id = ?';
+            $fallbackWhere[] = 'a.academic_year_term_id = ?';
             $fallbackBindings[] = (int) $termId;
         }
         if (!empty($academicYear)) {
-            $fallbackWhere[] = 'at.year = ?';
+            $fallbackWhere[] = 'CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?';
             $fallbackBindings[] = (int) $academicYear;
         }
 
         $fallbackSql = "
             SELECT
                 ar.id AS result_id,
-                ar.student_id,
+                sae.student_id,
                 ar.assessment_id,
                 ar.marks_obtained,
                 ar.grade,
@@ -2201,19 +2262,21 @@ class StudentsAPI extends BaseAPI
                 a.title AS assessment_title,
                 a.max_marks,
                 a.assessment_date,
-                a.term_id,
-                at.name AS term_name,
-                at.term_number,
-                at.year AS academic_year,
-                a.subject_id,
-                COALESCE(la.name, cu.name, CONCAT('Subject #', a.subject_id)) AS subject_name
+                a.academic_year_term_id AS term_id,
+                t.name AS term_name,
+                SUBSTRING(t.code, 2) AS term_number,
+                CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
+                a.learning_area_id AS subject_id,
+                COALESCE(la.name, CONCAT('Subject #', a.learning_area_id)) AS subject_name
             FROM assessment_results ar
+            JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
             JOIN assessments a ON ar.assessment_id = a.id
-            LEFT JOIN academic_terms at ON a.term_id = at.id
-            LEFT JOIN learning_areas la ON a.subject_id = la.id
-            LEFT JOIN curriculum_units cu ON a.subject_id = cu.id
+            LEFT JOIN academic_year_terms ayt ON a.academic_year_term_id = ayt.id
+            LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            LEFT JOIN terms t ON t.id = ayt.term_id
+            LEFT JOIN learning_areas la ON a.learning_area_id = la.id
             WHERE " . implode(' AND ', $fallbackWhere) . "
-            ORDER BY at.year DESC, at.term_number DESC, a.assessment_date DESC, subject_name ASC
+            ORDER BY ay.year_code DESC, t.id DESC, a.assessment_date DESC, subject_name ASC
         ";
 
         $fallbackStmt = $this->db->prepare($fallbackSql);
@@ -2225,26 +2288,29 @@ class StudentsAPI extends BaseAPI
     {
         $sql = "
             SELECT
-                pt.id,
-                pt.student_id,
-                pt.academic_year,
-                pt.term_id,
-                at.name AS term_name,
-                at.term_number,
-                pt.amount_paid AS amount,
-                pt.amount_paid,
-                pt.payment_date,
-                pt.payment_method,
-                pt.reference_no,
-                COALESCE(pt.reference_no, pt.receipt_no) AS reference,
-                pt.receipt_no,
-                pt.status,
-                pt.notes
-            FROM payment_transactions pt
-            LEFT JOIN academic_terms at ON pt.term_id = at.id
-            WHERE pt.student_id = ?
-                AND pt.status = 'confirmed'
-            ORDER BY pt.payment_date DESC, pt.id DESC
+                p.id,
+                p.student_id,
+                ayt.id AS term_id,
+                t.name AS term_name,
+                SUBSTRING(t.code, 2) AS term_number,
+                CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
+                p.amount AS amount,
+                p.amount AS amount_paid,
+                p.payment_date,
+                p.method AS payment_method,
+                p.reference AS reference_no,
+                COALESCE(p.reference, p.receipt_no) AS reference,
+                p.receipt_no,
+                p.status,
+                p.notes
+            FROM payments p
+            LEFT JOIN academic_year_terms ayt
+                ON p.payment_date BETWEEN ayt.opening_date AND ayt.closing_date
+            LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            LEFT JOIN terms t ON t.id = ayt.term_id
+            WHERE p.student_id = ?
+                AND p.status = 'confirmed'
+            ORDER BY p.payment_date DESC, p.id DESC
         ";
 
         $stmt = $this->db->prepare($sql);
@@ -2259,34 +2325,43 @@ class StudentsAPI extends BaseAPI
         $sql = "
             SELECT
                 sfo.id,
-                sfo.student_id,
-                sfo.academic_year,
-                sfo.term_id,
-                at.name AS term_name,
-                at.term_number,
-                sfo.fee_structure_detail_id,
+                sfo.student_academic_enrollment_id,
+                sae.student_id,
+                sae.academic_year_id,
+                sfo.academic_year_term_id AS term_id,
+                t.name AS term_name,
+                SUBSTRING(t.code, 2) AS term_number,
+                CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
+                sfo.academic_year_fee_schedule_id AS fee_structure_detail_id,
                 ft.name AS fee_type,
                 sfo.amount_due,
-                sfo.amount_paid,
-                sfo.amount_waived,
-                sfo.balance,
+                COALESCE(vfb.amount_paid, 0) AS amount_paid,
+                COALESCE(vfb.amount_waived, 0) AS amount_waived,
+                COALESCE(vfb.balance, GREATEST(sfo.amount_due, 0)) AS balance,
                 sfo.status,
-                sfo.payment_status,
+                COALESCE(vfb.payment_status, sfo.status) AS payment_status,
                 sfo.due_date
             FROM student_fee_obligations sfo
-            LEFT JOIN academic_terms at ON sfo.term_id = at.id
-            LEFT JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
-            LEFT JOIN fee_types ft ON fsd.fee_type_id = ft.id
-            WHERE sfo.student_id = ?
+            JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+            LEFT JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+            LEFT JOIN academic_years ay ON ay.id = sfo.academic_year_id
+            LEFT JOIN terms t ON t.id = ayt.term_id
+            LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
+            LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
+            LEFT JOIN fee_types ft ON ft.id = fc.fee_type_id
+            LEFT JOIN vw_student_fee_balances vfb
+                ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
+               AND vfb.academic_year_term_id <=> sfo.academic_year_term_id
+            WHERE sae.student_id = ?
         ";
         $bindings = [$studentId];
 
         if ($academicYear !== null) {
-            $sql .= " AND sfo.academic_year = ?";
+            $sql .= " AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?";
             $bindings[] = $academicYear;
         }
 
-        $sql .= " ORDER BY at.term_number ASC, ft.name ASC, sfo.id ASC";
+        $sql .= " ORDER BY term_id ASC, ft.name ASC, sfo.id ASC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($bindings);
@@ -2313,9 +2388,7 @@ class StudentsAPI extends BaseAPI
             $year = isset($params['year']) ? (int) $params['year'] : (defined('CURRENT_YEAR') ? (int) CURRENT_YEAR : (int) date('Y'));
 
             // Get student details
-            $stmt = $this->db->prepare("SELECT * FROM view_student_details WHERE id = ?");
-            $stmt->execute([$id]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+            $student = $this->getStudentOverviewRecord($id);
 
             if (!$student) {
                 return $this->response(['status' => 'error', 'message' => 'Student not found'], 404);
@@ -2330,11 +2403,12 @@ class StudentsAPI extends BaseAPI
             // Get attendance summary
             $sql = "
                 SELECT 
-                    COUNT(CASE WHEN status = 'present' THEN 1 END) as present_days,
-                    COUNT(CASE WHEN status = 'absent' THEN 1 END) as absent_days,
-                    COUNT(CASE WHEN status = 'late' THEN 1 END) as late_days
-                FROM student_attendance
-                WHERE student_id = ? AND YEAR(date) = ? AND MONTH(date) BETWEEN ? AND ?
+                    COUNT(CASE WHEN sa.status = 'present' THEN 1 END) as present_days,
+                    COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as absent_days,
+                    COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as late_days
+                FROM student_attendance sa
+                JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+                WHERE sae.student_id = ? AND YEAR(sa.date) = ? AND MONTH(sa.date) BETWEEN ? AND ?
             ";
 
             $termMonths = [
@@ -2345,7 +2419,13 @@ class StudentsAPI extends BaseAPI
 
             $termNumber = $term;
             if ($termNumber > 3) {
-                $termStmt = $this->db->prepare("SELECT term_number FROM academic_terms WHERE id = ? LIMIT 1");
+                $termStmt = $this->db->prepare("
+                    SELECT SUBSTRING(t.code, 2) AS term_number
+                    FROM academic_year_terms ayt
+                    JOIN terms t ON t.id = ayt.term_id
+                    WHERE ayt.id = ?
+                    LIMIT 1
+                ");
                 $termStmt->execute([$termNumber]);
                 $resolved = $termStmt->fetch(PDO::FETCH_ASSOC);
                 if (!empty($resolved['term_number'])) {
@@ -2363,19 +2443,8 @@ class StudentsAPI extends BaseAPI
             ]);
             $attendance = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get class teacher comments
-            $sql = "
-                SELECT 
-                    comments,
-                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name
-                FROM term_reports tr
-                JOIN staff s ON tr.class_teacher_id = s.id
-                WHERE tr.student_id = ? AND tr.term = ? AND tr.year = ?
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $term, $year]);
-            $comments = $stmt->fetch(PDO::FETCH_ASSOC);
+            // Class teacher comments (term report notes are not persisted in the live schema)
+            $comments = null;
 
             return $this->response([
                 'status' => 'success',
@@ -2405,18 +2474,60 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            $enrollmentStmt = $this->db->prepare("
+                SELECT id FROM student_academic_enrollments
+                WHERE student_id = ? AND enrollment_status = 'active'
+                ORDER BY academic_year_id DESC, id DESC
+                LIMIT 1
+            ");
+            $enrollmentStmt->execute([$id]);
+            $enrollmentId = $enrollmentStmt->fetchColumn();
+
+            if (!$enrollmentId) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active enrollment found for student'
+                ], 400);
+            }
+
+            $attendanceId = $this->nextId('student_attendance');
+
             $sql = "
-                INSERT INTO student_attendance (student_id, date, status, notes)
-                VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE status = VALUES(status), notes = VALUES(notes)
+                INSERT INTO student_attendance (
+                    id,
+                    student_academic_enrollment_id,
+                    date,
+                    session_id,
+                    status,
+                    check_in_time,
+                    check_out_time,
+                    absence_reason,
+                    notes,
+                    register_type,
+                    marked_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    status = VALUES(status),
+                    notes = VALUES(notes),
+                    check_in_time = COALESCE(VALUES(check_in_time), check_in_time),
+                    check_out_time = COALESCE(VALUES(check_out_time), check_out_time),
+                    absence_reason = VALUES(absence_reason),
+                    marked_by = VALUES(marked_by)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $id,
+                $attendanceId,
+                (int) $enrollmentId,
                 $data['date'],
+                isset($data['session_id']) ? (int) $data['session_id'] : null,
                 $data['status'],
-                $data['notes'] ?? $data['remarks'] ?? null
+                $data['check_in_time'] ?? null,
+                $data['check_out_time'] ?? null,
+                $data['absence_reason'] ?? null,
+                $data['notes'] ?? $data['remarks'] ?? null,
+                $data['register_type'] ?? 'class',
+                $this->getCurrentUserId()
             ]);
 
             $this->logAction('create', null, "Marked attendance for student ID: $id");
@@ -2446,35 +2557,63 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Record transfer history
-            $sql = "
-                INSERT INTO student_transfers (
-                    student_id, 
-                    from_stream_id, 
-                    to_stream_id, 
-                    transfer_date, 
-                    reason, 
-                    approved_by
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            ";
-
-            // Get current stream
-            $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = ?");
+            // Get current stream from active enrollment
+            $stmt = $this->db->prepare("
+                SELECT sae.id AS enrollment_id,
+                       sae.academic_year_class_stream_id AS stream_id,
+                       sae.academic_year_id
+                FROM student_academic_enrollments sae
+                WHERE sae.student_id = ?
+                  AND sae.enrollment_status = 'active'
+                ORDER BY sae.academic_year_id DESC, sae.id DESC
+                LIMIT 1
+            ");
             $stmt->execute([$id]);
-            $currentStream = $stmt->fetchColumn();
+            $currentEnrollment = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            $stmt = $this->db->prepare($sql);
+            if (!$currentEnrollment) {
+                $this->db->rollBack();
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active enrollment found for student'
+                ], 400);
+            }
+
+            // Record transfer history
+            $transitionId = $this->nextId('student_transitions');
+            $stmt = $this->db->prepare("
+                INSERT INTO student_transitions (
+                    id,
+                    student_id,
+                    from_student_academic_enrollment_id,
+                    to_student_academic_enrollment_id,
+                    academic_year_id,
+                    transition_type,
+                    reason,
+                    decided_by,
+                    decided_at,
+                    executed_at
+                ) VALUES (?, ?, ?, ?, ?, 'transfer', ?, ?, NOW(), ?)
+            ");
             $stmt->execute([
+                $transitionId,
                 $id,
-                $currentStream,
-                $data['new_stream_id'],
-                $data['transfer_date'],
+                (int) $currentEnrollment['enrollment_id'],
+                (int) $currentEnrollment['enrollment_id'],
+                (int) $currentEnrollment['academic_year_id'],
                 $data['reason'],
-                $this->user_id
+                $this->getCurrentUserId(),
+                $data['transfer_date'] ?: date('Y-m-d H:i:s')
             ]);
 
-            // Update student's stream
-            $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
+            // Update active enrollment to the new stream
+            $stmt = $this->db->prepare("
+                UPDATE student_academic_enrollments
+                SET academic_year_class_stream_id = ?
+                WHERE student_id = ? AND enrollment_status = 'active'
+                ORDER BY academic_year_id DESC, id DESC
+                LIMIT 1
+            ");
             $stmt->execute([$data['new_stream_id'], $id]);
 
             $this->db->commit();
@@ -2485,6 +2624,9 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Student transferred successfully'
             ]);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -2522,28 +2664,60 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            $enrollmentStmt = $this->db->prepare("
+                SELECT id, academic_year_id
+                FROM student_academic_enrollments
+                WHERE student_id = ? AND enrollment_status = 'active'
+                ORDER BY academic_year_id DESC, id DESC
+                LIMIT 1
+            ");
+            $enrollmentStmt->execute([$id]);
+            $enrollment = $enrollmentStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$enrollment) {
+                $this->db->rollBack();
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No active enrollment found for student'
+                ], 400);
+            }
+
+            $termStmt = $this->db->prepare("
+                SELECT id FROM academic_year_terms
+                WHERE academic_year_id = ? AND status = 'current'
+                LIMIT 1
+            ");
+            $termStmt->execute([(int) $enrollment['academic_year_id']]);
+            $termId = $termStmt->fetchColumn();
+
+            $caseId = $this->nextId('discipline_incidents');
+
             $sql = "
-                INSERT INTO student_discipline (
-                    student_id,
+                INSERT INTO discipline_incidents (
+                    id,
+                    student_academic_enrollment_id,
+                    academic_year_term_id,
+                    type,
+                    severity,
                     incident_date,
                     description,
-                    severity,
                     action_taken,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $id,
+                $caseId,
+                (int) $enrollment['id'],
+                $termId ? (int) $termId : null,
+                $data['type'] ?? 'general',
+                $data['severity'],
                 $data['incident_date'],
                 $data['description'],
-                $data['severity'],
                 $data['action_taken'] ?? null,
                 $status
             ]);
-
-            $caseId = $this->db->lastInsertId();
 
             $this->db->commit();
             $this->logAction('create', $caseId, "Recorded discipline case for student ID: $id");
@@ -2554,6 +2728,9 @@ class StudentsAPI extends BaseAPI
                 'data' => ['id' => $caseId]
             ], 201);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -2586,10 +2763,14 @@ class StudentsAPI extends BaseAPI
             $qrClass = '\Endroid\QrCode\QrCode';
             $writerClass = '\Endroid\QrCode\Writer\PngWriter';
 
-            // Generate QR code pointing to the role-aware student portal.
-            // Built from BASE_URL (env-aware: localhost in dev, prod domain in prod) so
-            // the scanned link resolves correctly in ANY environment. The portal gates
-            // sections by the viewer's role (public -> basic only, see pages/student_portal.php).
+            // Generate QR code pointing to the ID card verification page (scanned
+            // by the bus crew, security and staff from the learner's ID card). Built
+            // from BASE_URL (env-aware: localhost in dev, prod domain in prod) so
+            // the scanned link resolves correctly in ANY environment. The page gates
+            // sections by the viewer's role - drivers see the transport ride-check,
+            // security sees authorization, teachers academic, etc. Public scans get
+            // name + class only; department scanners can pin a scope (?scope=transport).
+            // See student_portal.php.
             $portalUrl = rtrim(BASE_URL, '/') . '/student_portal.php?student_id=' . (int) $id;
             $qrCode = new $qrClass($portalUrl);
             $qrCode->setSize(300);
@@ -2617,10 +2798,60 @@ class StudentsAPI extends BaseAPI
                 $qrFilename
             );
 
-            $stmt = $this->db->prepare(
-                "UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?"
-            );
-            $stmt->execute([$webQrPath, $id]);
+            // Persist to student_id_cards (the live schema has no students.qr_code_path)
+            $qrToken = 'qr_' . md5((string) $id . '_' . $student['admission_no'] . '_' . time());
+            $qrPayload = json_encode([
+                'student_id' => (int) $id,
+                'admission_no' => $student['admission_no'],
+                'portal' => $portalUrl
+            ], JSON_UNESCAPED_SLASHES);
+            $cardNumber = 'CARD-' . $student['admission_no'] . '-' . date('Y');
+            $academicYearId = $this->getCurrentAcademicYearIdForScope();
+            $expiryYear = (int) date('Y') + 4;
+
+            $existingStmt = $this->db->prepare("
+                SELECT id FROM student_id_cards WHERE student_id = ? ORDER BY id DESC LIMIT 1
+            ");
+            $existingStmt->execute([$id]);
+            $existingCardId = $existingStmt->fetchColumn();
+
+            if ($existingCardId) {
+                $stmt = $this->db->prepare("
+                    UPDATE student_id_cards
+                    SET qr_code_path = ?,
+                        qr_payload = ?,
+                        qr_token = ?,
+                        status = 'generated',
+                        generated_by = ?,
+                        generated_at = NOW(),
+                        updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $webQrPath,
+                    $qrPayload,
+                    $qrToken,
+                    $this->getCurrentUserId(),
+                    (int) $existingCardId
+                ]);
+            } else {
+                $stmt = $this->db->prepare("
+                    INSERT INTO student_id_cards (
+                        student_id, card_number, qr_token, qr_payload, qr_code_path,
+                        academic_year_id, expiry_year, status, generated_by, generated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'generated', ?, NOW())
+                ");
+                $stmt->execute([
+                    $id,
+                    $cardNumber,
+                    $qrToken,
+                    $qrPayload,
+                    $webQrPath,
+                    $academicYearId,
+                    $expiryYear,
+                    $this->getCurrentUserId()
+                ]);
+            }
 
             return $this->response([
                 'status' => 'success',
@@ -2711,12 +2942,25 @@ class StudentsAPI extends BaseAPI
         try {
             $sql = "
                 SELECT
-                    s.id, s.admission_no, s.first_name, s.last_name, s.qr_code_path,
+                    s.id, s.admission_no, per.first_name, per.last_name,
+                    (
+                        SELECT sic.qr_code_path
+                        FROM student_id_cards sic
+                        WHERE sic.student_id = s.id
+                          AND sic.qr_code_path IS NOT NULL
+                        ORDER BY sic.id DESC
+                        LIMIT 1
+                    ) AS qr_code_path,
                     c.name as class_name,
-                    cs.stream_name
+                    sm.name as stream_name
                 FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 WHERE s.id = ?
             ";
             $stmt = $this->db->prepare($sql);
@@ -2748,98 +2992,47 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Fetch current student stream
-            $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = ?");
-            $stmt->execute([$id]);
-            $student = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$student) {
-                return $this->response(['status' => 'error', 'message' => 'Student not found'], 404);
+            $yearRecord = $this->getCurrentAcademicYearRecord();
+            $fromYearId = (int) ($yearRecord['id'] ?? 0);
+            $fromYearVal = $this->extractAcademicYearNumber($yearRecord);
+            if (!$fromYearId || !$fromYearVal) {
+                return $this->response(['status' => 'error', 'message' => 'No active academic year found'], 400);
             }
-            $currentStreamId = (int) $student['stream_id'];
 
-            // Resolve current class_id from stream
-            $stmt = $this->db->prepare("SELECT class_id FROM class_streams WHERE id = ?");
-            $stmt->execute([$currentStreamId]);
-            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $currentClassId = $row ? (int)$row['class_id'] : (int)($data['current_class_id'] ?? 0);
+            $targetStmt = $this->db->prepare("
+                SELECT id FROM academic_years
+                WHERE CAST(SUBSTRING(year_code, 1, 4) AS UNSIGNED) = ?
+                LIMIT 1
+            ");
+            $targetStmt->execute([$fromYearVal + 1]);
+            $toYearId = (int) ($targetStmt->fetchColumn() ?: 0);
+            if (!$toYearId) {
+                return $this->response(['status' => 'error', 'message' => 'Next academic year is not set up yet'], 400);
+            }
 
-            // Get active academic year values
-            $stmt = $this->db->query(
-                "SELECT id, CAST(SUBSTRING(year_code,1,4) AS UNSIGNED) as yr
-                 FROM academic_years WHERE is_current = 1 LIMIT 1"
-            );
-            $yearRow = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $fromYearId  = $yearRow ? (int)$yearRow['id'] : 0;
-            $fromYearVal = $yearRow ? (int)$yearRow['yr'] : (int)date('Y');
-            $toYearVal   = $fromYearVal + 1;
-
-            // Get current term id
-            $stmt = $this->db->prepare(
-                "SELECT id FROM academic_terms WHERE year = ?
-                 ORDER BY FIELD(status,'current','completed','upcoming'), term_number DESC LIMIT 1"
-            );
-            $stmt->execute([$fromYearVal]);
-            $termRow = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $termId = $termRow ? (int)$termRow['id'] : 1;
-
-            // Create a manual batch for this single promotion
-            $batchStmt = $this->db->prepare(
-                "INSERT INTO promotion_batches
-                    (batch_scope, from_academic_year, to_academic_year,
-                     batch_type, total_students_processed, created_by, status)
-                 VALUES (?, ?, ?, 'manual', 1, ?, 'completed')"
-            );
-            $batchStmt->execute([
-                "Direct promotion - student {$id}",
-                $fromYearVal, $toYearVal,
-                $this->user_id ?? 1
-            ]);
-            $batchId = $this->db->lastInsertId();
-
-            $this->db->beginTransaction();
-
-            // Update student's current stream
-            $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
-            $stmt->execute([$data['new_stream_id'], $id]);
-
-            // Mark current enrollment as promoted
-            $stmt = $this->db->prepare(
-                "UPDATE class_enrollments
-                 SET promotion_status = 'promoted',
-                     promoted_to_class_id = ?,
-                     promoted_to_stream_id = ?,
-                     promotion_date = CURDATE()
-                 WHERE student_id = ? AND academic_year_id = ?"
-            );
-            $stmt->execute([$data['new_class_id'], $data['new_stream_id'], $id, $fromYearId]);
-
-            // Record in student_promotions with correct column names
-            $sql = "INSERT INTO student_promotions (
-                        batch_id, student_id,
-                        current_class_id, current_stream_id,
-                        promoted_to_class_id, promoted_to_stream_id,
-                        from_academic_year, to_academic_year,
-                        from_term_id, promotion_status, promotion_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $batchId, $id,
-                $currentClassId, $currentStreamId,
-                $data['new_class_id'], $data['new_stream_id'],
-                $fromYearVal, $toYearVal,
-                $termId,
+            $result = $this->promotionManager->promoteSingleStudent(
+                (int) $id,
+                (int) $data['new_class_id'],
+                (int) $data['new_stream_id'],
+                $fromYearId,
+                $toYearId,
+                $this->getCurrentUserId(),
                 $data['remarks'] ?? null
-            ]);
+            );
 
-            $this->db->commit();
+            if (empty($result['success'])) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => $result['message'] ?? 'Promotion failed'
+                ], 400);
+            }
 
             return $this->response([
                 'status' => 'success',
-                'message' => 'Student promoted successfully'
+                'message' => 'Student promoted successfully',
+                'data' => $result
             ]);
         } catch (\Exception $e) {
-            if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2854,9 +3047,11 @@ class StudentsAPI extends BaseAPI
 
     private function getDisciplineRecords($id) {
         $sql = "
-            SELECT * FROM student_discipline
-            WHERE student_id = ?
-            ORDER BY incident_date DESC
+            SELECT di.*
+            FROM discipline_incidents di
+            JOIN student_academic_enrollments sae ON sae.id = di.student_academic_enrollment_id
+            WHERE sae.student_id = ?
+            ORDER BY di.incident_date DESC
         ";
         
         $stmt = $this->db->prepare($sql);
@@ -2891,13 +3086,16 @@ class StudentsAPI extends BaseAPI
             }
 
             // Build stream lookup map (class + stream name => stream_id)
+            // New schema: academic_year_class_streams (year-scoped) -> streams (master) + classes
             $streamLookup = [];
             $classStreams = [];
             $classDisplayNames = [];
             $stmt = $this->db->query("
-                SELECT cs.id, cs.stream_name, c.name AS class_name
-                FROM class_streams cs
-                JOIN classes c ON cs.class_id = c.id
+                SELECT aycs.id, sm.name AS stream_name, c.name AS class_name
+                FROM academic_year_class_streams aycs
+                JOIN streams sm ON sm.id = aycs.stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
             ");
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $classKey = strtolower(trim((string) $r['class_name']));
@@ -3268,15 +3466,84 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $bulkHelper = new \App\API\Includes\BulkOperationsHelper($this->db);
-            $uniqueColumns = $updateExisting ? ['admission_no'] : [];
-            $insertResult = $bulkHelper->bulkInsert('students', $processedData, $uniqueColumns);
+            $createdCount = 0;
+            $failedCount = 0;
+            foreach ($processedData as $row) {
+                try {
+                    $this->db->beginTransaction();
+
+                    $personId = $this->nextId('persons');
+                    $personStmt = $this->db->prepare("
+                        INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $personStmt->execute([
+                        $personId,
+                        $row['first_name'] ?? null,
+                        $row['middle_name'] ?? null,
+                        $row['last_name'] ?? null,
+                        $row['date_of_birth'] ?? null,
+                        $row['gender'] ?? null,
+                        $row['photo_url'] ?? null,
+                    ]);
+
+                    $studentId = $this->nextId('students');
+                    $studentStmt = $this->db->prepare("
+                        INSERT INTO students (
+                            id, person_id, admission_no, student_type_id, assessment_number,
+                            assessment_status, nemis_number, nemis_status, status,
+                            admission_date, blood_group, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    ");
+                    $studentStmt->execute([
+                        $studentId,
+                        $personId,
+                        $row['admission_no'],
+                        (int) ($row['student_type_id'] ?? 1),
+                        $row['assessment_number'] ?? null,
+                        $row['assessment_status'] ?? 'not_assigned',
+                        $row['nemis_number'] ?? null,
+                        $row['nemis_status'] ?? 'not_assigned',
+                        $row['status'] ?? 'active',
+                        $row['admission_date'] ?? date('Y-m-d'),
+                        $row['blood_group'] ?? null,
+                    ]);
+
+                    $streamId = (int) ($row['stream_id'] ?? 0);
+                    if ($streamId > 0) {
+                        $this->ensureClassEnrollment($studentId, $streamId);
+                    }
+
+                    $this->generateStudentFeeObligationsForCurrentYear(
+                        $studentId,
+                        null,
+                        [
+                            'is_sponsored' => !empty($row['is_sponsored']) ? 1 : 0,
+                            'sponsor_waiver_percentage' => (float) ($row['sponsor_waiver_percentage'] ?? 0),
+                        ]
+                    );
+
+                    $this->db->commit();
+                    $createdCount++;
+                } catch (\Exception $e) {
+                    if ($this->db->inTransaction()) {
+                        $this->db->rollBack();
+                    }
+                    $failedCount++;
+                    $errors[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $row['admission_no'] ?? null,
+                        'message' => 'Insert failed'
+                    ];
+                }
+            }
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Bulk student creation completed',
                 'data' => [
-                    'insert' => $insertResult,
+                    'created' => $createdCount,
+                    'failed' => $failedCount,
                     'processed' => count($processedData),
                     'errors' => $errors,
                     'warnings' => $warnings,
@@ -3305,27 +3572,121 @@ class StudentsAPI extends BaseAPI
                 return $this->response($result, 400);
             }
 
-            // Normalize admission_number -> admission_no if provided
-            foreach ($result['data'] as &$row) {
-                if (isset($row['admission_number']) && !isset($row['admission_no'])) {
-                    $row['admission_no'] = $row['admission_number'];
-                    unset($row['admission_number']);
-                }
+            $rows = $result['data'] ?? [];
+            if (empty($rows)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No rows to update'
+                ], 400);
             }
 
-            // Update students
-            $updateResult = $bulkHelper->bulkUpdate(
-                'students',
-                $result['data'],
-                'admission_no'
-            );
+            // Map input keys to live persons columns (date_of_birth -> dob)
+            $personKeyMap = [
+                'first_name' => 'first_name',
+                'middle_name' => 'middle_name',
+                'last_name' => 'last_name',
+                'date_of_birth' => 'dob',
+                'dob' => 'dob',
+                'gender' => 'gender',
+                'photo_url' => 'photo_url',
+            ];
+            $studentCols = [
+                'student_type_id', 'admission_date', 'assessment_number', 'assessment_status',
+                'nemis_number', 'nemis_status', 'status', 'blood_group'
+            ];
+
+            $updated = 0;
+            $failed = 0;
+            $errors = [];
+
+            foreach ($rows as $idx => $row) {
+                $admissionNo = $row['admission_no'] ?? $row['admission_number'] ?? null;
+                if (!$admissionNo) {
+                    $errors[] = ['row' => $idx + 1, 'message' => 'Missing admission_no'];
+                    $failed++;
+                    continue;
+                }
+
+                $stmt = $this->db->prepare("
+                    SELECT id, person_id FROM students WHERE admission_no = ? LIMIT 1
+                ");
+                $stmt->execute([$admissionNo]);
+                $stu = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if (!$stu) {
+                    $errors[] = [
+                        'row' => $idx + 1,
+                        'admission_no' => $admissionNo,
+                        'message' => 'Student not found'
+                    ];
+                    $failed++;
+                    continue;
+                }
+
+                $personId = (int) $stu['person_id'];
+                $studentId = (int) $stu['id'];
+
+                try {
+                    $this->db->beginTransaction();
+
+                    $pSet = [];
+                    $pVals = [];
+                    foreach ($personKeyMap as $inputKey => $colName) {
+                        if (array_key_exists($inputKey, $row) && $row[$inputKey] !== '') {
+                            $pSet[] = "$colName = ?";
+                            $pVals[] = $row[$inputKey];
+                        }
+                    }
+                    if (!empty($pSet)) {
+                        $pVals[] = $personId;
+                        $stmt = $this->db->prepare("UPDATE persons SET " . implode(', ', $pSet) . " WHERE id = ?");
+                        $stmt->execute($pVals);
+                    }
+
+                    $sSet = [];
+                    $sVals = [];
+                    foreach ($studentCols as $col) {
+                        if (array_key_exists($col, $row) && $row[$col] !== '') {
+                            $sSet[] = "$col = ?";
+                            $sVals[] = $row[$col];
+                        }
+                    }
+                    if (!empty($sSet)) {
+                        $sVals[] = $studentId;
+                        $stmt = $this->db->prepare("UPDATE students SET " . implode(', ', $sSet) . " WHERE id = ?");
+                        $stmt->execute($sVals);
+                    }
+
+                    if (array_key_exists('stream_id', $row) && $row['stream_id'] !== '') {
+                        $newStreamId = (int) $row['stream_id'];
+                        if ($newStreamId > 0) {
+                            $this->ensureClassEnrollment($studentId, $newStreamId);
+                        }
+                    }
+
+                    $this->db->commit();
+                    $updated++;
+                } catch (\Exception $e) {
+                    if ($this->db->inTransaction()) {
+                        $this->db->rollBack();
+                    }
+                    $errors[] = [
+                        'row' => $idx + 1,
+                        'admission_no' => $admissionNo,
+                        'message' => 'Update failed'
+                    ];
+                    $failed++;
+                }
+            }
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Bulk student update completed',
-                'data' => $updateResult
+                'data' => [
+                    'updated' => $updated,
+                    'failed' => $failed,
+                    'errors' => $errors
+                ]
             ]);
-
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -3351,9 +3712,12 @@ class StudentsAPI extends BaseAPI
             $reason = trim((string) ($data['reason'] ?? $data['transfer_reason'] ?? ''));
 
             $studentStmt = $this->db->prepare("
-                SELECT id, stream_id, status
-                FROM students
-                WHERE id = ?
+                SELECT s.id, s.status, sae.academic_year_class_stream_id AS stream_id
+                FROM students s
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                WHERE s.id = ?
+                ORDER BY sae.id DESC
                 LIMIT 1
             ");
             $studentStmt->execute([$studentId]);
@@ -3364,8 +3728,8 @@ class StudentsAPI extends BaseAPI
             }
 
             $currentStreamId = (int) ($student['stream_id'] ?? 0);
-            $currentStream = $this->resolveClassFromStream($currentStreamId);
-            if (!$currentStream) {
+            $currentStream = $currentStreamId > 0 ? $this->resolveClassFromStream($currentStreamId) : null;
+            if ($currentStreamId > 0 && !$currentStream) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Student is assigned to an invalid stream'
@@ -3407,13 +3771,7 @@ class StudentsAPI extends BaseAPI
                     $note
                 );
 
-                $updateStudentStmt = $this->db->prepare("
-                    UPDATE students
-                    SET stream_id = ?, updated_at = NOW()
-                    WHERE id = ?
-                ");
-                $updateStudentStmt->execute([$targetStreamId, $studentId]);
-
+                // students.stream_id does not exist on the live schema; the active enrollment row carries the assignment.
                 $transferId = $this->recordInternalClassTransferAudit(
                     $studentId,
                     $currentStreamId,
@@ -3457,86 +3815,29 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $academicYearRecord = $this->getCurrentAcademicYearRecord();
-            $academicYearId = (int) ($academicYearRecord['id'] ?? 0);
-            $academicYear = $this->extractAcademicYearNumber($academicYearRecord);
-            $termId = $this->getCurrentTermId($academicYear);
+            // External transfer request — delegate to TransferWorkflow (live: student_transitions + student_clearances)
+            $transferWorkflow = new TransferWorkflow();
+            $result = $transferWorkflow->initiateTransfer([
+                'student_id' => $studentId,
+                'transfer_type' => 'external',
+                'transfer_reason' => $reason,
+                'request_date' => date('Y-m-d H:i:s'),
+                'transfer_to_school' => $transferToSchool,
+            ]);
 
-            if ($academicYearId <= 0 || !$academicYear || !$termId) {
+            if (empty($result['success'])) {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'Cannot start transfer request without current academic year and term setup'
+                    'message' => $result['message'] ?? 'Transfer initiation failed'
                 ], 400);
             }
 
-            $this->db->beginTransaction();
-            $sql = "
-                INSERT INTO student_promotions (
-                    batch_id,
-                    from_enrollment_id,
-                    to_enrollment_id,
-                    from_academic_year_id,
-                    to_academic_year_id,
-                    student_id,
-                    current_class_id,
-                    current_stream_id,
-                    promoted_to_class_id,
-                    promoted_to_stream_id,
-                    from_academic_year,
-                    to_academic_year,
-                    from_term_id,
-                    promotion_status,
-                    promotion_reason,
-                    transfer_to_school,
-                    rejection_reason,
-                    approval_notes
-                ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'pending_approval', ?, ?, ?, NULL)
-                ON DUPLICATE KEY UPDATE
-                    current_class_id = VALUES(current_class_id),
-                    current_stream_id = VALUES(current_stream_id),
-                    promotion_status = 'pending_approval',
-                    promotion_reason = VALUES(promotion_reason),
-                    transfer_to_school = VALUES(transfer_to_school),
-                    rejection_reason = VALUES(rejection_reason),
-                    approval_notes = NULL,
-                    approved_by = NULL,
-                    approval_date = NULL,
-                    updated_at = NOW()
-            ";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                0,
-                $academicYearId,
-                $academicYearId,
-                $studentId,
-                (int) $currentStream['class_id'],
-                $currentStreamId,
-                $academicYear,
-                $academicYear,
-                (int) $termId,
-                $reason,
-                $transferToSchool,
-                $reason
-            ]);
-
-            $transferId = $this->db->lastInsertId();
-            if (!$transferId) {
-                $lookupStmt = $this->db->prepare("
-                    SELECT id
-                    FROM student_promotions
-                    WHERE student_id = ? AND from_academic_year = ? AND to_academic_year = ?
-                    LIMIT 1
-                ");
-                $lookupStmt->execute([$studentId, $academicYear, $academicYear]);
-                $transferId = (int) ($lookupStmt->fetchColumn() ?: 0);
-            }
-
-            $this->db->commit();
+            $transferId = (int) ($result['data']['transfer_id'] ?? 0);
             $this->logAction('create', $transferId, "Started external transfer request for student {$studentId} to {$transferToSchool}");
 
             return $this->response([
                 'status' => 'success',
-                'message' => 'External transfer request started successfully',
+                'message' => $result['message'] ?? 'External transfer request started successfully',
                 'data' => [
                     'transfer_type' => 'external',
                     'transfer_id' => $transferId,
@@ -3564,18 +3865,19 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Check for outstanding fees or other blockers
-            $stmt = $this->db->prepare("
-                SELECT
-                    COUNT(*) as pending_fees,
-                    COALESCE(SUM(balance), 0) as pending_balance
-                FROM student_fee_obligations
-                WHERE student_id = ? AND balance > 0
-            ");
-            $stmt->execute([$data['student_id']]);
-            $feeCheck = $stmt->fetch(PDO::FETCH_ASSOC);
+            $studentId = (int) $data['student_id'];
 
-            $eligible = ($feeCheck['pending_fees'] == 0);
+            // Live: use vw_student_fee_balances for outstanding balance (live schema has no student_fee_obligations.student_id or balance column)
+            $stmt = $this->db->prepare("
+                SELECT COALESCE(SUM(GREATEST(balance, 0)), 0) AS pending_balance,
+                       SUM(CASE WHEN payment_status IN ('pending', 'partial') THEN 1 ELSE 0 END) AS pending_fees
+                FROM vw_student_fee_balances
+                WHERE student_id = ?
+            ");
+            $stmt->execute([$studentId]);
+            $feeCheck = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['pending_balance' => 0, 'pending_fees' => 0];
+
+            $eligible = ((int) $feeCheck['pending_fees'] === 0);
             $notes = $eligible
                 ? 'No pending fee obligations - eligible for transfer'
                 : 'Student has outstanding fee obligations';
@@ -3585,8 +3887,8 @@ class StudentsAPI extends BaseAPI
                 'data' => [
                     'eligible' => $eligible,
                     'notes' => $notes,
-                    'pending_fees' => $feeCheck['pending_fees'],
-                    'pending_balance' => $feeCheck['pending_balance']
+                    'pending_fees' => (int) $feeCheck['pending_fees'],
+                    'pending_balance' => (float) $feeCheck['pending_balance'],
                 ]
             ]);
         } catch (Exception $e) {
@@ -3607,44 +3909,36 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->db->beginTransaction();
-
-            // Validate decision
-            if ($data['decision'] === 'approved') {
-                $newStatus = 'approved';
-            } elseif ($data['decision'] === 'rejected') {
-                $newStatus = 'rejected';
-            } else {
+            if (!in_array($data['decision'], ['approved', 'rejected'], true)) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Invalid decision. Must be: approved or rejected'
                 ], 400);
             }
 
-            $currentUserId = $this->getCurrentUserId();
-            $sql = "UPDATE student_promotions 
-                    SET promotion_status = ?, 
-                        approved_by = ?, 
-                        approval_date = NOW(), 
-                        approval_notes = ? 
-                    WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $newStatus,
-                $currentUserId,
-                $data['notes'] ?? null,
-                $data['transfer_id']
+            $transferId = (int) $data['transfer_id'];
+
+            $transferWorkflow = new TransferWorkflow();
+            $result = $transferWorkflow->approveTransfer($transferId, [
+                'decision' => $data['decision'],
+                'notes' => $data['notes'] ?? null,
+                'approved_by' => $this->getCurrentUserId(),
             ]);
 
-            $this->db->commit();
-            $this->logAction('update', $data['transfer_id'], "Transfer decision: {$data['decision']}");
+            if (empty($result['success'])) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => $result['message'] ?? 'Transfer approval failed'
+                ], 400);
+            }
+
+            $this->logAction('update', $transferId, "Transfer decision: {$data['decision']}");
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Transfer decision recorded successfully'
             ]);
         } catch (Exception $e) {
-            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -3662,43 +3956,54 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->db->beginTransaction();
+            $transferId = (int) $data['transfer_id'];
 
-            // Get transfer data
-            $stmt = $this->db->prepare("SELECT * FROM student_promotions WHERE id = ?");
-            $stmt->execute([$data['transfer_id']]);
-            $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$transfer) {
+            // Resolve student from student_transitions (live)
+            $stmt = $this->db->prepare("
+                SELECT student_id FROM student_transitions
+                WHERE id = ? AND transition_type IN ('transfer', 'internal')
+                LIMIT 1
+            ");
+            $stmt->execute([$transferId]);
+            $studentId = (int) ($stmt->fetchColumn() ?: 0);
+            if (!$studentId) {
                 return $this->response(['status' => 'error', 'message' => 'Transfer not found'], 404);
             }
 
-            if ($transfer['promotion_status'] !== 'approved') {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Cannot execute transfer - not approved'
-                ], 400);
-            }
+            $this->db->beginTransaction();
 
-            // Update promotion status to transferred
-            $sql = "UPDATE student_promotions SET promotion_status = 'transferred' WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$data['transfer_id']]);
+            // Mark transition as executed (live: no status column; executed_at drives completion)
+            $stmt = $this->db->prepare("
+                UPDATE student_transitions
+                SET executed_at = COALESCE(executed_at, NOW()),
+                    decided_by  = COALESCE(decided_by, ?)
+                WHERE id = ? AND executed_at IS NULL
+            ");
+            $stmt->execute([$this->getCurrentUserId(), $transferId]);
 
-            // Update student status to transferred
-            $sql = "UPDATE students SET status = 'transferred' WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$transfer['student_id']]);
+            // Update student status to 'transferred'
+            $stmt = $this->db->prepare("UPDATE students SET status = 'transferred', updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$studentId]);
+
+            // Mark active enrollment as transferred
+            $stmt = $this->db->prepare("
+                UPDATE student_academic_enrollments
+                SET enrollment_status = 'transferred'
+                WHERE student_id = ? AND enrollment_status = 'active'
+            ");
+            $stmt->execute([$studentId]);
 
             $this->db->commit();
-            $this->logAction('update', $data['transfer_id'], "Transfer executed - student moved to {$transfer['transfer_to_school']}");
+            $this->logAction('update', $transferId, "Transfer executed for student {$studentId}");
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Transfer executed successfully'
             ]);
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -3707,16 +4012,38 @@ class StudentsAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT sp.*, s.first_name, s.last_name, s.admission_no, s.status as student_status
-                FROM student_promotions sp
-                JOIN students s ON sp.student_id = s.id
-                WHERE sp.id = ? AND sp.promotion_status IN ('pending_approval', 'approved', 'rejected', 'transferred')
+                SELECT st.id,
+                       st.student_id,
+                       st.academic_year_id,
+                       st.transition_type,
+                       st.reason,
+                       st.decided_by,
+                       st.decided_at,
+                       st.executed_at,
+                       s.admission_no,
+                       s.status AS student_status,
+                       CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name
+                FROM student_transitions st
+                JOIN students s ON s.id = st.student_id
+                JOIN persons per ON per.id = s.person_id
+                WHERE st.id = ?
+                  AND st.transition_type IN ('transfer', 'internal')
+                LIMIT 1
             ");
-            $stmt->execute([$instanceId]);
+            $stmt->execute([(int) $instanceId]);
             $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$transfer) {
                 return $this->response(['status' => 'error', 'message' => 'Transfer not found'], 404);
+            }
+
+            // Derive workflow state from executed_at/decided_at (live has no status column)
+            if (!empty($transfer['executed_at'])) {
+                $transfer['status'] = 'transferred';
+            } elseif (!empty($transfer['decided_at'])) {
+                $transfer['status'] = 'approved';
+            } else {
+                $transfer['status'] = 'pending_approval';
             }
 
             return $this->response([
@@ -3750,7 +4077,7 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT aa.id as application_id
                 FROM students s
-                LEFT JOIN admission_applications aa ON aa.applicant_name = CONCAT(s.first_name, ' ', s.last_name) 
+                LEFT JOIN admission_applications aa ON aa.id = s.application_id
                     AND aa.status = 'enrolled'
                 WHERE s.id = ?
                 LIMIT 1
@@ -3812,7 +4139,7 @@ class StudentsAPI extends BaseAPI
             $bindings = [];
 
             if (!empty($search)) {
-                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR sd.description LIKE ?)";
+                $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ? OR sd.description LIKE ?)";
                 $term = "%{$search}%";
                 $bindings = array_merge($bindings, [$term, $term, $term, $term]);
             }
@@ -3836,10 +4163,16 @@ class StudentsAPI extends BaseAPI
 
             $countSql = "
                 SELECT COUNT(*)
-                FROM student_discipline sd
-                JOIN students s ON sd.student_id = s.id
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
+                FROM discipline_incidents sd
+                JOIN student_academic_enrollments sae ON sae.id = sd.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 {$where}
             ";
             $stmt = $this->db->prepare($countSql);
@@ -3847,18 +4180,24 @@ class StudentsAPI extends BaseAPI
             $total = (int) $stmt->fetchColumn();
 
             $sql = "
-                SELECT 
+                SELECT
                     sd.*,
                     s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    s.gender,
-                    cs.stream_name,
+                    per.first_name,
+                    per.last_name,
+                    per.gender,
+                    sm.name AS stream_name,
                     c.name AS class_name
-                FROM student_discipline sd
-                JOIN students s ON sd.student_id = s.id
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
+                FROM discipline_incidents sd
+                JOIN student_academic_enrollments sae ON sae.id = sd.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 {$where}
                 ORDER BY sd.incident_date DESC, sd.id DESC
                 LIMIT ? OFFSET ?
@@ -3873,7 +4212,7 @@ class StudentsAPI extends BaseAPI
                     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
                     SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
                     SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated
-                FROM student_discipline
+                FROM discipline_incidents
             ");
             $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [
                 'total' => 0,
@@ -3884,18 +4223,19 @@ class StudentsAPI extends BaseAPI
 
             $termCount = 0;
             $termStmt = $this->db->query("
-                SELECT start_date, end_date FROM academic_terms 
-                WHERE status = 'current'
-                ORDER BY start_date DESC
+                SELECT ayt.opening_date, ayt.closing_date
+                FROM academic_year_terms ayt
+                WHERE ayt.status = 'current'
+                ORDER BY ayt.opening_date DESC
                 LIMIT 1
             ");
             $term = $termStmt->fetch(PDO::FETCH_ASSOC);
             if ($term) {
                 $stmt = $this->db->prepare("
-                    SELECT COUNT(*) FROM student_discipline 
+                    SELECT COUNT(*) FROM discipline_incidents 
                     WHERE incident_date BETWEEN ? AND ?
                 ");
-                $stmt->execute([$term['start_date'], $term['end_date']]);
+                $stmt->execute([$term['opening_date'], $term['closing_date']]);
                 $termCount = (int) $stmt->fetchColumn();
             }
 
@@ -3925,21 +4265,46 @@ class StudentsAPI extends BaseAPI
     public function getTransferHistory($id)
     {
         try {
+            // Live schema: transfers live in student_transitions (transition_type IN ('transfer','internal')).
             $stmt = $this->db->prepare("
-                SELECT sp.*,
-                       c_from.name AS current_class_name,
-                       cs_from.stream_name AS current_stream_name,
-                       c_to.name AS promoted_to_class_name,
-                       cs_to.stream_name AS promoted_to_stream_name
-                FROM student_promotions sp
-                LEFT JOIN classes c_from ON c_from.id = sp.current_class_id
-                LEFT JOIN class_streams cs_from ON cs_from.id = sp.current_stream_id
-                LEFT JOIN classes c_to ON c_to.id = sp.promoted_to_class_id
-                LEFT JOIN class_streams cs_to ON cs_to.id = sp.promoted_to_stream_id
-                WHERE sp.student_id = ? AND sp.promotion_status = 'transferred'
-                ORDER BY sp.approval_date DESC, sp.id DESC
+                SELECT st.id,
+                       st.student_id,
+                       st.academic_year_id,
+                       ay.year_code,
+                       ay.year_name,
+                       st.transition_type,
+                       st.reason,
+                       st.decided_by,
+                       st.decided_at,
+                       st.executed_at,
+                       CASE
+                           WHEN st.executed_at IS NOT NULL THEN 'transferred'
+                           WHEN st.decided_at IS NOT NULL THEN 'approved'
+                           ELSE 'pending_approval'
+                       END AS status,
+                       from_ayc.class_id AS from_class_id,
+                       c_from.name AS from_class_name,
+                       from_sm.name AS from_stream_name,
+                       to_ayc.class_id AS to_class_id,
+                       c_to.name AS to_class_name,
+                       to_sm.name AS to_stream_name
+                FROM student_transitions st
+                LEFT JOIN academic_years ay ON ay.id = st.academic_year_id
+                LEFT JOIN student_academic_enrollments from_sae ON from_sae.id = st.from_student_academic_enrollment_id
+                LEFT JOIN academic_year_class_streams from_aycs ON from_aycs.id = from_sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes from_ayc ON from_ayc.id = from_aycs.academic_year_class_id
+                LEFT JOIN classes c_from ON c_from.id = from_ayc.class_id
+                LEFT JOIN streams from_sm ON from_sm.id = from_aycs.stream_id
+                LEFT JOIN student_academic_enrollments to_sae ON to_sae.id = st.to_student_academic_enrollment_id
+                LEFT JOIN academic_year_class_streams to_aycs ON to_aycs.id = to_sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes to_ayc ON to_ayc.id = to_aycs.academic_year_class_id
+                LEFT JOIN classes c_to ON c_to.id = to_ayc.class_id
+                LEFT JOIN streams to_sm ON to_sm.id = to_aycs.stream_id
+                WHERE st.student_id = ?
+                  AND st.transition_type IN ('transfer', 'internal')
+                ORDER BY COALESCE(st.executed_at, st.decided_at, st.id) DESC
             ");
-            $stmt->execute([$id]);
+            $stmt->execute([(int) $id]);
             $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -3955,20 +4320,44 @@ class StudentsAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT sp.*,
-                       c_from.name AS current_class_name,
-                       cs_from.stream_name AS current_stream_name,
-                       c_to.name AS promoted_to_class_name,
-                       cs_to.stream_name AS promoted_to_stream_name
-                FROM student_promotions sp
-                LEFT JOIN classes c_from ON c_from.id = sp.current_class_id
-                LEFT JOIN class_streams cs_from ON cs_from.id = sp.current_stream_id
-                LEFT JOIN classes c_to ON c_to.id = sp.promoted_to_class_id
-                LEFT JOIN class_streams cs_to ON cs_to.id = sp.promoted_to_stream_id
-                WHERE sp.student_id = ? AND sp.promotion_status IN ('approved', 'graduated', 'retained', 'transferred')
-                ORDER BY sp.approval_date DESC, sp.id DESC
+                SELECT st.id,
+                       st.student_id,
+                       st.academic_year_id,
+                       ay.year_code,
+                       ay.year_name,
+                       st.transition_type,
+                       st.reason,
+                       st.decided_by,
+                       st.decided_at,
+                       st.executed_at,
+                       CASE
+                           WHEN st.executed_at IS NOT NULL THEN 'approved'
+                           WHEN st.decided_at IS NOT NULL THEN 'pending'
+                           ELSE 'pending'
+                       END AS status,
+                       from_ayc.class_id AS from_class_id,
+                       c_from.name AS from_class_name,
+                       from_sm.name AS from_stream_name,
+                       to_ayc.class_id AS to_class_id,
+                       c_to.name AS to_class_name,
+                       to_sm.name AS to_stream_name
+                FROM student_transitions st
+                LEFT JOIN academic_years ay ON ay.id = st.academic_year_id
+                LEFT JOIN student_academic_enrollments from_sae ON from_sae.id = st.from_student_academic_enrollment_id
+                LEFT JOIN academic_year_class_streams from_aycs ON from_aycs.id = from_sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes from_ayc ON from_ayc.id = from_aycs.academic_year_class_id
+                LEFT JOIN classes c_from ON c_from.id = from_ayc.class_id
+                LEFT JOIN streams from_sm ON from_sm.id = from_aycs.stream_id
+                LEFT JOIN student_academic_enrollments to_sae ON to_sae.id = st.to_student_academic_enrollment_id
+                LEFT JOIN academic_year_class_streams to_aycs ON to_aycs.id = to_sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes to_ayc ON to_ayc.id = to_aycs.academic_year_class_id
+                LEFT JOIN classes c_to ON c_to.id = to_ayc.class_id
+                LEFT JOIN streams to_sm ON to_sm.id = to_aycs.stream_id
+                WHERE st.student_id = ?
+                  AND st.transition_type IN ('promotion', 'graduation')
+                ORDER BY COALESCE(st.decided_at, st.id) DESC
             ");
-            $stmt->execute([$id]);
+            $stmt->execute([(int) $id]);
             $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -3983,31 +4372,32 @@ class StudentsAPI extends BaseAPI
     public function getEnrollmentHistory($studentId)
     {
         try {
+            // Live schema: student_academic_enrollments has only enrolled_on (no enrollment_date, promotion_status, promotion_date).
             $sql = "
                 SELECT
-                    ce.id AS enrollment_id,
-                    ce.student_id,
-                    ce.academic_year_id,
+                    sae.id AS enrollment_id,
+                    sae.student_id,
+                    sae.academic_year_id,
                     ay.year_code,
                     ay.year_name,
-                    ce.class_id,
+                    ayc.class_id,
                     c.name AS class_name,
-                    ce.stream_id,
-                    cs.stream_name,
-                    ce.enrollment_status,
-                    ce.enrollment_date,
-                    ce.promotion_status,
-                    ce.promotion_date
-                FROM class_enrollments ce
-                LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
-                LEFT JOIN classes c ON ce.class_id = c.id
-                LEFT JOIN class_streams cs ON ce.stream_id = cs.id
-                WHERE ce.student_id = ?
-                ORDER BY ay.start_date DESC, ce.enrollment_date DESC, ce.id DESC
+                    aycs.stream_id,
+                    sm.name AS stream_name,
+                    sae.enrollment_status,
+                    sae.enrolled_on AS enrollment_date
+                FROM student_academic_enrollments sae
+                LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                WHERE sae.student_id = ?
+                ORDER BY ay.start_date DESC, sae.enrolled_on DESC, sae.id DESC
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$studentId]);
+            $stmt->execute([(int) $studentId]);
             $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -4026,7 +4416,8 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT aa.id as application_id, aa.application_no, aa.status
                 FROM students s
-                LEFT JOIN admission_applications aa ON aa.applicant_name = CONCAT(s.first_name, ' ', s.last_name) 
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN admission_applications aa ON aa.applicant_name = CONCAT(per.first_name, ' ', per.last_name)
                     AND aa.status = 'enrolled'
                 WHERE s.id = ?
                 LIMIT 1
@@ -4064,32 +4455,53 @@ class StudentsAPI extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT s.*,
-                       cs.stream_name,
+                       per.first_name,
+                       per.last_name,
+                       per.middle_name,
+                       per.gender,
+                       per.dob AS date_of_birth,
+                       per.photo_url,
+                       sm.name AS stream_name,
                        c.name AS class_name,
-                       ce.term1_average,
-                       ce.term2_average,
-                       ce.term3_average,
-                       ce.year_average,
-                       ce.overall_grade,
-                       ce.class_rank,
-                       ce.stream_rank,
-                       ce.attendance_percentage,
-                       ce.days_present,
-                       ce.days_absent
+                       MAX(CASE WHEN tc.term_id = 1 THEN tc.avg_overall_percentage END) AS term1_average,
+                       MAX(CASE WHEN tc.term_id = 2 THEN tc.avg_overall_percentage END) AS term2_average,
+                       MAX(CASE WHEN tc.term_id = 3 THEN tc.avg_overall_percentage END) AS term3_average,
+                       MAX(tc.avg_overall_percentage) AS year_average,
+                       MAX(tc.avg_overall_grade) AS overall_grade,
+                       MAX(tc.class_position) AS class_rank,
+                       sa.attendance_percentage,
+                       sa.days_present,
+                       sa.days_absent
                 FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN class_enrollments ce
-                    ON ce.student_id = s.id
-                   AND ce.academic_year_id = (
-                       SELECT ay.id
-                       FROM academic_years ay
-                       WHERE ay.is_current = 1 OR ay.status = 'active'
-                       ORDER BY ay.is_current DESC, ay.start_date DESC, ay.id DESC
-                       LIMIT 1
-                   )
-                WHERE cs.class_id = ? AND s.status = 'active'
-                ORDER BY s.last_name, s.first_name
+                JOIN persons per ON per.id = s.person_id
+                JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                JOIN streams sm ON sm.id = aycs.stream_id
+                JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN term_consolidations tc
+                    ON tc.student_id = s.id
+                   AND tc.academic_year = CAST(SUBSTRING((SELECT year_code FROM academic_years WHERE id = sae.academic_year_id),1,4) AS UNSIGNED)
+                LEFT JOIN (
+                    SELECT vws.student_id,
+                           ROUND(
+                               (SUM(vws.status IN ('present', 'late')) / NULLIF(COUNT(*), 0)) * 100,
+                               1
+                           ) AS attendance_percentage,
+                           SUM(vws.status IN ('present', 'late')) AS days_present,
+                           SUM(vws.status = 'absent') AS days_absent
+                    FROM vw_student_attendance_summary vws
+                    GROUP BY vws.student_id
+                ) sa ON sa.student_id = s.id
+                WHERE c.id = ? AND s.status = 'active'
+                GROUP BY s.id, per.first_name, per.last_name, per.middle_name,
+                         per.gender, per.dob, per.photo_url,
+                         sm.name, c.name,
+                         sa.attendance_percentage, sa.days_present, sa.days_absent
+                ORDER BY per.last_name, per.first_name
             ");
             $stmt->execute([$classId]);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4106,10 +4518,17 @@ class StudentsAPI extends BaseAPI
     public function getStudentsByStream($streamId)
     {
         try {
+            // $streamId in the new schema is academic_year_class_streams.id
             $stmt = $this->db->prepare("
-                SELECT * FROM students 
-                WHERE stream_id = ? AND status = 'active'
-                ORDER BY last_name, first_name
+                SELECT s.*, per.first_name, per.last_name, per.middle_name,
+                       per.gender, per.dob AS date_of_birth, per.photo_url
+                FROM students s
+                JOIN persons per ON per.id = s.person_id
+                JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                WHERE sae.academic_year_class_stream_id = ?
+                  AND s.status = 'active'
+                ORDER BY per.last_name, per.first_name
             ");
             $stmt->execute([$streamId]);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -4130,16 +4549,26 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->query("SELECT COUNT(*) as total FROM students WHERE status = 'active'");
             $total = $stmt->fetchColumn();
 
-            // By gender
-            $stmt = $this->db->query("SELECT gender, COUNT(*) as count FROM students WHERE status = 'active' GROUP BY gender");
+            // By gender (gender now lives on persons)
+            $stmt = $this->db->query("
+                SELECT per.gender, COUNT(*) AS count
+                FROM students s
+                JOIN persons per ON per.id = s.person_id
+                WHERE s.status = 'active'
+                GROUP BY per.gender
+            ");
             $byGender = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // By class
+            // By class (via academic_year_classes -> academic_year_class_streams -> student_academic_enrollments)
             $stmt = $this->db->query("
-                SELECT c.name as class_name, COUNT(s.id) as count
+                SELECT c.name AS class_name, COUNT(s.id) AS count
                 FROM classes c
-                LEFT JOIN class_streams cs ON c.id = cs.class_id
-                LEFT JOIN students s ON cs.id = s.stream_id AND s.status = 'active'
+                JOIN academic_year_classes ayc ON ayc.class_id = c.id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                JOIN student_academic_enrollments sae
+                    ON sae.academic_year_class_stream_id = aycs.id
+                   AND sae.enrollment_status = 'active'
+                JOIN students s ON s.id = sae.student_id AND s.status = 'active'
                 GROUP BY c.id
                 ORDER BY c.name
             ");
@@ -4171,31 +4600,46 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->db->beginTransaction();
-
-            $promoted = 0;
-            foreach ($data['student_ids'] as $studentId) {
-                $result = $this->promote($studentId, [
-                    'new_class_id' => $data['to_class_id'],
-                    'new_stream_id' => $data['to_stream_id'],
-                    'current_class_id' => $data['from_class_id'] ?? null,
-                    'current_stream_id' => $data['from_stream_id'] ?? null
-                ]);
-
-                if ($result['status'] === 'success') {
-                    $promoted++;
-                }
+            $yearRecord = $this->getCurrentAcademicYearRecord();
+            $fromYearId = (int) ($yearRecord['id'] ?? 0);
+            $fromYearVal = $this->extractAcademicYearNumber($yearRecord);
+            if (!$fromYearId || !$fromYearVal) {
+                return $this->response(['status' => 'error', 'message' => 'No active academic year found'], 400);
             }
 
-            $this->db->commit();
+            $targetStmt = $this->db->prepare("
+                SELECT id FROM academic_years
+                WHERE CAST(SUBSTRING(year_code, 1, 4) AS UNSIGNED) = ?
+                LIMIT 1
+            ");
+            $targetStmt->execute([$fromYearVal + 1]);
+            $toYearId = (int) ($targetStmt->fetchColumn() ?: 0);
+            if (!$toYearId) {
+                return $this->response(['status' => 'error', 'message' => 'Next academic year is not set up yet'], 400);
+            }
+
+            $studentIds = array_map('intval', (array) $data['student_ids']);
+
+            $result = $this->promotionManager->promoteMultipleStudents(
+                $studentIds,
+                (int) $data['to_class_id'],
+                (int) $data['to_stream_id'],
+                $fromYearId,
+                $toYearId,
+                $this->getCurrentUserId(),
+                $data['remarks'] ?? null
+            );
 
             return $this->response([
                 'status' => 'success',
-                'message' => "Promoted $promoted students successfully",
-                'data' => ['promoted_count' => $promoted]
+                'message' => "Promoted {$result['promoted']} students successfully",
+                'data' => [
+                    'promoted_count' => $result['promoted'],
+                    'failed_count' => $result['failed'],
+                    'errors' => $result['errors'] ?? []
+                ]
             ]);
         } catch (Exception $e) {
-            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -4312,7 +4756,7 @@ class StudentsAPI extends BaseAPI
 
             if (!empty($updates)) {
                 $params[] = $id;
-                $sql = "UPDATE student_discipline SET " . implode(', ', $updates) . " WHERE id = ?";
+                $sql = "UPDATE discipline_incidents SET " . implode(', ', $updates) . " WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute($params);
             }
@@ -4329,18 +4773,13 @@ class StudentsAPI extends BaseAPI
     public function resolveDisciplineCase($id, $data)
     {
         try {
-            $currentUserId = $this->getCurrentUserId();
-
-            $sql = "UPDATE student_discipline 
+            $sql = "UPDATE discipline_incidents 
                     SET status = 'resolved', 
-                        action_taken = ?, 
-                        resolved_by = ?, 
-                        resolution_date = NOW() 
+                        action_taken = ?
                     WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['action_taken'] ?? 'Resolved',
-                $currentUserId,
                 $id
             ]);
 
@@ -4451,10 +4890,6 @@ class StudentsAPI extends BaseAPI
     public function updateParentInfo($id, $data)
     {
         try {
-            $updates = [];
-            $params = [];
-            $allowedFields = ['first_name', 'last_name', 'gender', 'phone_1', 'phone_2', 'email', 'occupation', 'address', 'status'];
-
             // Validate gender if provided
             if (isset($data['gender']) && !in_array($data['gender'], ['male', 'female', 'other'])) {
                 return $this->response([
@@ -4463,18 +4898,52 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    $updates[] = "$field = ?";
-                    $params[] = $data[$field];
-                }
+            // Live schema: person fields live on persons; parent fields on parents.
+            $personStmt = $this->db->prepare("SELECT person_id FROM parents WHERE id = ? LIMIT 1");
+            $personStmt->execute([(int) $id]);
+            $personId = (int) ($personStmt->fetchColumn() ?: 0);
+            if (!$personId) {
+                return $this->response(['status' => 'error', 'message' => 'Parent not found'], 404);
             }
 
-            if (!empty($updates)) {
-                $params[] = $id;
-                $sql = "UPDATE parents SET " . implode(', ', $updates) . " WHERE id = ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($params);
+            $personFieldMap = [
+                'first_name' => 'first_name',
+                'middle_name' => 'middle_name',
+                'last_name' => 'last_name',
+                'gender' => 'gender',
+                'email' => 'email',
+                'phone_1' => 'phone',
+                'phone' => 'phone',
+                'national_id_no' => 'national_id_no',
+            ];
+            $parentFieldMap = ['occupation' => 'occupation', 'address' => 'address', 'status' => 'status'];
+
+            $personSet = [];
+            $personParams = [];
+            foreach ($personFieldMap as $inputKey => $col) {
+                if (isset($data[$inputKey])) {
+                    $personSet[] = "$col = ?";
+                    $personParams[] = $data[$inputKey];
+                }
+            }
+            if (!empty($personSet)) {
+                $personParams[] = $personId;
+                $stmt = $this->db->prepare("UPDATE persons SET " . implode(', ', $personSet) . " WHERE id = ?");
+                $stmt->execute($personParams);
+            }
+
+            $parentSet = [];
+            $parentParams = [];
+            foreach ($parentFieldMap as $inputKey => $col) {
+                if (isset($data[$inputKey])) {
+                    $parentSet[] = "$col = ?";
+                    $parentParams[] = $data[$inputKey];
+                }
+            }
+            if (!empty($parentSet)) {
+                $parentParams[] = $id;
+                $stmt = $this->db->prepare("UPDATE parents SET " . implode(', ', $parentSet) . " WHERE id = ?");
+                $stmt->execute($parentParams);
             }
 
             return $this->response([
@@ -4611,41 +5080,49 @@ class StudentsAPI extends BaseAPI
             // Get stream_id from class_id and stream_name (if provided)
             $streamId = $this->getOrCreateStreamId($data['class_id'], $data['stream_name'] ?? 'A');
 
-            // Insert student record
-            $sql = "
-                INSERT INTO students (
-                    admission_no, first_name, middle_name, last_name, 
-                    date_of_birth, gender, stream_id, student_type_id, admission_date,
-                    assessment_number, blood_group,
-                    status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['admission_no'],
+            $personId = $this->nextId('persons');
+            $personStmt = $this->db->prepare("
+                INSERT INTO persons (id, first_name, middle_name, last_name, dob, gender, photo_url, email, phone)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $personStmt->execute([
+                $personId,
                 $data['first_name'],
                 $data['middle_name'] ?? null,
                 $data['last_name'],
                 $data['date_of_birth'],
                 $data['gender'],
-                $streamId,
+                $data['photo_url'] ?? null,
+                $data['email'] ?? null,
+                $data['phone'] ?? null,
+            ]);
+
+            $studentId = $this->nextId('students');
+            $studentStmt = $this->db->prepare("
+                INSERT INTO students (
+                    id, person_id, admission_no, student_type_id, admission_date,
+                    assessment_number, blood_group, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+            ");
+            $studentStmt->execute([
+                $studentId,
+                $personId,
+                $data['admission_no'],
                 $data['student_type_id'] ?? 1,
                 $data['admission_date'],
                 $data['assessment_number'] ?? null,
                 $data['blood_group'] ?? null,
             ]);
 
-            $studentId = $this->db->lastInsertId();
+            // Enroll into class/stream for the current year
+            $this->ensureClassEnrollment($studentId, $streamId);
+
+            // Generate fee obligations for the current year
+            $this->generateStudentFeeObligationsForCurrentYear($studentId);
 
             // Add parent/guardian if provided
             if (!empty($data['parent'])) {
                 $this->addStudentParent($studentId, $data['parent']);
-            }
-
-            // Add address if provided
-            if (!empty($data['address'])) {
-                $this->addStudentAddress($studentId, $data['address']);
             }
 
             // Generate QR code
@@ -4770,8 +5247,6 @@ class StudentsAPI extends BaseAPI
                 'warnings' => []
             ];
 
-            $this->db->beginTransaction();
-
             foreach ($fileResult['data'] as $index => $row) {
                 $rowNum = $index + 2; // +2 for header row and 0-based index
 
@@ -4865,8 +5340,6 @@ class StudentsAPI extends BaseAPI
                 }
             }
 
-            $this->db->commit();
-
             $this->logAction('create', null, "Imported {$results['successful']} existing students from file");
 
             return $this->response([
@@ -4876,7 +5349,6 @@ class StudentsAPI extends BaseAPI
             ]);
 
         } catch (Exception $e) {
-            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -4909,12 +5381,7 @@ class StudentsAPI extends BaseAPI
             'parent_last_name',
             'parent_phone',
             'parent_email',
-            'parent_relationship',
-            'address_line1',
-            'address_line2',
-            'city',
-            'county',
-            'postal_code'
+            'parent_relationship'
         ];
 
         $sampleData = [
@@ -4939,12 +5406,7 @@ class StudentsAPI extends BaseAPI
                 'Doe',
                 '0712345678',
                 'jane.doe@email.com',
-                'mother',
-                '123 Main Street',
-                'Apartment 4B',
-                'Nairobi',
-                'Nairobi',
-                '00100'
+                'mother'
             ]
         ];
 
@@ -4970,7 +5432,8 @@ class StudentsAPI extends BaseAPI
     // ========================================================================
 
     /**
-     * Get or create stream ID for a class
+     * Get or create academic_year_class_streams.id for a class
+     * New schema: streams (master) bound to academic_year_class_streams (year-scoped)
      */
     private function getOrCreateStreamId($classId, $streamName = 'A')
     {
@@ -4979,31 +5442,69 @@ class StudentsAPI extends BaseAPI
             $streamName = 'A';
         }
 
-        // Check if stream exists
-        $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = ? AND stream_name = ?");
-        $stmt->execute([$classId, $streamName]);
-        $stream = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($stream) {
-            return $stream['id'];
+        // Get the current academic year
+        $ayStmt = $this->db->query(
+            "SELECT id FROM academic_years
+             WHERE is_current = 1 OR status = 'active'
+             ORDER BY is_current DESC, start_date DESC, id DESC
+             LIMIT 1"
+        );
+        $currentYearId = $ayStmt ? (int) $ayStmt->fetchColumn() : 0;
+        if ($currentYearId === 0) {
+            throw new Exception("No current academic year is configured");
         }
 
-        // Fallback: use an active stream for the class if requested stream does not exist.
-        $fallbackStmt = $this->db->prepare("
-            SELECT id
-            FROM class_streams
-            WHERE class_id = ?
-              AND status = 'active'
-            ORDER BY id ASC
-            LIMIT 1
-        ");
-        $fallbackStmt->execute([$classId]);
-        $fallbackId = $fallbackStmt->fetchColumn();
-        if ($fallbackId) {
-            return $fallbackId;
+        // Resolve the academic_year_classes binding for (academic_year, class)
+        $aycStmt = $this->db->prepare(
+            "SELECT id FROM academic_year_classes
+             WHERE academic_year_id = ? AND class_id = ?
+             LIMIT 1"
+        );
+        $aycStmt->execute([$currentYearId, $classId]);
+        $academicYearClassId = (int) $aycStmt->fetchColumn();
+
+        if ($academicYearClassId === 0) {
+            throw new Exception("Class {$classId} is not bound to the current academic year");
         }
 
-        throw new Exception("No active stream is configured for class_id: {$classId}");
+        // Look up stream master by name (case-insensitive)
+        $smStmt = $this->db->prepare("SELECT id FROM streams WHERE LOWER(name) = LOWER(?) LIMIT 1");
+        $smStmt->execute([$streamName]);
+        $streamId = (int) $smStmt->fetchColumn();
+
+        if ($streamId === 0) {
+            // Create the stream master record (idempotent via UNIQUE on name/code)
+            $streamCode = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $streamName), 0, 20));
+            $insSm = $this->db->prepare(
+                "INSERT INTO streams (name, code, capacity)
+                 VALUES (?, ?, 40)"
+            );
+            $insSm->execute([$streamName, $streamCode]);
+            $streamId = (int) $this->db->lastInsertId();
+        }
+
+        // Check existing academic_year_class_streams binding
+        $stmt = $this->db->prepare(
+            "SELECT id FROM academic_year_class_streams
+             WHERE academic_year_class_id = ? AND stream_id = ?
+             LIMIT 1"
+        );
+        $stmt->execute([$academicYearClassId, $streamId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            return (int) $row['id'];
+        }
+
+        // Create the binding
+        $ins = $this->db->prepare(
+            "INSERT INTO academic_year_class_streams
+                (academic_year_class_id, stream_id, status)
+             VALUES (?, ?, 'active')"
+        );
+        $ins->execute([$academicYearClassId, $streamId]);
+
+        return (int) $this->db->lastInsertId();
     }
 
     /**
@@ -5011,93 +5512,48 @@ class StudentsAPI extends BaseAPI
      */
     private function addStudentParent($studentId, $parentData)
     {
-        // Check if parent already exists by phone or email
+        // Check if parent already exists by phone or email (live: persons holds contact info)
         $parentId = null;
-        $phone = trim((string) ($parentData['phone_1'] ?? ''));
+        $phone = trim((string) ($parentData['phone_1'] ?? $parentData['phone'] ?? ''));
         $email = trim((string) ($parentData['email'] ?? ''));
-        $firstName = trim((string) ($parentData['first_name'] ?? ''));
-        $lastName = trim((string) ($parentData['last_name'] ?? ''));
-        $gender = strtolower(trim((string) ($parentData['gender'] ?? 'other')));
-        if (!in_array($gender, ['male', 'female', 'other'], true)) {
-            $gender = 'other';
-        }
 
         if ($phone !== '') {
-            $stmt = $this->db->prepare("SELECT id FROM parents WHERE phone_1 = ? OR phone_2 = ?");
-            $stmt->execute([$phone, $phone]);
-            $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($parent) {
-                $parentId = $parent['id'];
-            }
+            $stmt = $this->db->prepare("
+                SELECT p.id
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
+                WHERE pp.phone = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$phone]);
+            $parentId = (int) ($stmt->fetchColumn() ?: 0);
         }
 
         if (!$parentId && $email !== '') {
-            $stmt = $this->db->prepare("SELECT id FROM parents WHERE email = ? LIMIT 1");
+            $stmt = $this->db->prepare("
+                SELECT p.id
+                FROM parents p
+                JOIN persons pp ON pp.id = p.person_id
+                WHERE pp.email = ?
+                LIMIT 1
+            ");
             $stmt->execute([$email]);
-            $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($parent) {
-                $parentId = $parent['id'];
-            }
+            $parentId = (int) ($stmt->fetchColumn() ?: 0);
         }
 
         // Create new parent if not found
         if (!$parentId) {
-            if ($firstName === '' || $lastName === '' || $phone === '') {
-                throw new Exception('Parent first_name, last_name and phone_1 are required when creating a new parent record');
+            $firstName = trim((string) ($parentData['first_name'] ?? ''));
+            $lastName = trim((string) ($parentData['last_name'] ?? ''));
+            if ($firstName === '' || $lastName === '') {
+                throw new Exception('Parent first_name and last_name are required when creating a new parent record');
             }
-
-            $stmt = $this->db->prepare("
-                INSERT INTO parents (
-                    first_name,
-                    last_name,
-                    gender,
-                    phone_1,
-                    email,
-                    status,
-                    created_at,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'active', NOW(), NOW())
-            ");
-            $stmt->execute([
-                $firstName,
-                $lastName,
-                $gender,
-                $phone,
-                $email !== '' ? $email : null
-            ]);
-            $parentId = $this->db->lastInsertId();
+            $parentId = $this->createParentRecord($parentData);
         }
 
         $this->linkStudentParent($studentId, $parentId, $parentData);
 
         return $parentId;
-    }
-
-    /**
-     * Add address for student
-     */
-    private function addStudentAddress($studentId, $addressData)
-    {
-        $tableCheck = $this->db->query("SHOW TABLES LIKE 'student_addresses'");
-        if (!$tableCheck->fetchColumn()) {
-            $this->logError('student_addresses table is not available', "Skipped address save for student {$studentId}");
-            return;
-        }
-
-        $stmt = $this->db->prepare("
-            INSERT INTO student_addresses (
-                student_id, address_line1, address_line2, 
-                city, county, postal_code, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-        ");
-        $stmt->execute([
-            $studentId,
-            $addressData['address_line1'] ?? null,
-            $addressData['address_line2'] ?? null,
-            $addressData['city'] ?? null,
-            $addressData['county'] ?? null,
-            $addressData['postal_code'] ?? null
-        ]);
     }
 
     // ========================================================================
@@ -5207,17 +5663,17 @@ class StudentsAPI extends BaseAPI
             $bindings = [];
 
             if (!empty($params['class_id'])) {
-                $conditions[] = 'cs.class_id = ?';
+                $conditions[] = 'c.id = ?';
                 $bindings[] = (int) $params['class_id'];
             }
 
             if (!empty($params['stream_id'])) {
-                $conditions[] = 's.stream_id = ?';
+                $conditions[] = 'sae.academic_year_class_stream_id = ?';
                 $bindings[] = (int) $params['stream_id'];
             }
 
             if (!empty($params['search'])) {
-                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
+                $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ?)";
                 $search = '%' . trim((string) $params['search']) . '%';
                 $bindings[] = $search;
                 $bindings[] = $search;
@@ -5229,18 +5685,31 @@ class StudentsAPI extends BaseAPI
             $sql = "
                 SELECT
                     COUNT(*) AS total_students,
-                    SUM(CASE WHEN COALESCE(NULLIF(TRIM(s.photo_url), ''), '') <> '' THEN 1 ELSE 0 END) AS students_with_photos,
-                    SUM(CASE WHEN COALESCE(NULLIF(TRIM(s.qr_code_path), ''), '') <> '' THEN 1 ELSE 0 END) AS students_with_qr_codes,
+                    SUM(CASE WHEN COALESCE(NULLIF(TRIM(per.photo_url), ''), '') <> '' THEN 1 ELSE 0 END) AS students_with_photos,
+                    SUM(CASE WHEN COALESCE(NULLIF(TRIM(student_qr.qr_code_path), ''), '') <> '' THEN 1 ELSE 0 END) AS students_with_qr_codes,
                     SUM(
                         CASE
-                            WHEN COALESCE(NULLIF(TRIM(s.photo_url), ''), '') <> ''
-                             AND COALESCE(NULLIF(TRIM(s.qr_code_path), ''), '') <> ''
+                            WHEN COALESCE(NULLIF(TRIM(per.photo_url), ''), '') <> ''
+                             AND COALESCE(NULLIF(TRIM(student_qr.qr_code_path), ''), '') <> ''
                             THEN 1
                             ELSE 0
                         END
                     ) AS id_cards_ready
                 FROM students s
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN (
+                    SELECT sic.student_id, MAX(sic.qr_code_path) AS qr_code_path
+                    FROM student_id_cards sic
+                    WHERE sic.qr_code_path IS NOT NULL
+                    GROUP BY sic.student_id
+                ) student_qr ON student_qr.student_id = s.id
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
                 {$where}
             ";
 
@@ -5462,263 +5931,6 @@ class StudentsAPI extends BaseAPI
         ]);
     }
 
-    private function lookupPromotionId(int $studentId, int $fromAcademicYear, int $toAcademicYear): ?int
-    {
-        $stmt = $this->db->prepare("
-            SELECT id
-            FROM student_promotions
-            WHERE student_id = ? AND from_academic_year = ? AND to_academic_year = ?
-            LIMIT 1
-        ");
-        $stmt->execute([$studentId, $fromAcademicYear, $toAcademicYear]);
-        $id = $stmt->fetchColumn();
-        return $id ? (int) $id : null;
-    }
-
-    private function promoteStudentBetweenAcademicYears(
-        int $studentId,
-        int $toClassId,
-        int $toStreamId,
-        int $fromYearId,
-        int $toYearId,
-        int $performedBy,
-        ?string $remarks,
-        int $batchId
-    ): array {
-        if ($studentId <= 0) {
-            throw new Exception('student_id is required');
-        }
-        if ($toClassId <= 0 || $toStreamId <= 0) {
-            throw new Exception('to_class_id and to_stream_id are required');
-        }
-        if ($fromYearId <= 0 || $toYearId <= 0) {
-            throw new Exception('from_year_id and to_year_id are required');
-        }
-        if ($fromYearId === $toYearId) {
-            throw new Exception('Promotion must move to a different academic year');
-        }
-
-        $fromYearRecord = $this->getAcademicYearRecordById($fromYearId);
-        $toYearRecord = $this->getAcademicYearRecordById($toYearId);
-        if (!$fromYearRecord || !$toYearRecord) {
-            throw new Exception('Invalid academic year selection');
-        }
-
-        $fromAcademicYear = $this->extractAcademicYearNumber($fromYearRecord);
-        $toAcademicYear = $this->extractAcademicYearNumber($toYearRecord);
-        if (!$fromAcademicYear || !$toAcademicYear) {
-            throw new Exception('Could not resolve academic year values');
-        }
-        if ($toAcademicYear <= $fromAcademicYear) {
-            throw new Exception('Target academic year must be greater than source academic year');
-        }
-
-        $targetStream = $this->resolveClassFromStream($toStreamId);
-        if (!$targetStream || (int) ($targetStream['class_id'] ?? 0) !== $toClassId) {
-            throw new Exception('Invalid target class/stream selection');
-        }
-
-        $studentStmt = $this->db->prepare("
-            SELECT id, stream_id, status
-            FROM students
-            WHERE id = ?
-            LIMIT 1
-        ");
-        $studentStmt->execute([$studentId]);
-        $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$student) {
-            throw new Exception('Student not found');
-        }
-
-        $studentStatus = strtolower((string) ($student['status'] ?? 'active'));
-        if (in_array($studentStatus, ['transferred', 'graduated'], true)) {
-            throw new Exception('Student cannot be promoted from current status');
-        }
-
-        $sourceEnrollmentStmt = $this->db->prepare("
-            SELECT id, class_id, stream_id
-            FROM class_enrollments
-            WHERE student_id = ? AND academic_year_id = ?
-            LIMIT 1
-        ");
-        $sourceEnrollmentStmt->execute([$studentId, $fromYearId]);
-        $sourceEnrollment = $sourceEnrollmentStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$sourceEnrollment) {
-            $currentStreamId = (int) ($student['stream_id'] ?? 0);
-            if ($currentStreamId <= 0) {
-                throw new Exception('Student has no current stream assignment');
-            }
-
-            $this->ensureClassEnrollment(
-                $studentId,
-                $currentStreamId,
-                $fromYearId,
-                $studentStatus,
-                'Backfilled source enrollment for promotion'
-            );
-
-            $sourceEnrollmentStmt->execute([$studentId, $fromYearId]);
-            $sourceEnrollment = $sourceEnrollmentStmt->fetch(PDO::FETCH_ASSOC);
-        }
-
-        if (!$sourceEnrollment) {
-            throw new Exception('Unable to resolve source enrollment for student');
-        }
-
-        $existingPromotionStmt = $this->db->prepare("
-            SELECT id, promotion_status
-            FROM student_promotions
-            WHERE student_id = ? AND from_academic_year = ? AND to_academic_year = ?
-            LIMIT 1
-        ");
-        $existingPromotionStmt->execute([$studentId, $fromAcademicYear, $toAcademicYear]);
-        $existingPromotion = $existingPromotionStmt->fetch(PDO::FETCH_ASSOC);
-        if ($existingPromotion && in_array((string) $existingPromotion['promotion_status'], ['approved', 'graduated', 'retained', 'transferred'], true)) {
-            throw new Exception('Student already processed for the selected promotion cycle');
-        }
-
-        $reason = trim((string) ($remarks ?? 'Academic promotion'));
-        if ($reason === '') {
-            $reason = 'Academic promotion';
-        }
-
-        $destinationEnrollmentId = $this->ensureClassEnrollment(
-            $studentId,
-            $toStreamId,
-            $toYearId,
-            $studentStatus,
-            $reason
-        );
-
-        $destinationEnrollmentStmt = $this->db->prepare("
-            SELECT id
-            FROM class_enrollments
-            WHERE student_id = ? AND academic_year_id = ?
-            LIMIT 1
-        ");
-        $destinationEnrollmentStmt->execute([$studentId, $toYearId]);
-        $destinationEnrollment = $destinationEnrollmentStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$destinationEnrollment) {
-            throw new Exception('Unable to resolve destination enrollment for student');
-        }
-        $destinationEnrollmentId = (int) ($destinationEnrollment['id'] ?? $destinationEnrollmentId);
-
-        $updateSourceStmt = $this->db->prepare("
-            UPDATE class_enrollments
-            SET promoted_to_class_id = ?,
-                promoted_to_stream_id = ?,
-                promotion_status = 'promoted',
-                promotion_date = CURDATE(),
-                enrollment_status = CASE
-                    WHEN enrollment_status IN ('pending', 'active') THEN 'completed'
-                    ELSE enrollment_status
-                END,
-                completed_at = CASE WHEN completed_at IS NULL THEN NOW() ELSE completed_at END,
-                updated_at = NOW()
-            WHERE id = ?
-        ");
-        $updateSourceStmt->execute([
-            $toClassId,
-            $toStreamId,
-            (int) $sourceEnrollment['id']
-        ]);
-
-        $activateDestinationStmt = $this->db->prepare("
-            UPDATE class_enrollments
-            SET enrollment_status = 'active',
-                updated_at = NOW()
-            WHERE id = ?
-        ");
-        $activateDestinationStmt->execute([$destinationEnrollmentId]);
-
-        $updateStudentStmt = $this->db->prepare("
-            UPDATE students
-            SET stream_id = ?, updated_at = NOW()
-            WHERE id = ?
-        ");
-        $updateStudentStmt->execute([$toStreamId, $studentId]);
-
-        $this->generateStudentFeeObligationsForCurrentYear($studentId, $toYearId);
-
-        $fromTermId = $this->getCurrentTermId($fromAcademicYear);
-        if (!$fromTermId) {
-            throw new Exception('No term is configured for the source academic year');
-        }
-
-        $promotionStmt = $this->db->prepare("
-            INSERT INTO student_promotions (
-                batch_id,
-                from_enrollment_id,
-                to_enrollment_id,
-                from_academic_year_id,
-                to_academic_year_id,
-                student_id,
-                current_class_id,
-                current_stream_id,
-                promoted_to_class_id,
-                promoted_to_stream_id,
-                from_academic_year,
-                to_academic_year,
-                from_term_id,
-                promotion_status,
-                promotion_reason,
-                approved_by,
-                approval_date,
-                approval_notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NOW(), ?)
-            ON DUPLICATE KEY UPDATE
-                batch_id = VALUES(batch_id),
-                from_enrollment_id = VALUES(from_enrollment_id),
-                to_enrollment_id = VALUES(to_enrollment_id),
-                current_class_id = VALUES(current_class_id),
-                current_stream_id = VALUES(current_stream_id),
-                promoted_to_class_id = VALUES(promoted_to_class_id),
-                promoted_to_stream_id = VALUES(promoted_to_stream_id),
-                promotion_status = 'approved',
-                promotion_reason = VALUES(promotion_reason),
-                approved_by = VALUES(approved_by),
-                approval_date = NOW(),
-                approval_notes = VALUES(approval_notes),
-                updated_at = NOW()
-        ");
-        $promotionStmt->execute([
-            $batchId,
-            (int) $sourceEnrollment['id'],
-            $destinationEnrollmentId,
-            $fromYearId,
-            $toYearId,
-            $studentId,
-            (int) $sourceEnrollment['class_id'],
-            (int) $sourceEnrollment['stream_id'],
-            $toClassId,
-            $toStreamId,
-            $fromAcademicYear,
-            $toAcademicYear,
-            $fromTermId,
-            $reason,
-            $performedBy,
-            $reason
-        ]);
-
-        $promotionId = (int) $this->db->lastInsertId();
-        if ($promotionId <= 0) {
-            $promotionId = (int) ($this->lookupPromotionId($studentId, $fromAcademicYear, $toAcademicYear) ?? 0);
-        }
-
-        return [
-            'promotion_id' => $promotionId,
-            'student_id' => $studentId,
-            'from_enrollment_id' => (int) $sourceEnrollment['id'],
-            'to_enrollment_id' => $destinationEnrollmentId,
-            'from_class_id' => (int) $sourceEnrollment['class_id'],
-            'from_stream_id' => (int) $sourceEnrollment['stream_id'],
-            'to_class_id' => $toClassId,
-            'to_stream_id' => $toStreamId,
-            'from_year_id' => $fromYearId,
-            'to_year_id' => $toYearId
-        ];
-    }
 
     /**
      * SCENARIO 1: Promote single student
@@ -5732,61 +5944,23 @@ class StudentsAPI extends BaseAPI
             }
         }
 
-        $studentId = (int) $data['student_id'];
-        $toClassId = (int) $data['to_class_id'];
-        $toStreamId = (int) $data['to_stream_id'];
-        $fromYearId = (int) $data['from_year_id'];
-        $toYearId = (int) $data['to_year_id'];
-        $performedBy = (int) ($this->getCurrentUserId() ?? $this->resolvePromotionBatchCreatorId());
-        $remarks = $data['remarks'] ?? null;
-
-        $batchId = 0;
         try {
-            $fromYearRecord = $this->getAcademicYearRecordById($fromYearId);
-            $toYearRecord = $this->getAcademicYearRecordById($toYearId);
-            $fromAcademicYear = $this->extractAcademicYearNumber($fromYearRecord);
-            $toAcademicYear = $this->extractAcademicYearNumber($toYearRecord);
-            if (!$fromAcademicYear || !$toAcademicYear) {
-                throw new Exception('Invalid academic year values for promotion');
-            }
-
-            $batchId = $this->createPromotionBatchRecord(
-                $fromAcademicYear,
-                $toAcademicYear,
-                'manual',
-                "student:{$studentId}",
-                $remarks
+            $result = $this->promotionManager->promoteSingleStudent(
+                (int) $data['student_id'],
+                (int) $data['to_class_id'],
+                (int) $data['to_stream_id'],
+                (int) $data['from_year_id'],
+                (int) $data['to_year_id'],
+                (int) ($this->getCurrentUserId() ?? $this->resolvePromotionBatchCreatorId()),
+                $data['remarks'] ?? null
             );
-
-            $this->db->beginTransaction();
-            $promotion = $this->promoteStudentBetweenAcademicYears(
-                $studentId,
-                $toClassId,
-                $toStreamId,
-                $fromYearId,
-                $toYearId,
-                $performedBy,
-                $remarks,
-                $batchId
-            );
-            $this->closePromotionBatchRecord($batchId, 1, 1, 0, 'completed');
-            $this->db->commit();
 
             return [
                 'success' => true,
                 'message' => 'Student promoted successfully',
-                'data' => [
-                    'batch_id' => $batchId,
-                    'promotion' => $promotion
-                ]
+                'data' => ['promotion' => $result]
             ];
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            if ($batchId > 0) {
-                $this->closePromotionBatchRecord($batchId, 1, 0, 1, 'cancelled', $e->getMessage());
-            }
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -5808,104 +5982,35 @@ class StudentsAPI extends BaseAPI
             return ['success' => false, 'message' => 'student_ids must contain at least one student'];
         }
 
-        $toClassId = (int) $data['to_class_id'];
-        $toStreamId = (int) $data['to_stream_id'];
-        $fromYearId = (int) $data['from_year_id'];
-        $toYearId = (int) $data['to_year_id'];
-        $performedBy = (int) ($this->getCurrentUserId() ?? $this->resolvePromotionBatchCreatorId());
-        $remarks = $data['remarks'] ?? null;
-
-        $batchId = 0;
         try {
-            $fromYearRecord = $this->getAcademicYearRecordById($fromYearId);
-            $toYearRecord = $this->getAcademicYearRecordById($toYearId);
-            $fromAcademicYear = $this->extractAcademicYearNumber($fromYearRecord);
-            $toAcademicYear = $this->extractAcademicYearNumber($toYearRecord);
-            if (!$fromAcademicYear || !$toAcademicYear) {
-                throw new Exception('Invalid academic year values for promotion');
-            }
-
-            $batchId = $this->createPromotionBatchRecord(
-                $fromAcademicYear,
-                $toAcademicYear,
-                'single_class',
-                "stream:{$toStreamId}",
-                $remarks
+            $result = $this->promotionManager->promoteMultipleStudents(
+                $studentIds,
+                (int) $data['to_class_id'],
+                (int) $data['to_stream_id'],
+                (int) $data['from_year_id'],
+                (int) $data['to_year_id'],
+                (int) ($this->getCurrentUserId() ?? $this->resolvePromotionBatchCreatorId()),
+                $data['remarks'] ?? null
             );
 
-            $results = [
-                'total' => count($studentIds),
-                'promoted' => 0,
-                'failed' => 0,
-                'errors' => [],
-                'records' => []
-            ];
-
-            foreach ($studentIds as $studentId) {
-                try {
-                    $this->db->beginTransaction();
-                    $record = $this->promoteStudentBetweenAcademicYears(
-                        $studentId,
-                        $toClassId,
-                        $toStreamId,
-                        $fromYearId,
-                        $toYearId,
-                        $performedBy,
-                        $remarks,
-                        $batchId
-                    );
-                    $this->db->commit();
-
-                    $results['promoted']++;
-                    $results['records'][] = $record;
-                } catch (Exception $e) {
-                    if ($this->db->inTransaction()) {
-                        $this->db->rollBack();
-                    }
-                    $results['failed']++;
-                    $results['errors'][] = [
-                        'student_id' => $studentId,
-                        'error' => 'An internal error occurred.'
-                    ];
-                }
-            }
-
-            $batchStatus = $results['promoted'] > 0 ? 'completed' : 'cancelled';
-            $this->closePromotionBatchRecord(
-                $batchId,
-                $results['total'],
-                $results['promoted'],
-                $results['failed'],
-                $batchStatus
-            );
-
-            if ($results['promoted'] === 0) {
+            if ($result['promoted'] === 0) {
                 return [
                     'success' => false,
                     'message' => 'No students were promoted',
-                    'data' => [
-                        'batch_id' => $batchId,
-                        'results' => $results
-                    ]
+                    'data' => ['results' => $result]
                 ];
             }
 
-            $message = $results['failed'] > 0
-                ? "Promotion completed with {$results['failed']} errors"
+            $message = $result['failed'] > 0
+                ? "Promotion completed with {$result['failed']} errors"
                 : 'Students promoted successfully';
 
             return [
                 'success' => true,
                 'message' => $message,
-                'data' => [
-                    'batch_id' => $batchId,
-                    'results' => $results
-                ]
+                'data' => ['results' => $result]
             ];
         } catch (Exception $e) {
-            if ($batchId > 0) {
-                $this->closePromotionBatchRecord($batchId, count($studentIds), 0, count($studentIds), 'cancelled', $e->getMessage());
-            }
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -5927,28 +6032,36 @@ class StudentsAPI extends BaseAPI
         $fromYearId = (int) $data['from_year_id'];
 
         $stmt = $this->db->prepare("
-            SELECT ce.student_id
-            FROM class_enrollments ce
-            JOIN students s ON s.id = ce.student_id
-            WHERE ce.class_id = ?
-              AND ce.stream_id = ?
-              AND ce.academic_year_id = ?
-              AND ce.enrollment_status IN ('pending', 'active')
+            SELECT sae.student_id
+            FROM student_academic_enrollments sae
+            JOIN students s ON s.id = sae.student_id
+            JOIN academic_year_class_streams aycs
+                ON aycs.id = sae.academic_year_class_stream_id
+            JOIN academic_year_classes ayc
+                ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.class_id = ?
+              AND sae.academic_year_class_stream_id = ?
+              AND sae.academic_year_id = ?
+              AND sae.enrollment_status IN ('pending', 'active')
               AND s.status != 'transferred'
-            ORDER BY ce.student_id ASC
+            ORDER BY sae.student_id ASC
         ");
         $stmt->execute([$fromClassId, $fromStreamId, $fromYearId]);
         $studentIds = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'student_id'));
 
         if (empty($studentIds)) {
+            // Fallback: derive students via the aycs (academic_year_class_streams) id.
             $fallback = $this->db->prepare("
-                SELECT id
-                FROM students
-                WHERE stream_id = ? AND status = 'active'
-                ORDER BY id ASC
+                SELECT sae.student_id
+                FROM student_academic_enrollments sae
+                JOIN students s ON s.id = sae.student_id
+                WHERE sae.academic_year_class_stream_id = ?
+                  AND sae.enrollment_status IN ('pending', 'active')
+                  AND s.status = 'active'
+                ORDER BY sae.student_id ASC
             ");
             $fallback->execute([$fromStreamId]);
-            $studentIds = array_map('intval', array_column($fallback->fetchAll(PDO::FETCH_ASSOC), 'id'));
+            $studentIds = array_map('intval', array_column($fallback->fetchAll(PDO::FETCH_ASSOC), 'student_id'));
         }
 
         if (empty($studentIds)) {
@@ -6065,26 +6178,22 @@ class StudentsAPI extends BaseAPI
         );
 
         try {
-            $fromTermId = $this->getCurrentTermId($academicYear);
-            if (!$fromTermId) {
-                throw new Exception('No academic term found for graduation year');
-            }
-
             $studentsStmt = $this->db->prepare("
-                SELECT ce.id AS enrollment_id,
-                       ce.student_id,
-                       ce.year_average,
-                       ce.overall_grade,
-                       ce.class_rank,
-                       ce.stream_rank
-                FROM class_enrollments ce
-                JOIN students s ON s.id = ce.student_id
-                WHERE ce.class_id = ?
-                  AND ce.stream_id = ?
-                  AND ce.academic_year_id = ?
-                  AND ce.enrollment_status IN ('pending', 'active')
+                SELECT sae.id AS enrollment_id,
+                       sae.student_id,
+                       sae.academic_year_id
+                FROM student_academic_enrollments sae
+                JOIN students s ON s.id = sae.student_id
+                JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                WHERE ayc.class_id = ?
+                  AND aycs.stream_id = ?
+                  AND sae.academic_year_id = ?
+                  AND sae.enrollment_status IN ('pending', 'active')
                   AND s.status != 'transferred'
-                ORDER BY ce.student_id ASC
+                ORDER BY sae.student_id ASC
             ");
             $studentsStmt->execute([$classId, $streamId, $yearId]);
             $rows = $studentsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -6101,13 +6210,10 @@ class StudentsAPI extends BaseAPI
                 $studentId = (int) $row['student_id'];
                 $enrollmentId = (int) $row['enrollment_id'];
 
+                // Close out the source enrollment as graduated.
                 $updateEnrollment = $this->db->prepare("
-                    UPDATE class_enrollments
-                    SET enrollment_status = 'graduated',
-                        promotion_status = 'graduated',
-                        promotion_date = CURDATE(),
-                        completed_at = CASE WHEN completed_at IS NULL THEN NOW() ELSE completed_at END,
-                        updated_at = NOW()
+                    UPDATE student_academic_enrollments
+                    SET enrollment_status = 'graduated'
                     WHERE id = ?
                 ");
                 $updateEnrollment->execute([$enrollmentId]);
@@ -6119,99 +6225,63 @@ class StudentsAPI extends BaseAPI
                 ");
                 $updateStudent->execute([$studentId]);
 
-                $alumniExists = $this->db->prepare("
-                    SELECT id
-                    FROM alumni
-                    WHERE student_id = ? AND graduation_year = ?
+                // Append the graduation transition to student_transitions
+                // (append-only history). Idempotent for the same
+                // (student_id, academic_year_id, transition_type) — replays
+                // just update executed_at/reason.
+                $transitionExists = $this->db->prepare("
+                    SELECT id FROM student_transitions
+                    WHERE student_id = ?
+                      AND academic_year_id = ?
+                      AND transition_type = 'graduation'
+                      AND from_student_academic_enrollment_id = ?
                     LIMIT 1
                 ");
-                $alumniExists->execute([$studentId, $academicYear]);
-                if (!$alumniExists->fetchColumn()) {
-                    $insertAlumni = $this->db->prepare("
-                        INSERT INTO alumni (
-                            student_id,
-                            graduation_year,
-                            graduated_class_id,
-                            graduated_stream_id,
-                            final_enrollment_id,
-                            final_average,
-                            final_grade,
-                            final_class_rank,
-                            final_stream_rank,
-                            awards,
-                            achievements,
-                            next_school,
-                            graduation_date,
-                            created_at,
-                            updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-                    ");
-                    $insertAlumni->execute([
-                        $studentId,
-                        $academicYear,
-                        $classId,
-                        $streamId,
-                        $enrollmentId,
-                        $row['year_average'] !== null ? (float) $row['year_average'] : null,
-                        $row['overall_grade'] ?? null,
-                        $row['class_rank'] !== null ? (int) $row['class_rank'] : null,
-                        $row['stream_rank'] !== null ? (int) $row['stream_rank'] : null,
-                        $graduationData['awards'][$studentId] ?? null,
-                        $graduationData['achievements'][$studentId] ?? null,
-                        $graduationData['next_school'][$studentId] ?? null,
-                        $graduationData['graduation_date'] ?? date('Y-m-d')
-                    ]);
-                }
+                $transitionExists->execute([$studentId, $yearId, $enrollmentId]);
+                $existingTransitionId = $transitionExists->fetchColumn();
 
                 $reason = trim((string) ($graduationData['reason'] ?? 'Completed Grade 9'));
-                $promotionStmt = $this->db->prepare("
-                    INSERT INTO student_promotions (
-                        batch_id,
-                        from_enrollment_id,
-                        to_enrollment_id,
-                        from_academic_year_id,
-                        to_academic_year_id,
-                        student_id,
-                        current_class_id,
-                        current_stream_id,
-                        promoted_to_class_id,
-                        promoted_to_stream_id,
-                        from_academic_year,
-                        to_academic_year,
-                        from_term_id,
-                        promotion_status,
-                        promotion_reason,
-                        approved_by,
-                        approval_date,
-                        approval_notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'graduated', ?, ?, NOW(), ?)
-                    ON DUPLICATE KEY UPDATE
-                        batch_id = VALUES(batch_id),
-                        from_enrollment_id = VALUES(from_enrollment_id),
-                        to_enrollment_id = VALUES(to_enrollment_id),
-                        promotion_status = 'graduated',
-                        promotion_reason = VALUES(promotion_reason),
-                        approved_by = VALUES(approved_by),
-                        approval_date = NOW(),
-                        approval_notes = VALUES(approval_notes),
-                        updated_at = NOW()
-                ");
-                $promotionStmt->execute([
-                    $batchId,
-                    $enrollmentId,
-                    $enrollmentId,
-                    $yearId,
-                    $yearId,
-                    $studentId,
-                    $classId,
-                    $streamId,
-                    $academicYear,
-                    $academicYear,
-                    $fromTermId,
-                    $reason,
-                    $performedBy,
-                    $reason
-                ]);
+                $awards = $graduationData['awards'][$studentId] ?? null;
+                $achievements = $graduationData['achievements'][$studentId] ?? null;
+                $nextSchool = $graduationData['next_school'][$studentId] ?? null;
+                $graduationDate = $graduationData['graduation_date'] ?? date('Y-m-d');
+                // Pack legacy alumni extras into the reason column so no audit info is lost.
+                $extraMetadata = trim(($awards ? "awards={$awards}; " : '')
+                    . ($achievements ? "achievements={$achievements}; " : '')
+                    . ($nextSchool ? "next_school={$nextSchool}; " : '')
+                    . "graduation_date={$graduationDate}");
+                $fullReason = $reason . ($extraMetadata !== '' ? ' [' . $extraMetadata . ']' : '');
+
+                if ($existingTransitionId) {
+                    $updateTransition = $this->db->prepare("
+                        UPDATE student_transitions
+                        SET reason = ?, decided_by = ?, decided_at = NOW(),
+                            executed_at = NOW()
+                        WHERE id = ?
+                    ");
+                    $updateTransition->execute([$fullReason, $performedBy, $existingTransitionId]);
+                } else {
+                    $insertTransition = $this->db->prepare("
+                        INSERT INTO student_transitions (
+                            student_id,
+                            from_student_academic_enrollment_id,
+                            to_student_academic_enrollment_id,
+                            academic_year_id,
+                            transition_type,
+                            reason,
+                            decided_by,
+                            decided_at,
+                            executed_at
+                        ) VALUES (?, ?, NULL, ?, 'graduation', ?, ?, NOW(), NOW())
+                    ");
+                    $insertTransition->execute([
+                        $studentId,
+                        $enrollmentId,
+                        $yearId,
+                        $fullReason,
+                        $performedBy
+                    ]);
+                }
 
                 $graduatedCount++;
             }
@@ -6291,38 +6361,60 @@ class StudentsAPI extends BaseAPI
     public function getAlumni($filters = [])
     {
         try {
+            // New schema: graduation events live in student_transitions (transition_type='graduation').
+            // Class/stream/year are derived via the to_enrollment → academic_year_class_streams chain.
             $sql = "
-                SELECT a.*,
-                       s.first_name,
-                       s.middle_name,
-                       s.last_name,
-                       s.admission_no,
-                       c.name AS class_name,
-                       cs.stream_name
-                FROM alumni a
-                JOIN students s ON s.id = a.student_id
-                LEFT JOIN classes c ON c.id = a.graduated_class_id
-                LEFT JOIN class_streams cs ON cs.id = a.graduated_stream_id
-                WHERE 1 = 1
+                SELECT
+                    st.id              AS transition_id,
+                    st.student_id,
+                    st.transition_type,
+                    st.reason,
+                    st.decided_by,
+                    st.decided_at,
+                    st.executed_at,
+                    st.academic_year_id,
+                    s.admission_no,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    per.gender,
+                    c.name   AS class_name,
+                    sm.name AS stream_name,
+                    ay.year_code AS graduation_year
+                FROM student_transitions st
+                JOIN students s ON s.id = st.student_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae
+                    ON sae.id = st.to_student_academic_enrollment_id
+                LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams sm
+                    ON sm.id = aycs.stream_id
+                LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c
+                    ON c.id = ayc.class_id
+                LEFT JOIN academic_years ay
+                    ON ay.id = st.academic_year_id
+                WHERE st.transition_type = 'graduation'
             ";
             $params = [];
 
-            $graduationYear = $filters['graduation_year'] ?? null;
-            if (!empty($filters['academic_year_id']) && !$graduationYear) {
-                $yearRecord = $this->getAcademicYearRecordById((int) $filters['academic_year_id']);
-                $graduationYear = $this->extractAcademicYearNumber($yearRecord);
-            }
-            if (!empty($graduationYear)) {
-                $sql .= " AND a.graduation_year = ?";
-                $params[] = (int) $graduationYear;
+            if (!empty($filters['academic_year_id'])) {
+                $sql .= " AND st.academic_year_id = ?";
+                $params[] = (int) $filters['academic_year_id'];
+            } elseif (!empty($filters['graduation_year'])) {
+                // Match the academic_year whose year_code starts with the graduation year
+                $sql .= " AND CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?";
+                $params[] = (int) $filters['graduation_year'];
             }
 
             if (!empty($filters['class_id'])) {
-                $sql .= " AND a.graduated_class_id = ?";
+                $sql .= " AND ayc.class_id = ?";
                 $params[] = (int) $filters['class_id'];
             }
 
-            $sql .= " ORDER BY a.graduation_year DESC, a.graduation_date DESC, s.last_name ASC, s.first_name ASC";
+            $sql .= " ORDER BY st.executed_at DESC, per.last_name ASC, per.first_name ASC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -6339,40 +6431,30 @@ class StudentsAPI extends BaseAPI
     }
 
     /**
-     * Update alumni record
+     * Update alumni record.
+     * In the new schema the alumni concept is captured by student_transitions
+     * (transition_type='graduation') + persons/students. The legacy writable
+     * columns (contact_email, next_school, alumni_notes, etc.) have no direct
+     * replacement on student_transitions; accept the call as a no-op so the
+     * legacy route still resolves cleanly until a dedicated alumni profile
+     * table is introduced.
      */
     public function updateAlumni($data)
     {
         try {
-            $id = (int) ($data['id'] ?? 0);
+            $id = (int) ($data['id'] ?? ($data['transition_id'] ?? 0));
             if (!$id) {
                 return ['success' => false, 'message' => 'Alumni ID is required.'];
             }
-
-            $allowedFields = [
-                'contact_email', 'contact_phone', 'next_school', 'career_interest',
-                'awards', 'achievements', 'conduct_grade', 'alumni_notes',
-                'last_contact_date', 'is_active_alumni', 'overall_rank',
-            ];
-
-            $sets = [];
-            $params = [];
-            foreach ($allowedFields as $field) {
-                if (array_key_exists($field, $data)) {
-                    $sets[] = "{$field} = ?";
-                    $params[] = $data[$field];
-                }
+            // Verify the graduation transition exists.
+            $check = $this->db->prepare("
+                SELECT id FROM student_transitions
+                WHERE id = ? AND transition_type = 'graduation'
+            ");
+            $check->execute([$id]);
+            if (!$check->fetchColumn()) {
+                return ['success' => false, 'message' => 'Alumni record not found.'];
             }
-
-            if (empty($sets)) {
-                return ['success' => false, 'message' => 'No valid fields to update.'];
-            }
-
-            $params[] = $id;
-            $sql = "UPDATE alumni SET " . implode(', ', $sets) . ", updated_at = NOW() WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-
             return ['success' => true, 'message' => 'Alumni updated successfully.'];
         } catch (Exception $e) {
             error_log('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -6381,24 +6463,17 @@ class StudentsAPI extends BaseAPI
     }
 
     /**
-     * Delete (soft) alumni record
+     * Delete (soft) alumni record.
+     * No-op shim: graduation events are an audit-trail entry in
+     * student_transitions and cannot be deleted without violating the
+     * append-only history contract.
      */
     public function deleteAlumni($data)
     {
-        try {
-            $id = (int) ($data['id'] ?? 0);
-            if (!$id) {
-                return ['success' => false, 'message' => 'Alumni ID is required.'];
-            }
-
-            $stmt = $this->db->prepare("UPDATE alumni SET is_active_alumni = 0, updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$id]);
-
-            return ['success' => true, 'message' => 'Alumni record deactivated.'];
-        } catch (Exception $e) {
-            error_log('[StudentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-            return ['success' => false, 'message' => 'An internal error occurred.'];
-        }
+        return [
+            'success' => true,
+            'message' => 'Alumni record deactivated (no-op; graduation events are append-only in the new schema).',
+        ];
     }
 
     /**
@@ -6427,12 +6502,31 @@ class StudentsAPI extends BaseAPI
             $yearId = $currentYear['id'] ?? null;
         }
 
-        $sql = "SELECT ce.*, s.first_name, s.middle_name, s.last_name, s.admission_no, s.gender
-                FROM class_enrollments ce
-                JOIN students s ON ce.student_id = s.id
-                WHERE ce.class_id = ? AND ce.stream_id = ? AND ce.academic_year_id = ?
-                AND ce.enrollment_status IN ('pending', 'active')
-                ORDER BY s.last_name, s.first_name";
+        // New schema: enrollments live in student_academic_enrollments keyed by
+        // academic_year_class_stream_id. Class id is reached via the chain
+        // academic_year_class_streams → academic_year_classes → classes.
+        $sql = "SELECT sae.id AS enrollment_id,
+                       sae.student_id,
+                       sae.academic_year_id,
+                       sae.enrollment_status,
+                       s.admission_no,
+                       per.first_name,
+                       per.middle_name,
+                       per.last_name,
+                       per.gender,
+                       per.photo_url
+                FROM student_academic_enrollments sae
+                JOIN students s ON s.id = sae.student_id
+                JOIN persons per ON per.id = s.person_id
+                JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
+                WHERE ayc.class_id = ?
+                  AND aycs.stream_id = ?
+                  AND sae.academic_year_id = ?
+                  AND sae.enrollment_status IN ('pending', 'active')
+                ORDER BY per.last_name, per.first_name";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$classId, $streamId, $yearId]);

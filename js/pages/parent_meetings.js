@@ -262,7 +262,7 @@ const ParentMeetingsController = {
   },
 
   async cancelMeeting(id) {
-    if (!confirm("Cancel this meeting?")) return;
+    if (!(await window.confirmAction('Confirm', "Cancel this meeting?"))) return;
     try {
       if (window.API?.academic?.postCustom) {
         await window.API.academic.postCustom({ action: 'cancel-meeting', meeting_id: id }).catch(() => null);

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
+use App\API\Modules\system\SystemAPI;
 use Exception;
 
 /**
@@ -13,6 +14,14 @@ use Exception;
  */
 class EventsController extends BaseController
 {
+    private $api;
+
+    public function __construct($request = null)
+    {
+        parent::__construct($request);
+        $this->api = new SystemAPI();
+    }
+
     public function index($id = null, $data = [], $segments = [])
     {
         return $this->getEvents($id, $data, $segments);
@@ -26,36 +35,13 @@ class EventsController extends BaseController
     public function getEvents($id = null, $data = [], $segments = [])
     {
         $upcoming = !empty($_GET['upcoming']);
-        $limit    = min((int)($_GET['limit'] ?? 20), 100);
+        $limit = min((int)($_GET['limit'] ?? 20), 100);
 
         try {
-            $db = \App\Database\Database::getInstance();
-
-            // Try school_events table first
-            $table = null;
-            foreach (['school_events', 'calendar_events', 'events'] as $t) {
-                try {
-                    $db->query("SELECT 1 FROM {$t} LIMIT 1");
-                    $table = $t;
-                    break;
-                } catch (\Exception $e) {
-                    continue;
-                }
-            }
-
-            if (!$table) {
-                return $this->success([]);
-            }
-
-            $where = $upcoming ? "WHERE date >= CURDATE()" : "";
-            $stmt  = $db->prepare(
-                "SELECT id, title, date, type, description FROM {$table} {$where} ORDER BY date ASC LIMIT :lim"
-            );
-            $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
-            $stmt->execute();
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows ?: []);
-        } catch (\Exception $e) {
+            $result = $this->api->listSchoolEvents(null, $upcoming, $limit);
+            return $this->success($result['data'] ?? []);
+        } catch (Exception $e) {
+            error_log('[EventsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->success([]);
         }
     }

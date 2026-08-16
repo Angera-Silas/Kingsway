@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Controllers\BaseController;
+use App\API\Modules\students\PortfolioManager;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -20,6 +21,14 @@ use function App\API\Includes\formatResponse;
  */
 class PrintController extends BaseController
 {
+    private $portfolioManager;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->portfolioManager = new PortfolioManager($this->db->getConnection());
+    }
+
     private function guardPrint(): ?array
     {
         if (!$this->user) {
@@ -236,88 +245,10 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Student ID is required');
             }
 
-            // Fetch cumulative portfolio data from the database
-            $student = $this->db->query(
-                "SELECT s.id, s.first_name, s.last_name, s.admission_no, s.photo,
-                        c.name AS class_name, cs.stream_name
-                 FROM students s
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
-                 WHERE s.id = :sid",
-                [':sid' => $studentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-            if (!$student) {
+            $portfolioData = $this->portfolioManager->getStudentPortfolioData($studentId);
+            if (!$portfolioData) {
                 return formatResponse(false, null, 'Student not found');
             }
-
-            $portfolios = $this->db->query(
-                "SELECT * FROM portfolios WHERE student_id = :sid ORDER BY academic_year DESC",
-                [':sid' => $studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $artifacts = $this->db->query(
-                "SELECT pa.*, cc.name AS competency_name, cv.name AS value_name,
-                        p.academic_year
-                 FROM portfolio_artifacts pa
-                 JOIN portfolios p ON p.id = pa.portfolio_id
-                 LEFT JOIN core_competencies cc ON cc.id = pa.competency_id
-                 LEFT JOIN core_values cv ON cv.id = pa.value_id
-                 WHERE p.student_id = :sid
-                 ORDER BY pa.upload_date DESC",
-                [':sid' => $studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $compSummary = $this->db->query(
-                "SELECT cc.name AS competency_name,
-                        COUNT(pa.id) AS artifact_count,
-                        ROUND(AVG(pa.rating), 1) AS avg_rating,
-                        MAX(pa.rating) AS highest_rating
-                 FROM portfolio_artifacts pa
-                 JOIN portfolios p ON p.id = pa.portfolio_id
-                 JOIN core_competencies cc ON cc.id = pa.competency_id
-                 WHERE p.student_id = :sid AND pa.competency_id IS NOT NULL
-                 GROUP BY cc.id, cc.name
-                 ORDER BY artifact_count DESC",
-                [':sid' => $studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $valsSummary = $this->db->query(
-                "SELECT cv.name AS value_name, COUNT(pa.id) AS artifact_count
-                 FROM portfolio_artifacts pa
-                 JOIN portfolios p ON p.id = pa.portfolio_id
-                 JOIN core_values cv ON cv.id = pa.value_id
-                 WHERE p.student_id = :sid AND pa.value_id IS NOT NULL
-                 GROUP BY cv.id, cv.name
-                 ORDER BY artifact_count DESC",
-                [':sid' => $studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $fbRows = $this->db->query(
-                "SELECT pa.teacher_feedback
-                 FROM portfolio_artifacts pa
-                 JOIN portfolios p ON p.id = pa.portfolio_id
-                 WHERE p.student_id = :sid
-                   AND pa.teacher_feedback IS NOT NULL
-                   AND pa.teacher_feedback != ''
-                 ORDER BY pa.upload_date DESC",
-                [':sid' => $studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-            $teacherFeedback = implode("\n---\n", array_column($fbRows, 'teacher_feedback'));
-
-            $years = array_unique(array_filter(array_column($artifacts, 'academic_year')));
-            sort($years);
-            $yearRange = count($years) > 1 ? min($years) . ' \u2013 ' . max($years) : (string)(min($years) ?: date('Y'));
-
-            $portfolioData = [
-                'student' => $student,
-                'portfolio' => $portfolios[0] ?? [],
-                'allArtifacts' => $artifacts,
-                'competencySummary' => $compSummary,
-                'valuesSummary' => $valsSummary,
-                'teacherFeedback' => $teacherFeedback,
-                'yearRange' => $yearRange,
-                'totalArtifacts' => count($artifacts),
-            ];
 
             $pdfPath = $this->prints()->printPortfolio($portfolioData, $data);
             $pdfUrl = $this->getPrintUrl($pdfPath);

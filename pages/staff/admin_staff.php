@@ -165,12 +165,20 @@
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-        if (typeof StaffController !== 'undefined') {
-            StaffController.init({ view: 'admin' });
+    (function () {
+        function boot() {
+            RoleBasedUI.applyLayout();
+            if (typeof StaffController !== 'undefined') {
+                StaffController.init({ view: 'admin' });
+            }
         }
-    });
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+        } else {
+            boot();
+        }
+    })();
 
     function closeModal(modalId) {
         document.getElementById(modalId).classList.remove('show');

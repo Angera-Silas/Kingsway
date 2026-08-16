@@ -6,6 +6,7 @@ use App\API\Modules\schedules\SchedulesManager;
 use App\API\Modules\schedules\SchedulesWorkflow;
 use App\API\Modules\schedules\TermHolidayManager;
 use App\API\Modules\schedules\TermHolidayWorkflow;
+use App\API\Services\CalendarSyncService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use function App\API\Includes\dayNameToNumber;
@@ -18,6 +19,7 @@ class SchedulesAPI extends BaseAPI {
     private SchedulesWorkflow $workflow;
     private $termHolidayManager;
     private $termHolidayWorkflow;
+    private CalendarSyncService $calendarSync;
 
     public function __construct() {
         parent::__construct('schedules');
@@ -25,6 +27,7 @@ class SchedulesAPI extends BaseAPI {
         $this->workflow = new SchedulesWorkflow();
         $this->termHolidayManager = new TermHolidayManager($this->db);
         $this->termHolidayWorkflow = new TermHolidayWorkflow();
+        $this->calendarSync = new CalendarSyncService($this->db);
         // (Instantiate other workflow handlers as needed)
     }
 
@@ -104,6 +107,44 @@ class SchedulesAPI extends BaseAPI {
         try {
             $result = $this->manager->getScheduleAnalytics($filters);
             return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getWeeklyLessonStats()
+    {
+        try {
+            $startDate = new \DateTime('monday this week');
+            $endDate = new \DateTime('sunday this week');
+
+            $days = [];
+            $counts = [];
+
+            for ($date = clone $startDate; $date <= $endDate; $date->modify('+1 day')) {
+                $dayName = $date->format('D');
+                $dayNum = (int) $date->format('N');
+                $days[] = $dayName;
+
+                $stmt = $this->db->prepare(
+                    "SELECT COUNT(*) as total FROM vw_timetable_entries WHERE day_of_week = ? AND status = 'scheduled'"
+                );
+                $stmt->execute([$dayNum]);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                $counts[] = $row['total'] ?? 0;
+            }
+
+            $totalWeekly = array_sum($counts);
+            $dailyAverage = count($counts) > 0 ? round($totalWeekly / count($counts), 1) : 0;
+
+            return successResponse([
+                'days' => $days,
+                'data' => $counts,
+                'total_weekly' => $totalWeekly,
+                'daily_average' => $dailyAverage,
+                'week_start' => $startDate->format('Y-m-d'),
+                'week_end' => $endDate->format('Y-m-d'),
+            ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -262,145 +303,6 @@ class SchedulesAPI extends BaseAPI {
         try {
             $workflows = $this->workflow->listWorkflows($filters);
             return successResponse(['workflows' => $workflows]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function list($params = []) {
-        try {
-            [$page, $limit, $offset] = $this->getPaginationParams();
-            [$search, $sort, $order] = $this->getSearchParams();
-
-            $where = '';
-            $bindings = [];
-            if (!empty($search)) {
-                $where = "WHERE title LIKE ? OR description LIKE ?";
-                $searchTerm = "%$search%";
-                $bindings = [$searchTerm, $searchTerm];
-            }
-
-            // Get total count
-            $sql = "SELECT COUNT(*) FROM schedules $where";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($bindings);
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results
-            $sql = "SELECT * FROM schedules $where ORDER BY $sort $order LIMIT ? OFFSET ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($bindings, [$limit, $offset]));
-            $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return successResponse([
-                'schedules' => $schedules,
-                'pagination' => [
-                    'page' => $page,
-                    'limit' => $limit,
-                    'total' => $total,
-                    'total_pages' => ceil($total / $limit)
-                ]
-            ]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function get($id) {
-        try {
-            $stmt = $this->db->prepare("SELECT * FROM schedules WHERE id = ?");
-            $stmt->execute([$id]);
-            $schedule = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$schedule) {
-                return errorResponse('Schedule not found', 404);
-            }
-
-            return successResponse($schedule);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function create($data) {
-        try {
-            $required = ['title', 'start_date', 'end_date', 'type'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
-            }
-
-            $sql = "
-                INSERT INTO schedules (
-                    title,
-                    description,
-                    start_date,
-                    end_date,
-                    type,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['title'],
-                $data['description'] ?? null,
-                $data['start_date'],
-                $data['end_date'],
-                $data['type'],
-                $data['status'] ?? 'active'
-            ]);
-
-            $id = $this->db->lastInsertId();
-
-            return successResponse(['id' => $id, 'message' => 'Schedule created successfully'], 201);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function update($id, $data) {
-        try {
-            $stmt = $this->db->prepare("SELECT id FROM schedules WHERE id = ?");
-            $stmt->execute([$id]);
-            if (!$stmt->fetch()) {
-                return errorResponse('Schedule not found', 404);
-            }
-
-            $updates = [];
-            $params = [];
-            $allowedFields = ['title', 'description', 'start_date', 'end_date', 'type', 'status'];
-
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    $updates[] = "$field = ?";
-                    $params[] = $data[$field];
-                }
-            }
-
-            if (!empty($updates)) {
-                $params[] = $id;
-                $sql = "UPDATE schedules SET " . implode(', ', $updates) . " WHERE id = ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($params);
-            }
-
-            return successResponse(['message' => 'Schedule updated successfully']);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function delete($id) {
-        try {
-            $stmt = $this->db->prepare("DELETE FROM schedules WHERE id = ?");
-            $stmt->execute([$id]);
-
-            if ($stmt->rowCount() === 0) {
-                return errorResponse(['status' => 'error', 'message' => 'Schedule not found'], 404);
-            }
-
-            return successResponse(['message' => 'Schedule deleted successfully']);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -906,78 +808,46 @@ class SchedulesAPI extends BaseAPI {
             $conditions = [];
             $bindings = [];
 
-            // Filter by term
+            // Filter by term (academic_year_terms.id)
             if (!empty($params['term_id'])) {
-                $conditions[] = "es.term_id = ?";
+                $conditions[] = "term_id = ?";
                 $bindings[] = $params['term_id'];
             }
 
             // Filter by academic year
             if (!empty($params['academic_year_id'])) {
-                $conditions[] = "es.academic_year_id = ?";
+                $conditions[] = "academic_year_id = ?";
                 $bindings[] = $params['academic_year_id'];
             }
 
             // Filter by class
             if (!empty($params['class_id'])) {
-                $conditions[] = "es.class_id = ?";
+                $conditions[] = "class_id = ?";
                 $bindings[] = $params['class_id'];
             }
 
             // Filter by status
             if (!empty($params['status'])) {
-                $conditions[] = "es.status = ?";
+                $conditions[] = "status = ?";
                 $bindings[] = $params['status'];
-            } else {
-                $conditions[] = "es.status NOT IN ('cancelled')";
             }
 
             // Filter by exam type
             if (!empty($params['exam_type'])) {
-                $conditions[] = "es.exam_type = ?";
+                $conditions[] = "exam_type = ?";
                 $bindings[] = $params['exam_type'];
             }
 
             $whereClause = !empty($conditions) ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
+            // vw_upcoming_exam_schedules joins exam_schedules -> academic_year_class_streams
+            // -> academic_year_classes -> classes, learning_areas, rooms and staff->persons,
+            // exposing the legacy-friendly aliases term_id/academic_year_id/class_id/subject_id.
             $sql = "
-                SELECT 
-                    es.id,
-                    es.term_id,
-                    es.academic_year_id,
-                    es.class_id,
-                    c.name AS class_name,
-                    es.subject_id,
-                    COALESCE(cu.name, '') AS subject_name,
-                    es.exam_name,
-                    es.exam_type,
-                    es.exam_date,
-                    es.start_time,
-                    es.end_time,
-                    es.duration_minutes,
-                    es.room_id,
-                    r.name AS room_name,
-                    es.venue,
-                    es.invigilator_id,
-                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
-                    es.supervisor_id,
-                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
-                    es.notes,
-                    es.status,
-                    es.created_at,
-                    es.updated_at,
-                    at2.term_number AS term_number,
-                    ay.year_code AS academic_year
-                FROM exam_schedules es
-                JOIN classes c ON es.class_id = c.id
-                LEFT JOIN curriculum_units cu ON es.subject_id = cu.id
-                LEFT JOIN rooms r ON es.room_id = r.id
-                LEFT JOIN staff inv ON es.invigilator_id = inv.id
-                LEFT JOIN staff sup ON es.supervisor_id = sup.id
-                LEFT JOIN academic_terms at2 ON es.term_id = at2.id
-                LEFT JOIN academic_years ay ON es.academic_year_id = ay.id
+                SELECT *
+                FROM vw_upcoming_exam_schedules
                 {$whereClause}
-                ORDER BY es.exam_date ASC, es.start_time ASC
+                ORDER BY exam_date ASC, start_time ASC
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -993,38 +863,9 @@ class SchedulesAPI extends BaseAPI {
     public function getExamScheduleById($id) {
         try {
             $sql = "
-                SELECT 
-                    es.id,
-                    es.term_id,
-                    es.academic_year_id,
-                    es.class_id,
-                    c.name AS class_name,
-                    es.subject_id,
-                    COALESCE(cu.name, '') AS subject_name,
-                    es.exam_name,
-                    es.exam_type,
-                    es.exam_date,
-                    es.start_time,
-                    es.end_time,
-                    es.duration_minutes,
-                    es.room_id,
-                    r.name AS room_name,
-                    es.venue,
-                    es.invigilator_id,
-                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
-                    es.supervisor_id,
-                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
-                    es.notes,
-                    es.status,
-                    es.created_at,
-                    es.updated_at
-                FROM exam_schedules es
-                JOIN classes c ON es.class_id = c.id
-                LEFT JOIN curriculum_units cu ON es.subject_id = cu.id
-                LEFT JOIN rooms r ON es.room_id = r.id
-                LEFT JOIN staff inv ON es.invigilator_id = inv.id
-                LEFT JOIN staff sup ON es.supervisor_id = sup.id
-                WHERE es.id = ?
+                SELECT *
+                FROM vw_upcoming_exam_schedules
+                WHERE id = ?
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1049,12 +890,12 @@ class SchedulesAPI extends BaseAPI {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
+            $academicYearId = (int) ($data['academic_year_id'] ?? $this->getCurrentAcademicYearId());
             $sql = "
                 INSERT INTO exam_schedules (
-                    term_id,
-                    academic_year_id,
-                    class_id,
-                    subject_id,
+                    academic_year_class_stream_id,
+                    academic_year_term_id,
+                    learning_area_id,
                     exam_name,
                     exam_type,
                     exam_date,
@@ -1068,15 +909,14 @@ class SchedulesAPI extends BaseAPI {
                     notes,
                     created_by,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['term_id'] ?? null,
-                $data['academic_year_id'] ?? null,
-                $data['class_id'],
-                $data['subject_id'],
+                $this->resolveClassStreamId((int) ($data['class_id'] ?? 0), $academicYearId),
+                $this->resolveAcademicYearTermId((int) ($data['term_id'] ?? 0), $academicYearId),
+                $this->resolveLearningAreaId((int) ($data['subject_id'] ?? 0)),
                 $data['exam_name'] ?? null,
                 $data['exam_type'] ?? null,
                 $data['exam_date'],
@@ -1088,7 +928,7 @@ class SchedulesAPI extends BaseAPI {
                 $data['invigilator_id'] ?? null,
                 $data['supervisor_id'] ?? null,
                 $data['notes'] ?? null,
-                $data['created_by'] ?? null,
+                $data['created_by'] ?? $this->user_id,
                 $data['status'] ?? 'scheduled'
             ]);
 
@@ -1100,24 +940,73 @@ class SchedulesAPI extends BaseAPI {
         }
     }
 
+    /**
+     * Bulk-generate exam schedules for every active class stream x active learning
+     * area in a term. Delegates to sp_create_exam_schedule.
+     */
+    public function bulkGenerateExamSchedule($data) {
+        try {
+            $required = ['term_id', 'exam_type', 'start_date', 'end_date'];
+            $missing = $this->validateRequired($data, $required);
+            if (!empty($missing)) {
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
+            }
+
+            $stmt = $this->db->prepare('CALL sp_create_exam_schedule(:term_id, :exam_type, :start_date, :end_date, :created_by)');
+            $stmt->execute([
+                'term_id' => $data['term_id'],
+                'exam_type' => $data['exam_type'],
+                'start_date' => $data['start_date'],
+                'end_date' => $data['end_date'],
+                'created_by' => $data['created_by'] ?? $this->user_id
+            ]);
+
+            return successResponse(['message' => 'Exam schedules generated successfully'], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function updateExamSchedule($id, $data) {
         try {
-            // Build dynamic UPDATE
+            // Build dynamic UPDATE mapped to live columns
             $fields = [];
             $values = [];
 
-            $allowedFields = [
-                'term_id', 'academic_year_id', 'class_id', 'subject_id',
-                'exam_name', 'exam_type', 'exam_date', 'start_time', 'end_time',
-                'duration_minutes', 'room_id', 'venue', 'invigilator_id',
-                'supervisor_id', 'notes', 'status'
+            $columnMap = [
+                'term_id' => 'academic_year_term_id',
+                'class_id' => 'academic_year_class_stream_id',
+                'subject_id' => 'learning_area_id',
+                'exam_name' => 'exam_name',
+                'exam_type' => 'exam_type',
+                'exam_date' => 'exam_date',
+                'start_time' => 'start_time',
+                'end_time' => 'end_time',
+                'duration_minutes' => 'duration_minutes',
+                'room_id' => 'room_id',
+                'venue' => 'venue',
+                'invigilator_id' => 'invigilator_id',
+                'supervisor_id' => 'supervisor_id',
+                'notes' => 'notes',
+                'status' => 'status'
             ];
 
-            foreach ($allowedFields as $field) {
-                if (array_key_exists($field, $data)) {
-                    $fields[] = "{$field} = ?";
-                    $values[] = $data[$field];
+            $academicYearId = (int) ($data['academic_year_id'] ?? $this->getCurrentAcademicYearId());
+
+            foreach ($columnMap as $inputField => $column) {
+                if (!array_key_exists($inputField, $data) || $data[$inputField] === null) {
+                    continue;
                 }
+                $value = $data[$inputField];
+                if ($inputField === 'class_id') {
+                    $value = $this->resolveClassStreamId((int) $value, $academicYearId);
+                } elseif ($inputField === 'subject_id') {
+                    $value = $this->resolveLearningAreaId((int) $value);
+                } elseif ($inputField === 'term_id') {
+                    $value = $this->resolveAcademicYearTermId((int) $value, $academicYearId);
+                }
+                $fields[] = "{$column} = ?";
+                $values[] = $value;
             }
 
             if (empty($fields)) {
@@ -1158,21 +1047,14 @@ class SchedulesAPI extends BaseAPI {
 
     public function getEvents($params = []) {
         try {
-            $sql = "
-                SELECT 
-                    e.*,
-                    r.name as room_name,
-                    CONCAT(o.first_name, ' ', o.last_name) as organizer_name
-                FROM events e
-                LEFT JOIN rooms r ON e.room_id = r.id
-                LEFT JOIN staff o ON e.organizer_id = o.id
-                WHERE e.status = 'active'
-                ORDER BY e.start_date, e.start_time
-            ";
+            $events = $this->calendarSync->getUnifiedEvents();
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($params['type'])) {
+                $type = strtolower($params['type']);
+                $events = array_values(array_filter($events, function ($e) use ($type) {
+                    return strtolower($e['type']) === $type;
+                }));
+            }
 
             return successResponse($events);
         } catch (Exception $e) {
@@ -1182,46 +1064,355 @@ class SchedulesAPI extends BaseAPI {
 
     public function createEvent($data) {
         try {
-            $required = ['name', 'start_date', 'end_date', 'organizer_id'];
+            $required = ['name', 'start_date'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
+            $startAt = $data['start_date'] . ' ' . ($data['start_time'] ?? '00:00:00');
+            $endAt = !empty($data['end_date'])
+                ? $data['end_date'] . ' ' . ($data['end_time'] ?? '23:59:59')
+                : $startAt;
+
+            $nextIdStmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events");
+            $nextIdStmt->execute();
+            $eventId = (int)$nextIdStmt->fetchColumn();
+
             $sql = "
-                INSERT INTO events (
-                    name,
+                INSERT INTO school_events (
+                    id,
+                    title,
                     description,
-                    start_date,
-                    end_date,
-                    start_time,
-                    end_time,
-                    room_id,
-                    organizer_id,
+                    start_at,
+                    end_at,
                     type,
-                    participants,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    location,
+                    status,
+                    source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $eventId,
                 $data['name'],
                 $data['description'] ?? null,
-                $data['start_date'],
-                $data['end_date'],
-                $data['start_time'] ?? null,
-                $data['end_time'] ?? null,
-                $data['room_id'] ?? null,
-                $data['organizer_id'],
+                $startAt,
+                $endAt,
                 $data['type'] ?? 'general',
-                json_encode($data['participants'] ?? []),
-                'active'
+                $data['location'] ?? null,
+                $data['status'] ?? 'upcoming'
             ]);
 
-            $eventId = $this->db->lastInsertId();
+            $link = $this->calendarSync->applyEventToCalendar($eventId, $data);
 
-            return successResponse(['id' => $eventId, 'message' => 'Event created successfully'], 201);
+            return successResponse([
+                'id' => $eventId,
+                'calendar_day_id' => $link['calendar_day'],
+                'message' => 'Event created successfully'
+            ], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateEvent($id, $data) {
+        try {
+            $stmt = $this->db->prepare("SELECT id FROM school_events WHERE id = ?");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                return errorResponse(['message' => 'Event not found'], 404);
+            }
+
+            $fields = [];
+            $values = [];
+
+            $columnMap = [
+                'name' => 'title',
+                'title' => 'title',
+                'description' => 'description',
+                'type' => 'type',
+                'location' => 'location',
+                'status' => 'status'
+            ];
+
+            foreach ($columnMap as $inputField => $column) {
+                if (array_key_exists($inputField, $data) && $data[$inputField] !== null) {
+                    $fields[] = "{$column} = ?";
+                    $values[] = $data[$inputField];
+                }
+            }
+
+            if (array_key_exists('start_date', $data) && $data['start_date'] !== null) {
+                $fields[] = "start_at = ?";
+                $values[] = $data['start_date'] . ' ' . ($data['start_time'] ?? '00:00:00');
+            } elseif (array_key_exists('start_time', $data) && $data['start_time'] !== null) {
+                $fields[] = "start_at = CONCAT(DATE_FORMAT(start_at, '%Y-%m-%d '), ?)";
+                $values[] = $data['start_time'];
+            }
+
+            if (array_key_exists('end_date', $data) && $data['end_date'] !== null) {
+                $fields[] = "end_at = ?";
+                $values[] = $data['end_date'] . ' ' . ($data['end_time'] ?? '23:59:59');
+            } elseif (array_key_exists('end_time', $data) && $data['end_time'] !== null) {
+                $fields[] = "end_at = CONCAT(DATE_FORMAT(end_at, '%Y-%m-%d '), ?)";
+                $values[] = $data['end_time'];
+            }
+
+            if (empty($fields)) {
+                return errorResponse(['message' => 'No valid fields to update'], 400);
+            }
+
+            $values[] = $id;
+            $sql = "UPDATE school_events SET " . implode(', ', $fields) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            $link = $this->calendarSync->applyEventToCalendar((int) $id, $data);
+
+            return successResponse(['id' => $id, 'calendar_day_id' => $link['calendar_day'], 'message' => 'Event updated successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteEvent($id) {
+        try {
+            $result = $this->calendarSync->handleEventDelete((int) $id);
+
+            if ($result['calendar_day'] === null) {
+                $stmt = $this->db->prepare("UPDATE school_events SET status = 'cancelled' WHERE id = ?");
+                $stmt->execute([$id]);
+
+                if ($stmt->rowCount() === 0) {
+                    return errorResponse(['message' => 'Event not found'], 404);
+                }
+            }
+
+            return successResponse(['message' => 'Event deleted successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Full calendar <-> events reconciliation (called on events page load).
+     */
+    public function syncEvents($params = []) {
+        try {
+            $synced = $this->calendarSync->syncAcademicYear(null);
+            $normalized = $this->calendarSync->normalizeStatuses();
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Calendar and events are now in sync',
+                'synced' => $synced,
+                'normalized' => $normalized
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Mark the whole Mon-Fri week containing the given date as exam week.
+     */
+    public function markExamWeek($data) {
+        try {
+            $anchor = $data['date'] ?? $data['start_date'] ?? null;
+            if (!$anchor) {
+                return errorResponse(['message' => 'A date within the exam week is required'], 400);
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $anchor)) {
+                return errorResponse(['message' => 'Invalid date format'], 400);
+            }
+
+            $result = $this->calendarSync->markExamWeek($anchor);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => $result['message'],
+                'result' => $result
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // =============================
+    // Holiday Registry (UI-managed)
+    // school_holidays is the single master list of ALL holidays (national,
+    // religious - Idd moves with the moon, inter-term April/August/December,
+    // school). sp_generate_year_calendar reads it and materializes holidays
+    // onto academic_year_calendar_days, so editing a holiday here and clicking
+    // "Apply to Calendar" updates the whole year calendar + events.
+    // =============================
+
+    public function getHolidays($params = []) {
+        try {
+            $where = '1=1';
+            $bindings = [];
+            if (!empty($params['year'])) {
+                $year = (int) $params['year'];
+                $where .= ' AND (YEAR(start_date) = ? OR YEAR(end_date) = ?)';
+                $bindings = [$year, $year];
+            }
+            if (isset($params['active']) && $params['active'] !== '') {
+                $where .= ' AND is_active = ?';
+                $bindings[] = (int) $params['active'];
+            }
+            if (!empty($params['holiday_type'])) {
+                $where .= ' AND holiday_type = ?';
+                $bindings[] = $params['holiday_type'];
+            }
+
+            $stmt = $this->db->prepare(
+                "SELECT id, name, holiday_type, start_date, end_date, description, is_active, created_at, updated_at
+                 FROM school_holidays WHERE $where ORDER BY start_date, name"
+            );
+            $stmt->execute($bindings);
+
+            return successResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function createHoliday($data) {
+        try {
+            $name = trim((string) ($data['name'] ?? ''));
+            $start = $data['start_date'] ?? null;
+            $end = $data['end_date'] ?? $start;
+            if ($name === '' || empty($start)) {
+                return errorResponse('Holiday name and start date are required', 400);
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $start)
+                || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $end)) {
+                return errorResponse('Invalid date format (expected YYYY-MM-DD)', 400);
+            }
+            if (strcmp((string) $end, (string) $start) < 0) {
+                return errorResponse('End date cannot be before start date', 400);
+            }
+            $type = $data['holiday_type'] ?? 'school';
+            if (!in_array($type, ['national', 'religious', 'inter_term', 'school'], true)) {
+                return errorResponse('Invalid holiday type', 400);
+            }
+
+            $id = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_holidays")->fetchColumn();
+            $stmt = $this->db->prepare(
+                "INSERT INTO school_holidays (id, name, holiday_type, start_date, end_date, description, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+            );
+            $stmt->execute([
+                $id,
+                $name,
+                $type,
+                $start,
+                $end,
+                $data['description'] ?? null,
+                isset($data['is_active']) ? (int) $data['is_active'] : 1,
+            ]);
+
+            return successResponse(['id' => $id, 'message' => 'Holiday created'], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateHoliday($id, $data) {
+        try {
+            $id = (int) $id;
+            $fields = [
+                'name' => 'name',
+                'holiday_type' => 'holiday_type',
+                'start_date' => 'start_date',
+                'end_date' => 'end_date',
+                'description' => 'description',
+                'is_active' => 'is_active',
+            ];
+            $sets = [];
+            $values = [];
+            foreach ($fields as $from => $col) {
+                if (array_key_exists($from, $data) && $data[$from] !== null) {
+                    $sets[] = "$col = ?";
+                    $values[] = $data[$from];
+                }
+            }
+            if (empty($sets)) {
+                return errorResponse('No fields to update', 400);
+            }
+            if (array_key_exists('start_date', $data) || array_key_exists('end_date', $data)) {
+                $row = $this->db->prepare("SELECT start_date, end_date FROM school_holidays WHERE id = ?");
+                $row->execute([$id]);
+                $cur = $row->fetch(PDO::FETCH_ASSOC);
+                if (!$cur) {
+                    return errorResponse('Holiday not found', 404);
+                }
+                $start = $data['start_date'] ?? $cur['start_date'];
+                $end = $data['end_date'] ?? $cur['end_date'];
+                if (strcmp((string) $end, (string) $start) < 0) {
+                    return errorResponse('End date cannot be before start date', 400);
+                }
+            }
+
+            $values[] = $id;
+            $stmt = $this->db->prepare("UPDATE school_holidays SET " . implode(', ', $sets) . " WHERE id = ?");
+            $stmt->execute($values);
+            if ($stmt->rowCount() === 0) {
+                // rowCount is 0 both when the row is missing and when no column
+                // changed; treat a missing row as an error.
+                $check = $this->db->prepare("SELECT id FROM school_holidays WHERE id = ?");
+                $check->execute([$id]);
+                if (!$check->fetchColumn()) {
+                    return errorResponse('Holiday not found', 404);
+                }
+            }
+
+            return successResponse(['id' => $id, 'message' => 'Holiday updated']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteHoliday($id) {
+        try {
+            $stmt = $this->db->prepare("DELETE FROM school_holidays WHERE id = ?");
+            $stmt->execute([(int) $id]);
+            if ($stmt->rowCount() === 0) {
+                return errorResponse('Holiday not found', 404);
+            }
+            return successResponse(['message' => 'Holiday deleted']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Re-apply the holiday registry to the year calendar (regenerates the
+     * calendar and re-syncs events). Called after holiday edits.
+     */
+    public function applyHolidays($params = []) {
+        try {
+            $yearId = (int) ($params['academic_year_id'] ?? 0);
+            if (!$yearId) {
+                $yearId = (int) $this->db->query(
+                    "SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+                )->fetchColumn();
+            }
+            if (!$yearId) {
+                return errorResponse('No academic year found', 404);
+            }
+
+            require_once __DIR__ . '/../academic/AcademicCalendarService.php';
+            $calendarService = new \App\API\Modules\academic\AcademicCalendarService($this->db);
+            $result = $calendarService->generateYearCalendar($yearId);
+            $this->calendarSync->syncAcademicYear($yearId);
+
+            return successResponse([
+                'message' => 'Holidays applied to the calendar',
+                'calendar' => $result['data'] ?? null,
+            ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -1230,17 +1421,18 @@ class SchedulesAPI extends BaseAPI {
     public function getActivitySchedule($params = []) {
         try {
             $sql = "
-                SELECT 
-                    a.*,
-                    ac.name as activity_name,
-                    r.name as room_name,
-                    CONCAT(s.first_name, ' ', s.last_name) as supervisor_name
-                FROM activity_schedules a
+                SELECT
+                    a.id,
+                    a.activity_id,
+                    ac.title AS activity_name,
+                    a.day_of_week,
+                    a.schedule_date,
+                    a.start_time,
+                    a.end_time,
+                    a.venue
+                FROM activity_schedule a
                 JOIN activities ac ON a.activity_id = ac.id
-                LEFT JOIN rooms r ON a.room_id = r.id
-                LEFT JOIN staff s ON a.supervisor_id = s.id
-                WHERE a.status = 'active'
-                ORDER BY a.day_of_week, a.start_time
+                ORDER BY a.schedule_date, a.start_time
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1255,35 +1447,31 @@ class SchedulesAPI extends BaseAPI {
 
     public function createActivitySchedule($data) {
         try {
-            $required = ['activity_id', 'day_of_week', 'start_time', 'end_time'];
+            $required = ['activity_id', 'schedule_date', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
-                INSERT INTO activity_schedules (
+                INSERT INTO activity_schedule (
                     activity_id,
-                    room_id,
-                    supervisor_id,
                     day_of_week,
+                    schedule_date,
                     start_time,
                     end_time,
-                    max_participants,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    venue
+                ) VALUES (?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['activity_id'],
-                $data['room_id'] ?? null,
-                $data['supervisor_id'] ?? null,
-                $data['day_of_week'],
+                $data['day_of_week'] ?? date('l', strtotime($data['schedule_date'])),
+                $data['schedule_date'],
                 $data['start_time'],
                 $data['end_time'],
-                $data['max_participants'] ?? null,
-                'active'
+                $data['venue'] ?? null
             ]);
 
             $scheduleId = $this->db->lastInsertId();
@@ -1364,85 +1552,6 @@ class SchedulesAPI extends BaseAPI {
         }
     }
 
-    public function getScheduledReports($params = []) {
-        try {
-            $sql = "
-                SELECT 
-                    sr.*,
-                    CONCAT(s.first_name, ' ', s.last_name) as recipient_name
-                FROM scheduled_reports sr
-                LEFT JOIN staff s ON sr.recipient_id = s.id
-                WHERE sr.status = 'active'
-                ORDER BY sr.frequency, sr.next_run
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return successResponse($reports);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    public function createScheduledReport($data) {
-        try {
-            $required = ['name', 'report_type', 'frequency', 'recipient_id'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
-            }
-
-            $sql = "
-                INSERT INTO scheduled_reports (
-                    name,
-                    description,
-                    report_type,
-                    parameters,
-                    frequency,
-                    next_run,
-                    recipient_id,
-                    format,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ";
-
-            // Calculate next run based on frequency
-            $nextRun = new DateTime();
-            switch ($data['frequency']) {
-                case 'daily':
-                    $nextRun->modify('+1 day');
-                    break;
-                case 'weekly':
-                    $nextRun->modify('next monday');
-                    break;
-                case 'monthly':
-                    $nextRun->modify('first day of next month');
-                    break;
-            }
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['name'],
-                $data['description'] ?? null,
-                $data['report_type'],
-                json_encode($data['parameters'] ?? []),
-                $data['frequency'],
-                $nextRun->format('Y-m-d H:i:s'),
-                $data['recipient_id'],
-                $data['format'] ?? 'pdf',
-                'active'
-            ]);
-
-            $reportId = $this->db->lastInsertId();
-
-            return successResponse(['id' => $reportId, 'message' => 'Scheduled report created successfully'], 201);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
     public function getRouteSchedule($params = []) {
         try {
             $sql = "
@@ -1450,13 +1559,14 @@ class SchedulesAPI extends BaseAPI {
                     rs.*,
                     r.name as route_name,
                     v.registration_number,
-                    CONCAT(d.first_name, ' ', d.last_name) as driver_name,
+                    CONCAT(dp.first_name, ' ', dp.last_name) as driver_name,
                     COUNT(DISTINCT ta.student_id) as student_count
                 FROM route_schedules rs
                 JOIN transport_routes r ON rs.route_id = r.id
                 LEFT JOIN transport_vehicles v ON rs.vehicle_id = v.id
                 LEFT JOIN staff d ON rs.driver_id = d.id
-                LEFT JOIN transport_assignments ta ON r.id = ta.route_id
+                LEFT JOIN persons dp ON dp.id = d.person_id
+                LEFT JOIN student_transport_assignments ta ON r.id = ta.route_id AND ta.status = 'active'
                 WHERE rs.status = 'active'
                 GROUP BY rs.id
                 ORDER BY rs.day_of_week, rs.pickup_time
@@ -1486,11 +1596,13 @@ class SchedulesAPI extends BaseAPI {
                     vehicle_id,
                     driver_id,
                     day_of_week,
+                    direction,
+                    departure_time,
                     pickup_time,
                     dropoff_time,
                     notes,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1499,10 +1611,12 @@ class SchedulesAPI extends BaseAPI {
                 $data['vehicle_id'] ?? null,
                 $data['driver_id'] ?? null,
                 $data['day_of_week'],
+                $data['direction'] ?? 'pickup',
+                $data['departure_time'] ?? $data['pickup_time'],
                 $data['pickup_time'],
                 $data['dropoff_time'],
                 $data['notes'] ?? null,
-                'active'
+                $data['status'] ?? 'active'
             ]);
 
             $scheduleId = $this->db->lastInsertId();

@@ -33,7 +33,7 @@ class FinanceController extends BaseController
         $this->expenseManager = new ExpenseManager();
         $this->allowanceTemplateApi = new AllowanceTemplateAPI();
         $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->crud = new FinanceCrudService($this->db);
+        $this->crud = new FinanceCrudService(Database::getInstance()->getConnection());
     }
 
     public function index()
@@ -46,7 +46,7 @@ class FinanceController extends BaseController
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+        } catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     private function validatePayrollPayloadEligibility(array $payload): ?array
@@ -59,7 +59,7 @@ class FinanceController extends BaseController
         }
         foreach (array_unique(array_filter($staffIds)) as $staffId) {
             try { $this->staffAccess->assertPayrollEligible($staffId); }
-            catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
+            catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         }
         return null;
     }
@@ -1105,15 +1105,7 @@ class FinanceController extends BaseController
      */
     private function getCurrentAcademicYear()
     {
-        try {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
-            $stmt->execute();
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return $result['year_code'] ?? date('Y');
-        } catch (\Exception $e) {
-            return date('Y');
-        }
+        return $this->api->getCurrentAcademicYearCode();
     }
 
     // ========================================
@@ -1125,25 +1117,8 @@ class FinanceController extends BaseController
      */
     public function getReports($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = $this->db ?? \App\Database\Database::getInstance();
-            // Return basic financial summary for the reports page
-            $stmt = $db->query(
-                "SELECT
-                    (SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE YEAR(payment_date)=YEAR(CURDATE())) AS total_collected_ytd,
-                    (SELECT COALESCE(SUM(total_fees - paid_amount),0) FROM student_fees WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
-                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
-                    (SELECT COUNT(*) FROM fee_payments WHERE DATE(payment_date)=CURDATE()) AS payments_today"
-            );
-            $summary = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-            return $this->success(['summary' => $summary, 'report_types' => [
-                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
-            ]]);
-        } catch (\Exception $e) {
-            return $this->success(['summary' => [], 'report_types' => [
-                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
-            ]]);
-        }
+        $result = $this->api->getFinancialSummaryReport();
+        return $this->handleResponse($result);
     }
 
     /**
@@ -1408,6 +1383,49 @@ return $this->error('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+    /**
+     * POST /api/finance/fees-create-bundle
+     * Create (or re-create) a grade-range fee structure bundle.
+     * Body: academic_year, grade_range {from_id,to_id}, student_type_ids[],
+     *       items { CODE: { termN: { studentTypeId: amount } } }
+     */
+    public function postFeesCreateBundle($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['academic_year']) || empty($data['grade_range']) || empty($data['items'])) {
+            return $this->badRequest('academic_year, grade_range and items are required');
+        }
+        if (empty($data['student_type_ids'])) {
+            return $this->badRequest('At least one student_type_id is required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['created_by'] = $userId;
+        $result = $this->api->createFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fees-bundle-grid
+     * Read an existing grade-range bundle as a tabular grid (for edit/view).
+     * Query: academic_year, from_id, to_id, student_type_ids[]
+     */
+    public function getFeesBundleGrid($id = null, $data = [], $segments = [])
+    {
+        $data = array_merge($_GET, $data);
+        $gradeRange = [
+            'from_id' => $data['from_id'] ?? $data['grade_range']['from_id'] ?? null,
+            'to_id' => $data['to_id'] ?? $data['grade_range']['to_id'] ?? null,
+        ];
+        if (empty($data['academic_year']) || empty($gradeRange['from_id']) || empty($gradeRange['to_id'])) {
+            return $this->badRequest('academic_year, from_id and to_id are required');
+        }
+        $result = $this->api->getFeeStructureBundleGrid([
+            'academic_year' => $data['academic_year'],
+            'grade_range' => $gradeRange,
+            'student_type_ids' => $data['student_type_ids'] ?? null,
+        ]);
+        return $this->handleResponse($result);
+    }
+
     // ========================================
     // SECTION 9: Student Billing History
     // ========================================
@@ -1446,49 +1464,16 @@ return $this->error('An internal error occurred.');
     public function getExpenses($id = null, $data = [], $segments = [])
     {
         if ($id) {
-            $row = $this->db->query(
-                "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                        CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                 FROM expenses e
-                 LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                 LEFT JOIN users u ON u.id = e.created_by
-                 LEFT JOIN users a ON a.id = e.approved_by
-                 WHERE e.id = ? AND e.deleted_at IS NULL",
-                [$id]
-            )->fetch();
+            $result = $this->api->getExpenseDetailed((int)$id);
+            if (($result['code'] ?? 200) >= 400) {
+                return $this->notFound('Expense not found');
+            }
+            $row = $result['data'] ?? null;
             return $row ? $this->success($row) : $this->notFound('Expense not found');
         }
-        $where = ['e.deleted_at IS NULL'];
-        $params = [];
-        if (!empty($data['status']))       { $where[] = 'e.status = ?';            $params[] = $data['status']; }
-        if (!empty($data['category_id']))  { $where[] = 'e.category_id = ?';       $params[] = $data['category_id']; }
-        if (!empty($data['department_id'])){ $where[] = 'e.department_id = ?';     $params[] = $data['department_id']; }
-        if (!empty($data['date_from']))    { $where[] = 'e.expense_date >= ?';      $params[] = $data['date_from']; }
-        if (!empty($data['date_to']))      { $where[] = 'e.expense_date <= ?';      $params[] = $data['date_to']; }
-        if (!empty($data['academic_year'])){ $where[] = 'e.academic_year = ?';      $params[] = $data['academic_year']; }
-        if (!empty($data['search'])) {
-            $where[] = '(e.description LIKE ? OR e.vendor_name LIKE ? OR e.expense_number LIKE ?)';
-            $s = '%'.$data['search'].'%';
-            $params = array_merge($params, [$s, $s, $s]);
-        }
-        $sql = "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                       CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                FROM expenses e
-                LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                LEFT JOIN users u ON u.id = e.created_by
-                LEFT JOIN users a ON a.id = e.approved_by
-                WHERE " . implode(' AND ', $where) . " ORDER BY e.expense_date DESC LIMIT 200";
-        $rows = $this->db->query($sql, $params)->fetchAll();
 
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount),0) AS total_amount,
-                    COALESCE(SUM(CASE WHEN status='pending_approval' THEN amount END),0) AS pending_amount,
-                    COALESCE(SUM(CASE WHEN status='approved' THEN amount END),0) AS approved_amount,
-                    COALESCE(SUM(CASE WHEN status='paid' THEN amount END),0) AS paid_amount,
-                    COALESCE(SUM(CASE WHEN MONTH(expense_date)=MONTH(CURDATE()) AND YEAR(expense_date)=YEAR(CURDATE()) THEN amount END),0) AS this_month
-             FROM expenses WHERE deleted_at IS NULL"
-        )->fetch();
-        return $this->success(['expenses' => $rows, 'stats' => $stats]);
+        $result = $this->api->listExpensesWithStats($data);
+        return $this->handleResponse($result);
     }
 
     /** POST /api/finance/expenses — create expense */
@@ -1570,9 +1555,12 @@ return $this->error('An internal error occurred.');
     // SECTION 12: Cash Reconciliation
     // ========================================
 
-    /** GET /api/finance/cash-reconciliation — list sessions or get one by date */
+    /** GET /api/finance/cash-reconciliation — list sessions or get one by date or id */
     public function getCashReconciliation($id = null, $data = [], $segments = [])
     {
+        if ($id !== null) {
+            return $this->success($this->crud->getCashReconciliationById($id));
+        }
         if (!empty($data['date'])) {
             $session = $this->crud->getCashReconciliationByDate($data['date']);
             return $this->success($session ?: null);
@@ -1735,8 +1723,7 @@ return $this->error('An internal error occurred.');
     public function postFeeCredits($id = null, $data = [], $segments = [])
     {
         if (empty($data['student_id']) || empty($data['credit_amount'])) {
-            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+            return $this->badRequest('student_id and credit_amount are required');
         }
         $userId = $this->user['id'] ?? null;
         $result = $this->crud->createFeeCredit($data, $userId);
@@ -1745,8 +1732,9 @@ return $this->error('An internal error occurred.');
 
     public function putFeeCredits($id = null, $data = [], $segments = [])
     {
-        if (!$id) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$id) {
+            return $this->badRequest('Credit note id is required');
+        }
         $action = $data['action'] ?? 'apply';
         $credit = $this->crud->getFeeCredit((int)$id);
         if (!$credit) return $this->error('Credit note not found', 404);
@@ -1757,8 +1745,9 @@ return $this->error('An internal error occurred.');
         }
 
         $applyAmount = min((float)($data['apply_amount'] ?? 0), (float)$credit['remaining_amount']);
-        if ($applyAmount <= 0) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if ($applyAmount <= 0) {
+            return $this->badRequest('apply_amount must be greater than zero');
+        }
         $this->crud->applyFeeCredit((int)$id, $applyAmount, $data);
         return $this->success(['applied' => $applyAmount]);
     }
@@ -1778,11 +1767,12 @@ return $this->error('An internal error occurred.');
     {
         $staffId = $data['staff_id'] ?? null;
         $amount  = $data['requested_amount'] ?? null;
-        if (!$staffId || !$amount) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$staffId || !$amount) {
+            return $this->badRequest('staff_id and requested_amount are required');
+        }
 
         $existing = (float)$this->crud->getActiveAdvanceBalance((int)$staffId);
-        $salary = (float) $this->db->query("SELECT basic_salary FROM staff WHERE id = " . (int)$staffId)->fetchColumn();
+        $salary = (float)$this->crud->getStaffBasicSalary((int)$staffId);
         if ($salary > 0 && ($existing + (float)$amount) > $salary) {
             return $this->error(
                 "Advance exceeds limit. Active balance: KES " . number_format($existing, 2) .
@@ -1796,8 +1786,9 @@ return $this->error('An internal error occurred.');
 
     public function putSalaryAdvances($id = null, $data = [], $segments = [])
     {
-        if (!$id) error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$id) {
+            return $this->badRequest('Advance id is required');
+        }
         $action = $data['action'] ?? null;
         $userId = $this->user['id'] ?? null;
         $advance = $this->crud->getSalaryAdvance((int)$id);
@@ -1822,8 +1813,7 @@ return $this->error('An internal error occurred.');
             $this->crud->recordSalaryAdvanceDeduction((int)$id, $amt, $newBalance, $newStatus);
             return $this->success(['deducted' => $amt, 'remaining' => $newBalance]);
         }
-        error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        return $this->badRequest('Unknown action');
     }
 
     /**

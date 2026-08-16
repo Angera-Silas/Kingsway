@@ -2,6 +2,9 @@
 /**
  * Two-Factor Authentication Controller
  *
+ * Thin endpoint layer; all business logic lives in TwoFactorService
+ * (TOTP/OTP, backup codes) and OTPDeliveryService (email/SMS delivery).
+ *
  * API endpoints:
  *   POST /api/2fa/status          — Get 2FA status for current user
  *   POST /api/2fa/setup/totp      — Start TOTP setup (returns secret + QR URL)
@@ -34,10 +37,9 @@ class TwoFactorController extends BaseController
         $this->otpDelivery = new OTPDeliveryService();
     }
 
-    protected function getUserId(): int
+    private function currentUser(): array
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        return (int) ($user['user_id'] ?? $user['id'] ?? 0);
+        return $_SERVER['auth_user'] ?? [];
     }
 
     /**
@@ -61,12 +63,11 @@ class TwoFactorController extends BaseController
         if (!$userId) return $this->unauthorized('Not authenticated');
 
         $secret = $this->tfa->generateSecret();
-        $user = $_SERVER['auth_user'] ?? [];
+        $user = $this->currentUser();
         $email = $user['email'] ?? '';
         $uri = $this->tfa->getTOTPUri($secret, $email);
 
-        // Store the pending secret (not yet enabled)
-        $this->storePendingSecret($userId, $secret, 'totp');
+        $this->tfa->storePendingSecret($userId, $secret, 'totp');
 
         return $this->success([
             'secret' => $secret,
@@ -86,7 +87,7 @@ class TwoFactorController extends BaseController
         $userId = $this->getUserId();
         if (!$userId) return $this->unauthorized('Not authenticated');
 
-        $user = $_SERVER['auth_user'] ?? [];
+        $user = $this->currentUser();
         $email = $user['email'] ?? '';
         if (!$email) return $this->badRequest('No email address on file');
 
@@ -109,7 +110,7 @@ class TwoFactorController extends BaseController
         $userId = $this->getUserId();
         if (!$userId) return $this->unauthorized('Not authenticated');
 
-        $user = $_SERVER['auth_user'] ?? [];
+        $user = $this->currentUser();
         $phone = $user['phone'] ?? $user['phone_1'] ?? '';
         if (!$phone) return $this->badRequest('No phone number on file');
 
@@ -136,7 +137,7 @@ class TwoFactorController extends BaseController
         $code = trim($data['code'] ?? '');
         if (!$code) return $this->badRequest('Verification code is required');
 
-        $pending = $this->getPendingSecret($userId);
+        $pending = $this->tfa->getPendingSecret($userId);
         if (!$pending) return $this->badRequest('No pending 2FA setup. Start setup again.');
 
         $verified = false;
@@ -152,20 +153,17 @@ class TwoFactorController extends BaseController
             return $this->badRequest('Invalid verification code. Please try again.');
         }
 
-        // Enable 2FA — for email/sms the "secret" is just a marker (OTP-based each time)
         $storeSecret = $secret ?? strtoupper(bin2hex(random_bytes(16)));
         $this->tfa->enable2FA($userId, $pending['method'], $storeSecret);
 
-        // Generate backup codes
         $backupCodes = $this->tfa->generateBackupCodes($userId);
 
-        // Send backup codes via email
-        $user = $_SERVER['auth_user'] ?? [];
+        $user = $this->currentUser();
         if (!empty($user['email'])) {
             $this->otpDelivery->sendBackupCodesEmail($user['email'], $backupCodes);
         }
 
-        $this->clearPendingSecret($userId);
+        $this->tfa->clearPendingSecret($userId);
 
         return $this->success([
             'method' => $pending['method'],
@@ -190,29 +188,17 @@ class TwoFactorController extends BaseController
         if (!$password) return $this->badRequest('Password is required');
         if (!$code) return $this->badRequest('Verification code is required');
 
-        // Verify password
-        $user = $_SERVER['auth_user'] ?? [];
-        $stmt = $this->tfa->db ?? null;
-        // Use the database directly to verify password
-        $db = \App\Database\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT password FROM users WHERE id = ?");
-        $stmt->execute([$userId]);
-        $hash = $stmt->fetchColumn();
-
-        if (!$hash || !password_verify($password, $hash)) {
+        if (!$this->tfa->verifyUserPassword($userId, $password)) {
             return $this->badRequest('Incorrect password');
         }
 
-        // Verify current 2FA code
         $method = $this->tfa->getRequiredMethod($userId);
         $verified = false;
 
         if ($method === 'totp') {
             $secret = $this->tfa->getSecret($userId);
             $verified = $secret && $this->tfa->verifyTOTP($secret, $code);
-        } elseif ($method === 'email') {
-            $verified = $this->tfa->verifyOTP($userId, $code, 'disable');
-        } elseif ($method === 'sms') {
+        } elseif (in_array($method, ['email', 'sms'])) {
             $verified = $this->tfa->verifyOTP($userId, $code, 'disable');
         }
 
@@ -238,13 +224,9 @@ class TwoFactorController extends BaseController
             return $this->badRequest('Enable 2FA first');
         }
 
-        // Delete old codes
-        $db = \App\Database\Database::getInstance()->getConnection();
-        $db->prepare("DELETE FROM user_2fa_backup_codes WHERE user_id = ?")->execute([$userId]);
+        $codes = $this->tfa->rotateBackupCodes($userId);
 
-        $codes = $this->tfa->generateBackupCodes($userId);
-
-        $user = $_SERVER['auth_user'] ?? [];
+        $user = $this->currentUser();
         if (!empty($user['email'])) {
             $this->otpDelivery->sendBackupCodesEmail($user['email'], $codes);
         }
@@ -263,9 +245,6 @@ class TwoFactorController extends BaseController
      */
     public function postChallenge($id = null, $data = [])
     {
-        // This endpoint is called during login, so the user is NOT yet
-        // fully authenticated. We need to identify the user from the
-        // pending login state or from a temporary token.
         $targetUserId = (int) ($data['user_id'] ?? 0);
         if (!$targetUserId) return $this->badRequest('User ID is required');
 
@@ -273,25 +252,20 @@ class TwoFactorController extends BaseController
         if (!$method) return $this->badRequest('2FA is not enabled for this user');
 
         if ($method === 'totp') {
-            // TOTP doesn't need a challenge — user just enters the code
             return $this->success(['method' => 'totp', 'challenge_sent' => false],
                 'Enter the code from your authenticator app.');
         }
 
-        // For email/sms, send the OTP
-        $db = \App\Database\Database::getInstance()->getConnection();
-        $stmt = $db->prepare("SELECT email, phone_1 FROM users WHERE id = ?");
-        $stmt->execute([$targetUserId]);
-        $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $contact = $this->tfa->getUserContact($targetUserId);
 
         $code = $this->tfa->generateOTP($targetUserId, $method, 'login');
         if (!$code) return $this->serverError('Failed to generate OTP');
 
         $sent = false;
-        if ($method === 'email' && !empty($user['email'])) {
-            $sent = $this->otpDelivery->sendEmailOTP($user['email'], $code, 'login');
-        } elseif ($method === 'sms' && !empty($user['phone_1'])) {
-            $sent = $this->otpDelivery->sendSMSOTP($user['phone_1'], $code, 'login');
+        if ($method === 'email' && !empty($contact['email'])) {
+            $sent = $this->otpDelivery->sendEmailOTP($contact['email'], $code, 'login');
+        } elseif ($method === 'sms' && !empty($contact['phone_1'])) {
+            $sent = $this->otpDelivery->sendSMSOTP($contact['phone_1'], $code, 'login');
         }
 
         if (!$sent) return $this->serverError("Failed to send {$method} verification code");
@@ -346,73 +320,5 @@ class TwoFactorController extends BaseController
             'verified' => true,
             'user_id' => $targetUserId,
         ], 'Verification successful.');
-    }
-
-    // ========================================================================
-    // Pending TOTP setup state (plaintext secret needed for TOTP verification)
-    // ========================================================================
-
-    private function storePendingSecret(int $userId, string $secret, string $method): void
-    {
-        // Only needed for TOTP — email/SMS OTPs are already stored by
-        // TwoFactorService::generateOTP() in user_2fa_otp_sessions.
-        // For TOTP we store the plaintext secret temporarily (15 min TTL)
-        // because verifyTOTP() requires the original secret.
-        if ($method !== 'totp') return;
-
-        $db = \App\Database\Database::getInstance()->getConnection();
-
-        $db->prepare(
-            "DELETE FROM user_2fa_otp_sessions WHERE user_id = ? AND otp_type = 'setup_pending'"
-        )->execute([$userId]);
-
-        $expires = date('Y-m-d H:i:s', time() + 900);
-        $db->prepare(
-            "INSERT INTO user_2fa_otp_sessions
-             (user_id, otp_code, otp_type, method, otp_expires_at)
-             VALUES (?, ?, 'setup_pending', 'totp', ?)"
-        )->execute([$userId, $secret, $expires]);
-    }
-
-    private function getPendingSecret(int $userId): ?array
-    {
-        $db = \App\Database\Database::getInstance()->getConnection();
-
-        // First check for a pending TOTP setup (plaintext secret stored)
-        $stmt = $db->prepare(
-            "SELECT otp_code AS secret, method FROM user_2fa_otp_sessions
-             WHERE user_id = ? AND otp_type = 'setup_pending'
-             AND otp_expires_at > NOW() ORDER BY id DESC LIMIT 1"
-        );
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        if ($row && $row['method'] === 'totp') {
-            return $row; // ['secret' => 'JBSWY3DPEHPK3PXP', 'method' => 'totp']
-        }
-
-        // For email/sms: check if a setup OTP was generated (stored by generateOTP)
-        $stmt = $db->prepare(
-            "SELECT method FROM user_2fa_otp_sessions
-             WHERE user_id = ? AND otp_type = 'setup'
-             AND otp_expires_at > NOW() ORDER BY id DESC LIMIT 1"
-        );
-        $stmt->execute([$userId]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        if ($row) {
-            return ['secret' => null, 'method' => $row['method']];
-        }
-
-        return null;
-    }
-
-    private function clearPendingSecret(int $userId): void
-    {
-        $db = \App\Database\Database::getInstance()->getConnection();
-        $db->prepare(
-            "DELETE FROM user_2fa_otp_sessions
-             WHERE user_id = ? AND otp_type IN ('setup_pending', 'setup')"
-        )->execute([$userId]);
     }
 }

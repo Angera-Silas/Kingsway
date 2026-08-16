@@ -163,7 +163,7 @@ const VendorsController = (() => {
   }
 
   async function deleteVendor(id, name) {
-    if (!confirm(`Deactivate vendor "${name}"? They will be marked inactive.`)) return;
+    if (!(await window.confirmAction('Confirm Deactivation', `Deactivate vendor "${name}"? They will be marked inactive.`, { confirmText: 'Deactivate', danger: true }))) return;
     try {
       await callAPI('/vendors/' + id, 'DELETE');
       showNotification('Vendor deactivated', 'success');

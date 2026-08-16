@@ -230,7 +230,7 @@ const GradingScalesCtrl = {
     },
 
     async deleteRule(id) {
-        const confirmed = window.confirm('Delete this grade range? This affects every report that uses it.');
+        const confirmed = await window.confirmAction('Confirm Deletion', 'Delete this grade range? This affects every report that uses it.', { confirmText: 'Delete', danger: true });
         if (!confirmed) return;
         try {
             await callAPI('/api/academic/grade-rules/' + id, 'DELETE');

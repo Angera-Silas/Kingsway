@@ -354,17 +354,17 @@
       add("»", this.currentPage + 1, this.currentPage >= total);
     },
 
-    viewMessage: function (index) {
+    viewMessage: async function (index) {
       const item = this.filtered[index];
       if (!item) return;
       const recipients = item.recipient_summary || item.recipient_type || "—";
       const msg = String(item.content || item.message || item.subject || "No message").substring(0, 1600);
-      alert("Recipients: " + recipients + "\nType: " + (item.category || "—") + "\nStatus: " + (item.status || "—") + "\n\n" + msg);
+      await window.infoDialog('Notice', "Recipients: " + recipients + "\nType: " + (item.category || "—") + "\nStatus: " + (item.status || "—") + "\n\n" + msg);
     },
 
     resendMessage: async function (index) {
       const item = this.filtered[index];
-      if (!item || !confirm("Resend this SMS?")) return;
+      if (!item || !(await window.confirmAction('Confirm', "Resend this SMS?"))) return;
       const id = item.id || item.communication_id;
       if (!id) { this.notify("Missing ID", "error"); return; }
       try {

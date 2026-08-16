@@ -24,14 +24,14 @@ final class FinanceCrudService
         $expNo = 'EXP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
         $this->db->prepare(
             "INSERT INTO expenses (expense_number, category_id, description, amount, expense_date,
-                payment_method, reference_number, vendor_id, vendor_name, receipt_number,
+                payment_method, reference_number, vendor_id, receipt_number,
                 budget_line_item_id, department_id, academic_year, term, notes, attachment_path,
                 status, created_by, created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,NOW())"
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,NOW())"
         )->execute([
             $expNo, $d['category_id'] ?? null, $d['description'], $d['amount'], $d['expense_date'],
             $d['payment_method'] ?? 'cash', $d['reference_number'] ?? null, $d['vendor_id'] ?? null,
-            $d['vendor_name'] ?? null, $d['receipt_number'] ?? null, $d['budget_line_item_id'] ?? null,
+            $d['receipt_number'] ?? null, $d['budget_line_item_id'] ?? null,
             $d['department_id'] ?? null, $d['academic_year'] ?? date('Y'), $d['term'] ?? null,
             $d['notes'] ?? null, $d['attachment_path'] ?? null, $userId,
         ]);
@@ -43,7 +43,7 @@ final class FinanceCrudService
         $fields = [];
         $params = [];
         $allowed = ['category_id','description','amount','expense_date','payment_method',
-                    'reference_number','vendor_id','vendor_name','receipt_number',
+                    'reference_number','vendor_id','receipt_number',
                     'budget_line_item_id','department_id','academic_year','term','notes'];
         foreach ($allowed as $f) {
             if (array_key_exists($f, $data)) { $fields[] = "$f=?"; $params[] = $data[$f]; }
@@ -72,7 +72,16 @@ final class FinanceCrudService
 
     public function getPettyCashFund(int $fundId): ?array
     {
-        $r = $this->db->prepare("SELECT * FROM petty_cash_funds WHERE id=?");
+        $r = $this->db->prepare(
+            "SELECT f.*,
+                    f.opening_balance
+                        + COALESCE((SELECT SUM(t.amount) FROM petty_cash_transactions t
+                                    WHERE t.fund_id = f.id AND t.type = 'top_up'), 0)
+                        - COALESCE((SELECT SUM(t.amount) FROM petty_cash_transactions t
+                                    WHERE t.fund_id = f.id AND t.type = 'expense'), 0)
+                        AS current_balance
+             FROM petty_cash_funds f WHERE f.id=?"
+        );
         $r->execute([$fundId]);
         return $r->fetch() ?: null;
     }
@@ -87,10 +96,11 @@ final class FinanceCrudService
         if (!empty($filters['category_id'])) { $where[] = 'category_id=?';       $params[] = $filters['category_id']; }
 
         $txns = $this->db->prepare(
-            "SELECT t.*, ec.name AS category_name, CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name
+            "SELECT t.*, ec.name AS category_name, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS recorded_by_name
              FROM petty_cash_transactions t
              LEFT JOIN expense_categories ec ON ec.id = t.category_id
              LEFT JOIN users u ON u.id = t.recorded_by
+             LEFT JOIN persons up ON up.id = u.person_id
              WHERE " . implode(' AND ', $where) . " ORDER BY transaction_date DESC, id DESC LIMIT 200"
         );
         $txns->execute($params);
@@ -114,12 +124,12 @@ final class FinanceCrudService
 
         $this->db->prepare(
             "INSERT INTO petty_cash_transactions (fund_id,type,category_id,description,amount,balance_after,
-              transaction_date,receipt_number,vendor_name,notes,recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+              transaction_date,receipt_number,vendor_id,notes,recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
         )->execute([
             $fundId, $d['type'], $d['category_id'] ?? null, $d['description'],
             $d['amount'], $balanceAfter,
             $d['transaction_date'] ?? date('Y-m-d'),
-            $d['receipt_number'] ?? null, $d['vendor_name'] ?? null,
+            $d['receipt_number'] ?? null, $d['vendor_id'] ?? null,
             $d['notes'] ?? null, $userId
         ]);
         return $balanceAfter;
@@ -130,22 +140,42 @@ final class FinanceCrudService
     public function getCashReconciliationByDate(string $date): ?array
     {
         $r = $this->db->prepare(
-            "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
+            "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name,
+                    COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name
              FROM cash_reconciliation_sessions s
              LEFT JOIN users u ON u.id = s.cashier_id
+             LEFT JOIN persons up ON up.id = u.person_id
              LEFT JOIN users a ON a.id = s.approved_by
+             LEFT JOIN persons ap ON ap.id = a.person_id
              WHERE s.reconciliation_date=?"
         );
         $r->execute([$date]);
         return $r->fetch() ?: null;
     }
 
+    public function getCashReconciliationById(int $id): ?array
+    {
+        $r = $this->db->prepare(
+            "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name,
+                    COALESCE(CONCAT(ap.first_name, ' ', ap.last_name), a.username) AS approved_by_name
+             FROM cash_reconciliation_sessions s
+             LEFT JOIN users u ON u.id = s.cashier_id
+             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN users a ON a.id = s.approved_by
+             LEFT JOIN persons ap ON ap.id = a.person_id
+             WHERE s.id=?"
+        );
+        $r->execute([$id]);
+        return $r->fetch() ?: null;
+    }
+
     public function listCashReconciliationSessions(): array
     {
         return $this->db->query(
-            "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name
+            "SELECT s.*, COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS cashier_name
              FROM cash_reconciliation_sessions s
              LEFT JOIN users u ON u.id = s.cashier_id
+             LEFT JOIN persons up ON up.id = u.person_id
              ORDER BY s.reconciliation_date DESC LIMIT 60"
         )->fetchAll() ?: [];
     }
@@ -176,89 +206,205 @@ final class FinanceCrudService
     {
         $where = ['1=1'];
         $params = [];
-        if (!empty($filters['status']))     { $where[] = 'fa.status=?';     $params[] = $filters['status']; }
-        if (!empty($filters['student_id'])) { $where[] = 'fa.student_id=?'; $params[] = $filters['student_id']; }
+        if (!empty($filters['student_id'])) { $where[] = 'fcn.student_id=?'; $params[] = $filters['student_id']; }
 
         $rows = $this->db->prepare(
-            "SELECT fa.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS requested_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-             FROM financial_adjustments fa
-             LEFT JOIN students s ON s.id = fa.student_id
-             LEFT JOIN users u ON u.id = fa.requested_by
-             LEFT JOIN users a ON a.id = fa.approved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY fa.created_at DESC LIMIT 200"
+            "SELECT fcn.id, fcn.credit_number AS reference, fcn.credit_number AS adjustment_number,
+                    fcn.credit_reason AS type, fcn.credit_reason AS adjustment_type,
+                    fcn.credit_amount AS amount, fcn.notes, fcn.academic_year, fcn.term_id,
+                    fcn.applied_amount, fcn.remaining_amount, fcn.applied_at, fcn.expiry_date,
+                    fcn.status AS credit_status, fcn.created_at, fcn.updated_at,
+                    COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS student_name,
+                    COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS requested_by,
+                    COALESCE(CONCAT(ap.first_name,' ',ap.last_name), a.username) AS approved_by
+             FROM fee_credit_notes fcn
+             LEFT JOIN students s ON s.id = fcn.student_id
+             LEFT JOIN persons sp ON sp.id = s.person_id
+             LEFT JOIN users u ON u.id = fcn.created_by
+             LEFT JOIN persons up ON up.id = u.person_id
+             LEFT JOIN users a ON a.id = fcn.approved_by
+             LEFT JOIN persons ap ON ap.id = a.person_id
+             WHERE " . implode(' AND ', $where) . " ORDER BY fcn.created_at DESC LIMIT 200"
         );
         $rows->execute($params);
 
-        $stats = $this->db->query(
-            "SELECT COUNT(CASE WHEN status='pending' THEN 1 END) AS pending_count,
-                    COALESCE(SUM(CASE WHEN status='pending' THEN amount END),0) AS pending_amount,
-                    COUNT(CASE WHEN status='approved' AND MONTH(approved_at)=MONTH(CURDATE()) THEN 1 END) AS approved_this_month,
-                    COALESCE(SUM(CASE WHEN status='applied' THEN amount END),0) AS total_applied,
-                    COUNT(CASE WHEN status='rejected' THEN 1 END) AS rejected_count
-             FROM financial_adjustments"
-        )->fetch();
+        $items = array_map([$this, 'decodeAdjustmentStatus'], $rows->fetchAll() ?: []);
 
-        return ['adjustments' => $rows->fetchAll() ?: [], 'stats' => $stats ?: []];
+        if (!empty($filters['status'])) {
+            $items = array_values(array_filter($items, function ($r) use ($filters) {
+                return strcasecmp($r['status'], $filters['status']) === 0;
+            }));
+        }
+
+        $pending  = array_values(array_filter($items, fn($r) => $r['status'] === 'pending'));
+        $approved = array_values(array_filter($items, fn($r) => $r['status'] === 'approved'));
+        $rejected = array_values(array_filter($items, fn($r) => $r['status'] === 'rejected'));
+        $applied  = array_values(array_filter($items, fn($r) => $r['status'] === 'applied'));
+
+        $stats = [
+            'pending_count'   => count($pending),
+            'pending_amount'  => (float) array_sum(array_column($pending, 'amount')),
+            'approved_this_month' => count(array_filter($approved, function ($r) {
+                return isset($r['updated_at']) && substr($r['updated_at'], 0, 7) === date('Y-m');
+            })),
+            'total_applied'   => (float) array_sum(array_column($applied, 'amount')),
+            'rejected_count'  => count($rejected),
+        ];
+
+        return ['adjustments' => $items, 'stats' => $stats];
     }
 
     public function createAdjustment(array $d, int $userId): array
     {
         $adjNo = 'ADJ-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
+        $reason = trim((string)($d['reason'] ?? ''));
         $this->db->prepare(
-            "INSERT INTO financial_adjustments (adjustment_number,type,student_id,amount,reason,
-              reference_payment_id,academic_year,term,notes,status,requested_by,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,'pending',?,NOW())"
+            "INSERT INTO fee_credit_notes (credit_number, student_id, academic_year, term_id,
+              source_transaction_id, credit_amount, credit_reason, expiry_date, notes, created_by)
+             VALUES (?,?,?,?,?,?,?,DATE_ADD(CURDATE(), INTERVAL 2 YEAR),?,?)"
         )->execute([
-            $adjNo, $d['type'], $d['student_id'] ?? null, $d['amount'], $d['reason'],
-            $d['reference_payment_id'] ?? null, $d['academic_year'] ?? date('Y'),
-            $d['term'] ?? null, $d['notes'] ?? null, $userId
+            $adjNo,
+            !empty($d['student_id']) ? (int) $d['student_id'] : 0,
+            $d['academic_year'] ?? date('Y'),
+            $d['term'] ?? $d['term_id'] ?? null,
+            $d['reference_payment_id'] ?? null,
+            abs((float) ($d['amount'] ?? 0)),
+            $this->mapAdjustmentTypeToCreditReason($d['adjustment_type'] ?? $d['type'] ?? 'correction'),
+            '[status:pending] ' . $reason,
+            $userId
         ]);
         return ['id' => $this->db->lastInsertId(), 'adjustment_number' => $adjNo];
     }
 
     public function setAdjustmentStatus(int $id, string $status, int $userId, ?string $rejectionReason = null): void
     {
+        if (!in_array($status, ['approved', 'rejected'], true)) return;
+
+        $current = $this->db->prepare("SELECT notes FROM fee_credit_notes WHERE id=?");
+        $current->execute([$id]);
+        $row = $current->fetch();
+        if (!$row) return;
+
+        $notes = $this->stripAdjustmentMarker((string) ($row['notes'] ?? ''));
         if ($status === 'approved') {
-            $this->db->prepare("UPDATE financial_adjustments SET status='approved', approved_by=?, approved_at=NOW() WHERE id=?")->execute([$userId, $id]);
-        } elseif ($status === 'rejected') {
-            $this->db->prepare("UPDATE financial_adjustments SET status='rejected', rejected_by=?, rejected_at=NOW(), rejection_reason=? WHERE id=?")->execute([$userId, $rejectionReason, $id]);
+            $this->db->prepare(
+                "UPDATE fee_credit_notes SET status='available', approved_by=?, notes=?, updated_at=NOW() WHERE id=?"
+            )->execute([$userId, '[status:approved] ' . $notes, $id]);
+        } else {
+            $notes = ($rejectionReason !== null && $rejectionReason !== '') ? $rejectionReason : $notes;
+            $this->db->prepare(
+                "UPDATE fee_credit_notes SET status='cancelled', notes=?, updated_at=NOW() WHERE id=?"
+            )->execute(['[status:rejected] ' . $notes, $id]);
         }
+    }
+
+    private function mapAdjustmentTypeToCreditReason(?string $type): string
+    {
+        $map = [
+            'fee_waiver'         => 'waiver_excess',
+            'discount'           => 'fee_reduction',
+            'correction'         => 'error_correction',
+            'overpayment_refund' => 'overpayment',
+            'write_off'          => 'fee_reduction',
+            'refund'             => 'refund',
+            'fee_reduction'      => 'fee_reduction',
+            'sponsorship_adjustment' => 'sponsorship_adjustment',
+            'error_correction'   => 'error_correction',
+            'waiver_excess'      => 'waiver_excess',
+            'overpayment'        => 'overpayment',
+        ];
+        return $map[strtolower((string) $type)] ?? 'fee_reduction';
+    }
+
+    private function decodeAdjustmentStatus(array $row): array
+    {
+        $notes = (string) ($row['notes'] ?? '');
+        if (preg_match('/^\[status:(pending|approved|rejected|applied)\](.*)$/s', $notes, $m)) {
+            $row['status'] = $m[1];
+            $row['reason'] = trim($m[2]);
+            $row['notes']  = trim($m[2]);
+        } elseif (in_array($row['credit_status'] ?? null, ['partially_applied', 'fully_applied'], true) || !empty($row['applied_at'])) {
+            $row['status'] = 'applied';
+            $row['reason'] = $notes;
+        } elseif (!empty($row['approved_by'])) {
+            $row['status'] = 'approved';
+            $row['reason'] = $notes;
+        } else {
+            $row['status'] = 'pending';
+            $row['reason'] = $notes;
+        }
+        return $row;
+    }
+
+    private function stripAdjustmentMarker(string $notes): string
+    {
+        return trim(preg_replace('/^\[status:(pending|approved|rejected|applied)\]\s*/', '', $notes) ?? $notes);
     }
 
     // ==================== EXCEPTION REPORTS ====================
 
     public function listExceptionReports(array $filters): array
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($filters['status']))   { $where[] = 'status=?';   $params[] = $filters['status']; }
-        if (!empty($filters['severity'])) { $where[] = 'severity=?'; $params[] = $filters['severity']; }
-
         $rows = $this->db->prepare(
-            "SELECT fe.*, CONCAT(u.first_name, ' ', u.last_name) AS resolved_by_name
-             FROM finance_exceptions fe
-             LEFT JOIN users u ON u.id = fe.resolved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY FIELD(severity,'critical','high','medium','low'), created_at DESC LIMIT 200"
+            "SELECT fcn.id, fcn.credit_number AS reference, fcn.credit_reason AS exception_type,
+                    fcn.credit_amount AS amount, fcn.notes, fcn.credit_reason AS type,
+                    fcn.created_at AS detected_at, fcn.updated_at,
+                    COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS affected_party,
+                    COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS resolved_by_name
+             FROM fee_credit_notes fcn
+             LEFT JOIN students s ON s.id = fcn.student_id
+             LEFT JOIN persons sp ON sp.id = s.person_id
+             LEFT JOIN users u ON u.id = fcn.approved_by
+             LEFT JOIN persons up ON up.id = u.person_id
+             WHERE fcn.notes LIKE '[status:pending]%' OR fcn.notes LIKE '[status:rejected]%'
+             ORDER BY fcn.created_at DESC LIMIT 200"
         );
-        $rows->execute($params);
+        $rows->execute();
 
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total,
-                    COUNT(CASE WHEN status='open' THEN 1 END) AS open_count,
-                    COUNT(CASE WHEN severity='critical' AND status='open' THEN 1 END) AS critical_count,
-                    COUNT(CASE WHEN severity='high'     AND status='open' THEN 1 END) AS high_count
-             FROM finance_exceptions WHERE status != 'dismissed'"
-        )->fetch();
+        $exceptions = [];
+        foreach ($rows->fetchAll() ?: [] as $row) {
+            $notes = (string) ($row['notes'] ?? '');
+            $pending = strpos($notes, '[status:pending]') === 0;
+            $amount = (float) $row['amount'];
+            $exceptions[] = [
+                'id'            => $row['id'],
+                'reference'     => $row['reference'],
+                'exception_type'=> ucwords(str_replace('_', ' ', $row['exception_type'])) . ' Adjustment',
+                'type'          => $row['type'],
+                'severity'      => $pending ? ($amount >= 50000 ? 'high' : 'medium') : 'low',
+                'description'   => $this->stripAdjustmentMarker($notes),
+                'amount'        => $amount,
+                'affected_party'=> $row['affected_party'],
+                'detected_at'   => $row['detected_at'],
+                'status'        => $pending ? 'open' : 'dismissed',
+                'resolved_by_name' => $row['resolved_by_name'],
+            ];
+        }
 
-        return ['exceptions' => $rows->fetchAll() ?: [], 'stats' => $stats ?: []];
+        if (!empty($filters['status'])) {
+            $exceptions = array_values(array_filter($exceptions, function ($e) use ($filters) {
+                return strcasecmp($e['status'], $filters['status']) === 0;
+            }));
+        }
+
+        $stats = [
+            'total'         => count($exceptions),
+            'open_count'    => count(array_filter($exceptions, fn($e) => $e['status'] === 'open')),
+            'critical_count'=> count(array_filter($exceptions, fn($e) => $e['severity'] === 'critical')),
+            'high_count'    => count(array_filter($exceptions, fn($e) => $e['severity'] === 'high')),
+        ];
+
+        return ['exceptions' => $exceptions, 'stats' => $stats];
     }
 
     public function updateExceptionStatus(int $id, string $status, int $userId, ?string $notes = null): void
     {
-        $this->db->prepare(
-            "UPDATE finance_exceptions SET status=?, resolved_by=?, resolved_at=NOW(), resolution_notes=? WHERE id=?"
-        )->execute([$status, $userId, $notes, $id]);
+        $status = strtolower($status);
+        if ($status === 'resolved') {
+            $this->setAdjustmentStatus($id, 'approved', $userId);
+        } elseif ($status === 'dismissed') {
+            $this->setAdjustmentStatus($id, 'rejected', $userId, $notes);
+        }
     }
 
     // ==================== BUDGETS ====================
@@ -268,11 +414,12 @@ final class FinanceCrudService
         return $this->db->query(
             "SELECT v.budget_id AS id, v.budget_name AS name, v.academic_year, v.term,
                     v.total_amount, v.budget_status AS status,
-                    CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
+                    COALESCE(CONCAT(up.first_name, ' ', up.last_name), u.username) AS created_by_name,
                     v.total_spent, v.total_allocated, v.total_committed, v.utilization_pct
              FROM vw_budget_utilization v
              LEFT JOIN budgets b ON b.id = v.budget_id
              LEFT JOIN users u ON u.id = b.created_by
+             LEFT JOIN persons up ON up.id = u.person_id
              ORDER BY v.academic_year DESC, v.term"
         )->fetchAll() ?: [];
     }
@@ -336,13 +483,18 @@ final class FinanceCrudService
         if (!empty($filters['academic_year'])) { $where[] = 'fdw.academic_year=?'; $params[] = $filters['academic_year']; }
 
         $rows = $this->db->prepare(
-            "SELECT fdw.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.admission_number, c.name AS class_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS approved_by_name
+            "SELECT fdw.*, COALESCE(CONCAT(sp.first_name,' ',sp.last_name), '—') AS student_name,
+                    s.admission_no, c.name AS class_name,
+                    COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS approved_by_name
              FROM fee_discounts_waivers fdw
              JOIN students s ON s.id = fdw.student_id
-             LEFT JOIN classes c ON c.id = s.class_id
+             LEFT JOIN persons sp ON sp.id = s.person_id
+             LEFT JOIN student_academic_enrollments sae ON sae.student_id = fdw.student_id AND sae.enrollment_status = 'active'
+             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
              LEFT JOIN users u ON u.id = fdw.approved_by
+             LEFT JOIN persons up ON up.id = u.person_id
              WHERE " . implode(' AND ', $where) . " ORDER BY fdw.created_at DESC"
         );
         $rows->execute($params);
@@ -377,19 +529,12 @@ final class FinanceCrudService
     public function listSponsoredStudents(): array
     {
         return $this->db->query(
-            "SELECT s.id, s.admission_number, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.is_sponsored, s.sponsor_name, s.sponsor_type, s.sponsor_waiver_percentage,
-                    c.name AS class_name,
-                    COALESCE(SUM(o.amount_due),0) AS total_fees,
-                    COALESCE(SUM(o.amount_waived),0) AS total_waived,
-                    COALESCE(SUM(o.amount_paid),0) AS total_paid,
-                    COALESCE(SUM(o.balance),0) AS outstanding_balance
-             FROM students s
-             LEFT JOIN classes c ON c.id = s.class_id
-             LEFT JOIN student_fee_obligations o ON o.student_id = s.id
-                   AND o.academic_year = YEAR(CURDATE())
-             WHERE s.is_sponsored = 1 AND s.status = 'active'
-             GROUP BY s.id ORDER BY s.last_name, s.first_name"
+            "SELECT v.id, v.admission_no AS admission_number, v.student_name, v.class_name,
+                    v.is_sponsored, v.sponsor_name, v.sponsor_type, v.sponsor_waiver_percentage,
+                    v.total_fees_due AS total_fees, v.total_paid, v.current_balance AS outstanding_balance,
+                    v.total_waived
+             FROM vw_sponsored_students_status v
+             ORDER BY v.sponsor_waiver_percentage DESC"
         )->fetchAll() ?: [];
     }
 
@@ -406,12 +551,15 @@ final class FinanceCrudService
             "SELECT fcn.id, fcn.credit_number, fcn.academic_year,
                     fcn.credit_amount, fcn.applied_amount, fcn.remaining_amount,
                     fcn.credit_reason, fcn.status, fcn.expiry_date, fcn.created_at,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name, s.admission_no,
-                    t.name AS term_name, u.name AS created_by_name
+                    COALESCE(CONCAT(sp.first_name,' ',sp.last_name), 'General Ledger') AS student_name, s.admission_no,
+                    t.name AS term_name,
+                    COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS created_by_name
              FROM fee_credit_notes fcn
              JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN academic_terms t ON t.id = fcn.term_id
+             LEFT JOIN persons sp ON sp.id = s.person_id
+             LEFT JOIN terms t ON t.id = fcn.term_id
              LEFT JOIN users u ON u.id = fcn.created_by
+             LEFT JOIN persons up ON up.id = u.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY fcn.created_at DESC"
         );
@@ -452,11 +600,6 @@ final class FinanceCrudService
                  status = CASE WHEN (applied_amount + ?) >= credit_amount THEN 'fully_applied' ELSE 'partially_applied' END
              WHERE id = ?"
         )->execute([$applyAmount, $d['to_year'] ?? date('Y'), $d['to_term_id'] ?? null, $applyAmount, $id]);
-
-        if (!empty($d['obligation_id'])) {
-            $this->db->prepare("UPDATE student_fee_obligations SET amount_waived = amount_waived + ? WHERE id = ?")
-                ->execute([$applyAmount, $d['obligation_id']]);
-        }
         return $applyAmount;
     }
 
@@ -486,11 +629,13 @@ final class FinanceCrudService
                     sa.request_date, sa.deduction_schedule, sa.deduction_start_month,
                     sa.amount_per_deduction, sa.amount_deducted, sa.balance_remaining,
                     sa.status, sa.approval_date, sa.reason,
-                    CONCAT(s.first_name,' ',s.last_name) AS staff_name, s.employee_number,
-                    u.name AS approved_by_name
+                    COALESCE(CONCAT(sp.first_name,' ',sp.last_name), '—') AS staff_name, s.staff_no AS employee_number,
+                    COALESCE(CONCAT(up.first_name,' ',up.last_name), u.username) AS approved_by_name
              FROM staff_salary_advances sa
              JOIN staff s ON s.id = sa.staff_id
+             LEFT JOIN persons sp ON sp.id = s.person_id
              LEFT JOIN users u ON u.id = sa.approved_by
+             LEFT JOIN persons up ON up.id = u.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY sa.request_date DESC"
         );
@@ -508,9 +653,12 @@ final class FinanceCrudService
 
     public function getActiveAdvanceBalance(int $staffId): float
     {
-        return (float) $this->db->prepare(
+        $stmt = $this->db->prepare(
             "SELECT COALESCE(SUM(balance_remaining),0) FROM staff_salary_advances WHERE staff_id = ? AND status = 'active'"
-        )->execute([$staffId]) ? $this->db->prepare("SELECT COALESCE(SUM(balance_remaining),0) FROM staff_salary_advances WHERE staff_id = ? AND status = 'active'")->execute([$staffId]) : 0;
+        );
+        $stmt->execute([$staffId]);
+        $value = $stmt->fetchColumn();
+        return $value !== false ? (float) $value : 0.0;
     }
 
     public function createSalaryAdvance(array $d): int
@@ -555,9 +703,10 @@ final class FinanceCrudService
 
     public function getStaffBasicSalary(int $staffId): float
     {
-        return (float) ($this->db->prepare("SELECT basic_salary FROM staff WHERE id = ?")->execute([$staffId])
-            ? $this->db->query("SELECT basic_salary FROM staff WHERE id = {$staffId}")->fetchColumn()
-            : 0);
+        $stmt = $this->db->prepare("SELECT salary FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        $value = $stmt->fetchColumn();
+        return $value !== false ? (float) $value : 0.0;
     }
 
     // ==================== UNMATCHED PAYMENTS ====================
@@ -566,22 +715,25 @@ final class FinanceCrudService
     {
         $offset = ($page - 1) * $limit;
         $rows = $this->db->prepare(
-            "SELECT p.id, p.receipt_number, p.reference_number,
-                    p.amount, p.payment_date, p.payment_method,
-                    p.status, p.notes,
-                    CONCAT(u.first_name, ' ', u.last_name) AS payer_name,
-                    u.email AS payer_email
-                FROM payments p
-                LEFT JOIN users u ON u.id = p.user_id
-                WHERE p.status IN ('unmatched', 'pending')
-                  AND p.deleted_at IS NULL
-                ORDER BY p.payment_date DESC
+            "SELECT mt.id AS transaction_id, mt.mpesa_code AS reference,
+                    mt.amount, mt.transaction_date, 'mpesa' AS source,
+                    TRIM(CONCAT(COALESCE(mt.first_name,''), ' ', COALESCE(mt.last_name,''))) AS payer_name,
+                    mt.status
+                FROM mpesa_transactions mt
+                LEFT JOIN payments pt ON mt.mpesa_code = pt.reference COLLATE utf8mb4_general_ci
+                WHERE pt.reference IS NULL
+                  AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed'))
+                ORDER BY mt.transaction_date DESC
                 LIMIT ? OFFSET ?"
         );
         $rows->execute([$limit, $offset]);
 
         $total = (int) $this->db->query(
-            "SELECT COUNT(*) FROM payments WHERE status IN ('unmatched','pending') AND deleted_at IS NULL"
+            "SELECT COUNT(*)
+             FROM mpesa_transactions mt
+             LEFT JOIN payments pt ON mt.mpesa_code = pt.reference COLLATE utf8mb4_general_ci
+             WHERE pt.reference IS NULL
+               AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'processed'))"
         )->fetchColumn();
 
         return ['data' => $rows->fetchAll() ?: [], 'total' => $total];
@@ -590,7 +742,7 @@ final class FinanceCrudService
     public function matchPayment(int $paymentId, ?int $studentId, ?int $obligationId): void
     {
         $this->db->prepare(
-            "UPDATE payments SET status = 'matched', student_id = ?, obligation_id = ?, updated_at = NOW() WHERE id = ?"
-        )->execute([$studentId, $obligationId, $paymentId]);
+            "UPDATE mpesa_transactions SET status = 'reconciled', reconciled_at = NOW(), student_id = ? WHERE id = ?"
+        )->execute([$studentId, $paymentId]);
     }
 }

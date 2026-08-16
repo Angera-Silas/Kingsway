@@ -6,19 +6,19 @@
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS sports_teams (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name            VARCHAR(150) NOT NULL,
     sport_type      VARCHAR(50) NOT NULL COMMENT 'football, basketball, volleyball, athletics, swimming, tennis, rugby, cricket, netball, hockey, other',
-    category_id     INT NOT NULL COMMENT 'FK to activity_categories (references the Sports category)',
-    coach_id        INT DEFAULT NULL COMMENT 'FK to staff — team coach/patron',
-    captain_id      INT DEFAULT NULL COMMENT 'FK to students — team captain',
+    category_id INT UNSIGNED NOT NULL COMMENT 'FK to activity_categories (references the Sports category)',
+    coach_id INT UNSIGNED DEFAULT NULL COMMENT 'FK to staff — team coach/patron',
+    captain_id INT UNSIGNED DEFAULT NULL COMMENT 'FK to students — team captain',
     description     TEXT DEFAULT NULL,
     season          VARCHAR(50) DEFAULT NULL COMMENT 'e.g. "2026 Term 1", "2025/2026"',
     wins            INT DEFAULT 0,
     losses          INT DEFAULT 0,
     draws           INT DEFAULT 0,
     status          ENUM('active','inactive','disbanded') DEFAULT 'active',
-    created_by      INT DEFAULT NULL,
+    created_by INT UNSIGNED DEFAULT NULL,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (category_id) REFERENCES activity_categories(id) ON DELETE RESTRICT,
@@ -30,9 +30,9 @@ CREATE TABLE IF NOT EXISTS sports_teams (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sports_team_members (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    team_id         INT NOT NULL,
-    student_id      INT NOT NULL,
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    team_id INT UNSIGNED NOT NULL,
+    student_id INT UNSIGNED NOT NULL,
     position        VARCHAR(100) DEFAULT NULL COMMENT 'e.g. Forward, Goalkeeper, Point Guard',
     jersey_number   INT DEFAULT NULL,
     joined_date     DATE DEFAULT NULL,
@@ -44,8 +44,8 @@ CREATE TABLE IF NOT EXISTS sports_team_members (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sports_fixtures (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    team_id         INT NOT NULL,
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    team_id INT UNSIGNED NOT NULL,
     opponent        VARCHAR(200) NOT NULL,
     fixture_type    ENUM('friendly','league','cup','tournament','training') DEFAULT 'friendly',
     venue           VARCHAR(255) DEFAULT NULL,
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS sports_fixtures (
     match_report    TEXT DEFAULT NULL,
     referee         VARCHAR(150) DEFAULT NULL,
     season          VARCHAR(50) DEFAULT NULL,
-    created_by      INT DEFAULT NULL,
+    created_by INT UNSIGNED DEFAULT NULL,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (team_id) REFERENCES sports_teams(id) ON DELETE CASCADE,
@@ -69,10 +69,10 @@ CREATE TABLE IF NOT EXISTS sports_fixtures (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sports_player_stats (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    fixture_id      INT NOT NULL,
-    player_id       INT NOT NULL COMMENT 'FK to students',
-    team_id         INT NOT NULL,
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    fixture_id INT UNSIGNED NOT NULL,
+    player_id INT UNSIGNED NOT NULL COMMENT 'FK to students',
+    team_id INT UNSIGNED NOT NULL,
     goals_scored    INT DEFAULT 0,
     assists         INT DEFAULT 0,
     minutes_played  INT DEFAULT 0,
@@ -90,9 +90,9 @@ CREATE TABLE IF NOT EXISTS sports_player_stats (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sports_standings (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     competition     VARCHAR(200) DEFAULT NULL COMMENT 'e.g. Inter-House Football, Regional Championships',
-    team_id         INT NOT NULL,
+    team_id INT UNSIGNED NOT NULL,
     played          INT DEFAULT 0,
     won             INT DEFAULT 0,
     lost            INT DEFAULT 0,

@@ -296,7 +296,7 @@ const ManageSubjectsController = {
       learning_outcomes: document.getElementById('unitObjectives')?.value?.trim() || '',
       suggested_resources: document.getElementById('unitResources')?.value?.trim() || '',
       duration: document.getElementById('unitDuration')?.value || null,
-      order_sequence: document.getElementById('unitSequence')?.value || 1,
+      sort_order: document.getElementById('unitSequence')?.value || 1,
       status: document.getElementById('unitStatus')?.value || 'active'
     };
 
@@ -356,7 +356,7 @@ const ManageSubjectsController = {
           document.getElementById('unitName').value = unit.name || '';
           document.getElementById('unitSubject').value = unit.learning_area_id || '';
           document.getElementById('unitDuration').value = unit.duration || '';
-          document.getElementById('unitSequence').value = unit.order_sequence || 1;
+          document.getElementById('unitSequence').value = unit.sort_order || 1;
           document.getElementById('unitObjectives').value = unit.learning_outcomes || '';
           document.getElementById('unitTopics').value = unit.description || '';
           document.getElementById('unitResources').value = unit.suggested_resources || '';
@@ -372,7 +372,7 @@ const ManageSubjectsController = {
   },
 
   async deleteSubject(subjectId) {
-    if (!confirm('Are you sure you want to delete this subject? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this subject? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.academic.deleteLearningArea(subjectId);
       this.showNotification('Subject deleted', 'success');
@@ -384,7 +384,7 @@ const ManageSubjectsController = {
   },
 
   async deleteCurriculumUnit(unitId) {
-    if (!confirm('Are you sure you want to delete this curriculum unit? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this curriculum unit? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.academic.deleteCurriculumUnit(unitId);
       this.showNotification('Curriculum unit deleted', 'success');

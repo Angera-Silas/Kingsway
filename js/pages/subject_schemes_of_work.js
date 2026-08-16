@@ -85,7 +85,7 @@ const SubjectSchemesOfWorkController = {
 
   async loadAcademicYears() {
     try {
-      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const years = await window.API.academic.listYears() || [];
       const yearSelect = document.getElementById('academicYearSelect');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
@@ -141,7 +141,7 @@ const SubjectSchemesOfWorkController = {
         params.subject_id = this.state.selectedSubject;
       }
 
-      this.state.schemes = await window.API.apiCall('/academic/subject-schemes', 'GET', params) || [];
+      this.state.schemes = await window.API.academic.getSubjectSchemes(params) || [];
       this.renderSchemesTable();
       this.updateStats();
     } catch (error) {
@@ -235,7 +235,7 @@ const SubjectSchemesOfWorkController = {
   },
 
   async submitForApproval(id) {
-    if (!confirm('Submit this scheme for approval?')) return;
+    if (!(await window.confirmAction('Submit for Approval', 'Submit this scheme for approval?'))) return;
     
     try {
       await window.API.apiCall('/academic/schemes-of-work/' + id, 'PUT', { status: 'pending' });

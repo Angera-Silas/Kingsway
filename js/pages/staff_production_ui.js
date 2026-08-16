@@ -507,13 +507,13 @@ const StaffProductionUI = {
             void this.commitStaffImport();
         });
 
-        document.getElementById('staffImportRows')?.addEventListener('click', (event) => {
+        document.getElementById('staffImportRows')?.addEventListener('click', async (event) => {
             const button = event.target.closest('[data-import-errors]');
             if (!button) return;
             try {
-                alert(JSON.parse(button.dataset.importErrors).join('\n'));
+                await window.infoDialog('Import Errors', JSON.parse(button.dataset.importErrors).join('\n'));
             } catch (_) {
-                alert(button.dataset.importErrors || 'Validation errors found.');
+                await window.infoDialog('Import Errors', button.dataset.importErrors || 'Validation errors found.');
             }
         });
 
@@ -873,7 +873,7 @@ const StaffProductionUI = {
             this.setImportState('Validate a file before committing import.', 'warning');
             return;
         }
-        if (!confirm('Create staff records and user accounts from this validated import?')) {
+        if (!(await window.confirmAction('Commit Import', 'Create staff records and user accounts from this validated import?', { confirmText: 'Commit Import' }))) {
             return;
         }
 
@@ -1240,7 +1240,7 @@ const StaffProductionUI = {
             this.showToast('You do not have permission to delete staff', 'error');
             return;
         }
-        if (!confirm('Are you sure you want to delete this staff member?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this staff member?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await window.API.staff.delete(staffId);

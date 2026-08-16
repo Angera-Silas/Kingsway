@@ -95,6 +95,20 @@ const newApplicationsController = {
       parentSelect: document.getElementById("parentSelect"),
       academicYearSelect: document.getElementById("academicYearSelect"),
 
+      parentTypeExisting: document.getElementById("parentTypeExisting"),
+      parentTypeNew: document.getElementById("parentTypeNew"),
+      existingParentFields: document.getElementById("existingParentFields"),
+      newParentFields: document.getElementById("newParentFields"),
+      newParentIdField: document.getElementById("newParentIdField"),
+      newParentPhoneField: document.getElementById("newParentPhoneField"),
+      newParentEmailField: document.getElementById("newParentEmailField"),
+      newParentAddressField: document.getElementById("newParentAddressField"),
+      gradeSelect: document.getElementById("gradeSelect"),
+      immunizationDocWrap: document.getElementById("immunizationDocWrap"),
+      schoolReportDocWrap: document.getElementById("schoolReportDocWrap"),
+      medicalDocWrap: document.getElementById("medicalDocWrap"),
+      newParentIdDocWrap: document.getElementById("newParentIdDocWrap"),
+
       newApplicationBtn: document.getElementById("newApplicationBtn"),
       newApplicationModal: document.getElementById("newApplicationModal"),
       newApplicationForm: document.getElementById("newApplicationForm"),
@@ -153,6 +167,73 @@ const newApplicationsController = {
         this.submitNewApplication(new FormData(this.dom.newApplicationForm));
       });
     }
+
+    if (this.dom.parentTypeExisting && this.dom.parentTypeNew) {
+      this.dom.parentTypeExisting.addEventListener("change", () =>
+        this.toggleParentType(false),
+      );
+      this.dom.parentTypeNew.addEventListener("change", () =>
+        this.toggleParentType(true),
+      );
+    }
+
+    this.safeListen("gradeSelect", "change", () =>
+      this.toggleDocumentRequirements(),
+    );
+  },
+
+  toggleParentType: function (isNew) {
+    const show = (el) => {
+      if (el) el.style.display = isNew ? "none" : "block";
+    };
+    const showNew = (el) => {
+      if (el) el.style.display = isNew ? "block" : "none";
+    };
+
+    show(this.dom.existingParentFields);
+    ["newParentFields", "newParentIdField", "newParentPhoneField",
+     "newParentEmailField", "newParentAddressField"].forEach((key) =>
+      showNew(this.dom[key]),
+    );
+
+    const parentSelect = this.dom.parentSelect;
+    if (parentSelect) parentSelect.required = !isNew;
+
+    const docParentWrap = this.dom.newParentIdDocWrap;
+    if (docParentWrap) {
+      const input = docParentWrap.querySelector("input");
+      if (input) {
+        if (isNew) input.setAttribute("required", "required");
+        else input.removeAttribute("required");
+      }
+      const mark = docParentWrap.querySelector(".text-danger");
+      if (mark) mark.textContent = isNew ? " *" : "";
+    }
+  },
+
+  isUpperGrade: function (grade) {
+    return /^Grade\s*[4-9]$/i.test(String(grade || "").trim());
+  },
+
+  toggleDocumentRequirements: function () {
+    const grade = String(this.dom.gradeSelect?.value || "").trim();
+    const isUpper = this.isUpperGrade(grade);
+    // With no grade chosen yet, default to the immunization requirement.
+    const showImmunization = !isUpper;
+
+    const setWrap = (wrap, show) => {
+      if (!wrap) return;
+      wrap.style.display = show ? "" : "none";
+      const input = wrap.querySelector("input");
+      if (input) {
+        if (show) input.setAttribute("required", "required");
+        else { input.removeAttribute("required"); input.value = ""; }
+      }
+    };
+
+    setWrap(this.dom.immunizationDocWrap, showImmunization);
+    setWrap(this.dom.schoolReportDocWrap, isUpper);
+    setWrap(this.dom.medicalDocWrap, isUpper);
   },
 
   safeListen: function (id, event, handler) {
@@ -224,6 +305,7 @@ const newApplicationsController = {
       select.innerHTML = html;
       if (currentVal) select.value = currentVal;
     });
+    this.toggleDocumentRequirements();
   },
 
   loadParents: async function () {
@@ -640,25 +722,128 @@ const newApplicationsController = {
         '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
     }
 
+    const docTypeMap = {
+      doc_birth_certificate: "birth_certificate",
+      doc_passport_photo: "passport_photo",
+      doc_parent_id: "parent_id",
+      doc_previous_school_report: "previous_school_report",
+      doc_immunization_card: "immunization_card",
+      doc_progress_report: "progress_report",
+      doc_leaving_certificate: "leaving_certificate",
+      doc_transfer_letter: "transfer_letter",
+      doc_medical_records: "medical_records",
+      doc_other: "other",
+    };
+
+    // Separate file fields from regular fields
     const data = {};
+    const files = [];
     formData.forEach((value, key) => {
-      data[key] = value;
+      if (docTypeMap[key]) {
+        if (value && value.size > 0) {
+          files.push({ fieldName: key, docType: docTypeMap[key], file: value });
+        }
+      } else {
+        data[key] = value;
+      }
     });
 
-    try {
+    const isNewParent = data.parent_type === "new";
 
+    // Documents are part of the application — never allow a submission with no
+    // documents (there is no "upload documents later" workflow).
+    const fileSet = new Set(files.map((f) => f.docType));
+    const gradeValue = String(data.grade_applying_for || "").trim();
+    const missing = [];
+    if (!fileSet.has("birth_certificate")) missing.push("Birth Certificate");
+    if (!fileSet.has("passport_photo")) missing.push("Passport Photo");
+    if (isNewParent && !fileSet.has("parent_id")) missing.push("Parent/Guardian ID");
+    if (this.isUpperGrade(gradeValue)) {
+      if (!fileSet.has("previous_school_report")) missing.push("Previous School Report");
+      if (!fileSet.has("medical_records")) missing.push("Medical Test Results");
+    } else {
+      if (!fileSet.has("immunization_card")) missing.push("Immunization Card");
+    }
+    if (missing.length) {
+      this.notify("error", "Missing required documents: " + missing.join(", "));
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-send me-1"></i>Submit Application';
+      }
+      return;
+    }
+
+    try {
+      // 1. Register a new parent/guardian when one was entered manually.
+      if (isNewParent) {
+        const nameParts = String(data.new_parent_name || "").trim().split(/\s+/);
+        const createResp = await this.apiCall("/students/parents/create", "POST", {
+          first_name: nameParts[0] || "",
+          last_name: nameParts.slice(1).join(" ") || nameParts[0] || "",
+          id_number: data.new_parent_id_number || null,
+          phone_1: data.new_parent_phone || "",
+          email: data.new_parent_email || null,
+          address: data.new_parent_address || null,
+        });
+        if (!this.isSuccessfulResponse(createResp)) {
+          throw new Error(createResp?.message || "Failed to create parent record.");
+        }
+        const createPayload = this.unwrapPayload(createResp);
+        data.parent_id = createPayload?.id ?? createPayload?.parent_id ?? createPayload?.parentId;
+        if (!data.parent_id) {
+          throw new Error("New parent record was created but its ID was not returned.");
+        }
+      }
+
+      delete data.parent_type;
+      delete data.new_parent_name;
+      delete data.new_parent_id_number;
+      delete data.new_parent_phone;
+      delete data.new_parent_email;
+      delete data.new_parent_address;
+
+      // 2. Submit the application.
       const response = await this.apiCall(
         "/admission/submit-application",
         "POST",
         data,
       );
 
-
       if (!this.isSuccessfulResponse(response)) {
         throw new Error(response?.message || "Failed to submit application.");
       }
 
-      this.notify("success", "Application submitted successfully.");
+      const payload = this.unwrapPayload(response);
+      const applicationId = payload?.application_id ?? data.application_id;
+      if (!applicationId) {
+        throw new Error("Application was created but its ID was not returned.");
+      }
+
+      // 3. Upload every submitted document through the upload API — in the same
+      //    submit action, before the application is considered complete.
+      const uploaded = [];
+      for (const { docType, file } of files) {
+        const fd = new FormData();
+        fd.append("application_id", applicationId);
+        fd.append("document_type", docType);
+        fd.append("document", file);
+        try {
+          const uploadResp = window.API?.admission?.uploadDocument
+            ? await window.API.admission.uploadDocument(fd)
+            : await this.apiCall("/admission/upload-document", "POST", fd);
+          if (!this.isSuccessfulResponse(uploadResp)) {
+            throw new Error(uploadResp?.message || "Upload failed");
+          }
+          uploaded.push(docType);
+        } catch (uploadErr) {
+          throw new Error(`Application submitted, but document "${docType}" failed to upload: ${uploadErr?.message || "unknown error"}`);
+        }
+      }
+
+      this.notify(
+        "success",
+        `Application submitted successfully${uploaded.length ? ` with ${uploaded.length} document(s).` : "."}`,
+      );
 
       const modalInstance = bootstrap.Modal.getInstance(
         this.dom.newApplicationModal,
@@ -669,6 +854,8 @@ const newApplicationsController = {
       }
 
       this.dom.newApplicationForm.reset();
+      this.toggleParentType(false);
+      this.toggleDocumentRequirements();
       await this.loadApplications();
     } catch (error) {
       console.error("Failed to submit application:", error);
@@ -868,7 +1055,7 @@ const newApplicationsController = {
     `;
   },
 
-  notify: function (type, message) {
+  notify: async function (type, message) {
     if (typeof window.showNotification === "function") {
       window.showNotification(type, message);
       return;
@@ -881,12 +1068,12 @@ const newApplicationsController = {
 
     if (type === "error") {
       console.error(message);
-      alert(`Error: ${message}`);
+      await window.infoDialog('Notice', `Error: ${message}`);
       return;
     }
 
     console.log(`${type}: ${message}`);
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 
   isSuccessfulResponse: function (response) {

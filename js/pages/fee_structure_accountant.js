@@ -37,6 +37,9 @@ class FeeStructureAccountantController {
     this.currentStructures = [];
     this.currentAggregated = [];
     this.currentFormTerms = [];
+    this.classes = [];
+    this.formModel = null;
+    this._uidCounter = 0;
   }
 
   /**
@@ -105,12 +108,14 @@ class FeeStructureAccountantController {
         studentTypesResponse,
         feeTypesResponse,
         termsResponse,
+        classesResponse,
       ] = await Promise.all([
         API.academic.getAllAcademicYears().catch(() => []),
         API.academic.listLevels().catch(() => []),
         API.finance.listStudentTypes().catch(() => []),
         API.finance.listFeeTypes().catch(() => []),
         API.academic.listTerms().catch(() => []),
+        API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
 
       this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];
@@ -120,6 +125,7 @@ class FeeStructureAccountantController {
         : [];
       this.feeTypes = Array.isArray(feeTypesResponse) ? feeTypesResponse : [];
       this.terms = Array.isArray(termsResponse) ? termsResponse : [];
+      this.classes = Array.isArray(classesResponse) ? classesResponse : [];
 
       this.buildTermMaps();
 
@@ -140,7 +146,7 @@ class FeeStructureAccountantController {
 
     this.terms.forEach((term) => {
       if (!term || !term.id) return;
-      const yearValue = this.parseAcademicYear(term.year || term.year_code);
+      const yearValue = this.parseAcademicYear(term.year_code || term.year || "");
       if (!this.termsByYear[yearValue]) {
         this.termsByYear[yearValue] = [];
       }
@@ -1050,10 +1056,11 @@ class FeeStructureAccountantController {
     this.renderStructureForm();
     this.showModal("feeStructureModal");
   }
-
   editStructure(groupKey) {
     const resolvedKey =
-      groupKey || this.editingGroup?.group_key || this.editingGroup?.groupKey;
+      groupKey ||
+      this.viewingGroup?.group_key ||
+      this.editingGroup?.group_key;
     const group = this.currentAggregated.find(
       (g) => g.group_key === resolvedKey,
     );
@@ -1063,78 +1070,135 @@ class FeeStructureAccountantController {
     }
 
     this.editingGroup = group;
-    const breakdown = this.buildTermBreakdown(group);
-    this.renderStructureForm({
-      academic_year: group.academic_year,
-      level_id: group.level_id,
-      student_type_id: group.student_type_id,
-      term_breakdown: breakdown,
-    });
-    this.showModal("feeStructureModal");
-  }
+    const academicYear =
+      this.parseAcademicYear(group.academic_year) || this.getDefaultYear();
 
-  buildTermBreakdown(group) {
-    const breakdown = {};
-    const rows = this.currentStructures.filter(
-      (row) =>
-        row.academic_year === group.academic_year &&
-        row.level_id === group.level_id &&
-        row.student_type_id === group.student_type_id &&
-        row.term_id === group.term_id,
+    const gradeRange = this.resolveGradeRangeForLevel(group.level_id);
+    if (!gradeRange) {
+      this.showError("Could not resolve the grade range for this level. Please use Create instead.");
+      return;
+    }
+
+    const studentTypeIds = [parseInt(group.student_type_id, 10)].filter(
+      (id) => !isNaN(id),
     );
 
-    rows.forEach((row) => {
-      const feeKey = row.fee_type_code || row.fee_name || row.fee_type_name;
-      if (!feeKey) return;
-      if (!breakdown[feeKey]) {
-        breakdown[feeKey] = {};
-      }
-      const termNumber =
-        row.term_number || row.term || this.termNumberMap[row.term_id] || null;
-      const termKey = termNumber ? `term${termNumber}` : `term${row.term_id}`;
-      breakdown[feeKey][termKey] = parseFloat(row.amount) || 0;
-    });
-
-    return breakdown;
+    API.finance
+      .getFeeStructureBundleGrid({
+        academic_year: academicYear,
+        from_id: gradeRange.from_id,
+        to_id: gradeRange.to_id,
+        student_type_ids: studentTypeIds,
+      })
+      .then((resp) => {
+        const data = resp?.data ?? resp ?? {};
+        this.renderStructureForm({
+          academic_year: academicYear,
+          grade_range: data.grade_range || gradeRange,
+          student_type_ids: studentTypeIds,
+          items: data.items || {},
+        });
+        this.showModal("feeStructureModal");
+      })
+      .catch((error) => {
+        console.error("Failed to load fee structure bundle grid:", error);
+        this.showError(error.message || "Failed to load fee structure for editing");
+      });
   }
 
+  resolveGradeRangeForLevel(levelId) {
+    if (!levelId) return null;
+    const classIds = (this.classes || [])
+      .filter((c) => String(c.level_id) === String(levelId))
+      .map((c) => parseInt(c.id, 10))
+      .filter((id) => !isNaN(id));
+    if (!classIds.length) return null;
+    return {
+      from_id: Math.min(...classIds),
+      to_id: Math.max(...classIds),
+    };
+  }
+
+  getDefaultYear() {
+    const current = this.academicYears.find((y) => y.is_current);
+    return (
+      this.parseAcademicYear(current?.year_code || current?.year || "") ||
+      String(new Date().getFullYear())
+    );
+  }
+
+  termNumber(term) {
+    const n = parseInt(
+      String(term?.term_number ?? term?.code ?? "")
+        .replace("T", "")
+        .replace("t", ""),
+      10,
+    );
+    return isNaN(n) ? null : n;
+  }
+
+  termKey(term) {
+    const n = this.termNumber(term);
+    return n ? `term${n}` : "";
+  }
   renderStructureForm(data = {}) {
     const modalTitle = document.getElementById("modalTitle");
     const modalBody = document.getElementById("modalBody");
     if (!modalBody) return;
 
     const academicYear =
-      data.academic_year ||
-      this.parseAcademicYear(
-        this.academicYears.find((year) => year.is_current)?.year_code,
-      ) ||
-      "";
-    const levelId = data.level_id || "";
-    const studentTypeId = data.student_type_id || "";
-    const termBreakdown = data.term_breakdown || {};
-
+      data.academic_year || this.getDefaultYear();
+    const gradeRange =
+      data.grade_range || {
+        from_id: data.from_id || "",
+        to_id: data.to_id || "",
+      };
+    const studentTypeIds = Array.isArray(data.student_type_ids)
+      ? data.student_type_ids
+          .map((id) => parseInt(id, 10))
+          .filter((id) => !isNaN(id))
+      : [];
+    const items = data.items || {};
     const terms = this.getTermsForYear(academicYear);
     this.currentFormTerms = terms;
 
     if (modalTitle) {
       modalTitle.textContent = this.editingGroup
-        ? "Edit Fee Structure"
-        : "Create Fee Structure";
+        ? "Edit Fee Structure Bundle"
+        : "Create Fee Structure Bundle";
     }
 
-    const termHeaders = terms
-      .map(
-        (term) =>
-          `<th class="text-center">${term.name || `Term ${term.term_number}`}</th>`,
-      )
-      .join("");
+    const rows = [];
+    if (Object.keys(items).length > 0) {
+      Object.keys(items).forEach((code) => {
+        this._uidCounter = (this._uidCounter || 0) + 1;
+        const node = items[code] || {};
+        rows.push({
+          _uid: "row" + this._uidCounter,
+          code,
+          name: node.name || code,
+          values: node.terms || {},
+        });
+      });
+    } else {
+      (this.feeTypes || []).forEach((feeType) => {
+        this._uidCounter = (this._uidCounter || 0) + 1;
+        rows.push({
+          _uid: "row" + this._uidCounter,
+          code: feeType.code || feeType.name,
+          name: feeType.name || feeType.code || feeType.code,
+          values: {},
+        });
+      });
+    }
 
-    const termTotals = terms
-      .map(
-        (term) =>
-          `<th class="text-end" data-term-total="${term.term_number}">KES 0.00</th>`,
-      )
-      .join("");
+    this.formModel = {
+      academic_year: academicYear,
+      from_id: gradeRange.from_id || "",
+      to_id: gradeRange.to_id || "",
+      student_type_ids: studentTypeIds,
+      rows,
+    };
 
     modalBody.innerHTML = `
       <div class="row g-3 mb-3">
@@ -1143,42 +1207,33 @@ class FeeStructureAccountantController {
           <select class="form-select" id="structureAcademicYear"></select>
         </div>
         <div class="col-md-4">
-          <label class="form-label">School Level *</label>
-          <select class="form-select" id="structureLevel"></select>
+          <label class="form-label">From Class (Grade) *</label>
+          <select class="form-select" id="structureFromClass"></select>
         </div>
         <div class="col-md-4">
-          <label class="form-label">Student Type *</label>
-          <select class="form-select" id="structureStudentType"></select>
+          <label class="form-label">To Class (Grade) *</label>
+          <select class="form-select" id="structureToClass"></select>
         </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label d-block">Student Types *</label>
+        <div class="d-flex flex-wrap gap-3" id="structureStudentTypes"></div>
       </div>
 
       <div class="table-responsive">
         <table class="table table-bordered align-middle" id="structureItemsTable">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 30%">Fee Type</th>
-              ${termHeaders}
-              <th class="text-end" style="width: 15%">Annual Total</th>
-              <th style="width: 8%"></th>
-            </tr>
-          </thead>
+          <thead class="table-light"></thead>
           <tbody></tbody>
-          <tfoot>
-            <tr class="table-light">
-              <th class="text-end">Totals</th>
-              ${termTotals}
-              <th class="text-end" id="structureGrandTotal">KES 0.00</th>
-              <th></th>
-            </tr>
-          </tfoot>
+          <tfoot></tfoot>
         </table>
       </div>
 
-      <div class="d-flex justify-content-between">
-        <button class="btn btn-sm btn-outline-primary" id="addFeeRowBtn">
-          <i class="bi bi-plus-circle"></i> Add Fee Type
+      <div class="d-flex justify-content-between mt-2">
+        <button class="btn btn-sm btn-outline-primary" id="addFeeRowBtn" type="button">
+          <i class="bi bi-plus-circle"></i> Add Fee Item
         </button>
-        <small class="text-muted">All amounts are in KES</small>
+        <small class="text-muted">All amounts are in KES. Leave a cell blank to exclude it for that term / student type.</small>
       </div>
     `;
 
@@ -1186,83 +1241,241 @@ class FeeStructureAccountantController {
     const yearSelect = document.getElementById("structureAcademicYear");
     if (yearSelect && academicYear) yearSelect.value = academicYear;
 
-    this.populateLevelSelect("structureLevel");
-    const levelSelect = document.getElementById("structureLevel");
-    if (levelSelect && levelId) levelSelect.value = levelId;
-
-    this.populateStudentTypeSelect("structureStudentType");
-    const studentTypeSelect = document.getElementById("structureStudentType");
-    if (studentTypeSelect && studentTypeId)
-      studentTypeSelect.value = studentTypeId;
-
-    const tbody = modalBody.querySelector("#structureItemsTable tbody");
-    if (tbody) tbody.innerHTML = "";
-
-    const feeKeys = Object.keys(termBreakdown);
-    if (feeKeys.length > 0) {
-      feeKeys.forEach((feeKey) => {
-        this.addFeeItemRow(feeKey, termBreakdown[feeKey]);
-      });
-    } else if (this.feeTypes.length > 0) {
-      this.feeTypes.forEach((feeType) => {
-        this.addFeeItemRow(feeType.code || feeType.name, {});
-      });
-    } else {
-      this.addFeeItemRow("", {});
+    this.populateClassSelect("structureFromClass");
+    this.populateClassSelect("structureToClass");
+    if (document.getElementById("structureFromClass")) {
+      document.getElementById("structureFromClass").value = String(
+        this.formModel.from_id || "",
+      );
+    }
+    if (document.getElementById("structureToClass")) {
+      document.getElementById("structureToClass").value = String(
+        this.formModel.to_id || "",
+      );
     }
 
+    this.renderStudentTypeCheckboxes();
+    this.renderFeeRows();
+
     document.getElementById("addFeeRowBtn")?.addEventListener("click", () => {
-      this.addFeeItemRow("", {});
+      this.addFeeRow();
     });
 
     document
       .getElementById("structureItemsTable")
       ?.addEventListener("input", (event) => {
-        if (event.target.classList.contains("term-amount")) {
-          this.updateFormTotals();
-        }
+        const input = event.target;
+        if (!input.classList.contains("cell-amount")) return;
+        const { row: uid, term, type } = input.dataset;
+        const row = this.formModel.rows.find((r) => r._uid === uid);
+        if (!row) return;
+        if (!row.values[term]) row.values[term] = {};
+        const raw = input.value;
+        row.values[term][type] = raw === "" ? null : parseFloat(raw);
+        this.updateFormTotals();
       });
 
     document
       .getElementById("structureItemsTable")
-      ?.addEventListener("change", (event) => {
-        if (event.target.classList.contains("fee-type-select")) {
-          this.updateFormTotals();
-        }
+      ?.addEventListener("click", (event) => {
+        const btn = event.target.closest(".remove-fee-row");
+        if (!btn) return;
+        this.formModel.rows = this.formModel.rows.filter(
+          (r) => r._uid !== btn.dataset.row,
+        );
+        this.renderFeeRows();
+      });
+
+    yearSelect?.addEventListener("change", () => {
+      this.formModel.academic_year = yearSelect.value;
+      this.currentFormTerms = this.getTermsForYear(yearSelect.value);
+      this.formModel.rows.forEach((row) => {
+        row.values = {};
+      });
+      this.renderFeeRows();
+    });
+
+    document
+      .getElementById("structureFromClass")
+      ?.addEventListener("change", (e) => {
+        this.formModel.from_id = e.target.value;
+      });
+    document
+      .getElementById("structureToClass")
+      ?.addEventListener("change", (e) => {
+        this.formModel.to_id = e.target.value;
       });
 
     this.updateFormTotals();
   }
 
-  populateLevelSelect(elementId) {
+  populateClassSelect(elementId) {
     const select = document.getElementById(elementId);
     if (!select) return;
-    select.innerHTML = '<option value="">Select level</option>';
-    this.levels
+    select.innerHTML = '<option value="">Select class</option>';
+    (this.classes || [])
       .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-      .forEach((level) => {
+      .sort(
+        (a, b) =>
+          String(a.level_name || a.level_id || "").localeCompare(
+            String(b.level_name || b.level_id || ""),
+          ) ||
+          String(a.name || "").localeCompare(String(b.name || "")),
+      )
+      .forEach((c) => {
         const option = document.createElement("option");
-        option.value = level.id;
-        option.textContent = `${level.name} (${level.code})`;
+        option.value = c.id;
+        const level = c.level_name || c.level_code || "";
+        option.textContent = level ? `${c.name} (${level})` : c.name;
         select.appendChild(option);
       });
   }
 
-  populateStudentTypeSelect(elementId) {
-    const select = document.getElementById(elementId);
-    if (!select) return;
-    select.innerHTML = '<option value="">Select type</option>';
-    this.studentTypes
-      .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-      .forEach((type) => {
-        const option = document.createElement("option");
-        option.value = type.id;
-        option.textContent = `${type.name} (${type.code})`;
-        select.appendChild(option);
-      });
+  studentTypeById(id) {
+    return (this.studentTypes || []).find(
+      (t) => parseInt(t.id, 10) === parseInt(id, 10),
+    );
   }
+
+  renderStudentTypeCheckboxes() {
+    const container = document.getElementById("structureStudentTypes");
+    if (!container) return;
+    container.innerHTML = "";
+    (this.studentTypes || []).forEach((type) => {
+      const id = parseInt(type.id, 10);
+      const checked = (this.formModel?.student_type_ids || []).includes(id);
+      const wrap = document.createElement("div");
+      wrap.className = "form-check form-check-inline";
+      wrap.innerHTML = `
+        <input class="form-check-input bundle-st-type" type="checkbox" value="${id}" ${checked ? "checked" : ""} id="st-${id}">
+        <label class="form-check-label" for="st-${id}">${this._esc(type.name)}${type.code ? ` (${this._esc(type.code)})` : ""}</label>
+      `;
+      container.appendChild(wrap);
+    });
+
+    container.querySelectorAll(".bundle-st-type").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = parseInt(cb.value, 10);
+        const ids = this.formModel.student_type_ids;
+        const idx = ids.indexOf(id);
+        if (cb.checked && idx === -1) ids.push(id);
+        if (!cb.checked && idx !== -1) ids.splice(idx, 1);
+        this.renderFeeRows();
+      });
+    });
+  }
+
+  renderFeeRows() {
+    const tbody = document.querySelector("#structureItemsTable tbody");
+    const tfoot = document.querySelector("#structureItemsTable tfoot");
+    if (!tbody) return;
+    const stIds = this.formModel?.student_type_ids || [];
+    const terms = this.currentFormTerms || [];
+    const stCount = Math.max(stIds.length, 1);
+
+    const thead = document.querySelector("#structureItemsTable thead");
+    if (thead) {
+      const termHeaders = terms
+        .map(
+          (term) =>
+            `<th class="text-center" colspan="${stCount}">${this._esc(term.name || `Term ${term.term_number}`)}</th>`,
+        )
+        .join("");
+      const typeHeaders = terms
+        .map(() => {
+          if (!stIds.length) {
+            return '<th class="text-center fw-normal text-muted">\u2014</th>';
+          }
+          return stIds
+            .map((id) => {
+              const st = this.studentTypeById(id);
+              return `<th class="text-center fw-normal">${st ? this._esc(st.name) : id}</th>`;
+            })
+            .join("");
+        })
+        .join("");
+      thead.innerHTML = `
+        <tr>
+          <th rowspan="2" style="width: 20%">Fee Item</th>
+          ${termHeaders}
+          <th rowspan="2" class="text-end" style="width: 11%">Annual Total</th>
+          <th rowspan="2" style="width: 5%"></th>
+        </tr>
+        <tr>${typeHeaders}</tr>
+      `;
+    }
+
+    tbody.innerHTML = "";
+    this.formModel.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const cells = terms
+        .map((term) => {
+          const termKey = this.termKey(term);
+          return stIds
+            .map((stId) => {
+              const value = row.values?.[termKey]?.[stId];
+              const shown =
+                value === null || value === undefined || value === ""
+                  ? ""
+                  : value;
+              return `<td><input type="number" class="form-control form-control-sm cell-amount text-end" data-row="${this._esc(row._uid)}" data-term="${termKey}" data-type="${stId}" value="${shown}" min="0" step="0.01" /></td>`;
+            })
+            .join("");
+        })
+        .join("");
+
+      tr.innerHTML = `
+        <td>
+          <input type="text" class="form-control form-control-sm fee-item-name" data-row="${this._esc(row._uid)}" value="${this._esc(row.name)}" />
+        </td>
+        ${cells || `<td class="text-center text-muted" colspan="${terms.length * stCount}">Select at least one student type</td>`}
+        <td class="text-end row-total">KES 0.00</td>
+        <td class="text-center">
+          <button class="btn btn-sm btn-outline-danger remove-fee-row" data-row="${this._esc(row._uid)}" type="button"><i class="bi bi-x"></i></button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (tfoot) tfoot.innerHTML = this.renderFormTotalsRow(terms, stIds);
+
+    tbody.querySelectorAll(".fee-item-name").forEach((input) => {
+      input.addEventListener("change", () => {
+        const row = this.formModel.rows.find(
+          (r) => r._uid === input.dataset.row,
+        );
+        if (!row) return;
+        const value = input.value.trim();
+        row.name = value;
+        if (!row.code) row.code = value;
+      });
+    });
+
+    this.updateFormTotals();
+  }
+
+  renderFormTotalsRow(terms, stIds) {
+    const cells = terms
+      .map((term) => {
+        const termKey = this.termKey(term);
+        return stIds
+          .map(
+            (stId) =>
+              `<th class="text-end tt-total" data-term="${termKey}" data-type="${stId}">KES 0.00</th>`,
+          )
+          .join("");
+      })
+      .join("");
+    return `
+      <tr class="table-light">
+        <th class="text-end">Totals</th>
+        ${cells || '<th class="text-center">\u2014</th>'}
+        <th class="text-end" id="structureGrandTotal">KES 0.00</th>
+        <th></th>
+      </tr>
+    `;
+  }
+
 
   getTermsForYear(yearValue) {
     const key = this.parseAcademicYear(yearValue);
@@ -1270,7 +1483,7 @@ class FeeStructureAccountantController {
     if (terms && terms.length) {
       return terms
         .slice()
-        .sort((a, b) => (a.term_number || a.id) - (b.term_number || b.id));
+        .sort((a, b) => (this.termNumber(a) || 0) - (this.termNumber(b) || 0));
     }
     return [
       { term_number: 1, name: "Term 1" },
@@ -1278,96 +1491,38 @@ class FeeStructureAccountantController {
       { term_number: 3, name: "Term 3" },
     ];
   }
-
-  addFeeItemRow(feeKey = "", termAmounts = {}) {
-    const tableBody = document.querySelector("#structureItemsTable tbody");
-    if (!tableBody) return;
-
-    const row = document.createElement("tr");
-    const feeOptions = this.buildFeeTypeOptions(feeKey);
-
-    const termInputs = this.currentFormTerms
-      .map((term) => {
-        const termKey = `term${term.term_number}`;
-        const value = termAmounts?.[termKey] ?? "";
-        return `
-          <td>
-            <input type="number" class="form-control form-control-sm term-amount text-end" data-term="${term.term_number}" value="${value}" min="0" step="0.01" />
-          </td>
-        `;
-      })
-      .join("");
-
-    row.innerHTML = `
-      <td>
-        <select class="form-select form-select-sm fee-type-select">
-          ${feeOptions}
-        </select>
-      </td>
-      ${termInputs}
-      <td class="text-end row-total">KES 0.00</td>
-      <td class="text-center">
-        <button class="btn btn-sm btn-outline-danger remove-fee-row" type="button">
-          <i class="bi bi-x"></i>
-        </button>
-      </td>
-    `;
-
-    row.querySelector(".remove-fee-row")?.addEventListener("click", () => {
-      row.remove();
-      this.updateFormTotals();
+  addFeeRow() {
+    if (!this.formModel) return;
+    this._uidCounter = (this._uidCounter || 0) + 1;
+    this.formModel.rows.push({
+      _uid: "row" + this._uidCounter,
+      code: "",
+      name: "New fee item",
+      values: {},
     });
-
-    tableBody.appendChild(row);
+    this.renderFeeRows();
   }
-
-  buildFeeTypeOptions(selectedKey) {
-    const options = ['<option value="">Select fee type</option>'];
-
-    this.feeTypes.forEach((feeType) => {
-      const value = feeType.code || feeType.name;
-      const label = feeType.code
-        ? `${feeType.code} - ${feeType.name}`
-        : feeType.name;
-      const selected = value === selectedKey ? "selected" : "";
-      options.push(`<option value="${value}" ${selected}>${label}</option>`);
-    });
-
-    if (
-      selectedKey &&
-      !this.feeTypes.some(
-        (ft) => ft.code === selectedKey || ft.name === selectedKey,
-      )
-    ) {
-      options.push(
-        `<option value="${selectedKey}" selected>${selectedKey}</option>`,
-      );
-    }
-
-    return options.join("");
-  }
-
   updateFormTotals() {
     const rows = document.querySelectorAll("#structureItemsTable tbody tr");
-    const termTotals = {};
+    const typeTotals = {};
     let grandTotal = 0;
 
     rows.forEach((row) => {
       let rowTotal = 0;
-      row.querySelectorAll(".term-amount").forEach((input) => {
-        const termNumber = input.dataset.term;
+      row.querySelectorAll(".cell-amount").forEach((input) => {
         const amount = parseFloat(input.value) || 0;
         rowTotal += amount;
-        termTotals[termNumber] = (termTotals[termNumber] || 0) + amount;
+        const key = `${input.dataset.term}:${input.dataset.type}`;
+        typeTotals[key] = (typeTotals[key] || 0) + amount;
       });
-      row.querySelector(".row-total").textContent =
-        this.formatCurrency(rowTotal);
+      const cell = row.querySelector(".row-total");
+      if (cell) cell.textContent = this.formatCurrency(rowTotal);
       grandTotal += rowTotal;
     });
 
-    Object.entries(termTotals).forEach(([termNumber, total]) => {
-      const cell = document.querySelector(`[data-term-total="${termNumber}"]`);
-      if (cell) cell.textContent = this.formatCurrency(total);
+    document.querySelectorAll(".tt-total").forEach((th) => {
+      const key = `${th.dataset.term}:${th.dataset.type}`;
+      th.textContent = this.formatCurrency(typeTotals[key] || 0);
     });
 
     const grandTotalCell = document.getElementById("structureGrandTotal");
@@ -1375,99 +1530,157 @@ class FeeStructureAccountantController {
       grandTotalCell.textContent = this.formatCurrency(grandTotal);
     }
   }
-
-  collectStructureFormData(requireAll = true) {
+  collectBundleData(requireAll = true) {
     const academicYear = document.getElementById(
       "structureAcademicYear",
     )?.value;
-    const levelId = document.getElementById("structureLevel")?.value;
-    const studentTypeId = document.getElementById(
-      "structureStudentType",
-    )?.value;
+    const fromId = document.getElementById("structureFromClass")?.value;
+    const toId = document.getElementById("structureToClass")?.value;
+    const stIds = this.formModel?.student_type_ids || [];
 
-    if (requireAll && (!academicYear || !levelId || !studentTypeId)) {
-      this.showError("Please select academic year, level, and student type.");
+    if (
+      requireAll &&
+      (!academicYear || !fromId || !toId || stIds.length === 0)
+    ) {
+      this.showError(
+        "Please select academic year, grade range, and at least one student type.",
+      );
       return null;
     }
 
-    const termBreakdown = {};
-    const rows = document.querySelectorAll("#structureItemsTable tbody tr");
+    if (requireAll && parseInt(toId, 10) < parseInt(fromId, 10)) {
+      this.showError("To Class cannot come before From Class.");
+      return null;
+    }
 
-    rows.forEach((row) => {
-      const feeTypeKey = row.querySelector(".fee-type-select")?.value;
-      if (!feeTypeKey) return;
-
-      termBreakdown[feeTypeKey] = {};
-      row.querySelectorAll(".term-amount").forEach((input) => {
-        const termNumber = input.dataset.term;
-        const amount = parseFloat(input.value) || 0;
-        termBreakdown[feeTypeKey][`term${termNumber}`] = amount;
+    const items = {};
+    (this.formModel?.rows || []).forEach((row) => {
+      const code = String(row.code || "").trim();
+      if (!code) return;
+      items[code] = {};
+      this.currentFormTerms.forEach((term) => {
+        const termKey = this.termKey(term);
+        items[code][termKey] = {};
+        stIds.forEach((stId) => {
+          const raw = row.values?.[termKey]?.[stId];
+          const parsed = parseFloat(raw);
+          items[code][termKey][stId] =
+            raw === null || raw === undefined || raw === "" || isNaN(parsed)
+              ? null
+              : parsed;
+        });
       });
     });
 
-    if (requireAll && Object.keys(termBreakdown).length === 0) {
+    if (requireAll && Object.keys(items).length === 0) {
       this.showError("Please add at least one fee item.");
       return null;
     }
 
     return {
       academic_year: this.parseAcademicYear(academicYear),
-      level_id: parseInt(levelId, 10),
-      student_type_id: parseInt(studentTypeId, 10),
-      term_breakdown: termBreakdown,
+      grade_range: {
+        from_id: parseInt(fromId, 10),
+        to_id: parseInt(toId, 10),
+      },
+      student_type_ids: stIds,
+      items,
     };
   }
-
   async saveDraft() {
-    const payload = this.collectStructureFormData(true);
+    const payload = this.collectBundleData(true);
     if (!payload) return;
 
     try {
-      if (this.editingGroup) {
-        await API.finance.updateAnnualStructure(payload);
-        this.showSuccess("Fee structure updated successfully");
-      } else {
-        payload.created_by = this.getCurrentUserId();
-        await API.finance.createAnnualStructure(payload);
-        this.showSuccess("Fee structure saved as draft");
-      }
-
+      payload.created_by = this.getCurrentUserId();
+      const resp = await API.finance.createFeeStructureBundle(payload);
+      const d = resp?.data ?? resp ?? {};
+      const msg =
+        d.message || resp?.message || "Fee structure bundle saved as draft";
+      this.showSuccess(
+        `${msg}\nRows created: ${d.total_rows_created ?? "-"} | Archived: ${d.total_rows_archived ?? 0} | Classes: ${d.class_count ?? "-"}`,
+      );
       this.closeModal("feeStructureModal");
       this.loadFeeStructures(this.currentPage);
     } catch (error) {
       console.error("Failed to save draft:", error);
-      this.showError(error.message || "Failed to save fee structure");
+      this.showError(error.message || "Failed to save fee structure bundle");
     }
   }
 
   async saveAndSubmit() {
-    const payload = this.collectStructureFormData(true);
+    const payload = this.collectBundleData(true);
     if (!payload) return;
 
     try {
-      if (this.editingGroup) {
-        await API.finance.updateAnnualStructure(payload);
-      } else {
-        payload.created_by = this.getCurrentUserId();
-        await API.finance.createAnnualStructure(payload);
+      payload.created_by = this.getCurrentUserId();
+      const resp = await API.finance.createFeeStructureBundle(payload);
+      const d = resp?.data ?? resp ?? {};
+      const msg =
+        d.message || resp?.message || "Fee structure bundle saved";
+
+      const pairs = this.bundleTermTypePairs(payload);
+      if (pairs.length > 0) {
+        await this.submitBundleForPairs(payload, pairs);
       }
 
-      await API.finance.reviewStructure({
-        academic_year: payload.academic_year,
-        level_id: payload.level_id,
-        student_type_id: payload.student_type_id,
-        reviewed_by: this.getCurrentUserId(),
-        notes: "Submitted for approval",
-      });
-
-      this.showSuccess("Fee structure submitted for approval");
+      this.showSuccess(
+        `${msg}\nRows created: ${d.total_rows_created ?? "-"} | Archived: ${d.total_rows_archived ?? 0} | Classes: ${d.class_count ?? "-"}` +
+          (pairs.length
+            ? `\nSubmitted for review: ${pairs.length} term/type combination(s)`
+            : "\nNo amounts entered — saved as draft only."),
+      );
       this.closeModal("feeStructureModal");
       this.loadFeeStructures(this.currentPage);
     } catch (error) {
-      console.error("Failed to submit structure:", error);
-      this.showError(error.message || "Failed to submit fee structure");
+      console.error("Failed to submit fee structure bundle:", error);
+      this.showError(error.message || "Failed to submit fee structure bundle");
     }
   }
+
+  bundleTermTypePairs(payload) {
+    const pairs = new Set();
+    Object.values(payload.items || {}).forEach((item) => {
+      Object.keys(item || {}).forEach((termKey) => {
+        const termNumber = parseInt(String(termKey).replace("term", ""), 10);
+        if (!termNumber) return;
+        Object.keys(item[termKey] || {}).forEach((stId) => {
+          if (Number(item[termKey][stId]) > 0) {
+            pairs.add(`${termNumber}:${stId}`);
+          }
+        });
+      });
+    });
+    return Array.from(pairs);
+  }
+
+  async submitBundleForPairs(payload, pairs) {
+    const levelId = Math.round(
+      (Number(payload.grade_range.from_id) +
+        Number(payload.grade_range.to_id)) /
+        2,
+    );
+    const terms = this.currentFormTerms || [];
+    for (const pair of pairs) {
+      const [termNumber, stId] = pair.split(":").map(Number);
+      const term = terms.find((t) => this.termNumber(t) === termNumber);
+      const termId = term?.id || termNumber;
+      try {
+        await window.API.apiCall("/finance/fees-bundle-submit", "POST", {
+          level_id: levelId,
+          academic_year: payload.academic_year,
+          term_id: termId,
+          student_type_id: stId,
+          notes: "Submitted for director review",
+        });
+      } catch (e) {
+        console.warn("Bundle submit failed for", pair, e);
+        throw e;
+      }
+    }
+  }
+
+
 
   getCurrentUserId() {
     const user = AuthContext.getUser();
@@ -1583,6 +1796,14 @@ class FeeStructureAccountantController {
     this.loadFeeStructures(1);
   }
 
+  _esc(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   formatCurrency(amount) {
     return (
       "KES " +
@@ -1627,12 +1848,12 @@ class FeeStructureAccountantController {
     }
   }
 
-  showSuccess(message) {
-    alert(message);
+  async showSuccess(message) {
+    await window.infoDialog('Notice', message);
   }
 
-  showError(message) {
-    alert("Error: " + message);
+  async showError(message) {
+    await window.infoDialog('Notice', "Error: " + message);
   }
 
   debounce(func, wait) {
@@ -1678,8 +1899,8 @@ class FeeStructureAccountantController {
   }
 
   /** Open the "Submit for Director Review" modal */
-  openSubmitBundleModal(levelId, academicYear, termId, studentTypeId) {
-    if (!confirm(`Submit this fee structure bundle for Director review?\n\nLevel ID: ${levelId} | Year: ${academicYear} | Term: ${termId} | Type: ${studentTypeId}\n\nThis will lock the draft lines for approval.`)) return;
+  async openSubmitBundleModal(levelId, academicYear, termId, studentTypeId) {
+    if (!(await window.confirmAction('Confirm', `Submit this fee structure bundle for Director review?\n\nLevel ID: ${levelId} | Year: ${academicYear} | Term: ${termId} | Type: ${studentTypeId}\n\nThis will lock the draft lines for approval.`))) return;
     this.submitBundle(levelId, academicYear, termId, studentTypeId);
   }
 
@@ -1692,14 +1913,14 @@ class FeeStructureAccountantController {
         student_type_id: studentTypeId,
       });
       if (resp?.status === 'success' || resp?.data) {
-        alert('Bundle submitted for Director review successfully.');
+        await window.infoDialog('Notice', 'Bundle submitted for Director review successfully.');
         this.loadBundleStatuses();
         if (typeof this.loadFeeStructures === 'function') this.loadFeeStructures();
       } else {
-        alert('Submit failed: ' + (resp?.message || 'Unknown error'));
+        await window.infoDialog('Notice', 'Submit failed: ' + (resp?.message || 'Unknown error'));
       }
     } catch (e) {
-      alert('Submit error: ' + (e.message || 'Unknown error'));
+      await window.infoDialog('Notice', 'Submit error: ' + (e.message || 'Unknown error'));
     }
   }
 }

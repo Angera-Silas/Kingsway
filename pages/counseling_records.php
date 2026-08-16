@@ -45,7 +45,7 @@
             <div class="card">
                 <div class="card-body text-center">
                     <h3 id="activeStudents">--</h3>
-                    <p class="text-muted mb-0">Students in Counseling</p>
+                    <p class="text-muted mb-0">Active Counselees</p>
                 </div>
             </div>
         </div>
@@ -72,7 +72,7 @@
         <div class="card-header">
             <div class="row g-2">
                 <div class="col-md-4">
-                    <input type="text" class="form-control" id="searchStudent" placeholder="Search by student name...">
+                    <input type="text" class="form-control" id="searchStudent" placeholder="Search by counselee name...">
                 </div>
                 <div class="col-md-3">
                     <select class="form-select" id="filterType">
@@ -95,7 +95,7 @@
                     <thead>
                         <tr>
                             <th scope="col">Date</th>
-                            <th scope="col">Student</th>
+                            <th scope="col">Counselee</th>
                             <th scope="col">Class</th>
                             <th scope="col">Type</th>
                             <th scope="col">Counselor</th>

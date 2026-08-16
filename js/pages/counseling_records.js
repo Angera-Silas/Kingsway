@@ -60,18 +60,14 @@ const CounselingRecordsController = {
     this.setText(
       "#activeStudents",
       summary.active_students ||
-        new Set(sessions.map((s) => s.student_id)).size,
+        new Set(
+          sessions.map((s) =>
+            s.counselee_type === "staff" ? s.staff_id : s.student_id,
+          ),
+        ).size,
     );
-    this.setText(
-      "#scheduledSessions",
-      summary.scheduled ||
-        sessions.filter((s) => s.status === "scheduled").length,
-    );
-    this.setText(
-      "#referrals",
-      summary.referrals ||
-        sessions.filter((s) => s.type === "referral" || s.referred).length,
-    );
+    this.setText("#scheduledSessions", summary.scheduled || 0);
+    this.setText("#referrals", summary.referrals || 0);
   },
 
   applyFilters() {
@@ -84,11 +80,22 @@ const CounselingRecordsController = {
     let filtered = [...this.state.allSessions];
     if (search)
       filtered = filtered.filter((s) =>
-        (s.student_name || s.name || "").toLowerCase().includes(search),
+        (
+          s.counselee_name ||
+          s.student_name ||
+          s.staff_name ||
+          s.name ||
+          ""
+        )
+          .toLowerCase()
+          .includes(search),
       );
     if (type)
       filtered = filtered.filter(
-        (s) => s.type === type || s.session_type === type,
+        (s) =>
+          s.case_type === type ||
+          s.session_type === type ||
+          s.type === type,
       );
     if (date)
       filtered = filtered.filter(
@@ -115,27 +122,42 @@ const CounselingRecordsController = {
           academic: "primary",
           behavioral: "warning",
           personal: "info",
+          family: "secondary",
           career: "success",
+          disciplinary: "danger",
+          crisis: "danger",
           referral: "danger",
           follow_up: "secondary",
+          other: "secondary",
         };
-        const type = session.type || session.session_type || "general";
+        const type =
+          session.case_type || session.session_type || session.type || "general";
         const statusColors = {
+          open: "primary",
+          in_progress: "info",
+          resolved: "success",
+          closed: "secondary",
+          cancelled: "danger",
           completed: "success",
           scheduled: "primary",
-          cancelled: "danger",
           ongoing: "info",
         };
-        const status = session.status || "completed";
+        const status = session.status || session.case_status || "open";
+        const isStaff = session.counselee_type === "staff";
+        const counseleeName =
+          session.counselee_name ||
+          session.student_name ||
+          session.staff_name ||
+          "";
 
         return `
             <tr>
                 <td>${session.date || session.session_date || "--"}</td>
-                <td><strong>${this.escapeHtml(session.student_name || session.name || "")}</strong></td>
-                <td>${this.escapeHtml(session.class_name || "")}</td>
+                <td>${isStaff ? '<span class="badge bg-secondary me-1">Staff</span>' : ""}<strong>${this.escapeHtml(counseleeName)}</strong></td>
+                <td>${this.escapeHtml(session.class_name || (isStaff ? "Staff" : ""))}</td>
                 <td><span class="badge bg-${typeColors[type] || "secondary"}">${type.replace("_", " ")}</span></td>
                 <td>${this.escapeHtml(session.counselor || session.counselor_name || "--")}</td>
-                <td><span class="badge bg-${statusColors[status] || "secondary"}">${status}</span></td>
+                <td><span class="badge bg-${statusColors[status] || "secondary"}">${status.replace("_", " ")}</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-outline-primary" onclick="CounselingRecordsController.viewSession(${session.id})" title="View"><i class="fas fa-eye"></i></button>
@@ -156,20 +178,20 @@ const CounselingRecordsController = {
           `
                     <div class="row">
                         <div class="col-md-6">
-                            <p><strong>Student:</strong> ${this.escapeHtml(s.student_name || "")}</p>
+                            <p><strong>Counselee:</strong> ${this.escapeHtml(s.counselee_name || s.student_name || s.staff_name || "")}</p>
                             <p><strong>Date:</strong> ${s.date || s.session_date || "--"}</p>
-                            <p><strong>Type:</strong> ${this.escapeHtml(s.type || s.session_type || "")}</p>
+                            <p><strong>Type:</strong> ${this.escapeHtml(s.case_type || s.type || s.session_type || "")}</p>
                         </div>
                         <div class="col-md-6">
                             <p><strong>Counselor:</strong> ${this.escapeHtml(s.counselor || s.counselor_name || "")}</p>
-                            <p><strong>Status:</strong> <span class="badge bg-info">${s.status || ""}</span></p>
-                            <p><strong>Duration:</strong> ${s.duration || "--"} mins</p>
+                            <p><strong>Status:</strong> <span class="badge bg-info">${s.status || s.case_status || ""}</span></p>
+                            <p><strong>Case Code:</strong> ${this.escapeHtml(s.case_code || "--")}</p>
                         </div>
                     </div>
                     <hr>
                     <p><strong>Notes:</strong></p>
-                    <p>${this.escapeHtml(s.notes || s.session_notes || "No notes recorded")}</p>
-                    ${s.recommendations ? `<p><strong>Recommendations:</strong> ${this.escapeHtml(s.recommendations)}</p>` : ""}
+                    <p>${this.escapeHtml(s.notes || s.summary || s.session_notes || "No notes recorded")}</p>
+                    ${s.action_plan ? `<p><strong>Action Plan:</strong> ${this.escapeHtml(s.action_plan)}</p>` : ""}
                     ${s.follow_up_date ? `<p><strong>Follow-up Date:</strong> ${s.follow_up_date}</p>` : ""}`,
         );
       }

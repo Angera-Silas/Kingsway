@@ -650,9 +650,11 @@ const ResourceBasedPermissionsController = {
     }
 
     if (
-      !window.confirm(
+      !(await window.confirmAction(
+        'Confirm Deletion',
         `Delete permission "${permission.code}"? This action cannot be undone.`,
-      )
+        { confirmText: 'Delete', danger: true },
+      ))
     ) {
       return;
     }
@@ -787,7 +789,6 @@ const ResourceBasedPermissionsController = {
       role_permissions: "role assignments",
       route_permissions: "route requirements",
       user_permissions: "user overrides",
-      system_permission_changes: "permission change records",
       system_route_access_rules: "route access rules",
       system_time_bound_access: "time-bound grants",
       workflow_stage_permissions: "workflow stage rules",

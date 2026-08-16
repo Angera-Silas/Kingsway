@@ -36,17 +36,15 @@ class PermissionManager
     // Assign/revoke permission to role
     public function assignPermissionToRole($roleId, $formPermissionId)
     {
-        // Add a row to role_form_permissions
-        $sql = 'INSERT INTO role_form_permissions (role_id, form_permission_id, allowed_actions) VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE allowed_actions = VALUES(allowed_actions)';
-        $actions = json_encode(['grant']);
+        // Re-mapped from legacy role_form_permissions to role_permissions junction
+        $sql = 'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
-        $ok = $stmt->execute([$roleId, $formPermissionId, $actions]);
+        $ok = $stmt->execute([$roleId, $formPermissionId]);
         return ['success' => $ok, 'data' => ['role_id' => $roleId, 'form_permission_id' => $formPermissionId]];
     }
     public function revokePermissionFromRole($roleId, $formPermissionId)
     {
-        $sql = 'DELETE FROM role_form_permissions WHERE role_id = ? AND form_permission_id = ?';
+        $sql = 'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([$roleId, $formPermissionId]);
         return ['success' => $ok, 'data' => ['role_id' => $roleId, 'form_permission_id' => $formPermissionId]];
@@ -63,9 +61,11 @@ class PermissionManager
     }
     public function getPermissionsByRole($roleId)
     {
-        $sql = 'SELECT rfp.*, fp.form_code, fp.form_name FROM role_form_permissions rfp
-                JOIN form_permissions fp ON rfp.form_permission_id = fp.id
-                WHERE rfp.role_id = ?';
+        $sql = 'SELECT rp.id, rp.role_id, rp.permission_id AS form_permission_id, rp.created_at,
+                       fp.form_code, fp.form_name
+                FROM role_permissions rp
+                LEFT JOIN form_permissions fp ON rp.permission_id = fp.id
+                WHERE rp.role_id = ?';
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$roleId]);
         $perms = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -140,18 +140,16 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
     }
     public function bulkAssignPermissionsToRole($roleId, $formPermissionIds)
     {
-        $sql = 'INSERT INTO role_form_permissions (role_id, form_permission_id, allowed_actions) VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE allowed_actions = VALUES(allowed_actions)';
+        $sql = 'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
-        $actions = json_encode(['grant']);
         foreach ($formPermissionIds as $pid) {
-            $stmt->execute([$roleId, $pid, $actions]);
+            $stmt->execute([$roleId, $pid]);
         }
         return ['success' => true, 'data' => ['role_id' => $roleId, 'form_permission_ids' => $formPermissionIds]];
     }
     public function bulkRevokePermissionsFromRole($roleId, $formPermissionIds)
     {
-        $sql = 'DELETE FROM role_form_permissions WHERE role_id = ? AND form_permission_id = ?';
+        $sql = 'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?';
         $stmt = $this->db->prepare($sql);
         foreach ($formPermissionIds as $pid) {
             $stmt->execute([$roleId, $pid]);

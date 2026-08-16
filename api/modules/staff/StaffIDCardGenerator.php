@@ -39,7 +39,8 @@ final class StaffIDCardGenerator extends BaseAPI
 
     /**
      * Upload a staff portrait through the existing MediaManager/UploadService
-     * lifecycle and persist the canonical staff.profile_pic_url column.
+     * lifecycle and persist the canonical persons.photo_url column
+     * (staff has no photo column in the 4NF schema — photos live on persons).
      */
     public function uploadStaffPhoto($staffId, $fileData)
     {
@@ -78,9 +79,10 @@ final class StaffIDCardGenerator extends BaseAPI
             }
 
             $statement = $this->db->prepare(
-                'UPDATE staff
-                 SET profile_pic_url = ?, updated_at = NOW()
-                 WHERE id = ?'
+                'UPDATE staff s
+                 JOIN persons p ON p.id = s.person_id
+                 SET p.photo_url = ?, s.updated_at = NOW()
+                 WHERE s.id = ?'
             );
             $statement->execute([$profilePictureUrl, (int) $staffId]);
 

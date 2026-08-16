@@ -153,6 +153,15 @@ class ControllerRouter
                 'code' => 200,
             ];
 
+        } catch (\InvalidArgumentException $e) {
+            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->abort(400, $e->getMessage());
+        } catch (\RuntimeException $e) {
+            error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ($e->getCode() === 404) {
+                return $this->abort(404, $e->getMessage());
+            }
+            return $this->abort(400, $e->getMessage());
         } catch (Exception $e) {
             error_log('[ControllerRouter] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->abort(500, 'An internal error occurred.');

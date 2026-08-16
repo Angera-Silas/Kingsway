@@ -114,7 +114,7 @@ class SchedulesManager extends BaseAPI
             $schedule = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$schedule) {
-                throw new Exception('Schedule not found');
+                throw new \RuntimeException('Schedule not found', 404);
             }
 
             return [
@@ -140,10 +140,10 @@ class SchedulesManager extends BaseAPI
         $transactionStarted = false;
         try {
             // Validate required fields
-            $required = ['activity_id', 'day_of_week', 'start_time', 'end_time'];
+            $required = ['activity_id', 'day_of_week', 'schedule_date', 'start_time', 'end_time'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    throw new Exception("Field '$field' is required");
+                    throw new \InvalidArgumentException("Field '$field' is required");
                 }
             }
 
@@ -153,7 +153,7 @@ class SchedulesManager extends BaseAPI
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$activity) {
-                throw new Exception('Activity not found');
+                throw new \RuntimeException('Activity not found', 404);
             }
 
             // Validate day of week
@@ -192,10 +192,10 @@ class SchedulesManager extends BaseAPI
                 INSERT INTO activity_schedule (
                     activity_id,
                     day_of_week,
+                    schedule_date,
                     start_time,
                     end_time,
                     venue,
-                    notes,
                     created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, NOW())
             ";
@@ -204,10 +204,10 @@ class SchedulesManager extends BaseAPI
             $stmt->execute([
                 $data['activity_id'],
                 $data['day_of_week'],
+                $data['schedule_date'],
                 $data['start_time'],
                 $data['end_time'],
-                $data['venue'] ?? null,
-                $data['notes'] ?? null
+                $data['venue'] ?? null
             ]);
 
             $scheduleId = $this->db->lastInsertId();
@@ -252,7 +252,7 @@ class SchedulesManager extends BaseAPI
             $stmt = $this->db->prepare("SELECT id FROM activity_schedule WHERE id = ?");
             $stmt->execute([$id]);
             if (!$stmt->fetch()) {
-                throw new Exception('Schedule not found');
+                throw new \RuntimeException('Schedule not found', 404);
             }
 
             // Validate time if both provided
@@ -290,7 +290,7 @@ class SchedulesManager extends BaseAPI
 
             $updates = [];
             $params = [];
-            $allowedFields = ['activity_id', 'day_of_week', 'start_time', 'end_time', 'venue', 'notes'];
+            $allowedFields = ['activity_id', 'day_of_week', 'schedule_date', 'start_time', 'end_time', 'venue'];
 
             foreach ($allowedFields as $field) {
                 if (array_key_exists($field, $data)) {
@@ -339,7 +339,7 @@ class SchedulesManager extends BaseAPI
             $stmt = $this->db->prepare("SELECT id FROM activity_schedule WHERE id = ?");
             $stmt->execute([$id]);
             if (!$stmt->fetch()) {
-                throw new Exception('Schedule not found');
+                throw new \RuntimeException('Schedule not found', 404);
             }
 
             if (!$this->db->inTransaction()) {

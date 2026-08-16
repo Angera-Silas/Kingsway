@@ -50,12 +50,35 @@
         } catch (e) { return dateStr; }
     }
 
+    function formatTimeRange(ev) {
+        var sT = ev.start_time || (ev.start_at ? String(ev.start_at).substring(11, 16) : "") || "";
+        var eT = ev.end_time || (ev.end_at ? String(ev.end_at).substring(11, 16) : "") || "";
+        if (sT && eT && eT !== sT) return sT + " – " + eT;
+        return sT || "—";
+    }
+
+    function formatDateRange(ev) {
+        var start = parseDate(ev) || "";
+        var end = ev.end_date || (ev.end_at ? String(ev.end_at).substring(0, 10) : "") || "";
+        var s = formatDateDisplay(start);
+        var e = end && end !== start ? formatDateDisplay(end) : "";
+        return e ? s + " → " + e : s;
+    }
+
     var TYPE_COLORS = {
         holiday: "success",
+        school_holiday: "success",
+        public_holiday: "success",
         exam: "danger",
+        half_day: "warning",
+        special_event: "info",
+        opening: "primary",
+        closing: "primary",
         meeting: "primary",
         activity: "info",
         sports: "warning",
+        cultural: "info",
+        general: "secondary",
         other: "secondary"
     };
 
@@ -218,6 +241,7 @@
 
         loadData: async function () {
             try {
+                await window.API.schedules.syncEvents().catch(() => null);
                 var response = await window.API.schedules.getEvents(null);
                 this.data = extractList(response);
             } catch (err) {
@@ -227,6 +251,18 @@
             }
 
             this.render();
+        },
+
+        syncNow: async function () {
+            showToast("Syncing calendar and events...", "info");
+            try {
+                await window.API.schedules.syncEvents();
+                showToast("Calendar synced successfully", "success");
+                await this.loadData();
+            } catch (err) {
+                console.error("school_events: syncNow error", err);
+                showToast(err.message || "Sync failed", "error");
+            }
         },
 
         render: function () {
@@ -254,6 +290,7 @@
                         else if (evDate <= now && evEnd >= now) status = "ongoing";
                         else status = "upcoming";
                     }
+                    if (statusFilter === "completed" && status === "past") status = "completed";
                     if (status !== statusFilter) return false;
                 }
 
@@ -287,14 +324,15 @@
             listEl.innerHTML = upcoming.slice(0, 10).map(function (ev) {
                 var title = ev.title || ev.name || ev.event_name || "Untitled Event";
                 var type = ev.type || ev.event_type || "other";
-                var dateStr = formatDateDisplay(parseDate(ev));
+                var dateStr = formatDateRange(ev);
+                var timeStr = formatTimeRange(ev);
                 var color = typeColor(type);
 
                 return '<li class="list-group-item d-flex align-items-center gap-2">' +
                     '<span class="badge bg-' + color + ' text-white" style="min-width:80px">' + esc(type.charAt(0).toUpperCase() + type.slice(1)) + '</span>' +
                     '<div class="flex-grow-1">' +
                     '<div class="fw-semibold">' + esc(title) + '</div>' +
-                    '<small class="text-muted"><i class="bi bi-calendar me-1"></i>' + esc(dateStr) + '</small>' +
+                    '<small class="text-muted"><i class="bi bi-calendar me-1"></i>' + esc(dateStr) + (timeStr && timeStr !== "—" ? ' <i class="bi bi-clock ms-2"></i>' + esc(timeStr) : '') + '</small>' +
                     '</div>' +
                     '</li>';
             }).join("");
@@ -306,7 +344,7 @@
             var tbody = table.querySelector("tbody") || table;
 
             if (!this.filtered.length) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>No events found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>No events found.</td></tr>';
                 return;
             }
 
@@ -321,17 +359,22 @@
                 var evDate = new Date(parseDate(ev));
                 var evEnd = ev.end_date ? new Date(ev.end_date) : evDate;
                 var status = ev.status || (evEnd < now ? "Past" : evDate <= now && evEnd >= now ? "Ongoing" : "Upcoming");
+                var statusNorm = String(status).toLowerCase();
+                if (statusNorm === "completed") statusNorm = "past";
 
-                var statusColor = status === "Past" || status === "past" ? "secondary"
-                    : status === "Ongoing" || status === "ongoing" ? "warning"
+                var statusColor = statusNorm === "past" ? "secondary"
+                    : statusNorm === "ongoing" ? "warning"
+                    : statusNorm === "cancelled" ? "danger"
                     : "success";
+                var venue = ev.location || ev.venue || "—";
 
                 return '<tr>' +
                     '<td class="fw-semibold">' + esc(title) + '</td>' +
-                    '<td><span class="badge bg-' + color + '">' + esc(type.charAt(0).toUpperCase() + type.slice(1)) + '</span></td>' +
-                    '<td>' + esc(dateStr) + (ev.end_date && ev.end_date !== parseDate(ev) ? ' &ndash; ' + esc(formatDateDisplay(ev.end_date)) : '') + '</td>' +
+                    '<td><span class="badge bg-' + color + '">' + esc(type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ')) + '</span></td>' +
+                    '<td>' + esc(formatDateRange(ev)) + '</td>' +
+                    '<td>' + esc(formatTimeRange(ev)) + '</td>' +
+                    '<td>' + esc(venue) + '</td>' +
                     '<td><span class="badge bg-' + statusColor + '">' + esc(String(status).charAt(0).toUpperCase() + String(status).slice(1)) + '</span></td>' +
-                    '<td>' + esc((ev.description || "").substring(0, 60)) + (ev.description && ev.description.length > 60 ? "..." : "") + '</td>' +
                     '<td><button class="btn btn-sm btn-outline-danger" data-delete-event="' + esc(String(ev.id || "")) + '" title="Delete"><i class="bi bi-trash"></i></button></td>' +
                     '</tr>';
             }).join("");
@@ -466,7 +509,7 @@
 
         deleteEvent: async function (id) {
             if (!id) return;
-            if (!confirm("Delete this event? This cannot be undone.")) return;
+            if (!(await window.confirmAction('Confirm Deletion', "Delete this event? This will also clear the linked calendar day if applicable.", { confirmText: 'Delete', danger: true }))) return;
             try {
                 await window.API.schedules.deleteEvent(id);
                 showToast("Event deleted", "success");
@@ -477,6 +520,8 @@
             }
         }
     };
+
+    window.SchoolEventsController = Controller;
 
     document.addEventListener("DOMContentLoaded", function () { Controller.init(); });
 

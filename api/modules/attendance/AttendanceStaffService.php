@@ -117,7 +117,7 @@ class AttendanceStaffService
                 if (!$staffId) continue;
                 if (!$controller->isStaffInScope((int)$staffId, $scope)) { return $controller->forbidden('Not allowed to mark attendance for one or more staff members'); }
                 if (!in_array($status, ['present', 'absent', 'late'], true)) $status = 'present';
-                $staffRow = $controller->getDb()->query("SELECT work_start_time, late_threshold_minutes FROM staff WHERE id = ?", [$staffId])->fetch(\PDO::FETCH_ASSOC);
+                $staffRow = $controller->getDb()->query("SELECT sap.work_start_time, sap.late_threshold_minutes FROM staff_attendance_profiles sap WHERE sap.staff_id = ? AND sap.is_active = 1", [$staffId])->fetch(\PDO::FETCH_ASSOC);
                 $expectedCheckIn = $staffRow['work_start_time'] ?? null;
                 $lateThresh = (int)($staffRow['late_threshold_minutes'] ?? 15);
                 if ($status === 'present' && $checkIn && $expectedCheckIn) {
@@ -136,12 +136,12 @@ class AttendanceStaffService
                     $absenceReason = $record['absence_reason'] ?? 'unexcused';
                     if (!$absenceReason || !in_array($absenceReason, ['leave', 'sick', 'off_day', 'unauthorized', 'other'])) { $absenceReason = 'unauthorized'; }
                 }
-                $existing = $controller->getDb()->query("SELECT id FROM staff_attendance WHERE staff_id = ? AND date = ? AND shift = ?", [$staffId, $date, $shift])->fetch(\PDO::FETCH_ASSOC);
+                $existing = $controller->getDb()->query("SELECT id FROM staff_attendance WHERE staff_id = ? AND date = ?", [$staffId, $date])->fetch(\PDO::FETCH_ASSOC);
                 if ($existing) {
-                    $controller->getDb()->query("UPDATE staff_attendance SET status = ?, check_in_time = ?, check_out_time = ?, absence_reason = ?, leave_id = ?, notes = ?, marked_by = ? WHERE id = ?", [$status, $checkIn, $checkOut, $absenceReason, $isOnLeave ? $leave['id'] : null, $notes, $markedBy, $existing['id']]);
+                    $controller->getDb()->query("UPDATE staff_attendance SET status = ?, check_in = ?, check_out = ?, absence_reason = ?, leave_id = ?, notes = ?, marked_by = ? WHERE id = ?", [$status, $checkIn, $checkOut, $absenceReason, $isOnLeave ? $leave['id'] : null, $notes, $markedBy, $existing['id']]);
                     $updated++;
                 } else {
-                    $controller->getDb()->query("INSERT INTO staff_attendance (staff_id, date, academic_year_id, shift, status, check_in_time, expected_check_in, check_out_time, absence_reason, leave_id, notes, marked_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())", [$staffId, $date, $academicYearId, $shift, $status, $checkIn, $expectedCheckIn, $checkOut, $absenceReason, $isOnLeave ? $leave['id'] : null, $notes, $markedBy]);
+                    $controller->getDb()->query("INSERT INTO staff_attendance (staff_id, date, academic_year_id, status, check_in, check_out, absence_reason, leave_id, notes, marked_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())", [$staffId, $date, $academicYearId, $status, $checkIn, $checkOut, $absenceReason, $isOnLeave ? $leave['id'] : null, $notes, $markedBy]);
                     $created++;
                 }
             }
@@ -161,7 +161,7 @@ class AttendanceStaffService
             $shift = $_GET['shift'] ?? 'full_day';
             $dayName = date('l', strtotime($date));
             $dayNumber = (int)date('N', strtotime($date));
-            $calEntry = $controller->getDb()->query("SELECT day_type, title, affects_day_students, affects_boarders FROM school_calendar WHERE date = ?", [$date])->fetch(\PDO::FETCH_ASSOC);
+            $calEntry = $controller->getDb()->query("SELECT cdt.name AS day_type, acd.title, cdt.affects_day_students, cdt.affects_boarders FROM academic_year_calendar_days acd LEFT JOIN calendar_day_types cdt ON cdt.id = acd.calendar_day_type_id WHERE acd.date = ?", [$date])->fetch(\PDO::FETCH_ASSOC);
             $dayType = $calEntry['day_type'] ?? ($dayNumber >= 6 ? 'weekend' : 'school_day');
             $eventName = $calEntry['title'] ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
             $isWorkingDay = !in_array($dayType, ['public_holiday', 'school_holiday']);
@@ -194,11 +194,12 @@ class AttendanceStaffService
             $statusFilter = $data['status'] ?? $_GET['status'] ?? null;
             if ($dateFrom > $dateTo) { [$dateFrom, $dateTo] = [$dateTo, $dateFrom]; }
             $where = ["sa.date BETWEEN ? AND ?"]; $params = [$dateFrom, $dateTo];
-            if ($departmentId) { $where[] = "s.department_id = ?"; $params[] = (int)$departmentId; }
+            if ($departmentId) { $where[] = "sda.department_id = ?"; $params[] = (int)$departmentId; }
             if ($statusFilter) { $where[] = "sa.status = ?"; $params[] = $statusFilter; }
+            $joinDept = "LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id";
             $joinDuty = "";
             if ($dutyTypeId) { $joinDuty = "JOIN staff_duty_roster sdr ON sdr.staff_id = s.id AND sdr.date = sa.date"; $where[] = "sdr.duty_type_id = ?"; $params[] = (int)$dutyTypeId; }
-            $sql = "SELECT s.id, s.staff_no, CONCAT(s.first_name, ' ', s.last_name) AS staff_name, d.name AS department, sa.date, sa.status, sa.check_in_time, sa.check_out_time, sa.absence_reason, sa.notes FROM staff_attendance sa JOIN staff s ON s.id = sa.staff_id LEFT JOIN departments d ON d.id = s.department_id {$joinDuty} WHERE " . implode(' AND ', $where) . " ORDER BY s.last_name, sa.date";
+            $sql = "SELECT s.id, s.staff_no, CONCAT(p.first_name, ' ', p.last_name) AS staff_name, d.name AS department, sa.date, sa.status, sa.check_in, sa.check_out, sa.absence_reason, sa.notes FROM staff_attendance sa JOIN staff s ON s.id = sa.staff_id LEFT JOIN persons p ON p.id = s.person_id {$joinDept} LEFT JOIN departments d ON d.id = sda.department_id {$joinDuty} WHERE " . implode(' AND ', $where) . " ORDER BY p.last_name, sa.date";
             $rows = $controller->getDb()->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
             $aggregate = ['present' => 0, 'absent' => 0, 'late' => 0, 'total' => 0];
             foreach ($rows as $r) { $aggregate[$r['status'] ?? 'absent']++; $aggregate['total']++; }

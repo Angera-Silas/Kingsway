@@ -181,12 +181,12 @@ const FamilyGroupsController = {
       .map((f) => {
         return `
           <tr>
-            <td><strong>${this.escape(f.parent_name || "-")}</strong></td>
-            <td>${this.escape(f.phone_1 || "-")}</td>
-            <td>${this.escape(f.email || "-")}</td>
+            <td><strong>${this.escapeHtml(f.parent_name || "-")}</strong></td>
+            <td>${this.escapeHtml(f.phone_1 || "-")}</td>
+            <td>${this.escapeHtml(f.email || "-")}</td>
             <td>${f.students_count || 0}</td>
-            <td><small>${this.escape(f.student_names || "None")}</small></td>
-            <td><span class="badge bg-${f.parent_status === 'active' ? 'success' : 'secondary'}">${this.escape(f.parent_status || 'active')}</span></td>
+            <td><small>${this.escapeHtml(f.student_names || "None")}</small></td>
+            <td><span class="badge bg-${f.parent_status === 'active' ? 'success' : 'secondary'}">${this.escapeHtml(f.parent_status || 'active')}</span></td>
             <td>
               <button class="btn btn-sm btn-outline-success" onclick="FamilyGroupsController.viewFamily(${f.parent_id})">
                 <i class="bi bi-eye"></i> View
@@ -247,10 +247,10 @@ const FamilyGroupsController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Guardian Details</h5>
-          <p><strong>Name:</strong> ${this.escape(parent.first_name || "")} ${this.escape(parent.last_name || "")}</p>
-          <p><strong>Phone:</strong> ${this.escape(parent.phone_1 || "-")}</p>
-          <p><strong>Email:</strong> ${this.escape(parent.email || "-")}</p>
-          <p><strong>Address:</strong> ${this.escape(parent.address || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(parent.first_name || "")} ${this.escapeHtml(parent.last_name || "")}</p>
+          <p><strong>Phone:</strong> ${this.escapeHtml(parent.phone_1 || "-")}</p>
+          <p><strong>Email:</strong> ${this.escapeHtml(parent.email || "-")}</p>
+          <p><strong>Address:</strong> ${this.escapeHtml(parent.address || "-")}</p>
         </div>
       </div>
       <div class="card">
@@ -269,10 +269,10 @@ const FamilyGroupsController = {
             <tbody>
               ${students.map(s => `
                 <tr>
-                  <td>${this.escape(s.first_name || "")} ${this.escape(s.last_name || "")}</td>
-                  <td>${this.escape(s.class_name || "-")}</td>
-                  <td>${this.escape(s.stream_name || "-")}</td>
-                  <td>${this.escape(s.relationship || "-")}</td>
+                  <td>${this.escapeHtml(s.first_name || "")} ${this.escapeHtml(s.last_name || "")}</td>
+                  <td>${this.escapeHtml(s.class_name || "-")}</td>
+                  <td>${this.escapeHtml(s.stream_name || "-")}</td>
+                  <td>${this.escapeHtml(s.relationship || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -327,7 +327,7 @@ const FamilyGroupsController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -356,7 +356,7 @@ const FamilyGroupsController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -378,7 +378,7 @@ const FamilyGroupsController = {
     };
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -389,7 +389,7 @@ const FamilyGroupsController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

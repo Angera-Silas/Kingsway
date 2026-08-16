@@ -15,14 +15,6 @@ class AcademicYearService
 
     public function postYearTransitionStartWorkflow($id, $data, $segments, BaseController $controller)
     {
-        if (!$controller->userHasAny(
-            ['academic_year_manage', 'system_admin'],
-            [1, 3],
-            ['director', 'system admin']
-        )) {
-            return $controller->forbidden('Only Director or System Admin can start year transition workflows');
-        }
-
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startYearTransitionWorkflow($payload);
         return $controller->handleResponse($result);
@@ -44,7 +36,7 @@ class AcademicYearService
 
     // TODO: Delegate to AcademicYearService
     public function postYearTransitionSetupNewYear($id, $data, $segments, BaseController $controller) {
-        if (!$controller->userHasAny(['academic_year_manage', 'system_admin'], [1, 3], ['director', 'system admin'])) { return $controller->forbidden('Only Director or System Admin can setup new academic year'); }
+        if (!$controller->userHasAny(['academic_year_manage', 'system_admin'], [1, 3, 4, 5, 6], ['director', 'system admin', 'school administrator', 'head teacher', 'deputy head'])) { return $controller->forbidden('You do not have permission to setup the new academic year'); }
         $instanceId = $data['instance_id'] ?? ($id ?? null);
         $yearConfig = $data['year_config'] ?? $data;
         $result = $this->api->setupNewAcademicYear($instanceId, $yearConfig);
@@ -66,7 +58,7 @@ class AcademicYearService
 
     // TODO: Delegate to AcademicYearService
     public function getYearsList($id, $data, $segments, BaseController $controller) {
-        $result = $this->api->listAcademicYears($data);
+        $result = $this->api->getYearsList($data);
         return $controller->handleResponse($result);
     }
 

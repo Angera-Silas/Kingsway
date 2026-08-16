@@ -48,11 +48,11 @@ use function App\API\Includes\formatResponse;
  * - KcbFundsTransferService: KCB Bank transfers (incoming & outgoing)
  * 
  * DATABASE SCHEMA (Actual Tables):
- * - fee_structures, fee_types, fee_structures_detailed
- * - student_fee_obligations, student_fee_balances, student_fee_carryover
- * - fee_discounts_waivers, fee_reminders, fee_transition_history
- * - payment_transactions, payment_allocations, payment_allocations_detailed, payment_reconciliations
- * - staff_payroll (managed by PayrollApprovalWorkflow & DisbursementManager)
+ * - fee_catalog, fee_types, academic_year_fee_schedules
+ * - student_fee_obligations, vw_student_fee_balances, fee_discounts_waivers
+ * - fee_reminders, fee_transition_history
+ * - payments, payment_reconciliations, school_transactions
+ * - payroll_runs, payslips (managed by PayrollApprovalWorkflow & DisbursementManager)
  * - mpesa_transactions, bank_transactions, payment_webhooks_log
  */
 
@@ -66,6 +66,7 @@ class FinanceAPI extends BaseAPI
     private $reportingManager;
     private $disbursementManager;
     private $departmentBudgetManager;
+    private $accountsManager;
 
     // Workflows
     private $feeWorkflow;
@@ -95,6 +96,7 @@ class FinanceAPI extends BaseAPI
         $this->reportingManager = new ReportingManager();
         $this->disbursementManager = new DisbursementManager();
         $this->departmentBudgetManager = new DepartmentBudgetManager($this->db);
+        $this->accountsManager = new AccountsManager();
 
         // Initialize Workflows
         $this->feeWorkflow = new FeeApprovalWorkflow('FEE_APPROVAL');
@@ -110,6 +112,94 @@ class FinanceAPI extends BaseAPI
 
         // Initialize Communications
         $this->communicationsApi = new CommunicationsAPI();
+    }
+
+    /**
+     * Bank accounts: list active accounts (with bank-transaction fallback).
+     */
+    public function listBankAccounts()
+    {
+        return $this->accountsManager->listBankAccounts();
+    }
+
+    /**
+     * Bank accounts: create a new account.
+     */
+    public function createBankAccount($data)
+    {
+        return $this->accountsManager->createBankAccount($data);
+    }
+
+    /**
+     * Bank transactions: list, optionally filtered by account number or bank name.
+     */
+    public function listBankTransactions($bankId = null)
+    {
+        return $this->accountsManager->listBankTransactions($bankId);
+    }
+
+    /**
+     * Bank transactions: create a manual entry.
+     */
+    public function createBankTransaction($data)
+    {
+        return $this->accountsManager->createBankTransaction($data);
+    }
+
+    /**
+     * Bank transactions: update a manual entry or mark it reconciled.
+     */
+    public function updateBankTransaction($id, $data)
+    {
+        return $this->accountsManager->updateBankTransaction($id, $data);
+    }
+
+    /**
+     * Bank transactions: delete a manual entry.
+     */
+    public function deleteBankTransaction($id)
+    {
+        return $this->accountsManager->deleteBankTransaction($id);
+    }
+
+    /**
+     * Expenses: record a new expense (used for petty cash and general expenses).
+     */
+    public function recordExpense($data)
+    {
+        return $this->expenseManager->recordExpense($data);
+    }
+
+    /**
+     * Expenses: fetch one expense with category and user names.
+     */
+    public function getExpenseDetailed($expenseId)
+    {
+        return $this->expenseManager->getExpenseDetailed($expenseId);
+    }
+
+    /**
+     * Expenses: list with filters and aggregate stats.
+     */
+    public function listExpensesWithStats($filters = [])
+    {
+        return $this->expenseManager->listExpensesWithStats($filters);
+    }
+
+    /**
+     * Reports: summary totals for the reports landing page.
+     */
+    public function getFinancialSummaryReport()
+    {
+        return $this->reportingManager->getFinancialSummaryReport();
+    }
+
+    /**
+     * Reports: resolve the current academic year code.
+     */
+    public function getCurrentAcademicYearCode()
+    {
+        return $this->reportingManager->getCurrentAcademicYearCode();
     }
 
     /**
@@ -242,7 +332,7 @@ class FinanceAPI extends BaseAPI
                     return $this->listStaffPayments($payrollId);
 
                 default:
-                    throw new Exception("Invalid type: $type");
+                    throw new \InvalidArgumentException("Invalid type: $type");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -283,7 +373,7 @@ class FinanceAPI extends BaseAPI
                     return $this->getPayroll($id);
 
                 default:
-                    throw new Exception("Invalid type: $type");
+                    throw new \InvalidArgumentException("Invalid type: $type");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -298,7 +388,7 @@ class FinanceAPI extends BaseAPI
         try {
             $type = $data['type'] ?? $_POST['type'] ?? null;
             if (!$type) {
-                throw new Exception('Type is required');
+                throw new \InvalidArgumentException('Type is required');
             }
 
             switch ($type) {
@@ -361,7 +451,7 @@ class FinanceAPI extends BaseAPI
                     return $result;
 
                 default:
-                    throw new Exception("Invalid type: $type");
+                    throw new \InvalidArgumentException("Invalid type: $type");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -410,7 +500,7 @@ class FinanceAPI extends BaseAPI
                     return $result;
 
                 default:
-                    throw new Exception("Invalid type: $type");
+                    throw new \InvalidArgumentException("Invalid type: $type");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -451,7 +541,7 @@ class FinanceAPI extends BaseAPI
                     return $result;
 
                 default:
-                    throw new Exception("Invalid type: $type");
+                    throw new \InvalidArgumentException("Invalid type: $type");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -507,7 +597,7 @@ class FinanceAPI extends BaseAPI
                     return $this->generatePayrollReport($params);
 
                 default:
-                    throw new Exception("Invalid action: $action");
+                    throw new \InvalidArgumentException("Invalid action: $action");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -688,7 +778,7 @@ class FinanceAPI extends BaseAPI
                     return $result;
 
                 default:
-                    throw new Exception("Invalid action: $action");
+                    throw new \InvalidArgumentException("Invalid action: $action");
             }
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -706,25 +796,26 @@ class FinanceAPI extends BaseAPI
         $offset = ($page - 1) * $limit;
 
         $sql = "SELECT 
-                    payroll_period,
-                    payroll_month,
-                    payroll_year,
-                    COUNT(*) as staff_count,
-                    SUM(gross_salary) as total_gross,
-                    SUM(total_deductions) as total_deductions,
-                    SUM(net_salary) as total_net,
-                    status,
-                    MAX(created_at) as created_at
-                FROM staff_payroll
-                GROUP BY payroll_period, payroll_month, payroll_year, status
-                ORDER BY payroll_year DESC, payroll_month DESC
+                    CONCAT(pr.year, '-', LPAD(pr.month, 2, '0')) AS payroll_period,
+                    pr.month AS payroll_month,
+                    pr.year AS payroll_year,
+                    COUNT(ps.id) AS staff_count,
+                    COALESCE(SUM(ps.gross_salary), 0) AS total_gross,
+                    COALESCE(SUM(ps.gross_salary - ps.net_salary), 0) AS total_deductions,
+                    COALESCE(SUM(ps.net_salary), 0) AS total_net,
+                    pr.status,
+                    pr.created_at
+                FROM payroll_runs pr
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                GROUP BY pr.id, pr.month, pr.year, pr.status, pr.created_at
+                ORDER BY pr.year DESC, pr.month DESC
                 LIMIT ? OFFSET ?";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$limit, $offset]);
         $payrolls = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $countSql = "SELECT COUNT(DISTINCT payroll_period) FROM staff_payroll";
+        $countSql = "SELECT COUNT(*) FROM payroll_runs";
         $total = $this->db->query($countSql)->fetchColumn();
 
         return formatResponse(true, [
@@ -740,25 +831,26 @@ class FinanceAPI extends BaseAPI
     public function listStaffPayments($payrollId)
     {
         $sql = "SELECT 
-                    sp.*,
-                    s.first_name,
-                    s.last_name,
+                    ps.*,
+                    p.first_name,
+                    p.last_name,
                     s.staff_no
-                FROM staff_payroll sp
-                JOIN staff s ON sp.staff_id = s.id
-                WHERE sp.id = ?
-                ORDER BY s.last_name, s.first_name";
+                FROM payslips ps
+                JOIN staff s ON ps.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
+                WHERE ps.id = ?
+                ORDER BY p.last_name, p.first_name";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$payrollId]);
         $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return formatResponse(true, ['staff_payments' => $payments], 'Staff payments retrieved successfully');
+        return formatResponse(true, ['payslips' => $payments], 'Staff payments retrieved successfully');
     }
 
     public function getPayroll($id)
     {
-        $sql = "SELECT * FROM staff_payroll WHERE id = ?";
+        $sql = "SELECT * FROM payslips WHERE id = ?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$id]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -768,17 +860,18 @@ class FinanceAPI extends BaseAPI
         }
 
         $sql = "SELECT 
-                    sp.*,
-                    s.first_name,
-                    s.last_name,
+                    ps.*,
+                    p.first_name,
+                    p.last_name,
                     s.staff_no
-                FROM staff_payroll sp
-                JOIN staff s ON sp.staff_id = s.id
-                WHERE sp.payroll_period = ?
-                ORDER BY s.last_name, s.first_name";
+                FROM payslips ps
+                JOIN staff s ON ps.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
+                WHERE ps.payroll_month = ? AND ps.payroll_year = ?
+                ORDER BY p.last_name, p.first_name";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$payroll['payroll_period']]);
+        $stmt->execute([$payroll['payroll_month'], $payroll['payroll_year']]);
         $payroll['staff_payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return formatResponse(true, ['payroll' => $payroll], 'Payroll retrieved successfully');
@@ -797,7 +890,7 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll ID required');
         }
         // Minimal inline recalculation to satisfy tests
-        $stmt = $this->db->prepare("SELECT * FROM staff_payroll WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ?");
         $stmt->execute([$payrollId]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$payroll) {
@@ -805,15 +898,19 @@ class FinanceAPI extends BaseAPI
         }
 
         // Simulate recalculation: ensure totals are consistent
-        $gross = (float) ($payroll['basic_salary'] ?? 0) + (float) ($payroll['allowances'] ?? 0);
-        $ded = (float) ($payroll['nssf_deduction'] ?? 0)
-            + (float) ($payroll['nhif_deduction'] ?? 0)
+        $gross = (float) ($payroll['basic_salary'] ?? 0) + (float) ($payroll['allowances_total'] ?? 0);
+        $ded = (float) ($payroll['nssf_contribution'] ?? 0)
+            + (float) ($payroll['nhif_contribution'] ?? 0)
             + (float) ($payroll['paye_tax'] ?? 0)
-            + (float) ($payroll['other_deductions'] ?? 0)
-            + (float) ($payroll['deductions'] ?? 0);
+            + (float) ($payroll['loan_deduction'] ?? 0)
+            + (float) ($payroll['child_fees_deduction'] ?? 0)
+            + (float) ($payroll['sacco_deduction'] ?? 0)
+            + (float) ($payroll['housing_levy'] ?? 0)
+            + (float) ($payroll['salary_advance_deduction'] ?? 0)
+            + (float) ($payroll['other_deductions_total'] ?? 0);
         $net = $gross - $ded;
 
-        $upd = $this->db->prepare("UPDATE staff_payroll SET gross_salary = ?, total_deductions = ?, net_salary = ?, status = 'calculation' WHERE id = ?");
+        $upd = $this->db->prepare("UPDATE payslips SET gross_salary = ?, net_salary = ?, payslip_status = 'draft' WHERE id = ?");
         $upd->execute([$gross, $ded, $net, $payrollId]);
 
         return formatResponse(true, ['payroll_id' => $payrollId, 'gross_salary' => $gross, 'net_salary' => $net], 'Payroll calculated');
@@ -833,7 +930,7 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
         // Minimal inline transition to satisfy tests
-        $stmt = $this->db->prepare("UPDATE staff_payroll SET status = 'verification' WHERE id = ?");
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ?");
         $stmt->execute([$payrollId]);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'verification'], 'Payroll verified');
     }
@@ -847,7 +944,7 @@ class FinanceAPI extends BaseAPI
         if (!$payrollId || !$userId) {
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
-        $stmt = $this->db->prepare("UPDATE staff_payroll SET status = 'rejected' WHERE id = ?");
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'draft' WHERE id = ?");
         $stmt->execute([$payrollId]);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'rejected', 'reason' => $reason], 'Payroll rejected');
     }
@@ -860,7 +957,7 @@ class FinanceAPI extends BaseAPI
         if (!$payrollId || !$userId) {
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
-        $stmt = $this->db->prepare("UPDATE staff_payroll SET status = 'processing' WHERE id = ?");
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ?");
         $stmt->execute([$payrollId]);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'processing'], 'Payroll processing');
     }
@@ -885,7 +982,7 @@ class FinanceAPI extends BaseAPI
         }
 
         // Cancel/delete payroll
-        $sql = "UPDATE staff_payroll SET status = 'cancelled' WHERE id = ?";
+        $sql = "UPDATE payslips SET payslip_status = 'cancelled', updated_at = NOW() WHERE id = ?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$payrollId]);
 
@@ -899,14 +996,16 @@ class FinanceAPI extends BaseAPI
         }
 
         $sql = "SELECT 
-                    id,
-                    payroll_period,
-                    payroll_month,
-                    payroll_year,
-                    status,
-                    COUNT(*) as staff_count
-                FROM staff_payroll
-                WHERE id = ?";
+                    pr.id,
+                    CONCAT(pr.year, '-', LPAD(pr.month, 2, '0')) AS payroll_period,
+                    pr.month AS payroll_month,
+                    pr.year AS payroll_year,
+                    pr.status,
+                    COUNT(ps.id) AS staff_count
+                FROM payroll_runs pr
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                WHERE pr.id = ?
+                GROUP BY pr.id, pr.month, pr.year, pr.status";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$payrollId]);
@@ -938,17 +1037,17 @@ class FinanceAPI extends BaseAPI
     {
         $staffId = $data['staff_id'] ?? null;
 
-        $sql = "SELECT sp.*, sp.payroll_month as month, sp.payroll_year as year, sp.status as payroll_status
-                FROM staff_payroll sp
+        $sql = "SELECT ps.*, ps.payroll_month as month, ps.payroll_year as year, ps.payslip_status as payroll_status
+                FROM payslips ps
                 WHERE 1=1";
 
         $bindings = [];
         if ($staffId) {
-            $sql .= " AND sp.staff_id = ?";
+            $sql .= " AND ps.staff_id = ?";
             $bindings[] = $staffId;
         }
 
-        $sql .= " ORDER BY sp.payroll_year DESC, sp.payroll_month DESC, sp.created_at DESC";
+        $sql .= " ORDER BY ps.payroll_year DESC, ps.payroll_month DESC, ps.created_at DESC";
         
         $stmt = $this->db->prepare($sql);
         $stmt->execute($bindings);
@@ -974,7 +1073,7 @@ class FinanceAPI extends BaseAPI
         }
 
         // Fallback: treat staff payroll as a payable item for receipt generation
-        $stmt = $this->db->prepare("SELECT * FROM staff_payroll WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ?");
         $stmt->execute([$paymentId]);
         $sp = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$sp) {
@@ -985,7 +1084,7 @@ class FinanceAPI extends BaseAPI
             'id' => $sp['id'],
             'amount' => $sp['net_salary'],
             'payment_method' => 'payroll',
-            'payment_date' => $sp['payment_date'] ?? date('Y-m-d H:i:s'),
+            'payment_date' => $sp['paid_at'] ?? date('Y-m-d H:i:s'),
             'reference_no' => $sp['payment_reference'] ?? null,
             'receipt_no' => 'RCT-' . str_pad($paymentId, 8, '0', STR_PAD_LEFT)
         ];
@@ -1000,16 +1099,17 @@ class FinanceAPI extends BaseAPI
     public function generatePayslip($staffPaymentId)
     {
         $sql = "SELECT 
-                    sp.*,
-                    s.first_name,
-                    s.last_name,
+                    ps.*,
+                    p.first_name,
+                    p.last_name,
                     s.staff_no,
                     s.bank_account,
-                    sp.payroll_month as month,
-                    sp.payroll_year as year
-                FROM staff_payroll sp
-                JOIN staff s ON sp.staff_id = s.id
-                WHERE sp.id = ?";
+                    ps.payroll_month as month,
+                    ps.payroll_year as year
+                FROM payslips ps
+                JOIN staff s ON ps.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
+                WHERE ps.id = ?";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffPaymentId]);
@@ -1029,29 +1129,30 @@ class FinanceAPI extends BaseAPI
     public function generatePayrollReport($params)
     {
         $sql = "SELECT 
-                    payroll_period,
-                    payroll_month,
-                    payroll_year,
-                    status,
-                    COUNT(*) as staff_count,
-                    SUM(gross_salary) as total_gross,
-                    SUM(total_deductions) as total_deductions,
-                    SUM(net_salary) as total_net,
-                    MAX(created_at) as created_at
-                FROM staff_payroll
+                    CONCAT(pr.year, '-', LPAD(pr.month, 2, '0')) AS payroll_period,
+                    pr.month AS payroll_month,
+                    pr.year AS payroll_year,
+                    pr.status,
+                    COUNT(ps.id) AS staff_count,
+                    COALESCE(SUM(ps.gross_salary), 0) AS total_gross,
+                    COALESCE(SUM(ps.gross_salary - ps.net_salary), 0) AS total_deductions,
+                    COALESCE(SUM(ps.net_salary), 0) AS total_net,
+                    pr.created_at
+                FROM payroll_runs pr
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
                 WHERE 1=1";
 
         $bindings = [];
         if (!empty($params['start_date'])) {
-            $sql .= " AND created_at >= ?";
+            $sql .= " AND pr.created_at >= ?";
             $bindings[] = $params['start_date'];
         }
         if (!empty($params['end_date'])) {
-            $sql .= " AND created_at <= ?";
+            $sql .= " AND pr.created_at <= ?";
             $bindings[] = $params['end_date'];
         }
 
-        $sql .= " GROUP BY payroll_period, payroll_month, payroll_year, status ORDER BY payroll_year DESC, payroll_month DESC";
+        $sql .= " GROUP BY pr.id, pr.month, pr.year, pr.status, pr.created_at ORDER BY pr.year DESC, pr.month DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($bindings);
@@ -1145,7 +1246,7 @@ class FinanceAPI extends BaseAPI
     {
         try {
             // Get payment details
-            $sql = "SELECT * FROM staff_payroll WHERE id = ?";
+            $sql = "SELECT * FROM payslips WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1155,7 +1256,8 @@ class FinanceAPI extends BaseAPI
             }
 
             // Send notification based on method
-            $message = "Payment notification: KES " . number_format($payment['net_salary'], 2) . " for period " . $payment['payroll_period'];
+            $payrollPeriod = sprintf('%04d-%02d', (int) ($payment['payroll_year'] ?? 0), (int) ($payment['payroll_month'] ?? 0));
+            $message = "Payment notification: KES " . number_format($payment['net_salary'], 2) . " for period " . $payrollPeriod;
 
             // Log notification (actual sending would be implemented here)
             $this->logAction('send_notification', $paymentId, "Sent {$method} notification to {$recipient}");
@@ -1182,10 +1284,11 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Both years are required');
             }
 
-            $sql = "SELECT academic_year AS year, SUM(amount_paid) AS total
-                    FROM payment_transactions
-                    WHERE status = 'confirmed' AND academic_year IN (?, ?)
-                    GROUP BY academic_year";
+            $sql = "SELECT ay.year_code AS year, SUM(p.amount) AS total
+                    FROM payments p
+                    JOIN academic_years ay ON p.payment_date BETWEEN ay.start_date AND ay.end_date
+                    WHERE p.status = 'confirmed' AND ay.year_code IN (?, ?)
+                    GROUP BY ay.year_code";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$year1, $year2]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1472,7 +1575,12 @@ class FinanceAPI extends BaseAPI
 
         // Get the class ID for this structure
         try {
-            $stmt = $this->db->prepare("SELECT class_id FROM fee_structures_detailed WHERE id = ?");
+            $stmt = $this->db->prepare("
+                SELECT ayc.class_id
+                FROM academic_year_fee_schedules afs
+                LEFT JOIN academic_year_classes ayc ON ayc.id = afs.academic_year_class_id
+                WHERE afs.id = ?
+            ");
             $stmt->execute([$structureId]);
             $structure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1513,7 +1621,7 @@ class FinanceAPI extends BaseAPI
             }
 
             // If structure is active, check if user is director
-            $stmt = $this->db->prepare("SELECT status FROM fee_structures_detailed WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT status FROM academic_year_fee_schedules WHERE id = ?");
             $stmt->execute([$structureId]);
             $structure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1546,7 +1654,7 @@ class FinanceAPI extends BaseAPI
             }
 
             // Cannot delete if structure is active
-            $stmt = $this->db->prepare("SELECT status FROM fee_structures_detailed WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT status FROM academic_year_fee_schedules WHERE id = ?");
             $stmt->execute([$structureId]);
             $structure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1563,10 +1671,14 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT cs.class_id 
+                SELECT ayc.class_id 
                 FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                WHERE s.user_id = ?
+                LEFT JOIN users u ON u.person_id = s.person_id
+                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE u.id = ?
+                LIMIT 1
             ");
             $stmt->execute([$userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1583,11 +1695,15 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT DISTINCT cs.class_id 
+                SELECT DISTINCT ayc.class_id 
                 FROM students s
-                LEFT JOIN parents p ON s.id = p.student_id
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                WHERE p.user_id = ?
+                LEFT JOIN student_parents sp ON sp.student_id = s.id
+                LEFT JOIN parents par ON par.id = sp.parent_id
+                LEFT JOIN users u ON u.person_id = par.person_id
+                LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1605,11 +1721,13 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT DISTINCT cs.class_id 
+                SELECT DISTINCT ayc.class_id 
                 FROM staff st
-                LEFT JOIN staff_classes scs ON st.id = scs.staff_id
-                LEFT JOIN class_streams cs ON scs.stream_id = cs.id
-                WHERE st.user_id = ?
+                LEFT JOIN users u ON u.person_id = st.person_id
+                LEFT JOIN academic_year_class_learning_area_teachers acylt ON acylt.staff_id = st.id
+                LEFT JOIN academic_year_class_learning_areas aycla ON aycla.id = acylt.academic_year_class_learning_area_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                WHERE u.id = ?
             ");
             $stmt->execute([$userId]);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1736,17 +1854,21 @@ class FinanceAPI extends BaseAPI
         $sql = "SELECT
                     s.id,
                     s.staff_no,
-                    s.department_id,
-                    s.salary AS basic_salary,
-                    s.kra_pin,
-                    s.nssf_no,
-                    s.nhif_no,
-                    s.phone,
-                    s.bank_name,
-                    s.bank_account,
+                    sep.department_id,
+                    spp.basic_salary AS basic_salary,
+                    spp.kra_pin,
+                    spp.nssf_no,
+                    spp.nhif_no,
+                    p.phone,
+                    spp.bank_name,
+                    spp.bank_account,
                     COUNT(DISTINCT ur.role_id) AS role_count
                 FROM staff s
-                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                LEFT JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                LEFT JOIN users u ON u.person_id = s.person_id
+                LEFT JOIN user_roles ur ON ur.user_id = u.id
                 WHERE s.id = ? AND s.status = 'active'
                 GROUP BY s.id";
         $stmt = $this->db->prepare($sql);
@@ -1813,28 +1935,32 @@ class FinanceAPI extends BaseAPI
             $sql = "SELECT
                         s.id,
                         s.staff_no,
-                        CONCAT(s.first_name, ' ', s.last_name) AS full_name,
-                        s.first_name,
-                        s.last_name,
+                        CONCAT(p.first_name, ' ', p.last_name) AS full_name,
+                        p.first_name,
+                        p.last_name,
                         s.position,
-                        s.department_id,
+                        sep.department_id,
                         d.name AS department,
-                        s.salary AS basic_salary,
+                        spp.basic_salary AS basic_salary,
                         s.status,
-                        s.kra_pin,
-                        s.nssf_no,
-                        s.nhif_no,
-                        s.phone,
-                        s.bank_name,
-                        s.bank_account,
+                        spp.kra_pin,
+                        spp.nssf_no,
+                        spp.nhif_no,
+                        p.phone,
+                        spp.bank_name,
+                        spp.bank_account,
                         COUNT(DISTINCT ur.role_id) AS role_count,
                         (SELECT COUNT(*) FROM staff_children sc WHERE sc.staff_id = s.id) AS children_count
                     FROM staff s
-                    LEFT JOIN departments d ON s.department_id = d.id
-                    LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                    LEFT JOIN departments d ON d.id = sep.department_id
+                    LEFT JOIN users u ON u.person_id = s.person_id
+                    LEFT JOIN user_roles ur ON ur.user_id = u.id
                     WHERE s.status = 'active'
                     GROUP BY s.id
-                    ORDER BY s.first_name, s.last_name";
+                    ORDER BY p.first_name, p.last_name";
             $stmt = $this->db->query($sql);
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1909,21 +2035,24 @@ class FinanceAPI extends BaseAPI
             $sql = "SELECT
                         s.id,
                         s.staff_no,
-                        s.first_name,
-                        s.last_name,
+                        p.first_name,
+                        p.last_name,
                         s.position,
-                        s.department_id,
+                        sep.department_id,
                         d.name AS department,
-                        s.salary AS basic_salary,
+                        spp.basic_salary AS basic_salary,
                         s.status,
-                        s.kra_pin,
-                        s.nssf_no,
-                        s.nhif_no,
-                        s.phone,
-                        s.bank_name,
-                        s.bank_account
+                        spp.kra_pin,
+                        spp.nssf_no,
+                        spp.nhif_no,
+                        p.phone,
+                        spp.bank_name,
+                        spp.bank_account
                     FROM staff s
-                    LEFT JOIN departments d ON s.department_id = d.id
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                    LEFT JOIN departments d ON d.id = sep.department_id
                     WHERE s.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$staffId]);
@@ -1934,10 +2063,10 @@ class FinanceAPI extends BaseAPI
             }
 
             $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-            $termId = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1")->fetchColumn();
+            $termId = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1")->fetchColumn();
             $invoiceWarnings = [];
 
-            // Get children with fee invoices (current term/year)
+            // Get children with fee balances (current term/year)
             $childrenSql = "SELECT 
                                 sc.id AS staff_child_id,
                                 sc.student_id,
@@ -1945,26 +2074,32 @@ class FinanceAPI extends BaseAPI
                                 sc.fee_deduction_enabled,
                                 sc.fee_deduction_percentage,
                                 st.admission_no,
-                                CONCAT(st.first_name, ' ', st.last_name) AS student_name,
+                                CONCAT(p.first_name, ' ', p.last_name) AS student_name,
                                 c.name AS class_name,
-                                cs.stream_name AS stream_name,
-                                fi.id AS fee_invoice_id,
-                                fi.total_amount,
-                                fi.amount_paid,
-                                fi.balance AS fee_balance,
-                                fi.status AS invoice_status,
-                                fi.term_id,
-                                fi.academic_year_id
+                                sn.name AS stream_name,
+                                vfb.student_academic_enrollment_id AS fee_invoice_id,
+                                vfb.amount_due AS total_amount,
+                                vfb.amount_paid AS amount_paid,
+                                vfb.balance AS fee_balance,
+                                vfb.payment_status AS invoice_status,
+                                vfb.term_id,
+                                vfb.academic_year_id
                             FROM staff_children sc
                             JOIN students st ON sc.student_id = st.id
-                            LEFT JOIN class_streams cs ON st.stream_id = cs.id
-                            LEFT JOIN classes c ON cs.class_id = c.id
-                            LEFT JOIN fee_invoices fi
-                                ON fi.student_id = st.id
-                                AND fi.academic_year_id = ?
-                                AND fi.term_id = ?
+                            LEFT JOIN persons p ON p.id = st.person_id
+                            LEFT JOIN student_academic_enrollments sae
+                                ON sae.student_id = st.id AND sae.academic_year_id = ?
+                                AND sae.enrollment_status = 'active'
+                            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                            LEFT JOIN classes c ON c.id = ayc.class_id
+                            LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                            LEFT JOIN vw_student_fee_balances vfb
+                                ON vfb.student_id = st.id
+                                AND vfb.academic_year_id = ?
+                                AND vfb.academic_year_term_id = ?
                             WHERE sc.staff_id = ? AND st.status = 'active'
-                            ORDER BY st.first_name";
+                            ORDER BY p.first_name";
             $childrenStmt = $this->db->prepare($childrenSql);
             $childrenStmt->execute([$academicYearId ?: 0, $termId ?: 0, $staffId]);
             $children = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -2090,72 +2225,11 @@ class FinanceAPI extends BaseAPI
             // Start transaction
             $this->db->beginTransaction();
 
-            // Check if payroll already exists
-            $checkSql = "SELECT id FROM staff_payroll WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?";
-            $checkStmt = $this->db->prepare($checkSql);
-            $checkStmt->execute([$staffId, $payrollMonth, $payrollYear]);
-            $existing = $checkStmt->fetch();
-
-            if ($existing) {
-                // Update existing
-                $sql = "UPDATE staff_payroll SET
-                            basic_salary = ?,
-                            gross_salary = ?,
-                            allowances = ?,
-                            nssf_deduction = ?,
-                            nhif_deduction = ?,
-                            paye_tax = ?,
-                            other_deductions = ?,
-                            total_deductions = ?,
-                            net_salary = ?,
-                            status = 'pending',
-                            updated_at = NOW()
-                        WHERE id = ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $basicSalary,
-                    $grossSalary,
-                    $totalAllowances,
-                    $nssf,
-                    $nhif,
-                    $paye,
-                    $configuredDeductions + $manualOtherDeductions + $totalChildrenFees,
-                    $totalDeductions,
-                    $netSalary,
-                    $existing['id']
-                ]);
-                $payrollId = $existing['id'];
-            } else {
-                // Insert new
-                $sql = "INSERT INTO staff_payroll 
-                        (staff_id, payroll_month, payroll_year, payroll_period, basic_salary, 
-                         gross_salary, allowances, nssf_deduction, nhif_deduction, paye_tax, 
-                         other_deductions, total_deductions, deductions, net_salary, status) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $staffId,
-                    $payrollMonth,
-                    $payrollYear,
-                    $payrollPeriod,
-                    $basicSalary,
-                    $grossSalary,
-                    $totalAllowances,
-                    $nssf,
-                    $nhif,
-                    $paye,
-                    $configuredDeductions + $manualOtherDeductions + $totalChildrenFees,
-                    $totalDeductions,
-                    $totalDeductions,
-                    $netSalary
-                ]);
-                $payrollId = $this->db->lastInsertId();
-            }
-
-            // Record children fee deductions
+            // Build the children fee deduction breakdown (stored as JSON on the payslip)
+            $childFeesBreakdown = [];
             if (!empty($childrenDeductions)) {
                 $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
-                $termId = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1")->fetchColumn();
+                $termId = $this->db->query("SELECT ayt.id FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1")->fetchColumn();
 
                 foreach ($childrenDeductions as $deduction) {
                     $studentId = $deduction['student_id'] ?? null;
@@ -2173,7 +2247,7 @@ class FinanceAPI extends BaseAPI
 
                         $invoiceRow = null;
                         if ($feeInvoiceId) {
-                            $invStmt = $this->db->prepare("SELECT id, balance FROM fee_invoices WHERE id = ? LIMIT 1");
+                            $invStmt = $this->db->prepare("SELECT student_academic_enrollment_id AS id, balance FROM vw_student_fee_balances WHERE student_academic_enrollment_id = ? LIMIT 1");
                             $invStmt->execute([$feeInvoiceId]);
                             $invoiceRow = $invStmt->fetch(PDO::FETCH_ASSOC);
                             if (!$invoiceRow) {
@@ -2183,8 +2257,8 @@ class FinanceAPI extends BaseAPI
 
                         if (!$feeInvoiceId && $academicYearId && $dedTermId) {
                             $invStmt = $this->db->prepare("
-                                SELECT id, balance FROM fee_invoices
-                                WHERE student_id = ? AND academic_year_id = ? AND term_id = ?
+                                SELECT student_academic_enrollment_id AS id, balance FROM vw_student_fee_balances
+                                WHERE student_id = ? AND academic_year_id = ? AND academic_year_term_id = ?
                                 LIMIT 1
                             ");
                             $invStmt->execute([$studentId, $academicYearId, $dedTermId]);
@@ -2218,45 +2292,102 @@ class FinanceAPI extends BaseAPI
 
                         $balance = max(0, $grossFeeAmount - $amount);
 
-                        // Insert into staff_child_fee_deductions
-                        $dedSql = "INSERT INTO staff_child_fee_deductions 
-                                   (staff_child_id, staff_id, student_id, payslip_id, payroll_month, payroll_year,
-                                    term_id, fee_invoice_id, gross_fee_amount, staff_discount_percentage,
-                                    staff_discount_amount, sponsor_waiver_amount, deductible_amount,
-                                    deducted_amount, balance, status)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-                                   ON DUPLICATE KEY UPDATE 
-                                   term_id = VALUES(term_id),
-                                   fee_invoice_id = VALUES(fee_invoice_id),
-                                   gross_fee_amount = VALUES(gross_fee_amount),
-                                   staff_discount_percentage = VALUES(staff_discount_percentage),
-                                   staff_discount_amount = VALUES(staff_discount_amount),
-                                   sponsor_waiver_amount = VALUES(sponsor_waiver_amount),
-                                   deductible_amount = VALUES(deductible_amount),
-                                   deducted_amount = VALUES(deducted_amount),
-                                   balance = VALUES(balance),
-                                   status = 'pending',
-                                   updated_at = NOW()";
-                        $dedStmt = $this->db->prepare($dedSql);
-                        $dedStmt->execute([
-                            $staffChildId,
-                            $staffId,
-                            $studentId,
-                            $payrollId,
-                            $payrollMonth,
-                            $payrollYear,
-                            $dedTermId,
-                            $feeInvoiceId,
-                            $grossFeeAmount,
-                            $staffDiscountPct,
-                            $staffDiscountAmount,
-                            $sponsorWaiverAmount,
-                            $deductibleAmount,
-                            $amount,
-                            $balance
-                        ]);
+                        $childFeesBreakdown[] = [
+                            'staff_child_id' => $staffChildId,
+                            'staff_id' => $staffId,
+                            'student_id' => $studentId,
+                            'term_id' => $dedTermId,
+                            'academic_year_id' => $academicYearId,
+                            'fee_invoice_id' => $feeInvoiceId,
+                            'gross_fee_amount' => $grossFeeAmount,
+                            'staff_discount_percentage' => $staffDiscountPct,
+                            'staff_discount_amount' => $staffDiscountAmount,
+                            'sponsor_waiver_amount' => $sponsorWaiverAmount,
+                            'deductible_amount' => $deductibleAmount,
+                            'deducted_amount' => $amount,
+                            'balance' => $balance,
+                            'status' => 'pending'
+                        ];
                     }
                 }
+            }
+
+            $breakdownJson = !empty($childFeesBreakdown) ? json_encode($childFeesBreakdown) : null;
+
+            // Ensure a payroll run (period-level master) exists for this month/year
+            $runStmt = $this->db->prepare("SELECT id FROM payroll_runs WHERE month = ? AND year = ? LIMIT 1");
+            $runStmt->execute([$payrollMonth, $payrollYear]);
+            $runId = $runStmt->fetchColumn();
+            if (!$runId) {
+                $runId = $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM payroll_runs")->fetchColumn();
+                $insRun = $this->db->prepare("INSERT INTO payroll_runs (id, month, year, status, created_by) VALUES (?, ?, ?, 'draft', ?)");
+                $insRun->execute([$runId, $payrollMonth, $payrollYear, $processedBy ?: $this->getCurrentUserId()]);
+            }
+
+            // Check if payslip already exists for this staff + period
+            $checkSql = "SELECT id FROM payslips WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?";
+            $checkStmt = $this->db->prepare($checkSql);
+            $checkStmt->execute([$staffId, $payrollMonth, $payrollYear]);
+            $existing = $checkStmt->fetch();
+
+            if ($existing) {
+                // Update existing payslip
+                $sql = "UPDATE payslips SET
+                            basic_salary = ?,
+                            gross_salary = ?,
+                            allowances_total = ?,
+                            nssf_contribution = ?,
+                            nhif_contribution = ?,
+                            paye_tax = ?,
+                            housing_levy = ?,
+                            child_fees_deduction = ?,
+                            other_deductions_total = ?,
+                            net_salary = ?,
+                            child_fees_breakdown = ?,
+                            payslip_status = 'draft',
+                            updated_at = NOW()
+                        WHERE id = ?";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $basicSalary,
+                    $grossSalary,
+                    $totalAllowances,
+                    $nssf,
+                    $nhif,
+                    $paye,
+                    $housingLevy,
+                    $totalChildrenFees,
+                    $configuredDeductions + $manualOtherDeductions,
+                    $netSalary,
+                    $breakdownJson,
+                    $existing['id']
+                ]);
+                $payrollId = $existing['id'];
+            } else {
+                // Insert new payslip
+                $sql = "INSERT INTO payslips
+                        (staff_id, payroll_month, payroll_year, basic_salary, allowances_total, gross_salary,
+                         nssf_contribution, nhif_contribution, paye_tax, housing_levy, child_fees_deduction,
+                         other_deductions_total, net_salary, child_fees_breakdown, payslip_status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $staffId,
+                    $payrollMonth,
+                    $payrollYear,
+                    $basicSalary,
+                    $totalAllowances,
+                    $grossSalary,
+                    $nssf,
+                    $nhif,
+                    $paye,
+                    $housingLevy,
+                    $totalChildrenFees,
+                    $configuredDeductions + $manualOtherDeductions,
+                    $netSalary,
+                    $breakdownJson
+                ]);
+                $payrollId = $this->db->lastInsertId();
             }
 
             $this->db->commit();
@@ -2294,21 +2425,24 @@ class FinanceAPI extends BaseAPI
         try {
             // Get payroll record
             $sql = "SELECT
-                        sp.*,
+                        ps.*,
                         s.staff_no,
-                        s.first_name,
-                        s.last_name,
+                        p.first_name,
+                        p.last_name,
                         s.position,
                         d.name AS department,
-                        s.bank_account,
-                        s.bank_account AS bank_account_number,
-                        s.kra_pin,
-                        s.nssf_no,
-                        s.nhif_no
-                    FROM staff_payroll sp
-                    JOIN staff s ON sp.staff_id = s.id
-                    LEFT JOIN departments d ON s.department_id = d.id
-                    WHERE sp.id = ?";
+                        spp.bank_account,
+                        spp.bank_account AS bank_account_number,
+                        spp.kra_pin,
+                        spp.nssf_no,
+                        spp.nhif_no
+                    FROM payslips ps
+                    JOIN staff s ON ps.staff_id = s.id
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                    LEFT JOIN departments d ON d.id = sep.department_id
+                    WHERE ps.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$payrollId]);
             $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -2317,28 +2451,41 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Payroll record not found', 404);
             }
 
-            // Get children fee deductions for this payslip
-            $childrenSql = "SELECT 
-                                scfd.*,
-                                st.admission_no,
-                                CONCAT(st.first_name, ' ', st.last_name) AS student_name,
-                                c.name AS class_name
-                            FROM staff_child_fee_deductions scfd
-                            JOIN students st ON scfd.student_id = st.id
-                            LEFT JOIN class_streams cs ON st.stream_id = cs.id
-                            LEFT JOIN classes c ON cs.class_id = c.id
-                            WHERE scfd.payslip_id = ?";
-            $childrenStmt = $this->db->prepare($childrenSql);
-            $childrenStmt->execute([$payrollId]);
-            $childrenDeductions = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
+            // Get children fee deductions from the payslip JSON breakdown
+            $childrenDeductions = [];
+            $breakdown = json_decode((string) ($payroll['child_fees_breakdown'] ?? ''), true);
+            if (is_array($breakdown)) {
+                foreach ($breakdown as $entry) {
+                    $studentId = $entry['student_id'] ?? null;
+                    $studentInfo = [];
+                    if ($studentId) {
+                        $childrenSql = "SELECT 
+                                            st.admission_no,
+                                            CONCAT(p.first_name, ' ', p.last_name) AS student_name,
+                                            c.name AS class_name
+                                        FROM students st
+                                        LEFT JOIN persons p ON p.id = st.person_id
+                                        LEFT JOIN student_academic_enrollments sae ON sae.student_id = st.id AND sae.enrollment_status = 'active'
+                                        LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                                        LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                        LEFT JOIN classes c ON c.id = ayc.class_id
+                                        WHERE st.id = ?
+                                        LIMIT 1";
+                        $childrenStmt = $this->db->prepare($childrenSql);
+                        $childrenStmt->execute([$studentId]);
+                        $studentInfo = $childrenStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                    }
+                    $childrenDeductions[] = array_merge($entry, $studentInfo);
+                }
+            }
 
             $payroll['children_deductions'] = $childrenDeductions;
             $payroll['total_children_fees'] = array_sum(array_column($childrenDeductions, 'deducted_amount'));
             $payroll['statutory_deductions'] = [
-                'nssf' => $payroll['nssf_deduction'],
-                'nhif' => $payroll['nhif_deduction'],
+                'nssf' => $payroll['nssf_contribution'],
+                'nhif' => $payroll['nhif_contribution'],
                 'paye' => $payroll['paye_tax'],
-                'housing_levy' => $payroll['gross_salary'] * 0.015
+                'housing_levy' => $payroll['housing_levy']
             ];
 
             return formatResponse(true, $payroll, 'Detailed payslip retrieved');
@@ -2369,16 +2516,16 @@ class FinanceAPI extends BaseAPI
                                 COUNT(*) AS payroll_count,
                                 COALESCE(SUM(net_salary), 0) AS total_net,
                                 COALESCE(SUM(gross_salary), 0) AS total_gross,
-                                COALESCE(SUM(total_deductions), 0) AS total_deductions
-                           FROM staff_payroll 
+                                COALESCE(SUM(gross_salary - net_salary), 0) AS total_deductions
+                           FROM payslips 
                            WHERE payroll_month = ? AND payroll_year = ?";
             $payrollStmt = $this->db->prepare($payrollSql);
             $payrollStmt->execute([$month, $year]);
             $payrollStats = $payrollStmt->fetch(PDO::FETCH_ASSOC);
 
             // Children fees deducted this month
-            $feesSql = "SELECT COALESCE(SUM(deducted_amount), 0) 
-                        FROM staff_child_fee_deductions 
+            $feesSql = "SELECT COALESCE(SUM(child_fees_deduction), 0) 
+                        FROM payslips 
                         WHERE payroll_month = ? AND payroll_year = ?";
             $feesStmt = $this->db->prepare($feesSql);
             $feesStmt->execute([$month, $year]);
@@ -2476,41 +2623,41 @@ class FinanceAPI extends BaseAPI
     {
         try {
             $sql = "SELECT
-                        sp.*,
+                        ps.*,
                         s.staff_no,
-                        CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
+                        CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                         s.position,
                         d.name AS department,
-                        (SELECT COALESCE(SUM(scfd.deducted_amount), 0)
-                         FROM staff_child_fee_deductions scfd
-                         WHERE scfd.payslip_id = sp.id) AS children_fees_deducted
-                    FROM staff_payroll sp
-                    JOIN staff s ON sp.staff_id = s.id
-                    LEFT JOIN departments d ON s.department_id = d.id
+                        ps.child_fees_deduction AS children_fees_deducted
+                    FROM payslips ps
+                    JOIN staff s ON ps.staff_id = s.id
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                    LEFT JOIN departments d ON d.id = sep.department_id
                     WHERE 1=1";
             $params = [];
 
             if (!empty($filters['month'])) {
-                $sql .= " AND sp.payroll_month = ?";
+                $sql .= " AND ps.payroll_month = ?";
                 $params[] = $filters['month'];
             }
             if (!empty($filters['year'])) {
-                $sql .= " AND sp.payroll_year = ?";
+                $sql .= " AND ps.payroll_year = ?";
                 $params[] = $filters['year'];
             }
             if (!empty($filters['status'])) {
-                $sql .= " AND sp.status = ?";
+                $sql .= " AND ps.payslip_status = ?";
                 $params[] = $filters['status'];
             }
             if (!empty($filters['search'])) {
-                $sql .= " AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.staff_no LIKE ?)";
+                $sql .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR s.staff_no LIKE ?)";
                 $search = '%' . $filters['search'] . '%';
                 $params[] = $search;
                 $params[] = $search;
                 $params[] = $search;
             }
 
-            $sql .= " ORDER BY sp.created_at DESC";
+            $sql .= " ORDER BY ps.created_at DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -2533,45 +2680,44 @@ class FinanceAPI extends BaseAPI
             $limit = max(1, min($limit, 200));
             $offset = ($page - 1) * $limit;
 
-            $sql = "SELECT ft.*, u.username as processed_by_name
-                    FROM financial_transactions ft
-                    LEFT JOIN users u ON ft.processed_by = u.id
+            $sql = "SELECT st.*, st.source AS payment_method, st.reference AS reference_no
+                    FROM school_transactions st
                     WHERE 1=1";
             $params = [];
 
             if (!empty($filters['transaction_type'])) {
-                $sql .= " AND ft.type = ?";
+                $sql .= " AND JSON_UNQUOTE(JSON_EXTRACT(st.details, '$.type')) = ?";
                 $params[] = $filters['transaction_type'];
             }
 
             if (!empty($filters['status'])) {
-                $sql .= " AND ft.status = ?";
+                $sql .= " AND st.status = ?";
                 $params[] = $filters['status'];
             }
 
             if (!empty($filters['payment_method'])) {
-                $sql .= " AND ft.payment_method = ?";
+                $sql .= " AND st.source = ?";
                 $params[] = $filters['payment_method'];
             }
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND ft.transaction_date >= ?";
+                $sql .= " AND st.transaction_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND ft.transaction_date <= ?";
+                $sql .= " AND st.transaction_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
             if (!empty($filters['search'])) {
-                $sql .= " AND (ft.reference_no LIKE ? OR ft.notes LIKE ?)";
+                $sql .= " AND (st.reference LIKE ? OR st.details LIKE ?)";
                 $search = '%' . $filters['search'] . '%';
                 $params[] = $search;
                 $params[] = $search;
             }
 
-            $sql .= " ORDER BY ft.transaction_date DESC LIMIT ? OFFSET ?";
+            $sql .= " ORDER BY st.transaction_date DESC LIMIT ? OFFSET ?";
             $params[] = $limit;
             $params[] = $offset;
 
@@ -2579,26 +2725,45 @@ class FinanceAPI extends BaseAPI
             $stmt->execute($params);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $countSql = "SELECT COUNT(*) FROM financial_transactions ft WHERE 1=1";
+            // Normalize output keys (legacy financial_transactions shape)
+            foreach ($rows as &$row) {
+                $details = json_decode((string) ($row['details'] ?? ''), true);
+                if (is_array($details)) {
+                    $row['type'] = $details['type'] ?? 'other';
+                    if (empty($row['payment_method']) && !empty($details['payment_method'])) {
+                        $row['payment_method'] = $details['payment_method'];
+                    }
+                    $row['notes'] = $details['notes'] ?? '';
+                } else {
+                    $row['type'] = 'other';
+                    $row['notes'] = (string) ($row['details'] ?? '');
+                }
+                $row['reference_no'] = $row['reference_no'] ?? null;
+                $row['processed_by'] = null;
+                $row['processed_by_name'] = null;
+            }
+            unset($row);
+
+            $countSql = "SELECT COUNT(*) FROM school_transactions st WHERE 1=1";
             $countParams = array_slice($params, 0, -2);
 
             if (!empty($filters['transaction_type'])) {
-                $countSql .= " AND ft.type = ?";
+                $countSql .= " AND JSON_UNQUOTE(JSON_EXTRACT(st.details, '$.type')) = ?";
             }
             if (!empty($filters['status'])) {
-                $countSql .= " AND ft.status = ?";
+                $countSql .= " AND st.status = ?";
             }
             if (!empty($filters['payment_method'])) {
-                $countSql .= " AND ft.payment_method = ?";
+                $countSql .= " AND st.source = ?";
             }
             if (!empty($filters['date_from'])) {
-                $countSql .= " AND ft.transaction_date >= ?";
+                $countSql .= " AND st.transaction_date >= ?";
             }
             if (!empty($filters['date_to'])) {
-                $countSql .= " AND ft.transaction_date <= ?";
+                $countSql .= " AND st.transaction_date <= ?";
             }
             if (!empty($filters['search'])) {
-                $countSql .= " AND (ft.reference_no LIKE ? OR ft.notes LIKE ?)";
+                $countSql .= " AND (st.reference LIKE ? OR st.details LIKE ?)";
             }
 
             $countStmt = $this->db->prepare($countSql);
@@ -2638,26 +2803,35 @@ class FinanceAPI extends BaseAPI
             }
 
             $transactionDate = $data['transaction_date'] ?? date('Y-m-d H:i:s');
-            $status = $data['status'] ?? 'completed';
+            $statusMap = ['completed' => 'confirmed', 'success' => 'confirmed', 'pending' => 'pending', 'failed' => 'failed'];
+            $status = $statusMap[$data['status'] ?? 'completed'] ?? 'confirmed';
+
+            $methodMap = ['cash' => 'cash', 'mpesa' => 'mpesa', 'bank_transfer' => 'bank', 'cheque' => 'other', 'check' => 'other', 'bank' => 'bank'];
+            $source = $methodMap[$data['payment_method'] ?? ''] ?? 'other';
+
+            $details = json_encode([
+                'type' => $transactionType,
+                'payment_method' => $data['payment_method'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'processed_by' => $data['processed_by'] ?? $this->getCurrentUserId(),
+            ]);
 
             $stmt = $this->db->prepare("
-                INSERT INTO financial_transactions
-                    (type, amount, payment_method, reference_no, status, transaction_date, processed_by, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO school_transactions
+                    (source, amount, reference, status, transaction_date, details)
+                VALUES (?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
-                $transactionType,
+                $source,
                 $amount,
-                $data['payment_method'] ?? null,
                 $data['reference_no'] ?? null,
                 $status,
                 $transactionDate,
-                $data['processed_by'] ?? $this->getCurrentUserId(),
-                $data['notes'] ?? null
+                $details,
             ]);
 
             return formatResponse(true, [
-                'transaction_id' => $this->db->lastInsertId()
+                'transaction_id' => (int) $this->db->lastInsertId()
             ], 'Transaction recorded successfully');
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -2674,23 +2848,44 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Transaction ID is required');
             }
 
-            $allowed = [
-                'transaction_type' => 'type',
-                'amount' => 'amount',
-                'payment_method' => 'payment_method',
-                'reference_no' => 'reference_no',
-                'status' => 'status',
-                'transaction_date' => 'transaction_date',
-                'notes' => 'notes'
-            ];
+            $statusMap = ['completed' => 'confirmed', 'success' => 'confirmed', 'pending' => 'pending', 'failed' => 'failed'];
+            $methodMap = ['cash' => 'cash', 'mpesa' => 'mpesa', 'bank_transfer' => 'bank', 'cheque' => 'other', 'check' => 'other', 'bank' => 'bank'];
 
             $updates = [];
             $params = [];
-            foreach ($allowed as $inputKey => $column) {
-                if (array_key_exists($inputKey, $data)) {
-                    $updates[] = "{$column} = ?";
-                    $params[] = $data[$inputKey];
+
+            if (array_key_exists('amount', $data)) {
+                $updates[] = "amount = ?";
+                $params[] = $data['amount'];
+            }
+            if (array_key_exists('payment_method', $data)) {
+                $updates[] = "source = ?";
+                $params[] = $methodMap[$data['payment_method']] ?? 'other';
+            }
+            if (array_key_exists('reference_no', $data)) {
+                $updates[] = "reference = ?";
+                $params[] = $data['reference_no'];
+            }
+            if (array_key_exists('status', $data)) {
+                $updates[] = "status = ?";
+                $params[] = $statusMap[$data['status']] ?? 'pending';
+            }
+            if (array_key_exists('transaction_date', $data)) {
+                $updates[] = "transaction_date = ?";
+                $params[] = $data['transaction_date'];
+            }
+            if (array_key_exists('transaction_type', $data) || array_key_exists('notes', $data)) {
+                $fetchStmt = $this->db->prepare("SELECT details FROM school_transactions WHERE id = ?");
+                $fetchStmt->execute([$transactionId]);
+                $existing = json_decode((string) $fetchStmt->fetchColumn(), true) ?: [];
+                if (array_key_exists('transaction_type', $data)) {
+                    $existing['type'] = $data['transaction_type'];
                 }
+                if (array_key_exists('notes', $data)) {
+                    $existing['notes'] = $data['notes'];
+                }
+                $updates[] = "details = ?";
+                $params[] = json_encode($existing);
             }
 
             if (empty($updates)) {
@@ -2698,7 +2893,7 @@ class FinanceAPI extends BaseAPI
             }
 
             $params[] = $transactionId;
-            $sql = "UPDATE financial_transactions SET " . implode(', ', $updates) . " WHERE id = ?";
+            $sql = "UPDATE school_transactions SET " . implode(', ', $updates) . " WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
@@ -2718,7 +2913,7 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Transaction ID is required');
             }
 
-            $stmt = $this->db->prepare("DELETE FROM financial_transactions WHERE id = ?");
+            $stmt = $this->db->prepare("DELETE FROM school_transactions WHERE id = ?");
             $stmt->execute([$transactionId]);
 
             return formatResponse(true, ['transaction_id' => $transactionId], 'Transaction deleted');
@@ -2735,8 +2930,8 @@ class FinanceAPI extends BaseAPI
         try {
             if ($departmentId) {
                 // Single department summary
-                $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM department_accounts WHERE department_id = ?");
-                $stmt->execute([$departmentId]);
+                $stmt = $this->db->prepare("SELECT COALESCE(SUM(total_amount), 0) FROM budgets WHERE description LIKE ? AND status IN ('approved', 'active')");
+                $stmt->execute(['%[dept_id:' . (int) $departmentId . ']%']);
                 $allocated = floatval($stmt->fetchColumn());
 
                 $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status IN ('approved', 'paid')");
@@ -2763,15 +2958,17 @@ class FinanceAPI extends BaseAPI
             // All departments summary
             $stmt = $this->db->query("
                 SELECT d.id AS department_id, d.name AS department_name,
-                    COALESCE(da.allocated, 0) AS allocated,
+                    COALESCE(b.allocated, 0) AS allocated,
                     COALESCE(e_spent.spent, 0) AS spent,
                     COALESCE(e_pending.pending, 0) AS pending,
-                    COALESCE(da.allocated, 0) - COALESCE(e_spent.spent, 0) AS available,
-                    CASE WHEN COALESCE(da.allocated, 0) > 0
-                        THEN ROUND(COALESCE(e_spent.spent, 0) / da.allocated * 100, 2)
+                    COALESCE(b.allocated, 0) - COALESCE(e_spent.spent, 0) AS available,
+                    CASE WHEN COALESCE(b.allocated, 0) > 0
+                        THEN ROUND(COALESCE(e_spent.spent, 0) / b.allocated * 100, 2)
                         ELSE 0 END AS utilization_percent
                 FROM departments d
-                LEFT JOIN (SELECT department_id, SUM(amount) AS allocated FROM department_accounts GROUP BY department_id) da ON da.department_id = d.id
+                LEFT JOIN (SELECT description, SUM(total_amount) AS allocated FROM budgets
+                           WHERE description LIKE '[dept_id:%]%' AND status IN ('approved', 'active')
+                           GROUP BY description) b ON b.description LIKE CONCAT('%[dept_id:', d.id, ']%')
                 LEFT JOIN (SELECT department_id, SUM(amount) AS spent FROM expenses WHERE status IN ('approved','paid') GROUP BY department_id) e_spent ON e_spent.department_id = d.id
                 LEFT JOIN (SELECT department_id, SUM(amount) AS pending FROM expenses WHERE status = 'pending' GROUP BY department_id) e_pending ON e_pending.department_id = d.id
                 ORDER BY d.name
@@ -2803,17 +3000,17 @@ class FinanceAPI extends BaseAPI
     public function approvePayroll($payrollId, $approvedBy = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT status FROM staff_payroll WHERE id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT payslip_status FROM payslips WHERE id = ? LIMIT 1");
             $stmt->execute([$payrollId]);
             $current = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
                 return formatResponse(false, null, 'Payroll not found');
             }
-            if ($current['status'] !== 'pending') {
+            if ($current['payslip_status'] !== 'draft') {
                 return formatResponse(false, null, 'Only pending payroll can be approved');
             }
 
-            $sql = "UPDATE staff_payroll SET status = 'approved', approved_at = NOW(), approved_by = ?, updated_at = NOW() WHERE id = ?";
+            $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NOW(), updated_at = NOW() WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$approvedBy, $payrollId]);
 
@@ -2877,35 +3074,38 @@ class FinanceAPI extends BaseAPI
         try {
             $this->db->beginTransaction();
 
-            $statusStmt = $this->db->prepare("SELECT status FROM staff_payroll WHERE id = ? LIMIT 1");
+            $statusStmt = $this->db->prepare("SELECT payslip_status FROM payslips WHERE id = ? LIMIT 1");
             $statusStmt->execute([$payrollId]);
             $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
             if (!$payroll) {
                 throw new Exception('Payroll not found');
             }
-            if ($payroll['status'] !== 'approved') {
+            if ($payroll['payslip_status'] !== 'approved') {
                 throw new Exception('Payroll must be approved by the director before payment can be released');
             }
 
             $allowedPaymentModes = ['bank', 'cash', 'mpesa', 'airtel_money'];
             $paymentMode = in_array($paymentMode, $allowedPaymentModes, true) ? $paymentMode : 'bank';
+            $liveMethod = match ($paymentMode) {
+                'mpesa', 'airtel_money' => 'mobile_money',
+                'cash' => 'cash',
+                default => 'bank',
+            };
 
-            // Update payroll status
-            $sql = "UPDATE staff_payroll SET
-                        status = 'paid',
-                        payment_date = NOW(),
-                        payment_mode = ?,
-                        payment_reference = ?
+            // Update payslip status to paid
+            $sql = "UPDATE payslips SET
+                        payslip_status = 'paid',
+                        payment_status = 'paid',
+                        payment_method = ?,
+                        payment_date = CURDATE(),
+                        payment_reference = ?,
+                        paid_at = NOW(),
+                        updated_at = NOW()
                     WHERE id = ?";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$paymentMode, $paymentRef, $payrollId]);
+            $stmt->execute([$liveMethod, $paymentRef, $payrollId]);
 
-            // Update children fee deductions status
-            $dedSql = "UPDATE staff_child_fee_deductions SET status = 'deducted' WHERE payslip_id = ?";
-            $dedStmt = $this->db->prepare($dedSql);
-            $dedStmt->execute([$payrollId]);
-
-            // Record fee payments for children
+            // Record fee payments for children (using breakdown JSON on payslip)
             $this->recordChildrenFeePayments($payrollId);
 
             $this->db->commit();
@@ -2923,38 +3123,56 @@ class FinanceAPI extends BaseAPI
      */
     private function recordChildrenFeePayments($payrollId)
     {
-        // Get all children deductions for this payroll
-        $sql = "SELECT scfd.*, sp.payroll_period 
-                FROM staff_child_fee_deductions scfd
-                JOIN staff_payroll sp ON scfd.payslip_id = sp.id
-                WHERE scfd.payslip_id = ?";
-        $stmt = $this->db->prepare($sql);
+        // Get the payslip's child fee breakdown (JSON array of {student_id, amount, ...})
+        $stmt = $this->db->prepare("SELECT child_fees_breakdown, child_fees_deduction, payroll_month, payroll_year FROM payslips WHERE id = ?");
         $stmt->execute([$payrollId]);
-        $deductions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $payslip = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$payslip) {
+            return;
+        }
 
-        foreach ($deductions as $deduction) {
-            // Get parent_id for this student (usually the staff member)
+        $breakdown = json_decode((string) ($payslip['child_fees_breakdown'] ?? ''), true);
+        if (!is_array($breakdown)) {
+            $breakdown = [];
+        }
+
+        // Fallback: if no breakdown JSON but a single child fees total, look up the staff's children via student_parents
+        if (empty($breakdown) && (float) ($payslip['child_fees_deduction'] ?? 0) > 0) {
+            $childrenStmt = $this->db->prepare("
+                SELECT sp.student_id
+                FROM student_parents sp
+                WHERE sp.parent_id IN (SELECT parent_id FROM student_parents sp2 WHERE sp2.student_id IS NOT NULL)
+                LIMIT 1
+            ");
+            // Not reliable as-is; skip fallback to avoid mis-allocation
+        }
+
+        $period = sprintf('%04d-%02d', $payslip['payroll_year'], $payslip['payroll_month']);
+        foreach ($breakdown as $entry) {
+            $studentId = (int) ($entry['student_id'] ?? 0);
+            $amount = (float) ($entry['amount'] ?? $entry['deducted_amount'] ?? 0);
+            if ($studentId <= 0 || $amount <= 0) {
+                continue;
+            }
+
             $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
-            $parentStmt->execute([$deduction['student_id']]);
-            $parentRow = $parentStmt->fetch(PDO::FETCH_ASSOC);
-            $parentId = $parentRow ? $parentRow['parent_id'] : null;
+            $parentStmt->execute([$studentId]);
+            $parentId = $parentStmt->fetchColumn() ?: null;
 
-            // Generate receipt number
-            $receiptNo = "SALARY-" . $deduction['payroll_period'] . "-" . $payrollId;
-            $notes = "Deducted from staff salary for period " . $deduction['payroll_period'];
+            $receiptNo = "SALARY-{$period}-{$payrollId}-{$studentId}";
+            $notes = "Deducted from staff salary for period {$period}";
 
-            // Use sp_process_student_payment to properly allocate to fee obligations
             $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $spStmt->execute([
-                $deduction['student_id'],
+                $studentId,
                 $parentId,
-                $deduction['deducted_amount'],
+                $amount,
                 'salary_deduction',
                 $receiptNo,
                 $receiptNo,
                 1, // received_by = system
                 date('Y-m-d H:i:s'),
-                $notes
+                $notes,
             ]);
             $spStmt->closeCursor();
         }
@@ -2963,6 +3181,22 @@ class FinanceAPI extends BaseAPI
     // ========================================================================
     // FEE BUNDLE WORKFLOW — public wrappers delegating to FeeManager
     // ========================================================================
+
+    /**
+     * Create (or re-create) a grade-range fee structure bundle from a tabular grid
+     */
+    public function createFeeStructureBundle($data)
+    {
+        return $this->feeManager->createFeeStructureBundle($data);
+    }
+
+    /**
+     * Read an existing grade-range bundle as an editable tabular grid
+     */
+    public function getFeeStructureBundleGrid($data)
+    {
+        return $this->feeManager->getFeeStructureBundleGrid($data);
+    }
 
     /**
      * Submit a fee structure bundle for director review

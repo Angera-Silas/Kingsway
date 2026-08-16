@@ -234,8 +234,11 @@ class BulkOperationsHelper
     private function emitSystemEvent($eventType, array $data = [])
     {
         try {
-            $stmt = $this->db->prepare("INSERT INTO system_events (event_type, event_data, created_at) VALUES (?, ?, NOW())");
-            $stmt->execute([$eventType, json_encode($data)]);
+            \App\API\Includes\FileLogger::write('events', [
+                'type' => 'event',
+                'event_type' => $eventType,
+                'event_data' => $data,
+            ]);
         } catch (Exception $e) {
             // Swallow errors; bulk ops should not fail due to event emission
         }

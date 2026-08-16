@@ -90,13 +90,22 @@ class StaffPayrollManager extends BaseAPI
             // Payroll eligibility gate: staff must have all statutory IDs,
             // payment details, at least one role, and a salary set.
             $eligibilitySql = "SELECT
-                s.staff_no, s.department_id, s.salary, s.kra_pin, s.nssf_no,
-                s.nhif_no, s.phone, s.bank_name, s.bank_account,
-                COUNT(DISTINCT ur.role_id) AS role_count
+                s.staff_no, s.salary, s.bank_name, s.bank_account,
+                p.phone,
+                spp.kra_pin, spp.nssf_no, spp.nhif_no,
+                (SELECT COUNT(DISTINCT ur.role_id)
+                 FROM users u
+                 INNER JOIN user_roles ur ON ur.user_id = u.id
+                 WHERE u.person_id = s.person_id) AS role_count,
+                (SELECT sda.department_id
+                 FROM staff_department_assignments sda
+                 WHERE sda.staff_id = s.id
+                   AND sda.effective_to IS NULL
+                 LIMIT 1) AS department_id
             FROM staff s
-            LEFT JOIN user_roles ur ON ur.user_id = s.user_id
-            WHERE s.id = ? AND s.status = 'active'
-            GROUP BY s.id";
+            INNER JOIN persons p ON p.id = s.person_id
+            LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+            WHERE s.id = ? AND s.status = 'active'";
             $eligStmt = $this->db->prepare($eligibilitySql);
             $eligStmt->execute([$staffId]);
             $profile = $eligStmt->fetch(PDO::FETCH_ASSOC);
@@ -190,83 +199,105 @@ class StaffPayrollManager extends BaseAPI
 
             $existingId = null;
             $stmt = $this->db->prepare(
-                "SELECT id FROM staff_payroll WHERE staff_id = ? AND payroll_period = ? LIMIT 1"
+                "SELECT id FROM payslips WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ? LIMIT 1"
             );
-            $stmt->execute([$staffId, $period]);
+            $stmt->execute([$staffId, $month, $year]);
             $existingId = $stmt->fetchColumn() ?: null;
+
+            // Ensure a payroll run header exists for the period (manual-id master row).
+            $runStmt = $this->db->prepare("SELECT id FROM payroll_runs WHERE month = ? AND year = ?");
+            $runStmt->execute([$month, $year]);
+            $runId = $runStmt->fetchColumn();
+            if (!$runId) {
+                $runId = $this->nextId('payroll_runs');
+                $runStatus = in_array($status, ['draft', 'processing', 'approved', 'paid'], true) ? $status : 'draft';
+                $runStmt = $this->db->prepare(
+                    "INSERT INTO payroll_runs (id, month, year, status, created_by)
+                     VALUES (?, ?, ?, ?, ?)"
+                );
+                $runStmt->execute([$runId, $month, $year, $runStatus, $this->user_id]);
+            }
+
+            $payslipStatus = in_array($status, ['draft', 'approved', 'paid', 'cancelled'], true) ? $status : 'draft';
+            $legacyExtras = json_encode([
+                'total_deductions' => $totalDeductions,
+                'other_deductions' => $otherDeductions,
+                'deductions' => $otherDeductions,
+                'status' => $status,
+                'payroll_period' => $period,
+            ]);
 
             if ($existingId) {
                 $stmt = $this->db->prepare(
-                    "UPDATE staff_payroll SET
-                        payroll_month = ?,
-                        payroll_year = ?,
+                    "UPDATE payslips SET
                         basic_salary = ?,
+                        allowances_total = ?,
                         gross_salary = ?,
-                        nssf_deduction = ?,
-                        nhif_deduction = ?,
                         paye_tax = ?,
-                        other_deductions = ?,
-                        total_deductions = ?,
-                        allowances = ?,
-                        deductions = ?,
+                        nssf_contribution = ?,
+                        nhif_contribution = ?,
+                        loan_deduction = ?,
+                        child_fees_deduction = ?,
+                        other_deductions_total = ?,
                         net_salary = ?,
-                        status = ?,
+                        payslip_status = ?,
+                        deductions_breakdown = ?,
                         updated_at = CURRENT_TIMESTAMP
                      WHERE id = ?"
                 );
                 $stmt->execute([
-                    $month,
-                    $year,
                     $baseSalary,
+                    $totalAllowances,
                     $grossSalary,
+                    $payeTax,
                     $nssf,
                     $nhif,
-                    $payeTax,
-                    $otherDeductions,
-                    $totalDeductions,
-                    $totalAllowances,
+                    $loanDeduction,
+                    $childFeeDeduction,
                     $otherDeductions,
                     $netSalary,
-                    $status,
+                    $payslipStatus,
+                    $legacyExtras,
                     $existingId
                 ]);
-                $payrollId = $existingId;
+                $payrollId = (int) $existingId;
             } else {
                 $stmt = $this->db->prepare(
-                    "INSERT INTO staff_payroll (
+                    "INSERT INTO payslips (
                         staff_id,
                         payroll_month,
                         payroll_year,
                         basic_salary,
+                        allowances_total,
                         gross_salary,
-                        nssf_deduction,
-                        nhif_deduction,
                         paye_tax,
-                        other_deductions,
-                        total_deductions,
-                        allowances,
-                        deductions,
+                        nssf_contribution,
+                        nhif_contribution,
+                        loan_deduction,
+                        child_fees_deduction,
+                        other_deductions_total,
                         net_salary,
-                        status,
-                        payroll_period
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        payslip_status,
+                        payment_status,
+                        deductions_breakdown
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)"
                 );
                 $stmt->execute([
                     $staffId,
                     $month,
                     $year,
                     $baseSalary,
+                    $totalAllowances,
                     $grossSalary,
+                    $payeTax,
                     $nssf,
                     $nhif,
-                    $payeTax,
-                    $otherDeductions,
-                    $totalDeductions,
-                    $totalAllowances,
+                    $loanDeduction,
+                    $childFeeDeduction,
                     $otherDeductions,
                     $netSalary,
-                    $status,
-                    $period
+                    $payslipStatus,
+                    $legacyExtras
                 ]);
                 $payrollId = (int) $this->db->lastInsertId();
             }
@@ -309,15 +340,19 @@ class StaffPayrollManager extends BaseAPI
 
             $stmt = $this->db->prepare("
                 SELECT ps.*, s.staff_no,
-                    CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
-                    s.position, s.bank_account, s.nssf_no, s.nhif_no, s.kra_pin,
+                    CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
+                    s.position, s.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
                     st.name AS staff_type, d.name AS department_name,
-                    CONCAT(approver.first_name, ' ', approver.last_name) AS approved_by_name
+                    CONCAT(ap.first_name, ' ', ap.last_name) AS approved_by_name
                 FROM payslips ps
                 INNER JOIN staff s ON ps.staff_id = s.id
+                INNER JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN users approver ON ps.signed_by = approver.id
+                LEFT JOIN persons ap ON ap.id = approver.person_id
                 WHERE ps.staff_id = ? AND ps.payroll_month = ? AND ps.payroll_year = ?
             ");
             $stmt->execute([$staffId, $data['payroll_month'], $data['payroll_year']]);
@@ -682,7 +717,12 @@ class StaffPayrollManager extends BaseAPI
             }
 
             // Check if student exists and is active
-            $stmt = $this->db->prepare("SELECT id, first_name, last_name FROM students WHERE id = ? AND status = 'active'");
+            $stmt = $this->db->prepare("
+                SELECT s.id, p.first_name, p.last_name
+                FROM students s
+                INNER JOIN persons p ON p.id = s.person_id
+                WHERE s.id = ? AND s.status = 'active'
+            ");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -800,7 +840,7 @@ class StaffPayrollManager extends BaseAPI
     public function getChildFeeConfig()
     {
         try {
-            $stmt = $this->db->prepare("SELECT config_key, config_value, description FROM staff_child_fee_config WHERE is_active = 1");
+            $stmt = $this->db->prepare("SELECT setting_key AS config_key, setting_value AS config_value, NULL AS description FROM school_settings WHERE setting_key LIKE 'staff_child_fee_%'");
             $stmt->execute();
             $configs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -849,25 +889,21 @@ class StaffPayrollManager extends BaseAPI
 
             // Get active children
             $stmt = $this->db->prepare("
-                SELECT 
-                    sc.id AS staff_child_id,
-                    sc.student_id,
-                    sc.fee_deduction_enabled,
-                    sc.fee_deduction_percentage,
-                    st.first_name,
-                    st.last_name,
-                    st.is_sponsored,
-                    st.sponsor_waiver_percentage,
-                    c.name AS class_name,
-                    cs.stream_name
-                FROM staff_children sc
-                JOIN students st ON sc.student_id = st.id
-                LEFT JOIN class_streams cs ON st.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                WHERE sc.staff_id = ? 
-                AND sc.fee_deduction_enabled = 1
-                AND st.status = 'active'
-                ORDER BY sc.created_at ASC
+                SELECT
+                    staff_child_id,
+                    student_id,
+                    fee_deduction_enabled,
+                    fee_deduction_percentage,
+                    student_name,
+                    is_sponsored,
+                    sponsor_waiver_percentage,
+                    class_name,
+                    stream_name,
+                    created_at
+                FROM vw_staff_children_fees
+                WHERE staff_id = ?
+                  AND fee_deduction_enabled = 1
+                ORDER BY created_at ASC
             ");
             $stmt->execute([$staffId]);
             $children = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -934,7 +970,7 @@ class StaffPayrollManager extends BaseAPI
                 $childDeductions[] = [
                     'staff_child_id' => $child['staff_child_id'],
                     'student_id' => $child['student_id'],
-                    'student_name' => $child['first_name'] . ' ' . $child['last_name'],
+                    'student_name' => $child['student_name'],
                     'class' => $child['class_name'] . ' ' . ($child['stream_name'] ?? ''),
                     'child_number' => $childNumber,
                     'gross_fees' => $grossFees,
@@ -992,10 +1028,15 @@ class StaffPayrollManager extends BaseAPI
         try {
             // Get staff details
             $stmt = $this->db->prepare("
-                SELECT s.*, d.name AS department_name, st.name AS staff_type_name
+                SELECT s.*, p.first_name, p.last_name, d.name AS department_name,
+                       st.name AS staff_type_name,
+                       spp.kra_pin, spp.nssf_no, spp.nhif_no
                 FROM staff s
-                LEFT JOIN departments d ON s.department_id = d.id
+                INNER JOIN persons p ON p.id = s.person_id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
+                LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 WHERE s.id = ?
             ");
             $stmt->execute([$staffId]);
@@ -1356,6 +1397,15 @@ class StaffPayrollManager extends BaseAPI
         $stmt->execute([$staffId, $month, $year]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ? $row['id'] : null;
+    }
+
+    /**
+     * Generate the next id for manual-id tables (e.g. payroll_runs).
+     */
+    private function nextId($table)
+    {
+        $stmt = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM `{$table}`");
+        return (int) $stmt->fetchColumn();
     }
 
     /**

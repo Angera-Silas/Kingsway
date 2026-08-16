@@ -96,7 +96,7 @@ const ViewPastPapersController = {
 
   async loadYears() {
     try {
-      this.state.years = await window.API.apiCall('/academic/years', 'GET') || [];
+      this.state.years = await window.API.academic.listYears() || [];
       const yearSelect = document.getElementById('yearFilter');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">All Years</option>' + 

@@ -39,19 +39,19 @@ const GradingStatusController = (() => {
       .replace(/>/g, "&gt;");
   }
 
-  function showSuccess(message) {
+  async function showSuccess(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   }
 
-  function showError(message) {
+  async function showError(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog('Notice', "Error: " + message);
     }
   }
 

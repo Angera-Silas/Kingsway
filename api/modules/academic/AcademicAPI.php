@@ -9,6 +9,7 @@ use App\API\Modules\academic\CurriculumPlanningWorkflow;
 use App\API\Modules\academic\AcademicYearTransitionWorkflow;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\CalendarSyncService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use PDO;
@@ -50,7 +51,7 @@ class AcademicAPI extends BaseAPI
             return null;
         }
 
-        $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? LIMIT 1");
+        $stmt = $this->db->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1");
         $stmt->execute([(int) $userId]);
         $staffId = $stmt->fetchColumn();
 
@@ -352,11 +353,17 @@ class AcademicAPI extends BaseAPI
 
     public function reviewAndApproveReports($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            throw new \InvalidArgumentException('instance_id is required.');
+        }
         return $this->reportWorkflow->reviewAndApprove($instanceId, $data);
     }
 
     public function distributeReports($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            throw new \InvalidArgumentException('instance_id is required.');
+        }
         return $this->reportWorkflow->distributeReports($instanceId, $data);
     }
 
@@ -1003,8 +1010,22 @@ class AcademicAPI extends BaseAPI
                 $data['description'] ?? null,
             ]);
 
+            $dayId = (int) $this->db->query(
+                "SELECT id FROM academic_year_calendar_days WHERE academic_year_calendar_id = ? AND date = ?",
+                [$calendarId, $date]
+            )->fetchColumn();
+
+            require_once __DIR__ . '/../../services/CalendarSyncService.php';
+            $sync = new CalendarSyncService($this->db);
+            if ($dayId) {
+                $sync->syncDay($dayId);
+            } else {
+                $sync->syncAcademicYear(null);
+            }
+
             return successResponse([
-                'id' => $this->db->lastInsertId(),
+                'id' => $dayId ?: $this->db->lastInsertId(),
+                'calendar_day_id' => $dayId ?: null,
                 'message' => 'Calendar event saved successfully'
             ]);
         } catch (Exception $e) {
@@ -1157,7 +1178,7 @@ class AcademicAPI extends BaseAPI
                 SELECT DISTINCT
                     c.id as class_id,
                     c.name as class_name,
-                    ayc.grade_level,
+                    c.grade_level,
                     COUNT(DISTINCT te.id) as schedule_count,
                     GROUP_CONCAT(DISTINCT CONCAT(p.first_name, ' ', p.last_name) SEPARATOR ', ') as teachers
                 FROM timetable_entries te
@@ -1753,7 +1774,9 @@ class AcademicAPI extends BaseAPI
                     ayt.status,
                     ay.year_name,
                     ay.year_code,
-                    COUNT(DISTINCT ayc.id) as active_classes
+                    COUNT(DISTINCT ayc.id) as active_classes,
+                    (SELECT COUNT(*) FROM academic_year_calendar c
+                     WHERE c.academic_year_term_id = ayt.id) AS weeks
                 FROM academic_year_terms ayt
                 JOIN terms t ON t.id = ayt.term_id
                 LEFT JOIN academic_years ay ON ay.id = ayt.academic_year_id
@@ -1838,23 +1861,30 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('academic_year_id is required to create an academic term');
             }
 
+            $hasUpdatedAt = $this->columnExists('academic_year_terms', 'updated_at');
+
+            $insertCols = 'academic_year_id, term_id, opening_date, half_term_start, half_term_end, closing_date, status';
+            if ($hasUpdatedAt) {
+                $insertCols .= ', updated_at';
+            }
+
             $stmt = $this->db->prepare("
                 INSERT INTO academic_year_terms (
-                    academic_year_id,
-                    term_id,
-                    opening_date,
-                    closing_date,
-                    status
-                ) VALUES (?, ?, ?, ?, 'upcoming')
+                    $insertCols
+                ) VALUES (?, ?, ?, ?, ?, ?, 'upcoming'" . ($hasUpdatedAt ? ', CURRENT_TIMESTAMP' : '') . ")
                 ON DUPLICATE KEY UPDATE
                     opening_date = VALUES(opening_date),
+                    half_term_start = VALUES(half_term_start),
+                    half_term_end = VALUES(half_term_end),
                     closing_date = VALUES(closing_date),
-                    status = VALUES(status)
+                    status = VALUES(status)" . ($hasUpdatedAt ? ", updated_at = VALUES(updated_at)" : "") . "
             ");
             $stmt->execute([
                 $yearId,
                 $masterTermId,
                 $data['start_date'],
+                $data['half_term_start'] ?? null,
+                $data['half_term_end'] ?? null,
                 $data['end_date'],
             ]);
 
@@ -1865,6 +1895,17 @@ class AcademicAPI extends BaseAPI
                     [$yearId, $masterTermId]
                 )->fetchColumn();
             }
+
+            // Set updated_at if column exists
+            if ($this->columnExists('academic_year_terms', 'updated_at')) {
+                $stmt = $this->db->prepare("UPDATE academic_year_terms SET updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+                $stmt->execute([$termId]);
+            }
+
+            // Give the new term its calendar week grid (derived from dates).
+            require_once __DIR__ . '/AcademicCalendarService.php';
+            $calendarService = new AcademicCalendarService($this->db);
+            $calendarService->generateYearCalendar($yearId);
 
             return successResponse([
                 'status' => 'success',
@@ -1957,7 +1998,7 @@ class AcademicAPI extends BaseAPI
             ], 201);
         } catch (\InvalidArgumentException $e) {
             error_log('[AcademicAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return errorResponse('An internal error occurred.', 500);
+return errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -2086,6 +2127,11 @@ return errorResponse('An internal error occurred.', 500);
             require_once __DIR__ . '/AcademicCalendarService.php';
             $calendarService = new AcademicCalendarService($this->db);
             $result = $calendarService->generateYearCalendar((int) $yearId, is_array($weekCounts) ? $weekCounts : []);
+
+            require_once __DIR__ . '/../../services/CalendarSyncService.php';
+            $sync = new CalendarSyncService($this->db);
+            $sync->syncAcademicYear((int) $yearId);
+
             return $result;
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -2123,6 +2169,16 @@ return errorResponse('An internal error occurred.', 500);
 
     // ==================== ACADEMIC TERMS MANAGEMENT ====================
 
+    private function columnExists(string $table, string $column): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+        );
+        $stmt->execute([$table, $column]);
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
     public function updateAcademicTerm($termId, $data)
     {
         try {
@@ -2139,9 +2195,11 @@ return errorResponse('An internal error occurred.', 500);
             $termFields += ['half_term_start' => 'half_term_start', 'half_term_end' => 'half_term_end'];
 
             foreach ($termFields as $from => $to) {
-                if (isset($data[$from])) {
+                // array_key_exists (not isset) so an explicit null/empty value
+                // clears the column - e.g. dropping half-term entirely.
+                if (array_key_exists($from, $data)) {
                     $aytSets[] = "$to = ?";
-                    $aytValues[] = $data[$from];
+                    $aytValues[] = ($data[$from] !== null && $data[$from] !== '') ? $data[$from] : null;
                 }
             }
 
@@ -2159,7 +2217,14 @@ return errorResponse('An internal error occurred.', 500);
                 ], 400);
             }
 
-            $sql = "UPDATE academic_year_terms SET " . implode(', ', $aytSets) . ", updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            $sql = "UPDATE academic_year_terms SET " . implode(', ', $aytSets);
+            
+            // Add updated_at only if column exists
+            if ($this->columnExists('academic_year_terms', 'updated_at')) {
+                $sql .= ", updated_at = CURRENT_TIMESTAMP";
+            }
+            
+            $sql .= " WHERE id = ?";
             $aytValues[] = $termId;
 
             $stmt = $this->db->prepare($sql);
@@ -2175,6 +2240,10 @@ return errorResponse('An internal error occurred.', 500);
                 require_once __DIR__ . '/AcademicCalendarService.php';
                 $calendarService = new AcademicCalendarService($this->db);
                 $calendarService->generateYearCalendar($yearId);
+
+                require_once __DIR__ . '/../../services/CalendarSyncService.php';
+                $sync = new CalendarSyncService($this->db);
+                $sync->syncAcademicYear($yearId);
             }
 
             return successResponse([
@@ -2233,23 +2302,22 @@ return errorResponse('An internal error occurred.', 500);
                 $bindings[] = $id;
             }
             if (!empty($filters['class_id'])) {
-                $where[] = 'sw.class_id = ?';
+                $where[] = 'ayc.class_id = ?';
                 $bindings[] = (int) $filters['class_id'];
             }
             if (!empty($filters['subject_id'])) {
-                $where[] = '(sw.learning_area_id = ? OR sw.subject_id = ?)';
-                $bindings[] = (int) $filters['subject_id'];
+                $where[] = 'st.learning_area_id = ?';
                 $bindings[] = (int) $filters['subject_id'];
             }
             if (!empty($filters['term_id'])) {
-                $where[] = 'sw.term_id = ?';
+                $where[] = 'ayt.id = ?';
                 $bindings[] = (int) $filters['term_id'];
             } elseif (!empty($filters['term'])) {
-                $where[] = 'sw.term_number = ?';
-                $bindings[] = (int) $filters['term'];
+                $where[] = 'SUBSTRING(t.code, 2) = ?';
+                $bindings[] = (string) (int) $filters['term'];
             }
             if (!empty($filters['academic_year_id'])) {
-                $where[] = 'sw.academic_year_id = ?';
+                $where[] = 'ayc.academic_year_id = ?';
                 $bindings[] = (int) $filters['academic_year_id'];
             }
             if (!empty($filters['status'])) {
@@ -2259,19 +2327,40 @@ return errorResponse('An internal error occurred.', 500);
 
             $sql = "
                 SELECT 
-                    sw.*,
-                    COALESCE(la.name, la2.name, sw.subject_name) as subject_name,
-                    COALESCE(la.name, la2.name, sw.subject_name) as learning_area_name,
+                    sw.id,
+                    st.id as scheme_template_id,
+                    st.learning_area_id,
+                    st.learning_area_id as subject_id,
+                    la.name as subject_name,
+                    la.name as learning_area_name,
+                    ayc.class_id as class_id,
                     c.name as class_name,
-                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
-                    sw.week_number as topic_count
+                    sw.teacher_id,
+                    CONCAT(sp.first_name, ' ', sp.last_name) as teacher_name,
+                    ayt.id as term_id,
+                    SUBSTRING(t.code, 2) as term_number,
+                    ac.week_number,
+                    ac.week_number as topic_count,
+                    st.title,
+                    st.activities,
+                    st.resources,
+                    st.assessment_methods,
+                    sw.status,
+                    sw.approved_by,
+                    ayc.academic_year_id
                 FROM schemes_of_work sw
-                LEFT JOIN learning_areas la ON sw.learning_area_id = la.id
-                LEFT JOIN learning_areas la2 ON sw.subject_id = la2.id
-                LEFT JOIN classes c ON sw.class_id = c.id
-                LEFT JOIN staff s ON sw.teacher_id = s.id
+                JOIN scheme_templates st ON st.id = sw.scheme_template_id
+                LEFT JOIN learning_areas la ON la.id = st.learning_area_id
+                LEFT JOIN academic_year_class_learning_areas aycla ON aycla.id = sw.academic_year_class_learning_area_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN academic_year_calendar ac ON ac.id = sw.academic_year_calendar_week_id
+                LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+                LEFT JOIN terms t ON t.id = ayt.term_id
+                LEFT JOIN staff s ON s.id = sw.teacher_id
+                LEFT JOIN persons sp ON sp.id = s.person_id
                 WHERE " . implode(' AND ', $where) . "
-                ORDER BY sw.term_id, sw.week_number, sw.id
+                ORDER BY ayt.id, ac.week_number, sw.id
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -2318,49 +2407,30 @@ return errorResponse('An internal error occurred.', 500);
                 ], 400);
             }
 
+            $templateId = $this->ensureSchemeTemplate($data);
+
+            $academicYearId = !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : $this->resolveCurrentAcademicYearId();
+            $ayClassId = $this->resolveAcademicYearClassId($data['class_id'], $academicYearId);
+            $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $data['learning_area_id']) : null;
+            $weekId = $this->resolveCalendarWeekId($data['term_id'], $data['week_number']);
+
             $sql = "
                 INSERT INTO schemes_of_work (
-                    learning_area_id,
-                    subject_id,
-                    subject_name,
-                    class_id,
+                    scheme_template_id,
+                    academic_year_class_learning_area_id,
+                    academic_year_calendar_week_id,
                     teacher_id,
-                    academic_year_id,
-                    term_id,
-                    term_number,
-                    title,
-                    description,
-                    week_number,
-                    strand,
-                    sub_strand,
-                    learning_outcomes,
-                    resources,
-                    activities,
-                    assessment_methods,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['learning_area_id'],
-                $data['learning_area_id'],
-                $data['subject_name'] ?? null,
-                $data['class_id'],
+                $templateId,
+                $ayclaId,
+                $weekId,
                 $data['teacher_id'],
-                $data['academic_year_id'] ?? null,
-                $data['term_id'],
-                $data['term_number'] ?? null,
-                $data['title'],
-                $data['description'] ?? null,
-                $data['week_number'],
-                $data['strand'] ?? null,
-                $data['sub_strand'] ?? null,
-                $data['learning_outcomes'] ?? null,
-                $data['resources'] ?? null,
-                $data['activities'] ?? null,
-                $data['assessment_methods'] ?? null,
-                $data['status'] ?? 'draft'
+                $this->normalizeSchemeStatus($data['status'] ?? 'draft'),
             ]);
 
             $schemeId = $this->db->lastInsertId();
@@ -2403,7 +2473,7 @@ return errorResponse('An internal error occurred.', 500);
             $teacherId = null;
             $userId = $data['created_by'] ?? $this->getCurrentUserId();
             if ($userId) {
-                $staffStmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? LIMIT 1");
+                $staffStmt = $this->db->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1");
                 $staffStmt->execute([(int) $userId]);
                 $teacherId = (int) ($staffStmt->fetchColumn() ?: 0);
                 if (!$teacherId) {
@@ -2474,12 +2544,19 @@ return errorResponse('An internal error occurred.', 500);
                 return errorResponse('No active strands found for the selected learning area', 404);
             }
 
-            // Existing top week number for this area/class/term to continue numbering
+            // Resolve class context once for the year instance rows
+            if (!$academicYearId) {
+                $academicYearId = $this->resolveCurrentAcademicYearId();
+            }
+            $ayClassId = $this->resolveAcademicYearClassId($classId, $academicYearId);
+            $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $learningAreaId) : null;
+
+            // Existing top week number for this term to continue numbering
             $weekStmt = $this->db->prepare(
-                "SELECT COALESCE(MAX(week_number), 0) + 1 FROM schemes_of_work
-                 WHERE learning_area_id = ? AND class_id = ? AND term_id = ?"
+                "SELECT COALESCE(MAX(week_number), 0) + 1 FROM academic_year_calendar
+                 WHERE academic_year_term_id = ?"
             );
-            $weekStmt->execute([(int) $learningAreaId, (int) $classId, (int) $termId]);
+            $weekStmt->execute([(int) $termId]);
             $startWeek = (int) ($weekStmt->fetchColumn() ?: 1);
             if ($startWeek < 1) $startWeek = 1;
 
@@ -2511,14 +2588,6 @@ return errorResponse('An internal error occurred.', 500);
                     $outcomeStmt->execute([(int) $sub['id']]);
                     $outcomes = $outcomeStmt->fetchAll(PDO::FETCH_ASSOC);
 
-                    $outcomeText = '';
-                    foreach ($outcomes as $o) {
-                        $line = trim((string) $o['outcome']);
-                        if ($line === '') continue;
-                        $outcomeText .= $line . "\n";
-                    }
-                    $outcomeText = trim($outcomeText);
-
                     $title = $area['name'] . ': ' . $strand['name'];
                     if ($sub['name'] && $sub['name'] !== $strand['name']) {
                         $title .= ' - ' . $sub['name'];
@@ -2527,12 +2596,22 @@ return errorResponse('An internal error occurred.', 500);
                         $title .= ' (' . $sub['variant'] . ')';
                     }
 
+                    $templateId = $this->ensureSchemeTemplate([
+                        'learning_area_id' => (int) $learningAreaId,
+                        'strand_id' => (int) $strand['id'],
+                        'sub_strand_id' => (int) $sub['id'],
+                        'title' => $title,
+                        'created_by' => $userId,
+                    ]);
+
+                    $weekId = $this->resolveCalendarWeekId($termId, $startWeek);
+
                     $dupStmt = $this->db->prepare(
                         "SELECT id FROM schemes_of_work
-                         WHERE sub_strand_id = ? AND class_id = ? AND term_id = ?
+                         WHERE scheme_template_id = ? AND (academic_year_class_learning_area_id <=> ?) AND (academic_year_calendar_week_id <=> ?)
                          LIMIT 1"
                     );
-                    $dupStmt->execute([(int) $sub['id'], (int) $classId, (int) $termId]);
+                    $dupStmt->execute([$templateId, $ayclaId, $weekId]);
                     if ($dupStmt->fetchColumn()) {
                         $skipped++;
                         continue;
@@ -2540,36 +2619,13 @@ return errorResponse('An internal error occurred.', 500);
 
                     $insertStmt = $this->db->prepare(
                         "INSERT INTO schemes_of_work (
-                            learning_area_id, strand_id, sub_strand_id, subject_id, subject_name, class_id, teacher_id,
-                            academic_year_id, term_id, term_number, title, description,
-                            week_number, strand, sub_strand, learning_outcomes, resources,
-                            activities, assessment_methods, status
-                        ) VALUES (:la, :strand_id, :sub_id, :la2, :sn, :cid, :tid, :ay, :term, :tn, :title, :desc, :week, :strand, :sub, :los, :res, :act, :asm, :status)"
+                            scheme_template_id, academic_year_class_learning_area_id, academic_year_calendar_week_id, teacher_id, status
+                        ) VALUES (?, ?, ?, ?, 'draft')"
                     );
-                    $insertStmt->execute([
-                        ':la' => (int) $learningAreaId,
-                        ':strand_id' => (int) $strand['id'],
-                        ':sub_id' => (int) $sub['id'],
-                        ':la2' => (int) $learningAreaId,
-                        ':sn' => $area['name'],
-                        ':cid' => (int) $classId,
-                        ':tid' => $teacherId ?: null,
-                        ':ay' => $academicYearId,
-                        ':term' => (int) $termId,
-                        ':tn' => $termNumber,
-                        ':title' => $title,
-                        ':desc' => $sub['description'] ?: $strand['name'],
-                        ':week' => $startWeek++,
-                        ':strand' => $strand['name'],
-                        ':sub' => $sub['name'],
-                        ':los' => $outcomeText ?: null,
-                        ':res' => null,
-                        ':act' => null,
-                        ':asm' => null,
-                        ':status' => 'draft',
-                    ]);
+                    $insertStmt->execute([$templateId, $ayclaId, $weekId, $teacherId ?: null]);
                     $created[] = (int) $this->db->lastInsertId();
                     $inserted++;
+                    $startWeek++;
                 }
             }
 
@@ -2605,19 +2661,58 @@ return errorResponse('An internal error occurred.', 500);
             }
 
             $data = $this->normalizeSchemeOfWorkPayload($data, false);
-            $allowed = [
-                'learning_area_id', 'subject_id', 'subject_name', 'class_id', 'teacher_id',
-                'academic_year_id', 'term_id', 'term_number', 'title', 'description',
-                'week_number', 'strand', 'sub_strand', 'learning_outcomes', 'resources',
-                'activities', 'assessment_methods', 'status'
-            ];
+
+            $stmt = $this->db->prepare("
+                SELECT sw.scheme_template_id, sw.academic_year_class_learning_area_id, sw.academic_year_calendar_week_id,
+                       st.learning_area_id, st.learning_area_id AS subject_id
+                FROM schemes_of_work sw
+                JOIN scheme_templates st ON st.id = sw.scheme_template_id
+                WHERE sw.id = ?
+            ");
+            $stmt->execute([(int) $id]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existing) {
+                return errorResponse('Scheme of work not found', 404);
+            }
+
             $fields = [];
             $values = [];
-            foreach ($allowed as $field) {
+
+            if (array_key_exists('teacher_id', $data)) {
+                $fields[] = 'teacher_id = ?';
+                $values[] = $data['teacher_id'] ?? null;
+            }
+            if (array_key_exists('status', $data)) {
+                $fields[] = 'status = ?';
+                $values[] = $this->normalizeSchemeStatus($data['status']);
+            }
+            if (array_key_exists('class_id', $data) || array_key_exists('learning_area_id', $data)) {
+                $learningAreaId = !empty($data['learning_area_id']) ? (int) $data['learning_area_id'] : (int) ($existing['learning_area_id'] ?? 0);
+                $academicYearId = !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : $this->resolveCurrentAcademicYearId();
+                $ayClassId = $this->resolveAcademicYearClassId($data['class_id'] ?? 0, $academicYearId);
+                $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $learningAreaId) : null;
+                $fields[] = 'academic_year_class_learning_area_id = ?';
+                $values[] = $ayclaId;
+            }
+            if (array_key_exists('term_id', $data) || array_key_exists('week_number', $data)) {
+                $termId = !empty($data['term_id']) ? (int) $data['term_id'] : 0;
+                $weekNumber = array_key_exists('week_number', $data) ? $data['week_number'] : null;
+                $fields[] = 'academic_year_calendar_week_id = ?';
+                $values[] = $this->resolveCalendarWeekId($termId, $weekNumber);
+            }
+
+            $templateFields = [];
+            $templateValues = [];
+            foreach (['title', 'activities', 'resources', 'assessment_methods'] as $field) {
                 if (array_key_exists($field, $data)) {
-                    $fields[] = "{$field} = ?";
-                    $values[] = $data[$field];
+                    $templateFields[] = "{$field} = ?";
+                    $templateValues[] = $data[$field];
                 }
+            }
+            if ($templateFields) {
+                $templateValues[] = (int) $existing['scheme_template_id'];
+                $this->db->prepare("UPDATE scheme_templates SET " . implode(', ', $templateFields) . " WHERE id = ?")
+                    ->execute($templateValues);
             }
 
             if (empty($fields)) {
@@ -2643,7 +2738,7 @@ return errorResponse('An internal error occurred.', 500);
 
             $stmt = $this->db->prepare("
                 UPDATE schemes_of_work
-                SET status = 'approved', approved_by = ?, approved_at = NOW(), rejection_reason = NULL
+                SET status = 'approved', approved_by = ?
                 WHERE id = ?
             ");
             $approvedBy = $data['approved_by'] ?? $this->getCurrentStaffId();
@@ -2664,12 +2759,11 @@ return errorResponse('An internal error occurred.', 500);
 
             $stmt = $this->db->prepare("
                 UPDATE schemes_of_work
-                SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ?
+                SET status = 'draft', approved_by = ?
                 WHERE id = ?
             ");
             $stmt->execute([
                 $data['rejected_by'] ?? $this->getCurrentStaffId(),
-                $data['reason'] ?? $data['rejection_reason'] ?? null,
                 $id
             ]);
 
@@ -2730,7 +2824,7 @@ return errorResponse('An internal error occurred.', 500);
         if ($forCreate && empty($data['teacher_id'])) {
             $userId = $data['created_by'] ?? $this->getCurrentUserId();
             if ($userId) {
-                $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? LIMIT 1");
+                $stmt = $this->db->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1");
                 $stmt->execute([(int) $userId]);
                 $staffId = (int) ($stmt->fetchColumn() ?: 0);
                 if ($staffId > 0) {
@@ -2738,11 +2832,124 @@ return errorResponse('An internal error occurred.', 500);
                 }
             }
         }
-        if (!empty($data['status']) && $data['status'] === 'pending') {
-            $data['status'] = 'submitted';
+        if (isset($data['status']) && $data['status'] !== '') {
+            $data['status'] = $this->normalizeSchemeStatus($data['status']);
         }
 
         return $data;
+    }
+
+    /**
+     * Clamp a scheme status to the live schemes_of_work/scheme_templates enum
+     * ('draft', 'approved', 'archived').
+     */
+    private function normalizeSchemeStatus($status)
+    {
+        $status = (string) $status;
+        if ($status === '' || $status === null) {
+            return 'draft';
+        }
+        $status = strtolower($status);
+        return in_array($status, ['draft', 'approved', 'archived'], true) ? $status : 'draft';
+    }
+
+    /**
+     * Resolve a classes.id (optionally scoped to an academic year) to the
+     * matching academic_year_classes row id.
+     */
+    private function resolveAcademicYearClassId($classId, $academicYearId = null)
+    {
+        $classId = (int) $classId;
+        if ($classId <= 0) {
+            return 0;
+        }
+        if (empty($academicYearId)) {
+            $academicYearId = $this->resolveCurrentAcademicYearId();
+        }
+        if (empty($academicYearId)) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_classes WHERE academic_year_id = ? AND class_id = ? LIMIT 1");
+        $stmt->execute([(int) $academicYearId, $classId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve the academic_year_class_learning_areas row id for a class + learning area.
+     */
+    private function resolveClassLearningAreaId($ayClassId, $learningAreaId)
+    {
+        if (empty($ayClassId) || empty($learningAreaId)) {
+            return null;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT id FROM academic_year_class_learning_areas
+             WHERE academic_year_class_id = ? AND learning_area_id = ?
+             LIMIT 1"
+        );
+        $stmt->execute([(int) $ayClassId, (int) $learningAreaId]);
+        return (int) ($stmt->fetchColumn() ?: 0) ?: null;
+    }
+
+    /**
+     * Resolve the academic_year_calendar week row id for an academic term + week number.
+     */
+    private function resolveCalendarWeekId($termId, $weekNumber)
+    {
+        if (empty($termId) || $weekNumber === null || $weekNumber === '' || (int) $weekNumber <= 0) {
+            return null;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT id FROM academic_year_calendar
+             WHERE academic_year_term_id = ? AND week_number = ?
+             LIMIT 1"
+        );
+        $stmt->execute([(int) $termId, (int) $weekNumber]);
+        return (int) ($stmt->fetchColumn() ?: 0) ?: null;
+    }
+
+    /**
+     * Get (or create) the scheme_templates content row for a scheme payload.
+     * Reuses an existing template with the same (learning_area, strand, sub_strand, title).
+     */
+    private function ensureSchemeTemplate(array $data)
+    {
+        $learningAreaId = (int) ($data['learning_area_id'] ?? 0);
+        $strandId = (isset($data['strand_id']) && $data['strand_id'] !== '') ? (int) $data['strand_id'] : null;
+        $subStrandId = (isset($data['sub_strand_id']) && $data['sub_strand_id'] !== '') ? (int) $data['sub_strand_id'] : null;
+        $title = trim((string) ($data['title'] ?? ''));
+        if ($title === '') {
+            $title = 'Untitled';
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT id FROM scheme_templates
+             WHERE learning_area_id = ? AND (strand_id <=> ?) AND (sub_strand_id <=> ?) AND title = ?
+             LIMIT 1"
+        );
+        $stmt->execute([$learningAreaId, $strandId, $subStrandId, $title]);
+        $existing = $stmt->fetchColumn();
+        if ($existing) {
+            return (int) $existing;
+        }
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO scheme_templates (
+                learning_area_id, strand_id, sub_strand_id, title,
+                activities, resources, assessment_methods, created_by, is_shared, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'draft')"
+        );
+        $stmt->execute([
+            $learningAreaId,
+            $strandId,
+            $subStrandId,
+            $title,
+            $data['activities'] ?? null,
+            $data['resources'] ?? null,
+            $data['assessment_methods'] ?? null,
+            $data['created_by'] ?? $this->getCurrentUserId(),
+        ]);
+        return (int) $this->db->lastInsertId();
     }
 
     public function getLessonObservations($params = [])
@@ -2751,13 +2958,15 @@ return errorResponse('An internal error occurred.', 500);
             $sql = "
                 SELECT 
                     lo.*,
-                    CONCAT(t.first_name, ' ', t.last_name) as teacher_name,
-                    CONCAT(o.first_name, ' ', o.last_name) as observer_name,
+                    CONCAT(tp.first_name, ' ', tp.last_name) as teacher_name,
+                    CONCAT(op.first_name, ' ', op.last_name) as observer_name,
                     la.name as learning_area_name,
                     c.name as class_name
                 FROM lesson_observations lo
                 JOIN staff t ON lo.teacher_id = t.id
+                JOIN persons tp ON tp.id = t.person_id
                 JOIN staff o ON lo.observer_id = o.id
+                JOIN persons op ON op.id = o.person_id
                 JOIN learning_areas la ON lo.learning_area_id = la.id
                 JOIN classes c ON lo.class_id = c.id
                 ORDER BY lo.observation_date DESC
@@ -3554,6 +3763,366 @@ return errorResponse('An internal error occurred.', 500);
 
             return successResponse([
                 'message' => 'Exam schedule deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ========================================================================
+    // SUPERVISION ROSTER CRUD (for supervision_roster.js frontend)
+    // Backed by the supervision_rosters table (exam_schedule_id + staff_id + role).
+    // ========================================================================
+
+    /**
+     * List supervision roster entries with filtering, pagination, and summary.
+     */
+    public function listSupervisionRosters($params = [])
+    {
+        try {
+            [$page, $limit, $offset] = $this->getPaginationParams();
+
+            $where = ["1=1"];
+            $bindings = [];
+
+            if (!empty($params['term'])) {
+                $where[] = "es.academic_year_term_id = ?";
+                $bindings[] = $params['term'];
+            }
+            if (!empty($params['start_date'])) {
+                $where[] = "sr.date >= ?";
+                $bindings[] = $params['start_date'];
+            }
+            if (!empty($params['end_date'])) {
+                $where[] = "sr.date <= ?";
+                $bindings[] = $params['end_date'];
+            }
+            if (!empty($params['search'])) {
+                $where[] = "(CONCAT(p.first_name, ' ', p.last_name) LIKE ? OR es.exam_name LIKE ?)";
+                $bindings[] = "%{$params['search']}%";
+                $bindings[] = "%{$params['search']}%";
+            }
+            if (!empty($params['status'])) {
+                $where[] = "sr.status = ?";
+                $bindings[] = $params['status'];
+            }
+
+            $whereClause = implode(' AND ', $where);
+
+            $countSql = "SELECT COUNT(*) FROM supervision_rosters sr
+                         LEFT JOIN exam_schedules es ON es.id = sr.exam_schedule_id
+                         LEFT JOIN staff st ON st.id = sr.staff_id
+                         LEFT JOIN persons p ON p.id = st.person_id
+                         WHERE {$whereClause}";
+            $stmt = $this->db->prepare($countSql);
+            $stmt->execute($bindings);
+            $total = (int) $stmt->fetchColumn();
+
+            $sql = "
+                SELECT
+                    sr.id,
+                    sr.exam_schedule_id,
+                    sr.staff_id,
+                    sr.role,
+                    sr.date AS supervision_date,
+                    sr.time_slot_id,
+                    sr.room_id AS venue,
+                    sr.notes,
+                    sr.status,
+                    sr.created_at,
+                    es.exam_name,
+                    es.exam_type,
+                    es.exam_date,
+                    es.start_time,
+                    es.end_time,
+                    es.venue AS exam_venue,
+                    es.academic_year_term_id AS term_id,
+                    es.status AS exam_status,
+                    CONCAT(p.first_name, ' ', p.last_name) AS supervisor_name,
+                    ts.label AS time_slot_label,
+                    CONCAT(ts.start_time, '-', ts.end_time) AS time_range
+                FROM supervision_rosters sr
+                LEFT JOIN exam_schedules es ON es.id = sr.exam_schedule_id
+                LEFT JOIN staff st ON st.id = sr.staff_id
+                LEFT JOIN persons p ON p.id = st.person_id
+                LEFT JOIN time_slots ts ON ts.id = sr.time_slot_id
+                WHERE {$whereClause}
+                ORDER BY sr.date ASC, es.start_time ASC
+                LIMIT ? OFFSET ?
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
+            $roster = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $this->logAction('read', null, 'Listed supervision roster');
+
+            return successResponse([
+                'roster' => $roster,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => ceil($total / $limit),
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get a single supervision roster entry by ID.
+     */
+    public function getSupervisionRosterById($id)
+    {
+        try {
+            $sql = "
+                SELECT
+                    sr.id,
+                    sr.exam_schedule_id,
+                    sr.staff_id,
+                    sr.role,
+                    sr.date AS supervision_date,
+                    sr.time_slot_id,
+                    sr.room_id AS venue,
+                    sr.notes,
+                    sr.status,
+                    sr.created_at,
+                    es.exam_name,
+                    es.exam_type,
+                    es.exam_date,
+                    es.start_time,
+                    es.end_time,
+                    es.venue AS exam_venue,
+                    es.academic_year_term_id AS term_id,
+                    es.status AS exam_status,
+                    CONCAT(p.first_name, ' ', p.last_name) AS supervisor_name
+                FROM supervision_rosters sr
+                LEFT JOIN exam_schedules es ON es.id = sr.exam_schedule_id
+                LEFT JOIN staff st ON st.id = sr.staff_id
+                LEFT JOIN persons p ON p.id = st.person_id
+                WHERE sr.id = ?
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+            $entry = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$entry) {
+                return errorResponse('Supervision roster entry not found');
+            }
+
+            return successResponse($entry);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Create a supervision roster entry.
+     */
+    public function createSupervisionRoster($data)
+    {
+        try {
+            $required = ['exam_schedule_id', 'staff_id', 'role'];
+            foreach ($required as $field) {
+                if (empty($data[$field])) {
+                    return errorResponse("Missing required field: {$field}");
+                }
+            }
+
+            $status = $data['status'] ?? 'assigned';
+            if (!in_array($status, ['assigned', 'confirmed', 'completed'], true)) {
+                $status = 'assigned';
+            }
+
+            // Inherit date / venue from the exam schedule when not provided.
+            $date = $data['date'] ?? null;
+            $room = $data['room_id'] ?? null;
+            if ($date === null || $room === null) {
+                $stmt = $this->db->prepare(
+                    "SELECT exam_date, venue FROM exam_schedules WHERE id = ?"
+                );
+                $stmt->execute([$data['exam_schedule_id']]);
+                $exam = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($date === null) {
+                    $date = $exam['exam_date'] ?? null;
+                }
+                if ($room === null) {
+                    $room = $exam['venue'] ?? null;
+                }
+            }
+
+            $sql = "
+                INSERT INTO supervision_rosters (
+                    exam_schedule_id, staff_id, role, date, time_slot_id,
+                    room_id, notes, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $data['exam_schedule_id'],
+                $data['staff_id'],
+                $data['role'],
+                $date,
+                $data['time_slot_id'] ?? null,
+                $room,
+                $data['notes'] ?? null,
+                $status,
+            ]);
+
+            $id = $this->db->lastInsertId();
+            $this->logAction('create', $id, "Created supervision roster entry");
+
+            return successResponse([
+                'id' => $id,
+                'message' => 'Supervision roster entry created successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Update a supervision roster entry.
+     */
+    public function updateSupervisionRoster($id, $data)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT id FROM supervision_rosters WHERE id = ?");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                return errorResponse('Supervision roster entry not found');
+            }
+
+            $fields = [];
+            $values = [];
+
+            $allowed = [
+                'exam_schedule_id',
+                'staff_id',
+                'role',
+                'date',
+                'time_slot_id',
+                'room_id',
+                'notes',
+                'status'
+            ];
+
+            foreach ($allowed as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse('No valid fields to update');
+            }
+
+            $values[] = $id;
+            $sql = "UPDATE supervision_rosters SET " . implode(', ', $fields) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            $this->logAction('update', $id, "Updated supervision roster entry");
+
+            return successResponse([
+                'id' => $id,
+                'message' => 'Supervision roster entry updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Delete a supervision roster entry.
+     */
+    public function deleteSupervisionRoster($id)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT id FROM supervision_rosters WHERE id = ?");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                return errorResponse('Supervision roster entry not found');
+            }
+
+            $stmt = $this->db->prepare("DELETE FROM supervision_rosters WHERE id = ?");
+            $stmt->execute([$id]);
+
+            $this->logAction('delete', $id, "Deleted supervision roster entry");
+
+            return successResponse([
+                'message' => 'Supervision roster entry deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Auto-generate supervision roster entries for the current term's upcoming
+     * exam schedules that do not yet have a supervisor assigned.
+     */
+    public function autoGenerateSupervisionRoster($data)
+    {
+        try {
+            $termId = $data['term_id'] ?? null;
+            if (empty($termId)) {
+                $stmt = $this->db->query(
+                    "SELECT ayt.id FROM academic_year_terms ayt
+                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                     WHERE ay.is_current = 1 AND ayt.status = 'current'
+                     LIMIT 1"
+                );
+                $termId = $stmt->fetchColumn();
+            }
+            if (empty($termId)) {
+                return errorResponse('No current term found to generate a roster for');
+            }
+
+            // Upcoming/scheduled exams in the term with no roster row yet and a supervisor.
+            $sql = "
+                SELECT es.id, es.exam_date, es.venue, es.supervisor_id
+                FROM exam_schedules es
+                WHERE es.academic_year_term_id = ?
+                  AND es.status IN ('scheduled', 'upcoming')
+                  AND es.supervisor_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM supervision_rosters sr
+                      WHERE sr.exam_schedule_id = es.id
+                  )
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$termId]);
+            $exams = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $created = 0;
+            $insert = $this->db->prepare(
+                "INSERT INTO supervision_rosters (
+                    exam_schedule_id, staff_id, role, date, room_id, status
+                 ) VALUES (?, ?, 'supervisor', ?, ?, 'assigned')"
+            );
+            foreach ($exams as $exam) {
+                $insert->execute([
+                    $exam['id'],
+                    $exam['supervisor_id'],
+                    $exam['exam_date'],
+                    $exam['venue'],
+                ]);
+                $created++;
+            }
+
+            if ($created > 0) {
+                $this->logAction('create', null, "Auto-generated {$created} supervision roster entries");
+            }
+
+            return successResponse([
+                'created' => $created,
+                'message' => $created > 0
+                    ? "Created {$created} supervision roster entries"
+                    : 'All scheduled exams already have supervision assigned'
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -4572,13 +5141,12 @@ return errorResponse('An internal error occurred.', 500);
                 SELECT DISTINCT
                     s.id as teacher_id,
                     CONCAT(p.first_name, ' ', p.last_name) as teacher_name,
-                    u.email,
+                    p.email,
                     p.phone,
                     COUNT(DISTINCT ayc.class_id) as class_count
                 FROM timetable_entries te
                 JOIN staff s ON te.teacher_id = s.id
                 LEFT JOIN persons p ON p.id = s.person_id
-                LEFT JOIN users u ON u.person_id = s.person_id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = te.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 WHERE te.learning_area_id = ? AND te.status = 'scheduled'
@@ -4873,10 +5441,10 @@ return errorResponse('An internal error occurred.', 500);
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
                 LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id AND aycs.status = 'active'
                 LEFT JOIN streams st ON aycs.stream_id = st.id
-                LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
+                LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active' AND sae.student_id IN (SELECT id FROM students)
                 WHERE {$whereClause}
                 GROUP BY c.id, ayc.id
-                ORDER BY ayc.academic_year_id DESC, sl.code, c.name
+                ORDER BY ayc.academic_year_id DESC, FIELD(c.grade_level, 'Playgroup', 'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'), c.name
                 LIMIT ? OFFSET ?
             ";
 
@@ -4953,7 +5521,10 @@ return errorResponse('An internal error occurred.', 500);
                 LEFT JOIN school_levels sl ON sl.id = c.level_id
                 LEFT JOIN staff s ON s.id = aycs.class_teacher_id
                 LEFT JOIN persons p ON p.id = s.person_id
-                LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
+                LEFT JOIN student_academic_enrollments sae
+                       ON sae.academic_year_class_stream_id = aycs.id
+                      AND sae.enrollment_status = 'active'
+                      AND sae.student_id IN (SELECT id FROM students)
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY aycs.id
                 ORDER BY ayc.academic_year_id DESC, sl.code, c.name, st.name
@@ -5038,23 +5609,24 @@ return errorResponse('An internal error occurred.', 500);
                 }
             }
 
+            $classStreamId = $this->resolveAcademicYearClassStreamId($classId);
+
             $insert = $this->db->prepare("
                 INSERT INTO assessments (
-                    class_id,
-                    subject_id,
-                    term_id,
+                    academic_year_class_stream_id,
+                    learning_area_id,
+                    academic_year_term_id,
                     title,
                     max_marks,
                     assessment_date,
                     assigned_by,
                     status,
-                    assessment_type_id,
-                    learning_outcome_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    assessment_type_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $insert->execute([
-                $classId,
+                $classStreamId,
                 $subjectId,
                 $termId,
                 $title,
@@ -5063,7 +5635,6 @@ return errorResponse('An internal error occurred.', 500);
                 $assignedBy,
                 $status,
                 $assessmentTypeId,
-                !empty($data['learning_outcome_id']) ? (int) $data['learning_outcome_id'] : null,
             ]);
 
             $assessmentId = (int) $this->db->lastInsertId();
@@ -5120,7 +5691,7 @@ return errorResponse('An internal error occurred.', 500);
             $upsert = $this->db->prepare("
                 INSERT INTO assessment_results (
                     assessment_id,
-                    student_id,
+                    student_academic_enrollment_id,
                     marks_obtained,
                     grade,
                     points,
@@ -5149,6 +5720,11 @@ return errorResponse('An internal error occurred.', 500);
                     continue;
                 }
 
+                $enrollmentId = $this->resolveStudentEnrollmentId($studentId);
+                if ($enrollmentId <= 0) {
+                    continue;
+                }
+
                 $rawScore = $row['score_obtained'] ?? $row['marks_obtained'] ?? $row['marks'] ?? $row['score'] ?? null;
                 if ($rawScore === null || $rawScore === '') {
                     continue;
@@ -5170,7 +5746,7 @@ return errorResponse('An internal error occurred.', 500);
 
                 $upsert->execute([
                     $assessmentId,
-                    $studentId,
+                    $enrollmentId,
                     $score,
                     $grade,
                     $points,
@@ -5257,6 +5833,54 @@ return errorResponse('An internal error occurred.', 500);
              LIMIT 1"
         );
         $stmt->execute([(int) $academicYearId, (string) $termNumber]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve an input class id to an academic_year_class_streams row id.
+     * Accepts either a stream id (used directly) or a classes.id resolved
+     * through the most recent academic year.
+     */
+    private function resolveAcademicYearClassStreamId($classId)
+    {
+        $classId = (int) $classId;
+        if ($classId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_class_streams WHERE id = ? LIMIT 1");
+        $stmt->execute([$classId]);
+        if ($streamId = $stmt->fetchColumn()) {
+            return (int) $streamId;
+        }
+        $stmt = $this->db->prepare("
+            SELECT aycs.id
+            FROM academic_year_classes ayc
+            JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+            WHERE ayc.class_id = ?
+            ORDER BY ayc.academic_year_id DESC, aycs.id
+            LIMIT 1
+        ");
+        $stmt->execute([$classId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve a student id to the current student_academic_enrollments row id.
+     */
+    private function resolveStudentEnrollmentId($studentId)
+    {
+        $studentId = (int) $studentId;
+        if ($studentId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("
+            SELECT id
+            FROM student_academic_enrollments
+            WHERE student_id = ? AND enrollment_status IN ('active', 'pending')
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$studentId]);
         return (int) ($stmt->fetchColumn() ?: 0);
     }
 
@@ -6686,7 +7310,7 @@ return errorResponse('An internal error occurred.', 500);
             $name = trim((string) ($data['name'] ?? ''));
             $levelId = $data['level_id'] ?? null;
             if ($name === '' || !$levelId) {
-                throw new Exception("Missing required field: name or level_id");
+                throw new \InvalidArgumentException("Missing required field: name or level_id");
             }
 
             $academicYearId = $data['academic_year_id'] ?? null;

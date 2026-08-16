@@ -12,14 +12,33 @@ const ManageCalendarEventsController = (() => {
     }
     async function loadData() {
         try {
-            const r = await window.API.apiCall(
-              "/academic/calendar-events",
-              "GET",
-            ).catch(() => null);
+            await window.API.schedules.syncEvents().catch(() => null);
+            const r = await window.API.schedules.getEvents().catch(() => null);
             allData = r?.data || r || [];
+            populateTypeFilter();
             renderStats(allData);
             renderTable(Array.isArray(allData) ? allData : []);
         } catch (e) { console.error('Load failed:', e); renderTable([]); }
+    }
+    async function syncNow() {
+        showNotification('Syncing calendar and events...', 'info');
+        try {
+            await window.API.schedules.syncEvents();
+            showNotification('Calendar synced successfully', 'success');
+            await loadData();
+        } catch (e) {
+            showNotification(e.message || 'Sync failed', 'danger');
+        }
+    }
+    function populateTypeFilter() {
+        const sel = document.getElementById('filterSelect');
+        if (!sel || sel.dataset.populated) return;
+        const seen = new Set();
+        allData.forEach((d) => {
+            const t = (d.type || d.event_type || d.category || 'general').toLowerCase();
+            if (!seen.has(t)) { seen.add(t); const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/_/g, ' '); sel.appendChild(o); }
+        });
+        sel.dataset.populated = '1';
     }
     function renderStats(data) {
         const items = Array.isArray(data) ? data : [];
@@ -58,7 +77,7 @@ const ManageCalendarEventsController = (() => {
         if (!tbody) return;
         if (!items.length) {
           tbody.innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted py-4">No calendar events found</td></tr>';
+            '<tr><td colspan="9" class="text-center text-muted py-4">No calendar events found</td></tr>';
           return;
         }
         const now = new Date();
@@ -67,23 +86,41 @@ const ManageCalendarEventsController = (() => {
             const eventDate = new Date(d.date || d.event_date || d.start_date);
             const isPast = eventDate < now;
             const isToday = eventDate.toDateString() === now.toDateString();
-            const cat = d.category || d.type || d.event_type || "general";
+            const cat = (d.category || d.type || d.event_type || "general").toLowerCase();
             const catColors = {
               exam: "danger",
               holiday: "success",
+              school_holiday: "success",
+              public_holiday: "success",
+              half_day: "warning",
+              special_event: "info",
+              opening: "primary",
+              closing: "primary",
               meeting: "primary",
               sports: "warning",
               cultural: "info",
               general: "secondary",
             };
+            const status = (d.status || 'upcoming').toLowerCase();
+            const statusColors = { upcoming: "warning", ongoing: "success", past: "secondary", cancelled: "danger", completed: "success" };
+            const termLabel = d.term_name ? `${d.term_name}${d.week_number ? ` · Wk ${d.week_number}` : ''}` : '—';
+            const startDt = d.start_date || d.date || d.event_date || "--";
+            const startT = d.start_time || (d.start_at ? String(d.start_at).substring(11, 16) : '') || '';
+            const endDt = d.end_date || (d.end_at ? String(d.end_at).substring(0, 10) : '') || '';
+            const endT = d.end_time || (d.end_at ? String(d.end_at).substring(11, 16) : '') || '';
+            const startDisplay = startDt + (startT ? ' ' + startT : '');
+            const endDisplay = (endDt && endDt !== (d.start_date || d.date || d.event_date))
+              ? endDt + (endT ? ' ' + endT : '')
+              : (endT && endT !== startT ? startDt + ' ' + endT : '');
             return `<tr class="${isToday ? "table-warning" : isPast ? "text-muted" : ""}">
                 <td>${i + 1}</td>
                 <td><strong>${escapeHtml(d.name || d.title || d.event_name || "--")}</strong></td>
-                <td>${d.date || d.event_date || d.start_date || "--"}</td>
-                <td>${d.time || d.start_time || "--"}</td>
-                <td><span class="badge bg-${catColors[cat.toLowerCase()] || "secondary"}">${cat}</span></td>
+                <td>${escapeHtml(startDisplay)}</td>
+                <td>${escapeHtml(endDisplay || "--")}</td>
+                <td><span class="badge bg-${catColors[cat] || "secondary"}">${escapeHtml(cat.replace(/_/g, ' '))}</span></td>
+                <td>${escapeHtml(termLabel)}</td>
+                <td><span class="badge bg-${statusColors[status] || "secondary"}">${escapeHtml(status)}</span></td>
                 <td>${escapeHtml(d.location || d.venue || "--")}</td>
-                <td>${escapeHtml((d.description || "").substring(0, 50))}${(d.description || "").length > 50 ? "..." : ""}</td>
                 <td>
                     <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageCalendarEventsController.editRecord(${i})" title="Edit"><i class="fas fa-edit"></i></button>
                     <button class="btn btn-sm btn-outline-danger" onclick="ManageCalendarEventsController.deleteRecord('${d.id}')" title="Delete"><i class="fas fa-trash"></i></button>
@@ -111,7 +148,7 @@ const ManageCalendarEventsController = (() => {
             if (f === "past") return ed < now;
             if (f === "today") return ed.toDateString() === now.toDateString();
             return (
-              (item.category || item.type || "").toLowerCase() ===
+              (item.category || item.type || item.event_type || "").toLowerCase() ===
               f.toLowerCase()
             );
           });
@@ -127,20 +164,7 @@ const ManageCalendarEventsController = (() => {
         document.getElementById("formModalTitle").innerHTML =
           '<i class="fas fa-calendar-plus me-2"></i>Add Event';
         document.getElementById('recordForm').reset(); document.getElementById('recordId').value = '';
-        const nameEl = document.getElementById("recordName");
-        const descEl = document.getElementById("recordDescription");
-        const dateEl = document.getElementById("recordDate");
-        const statusEl = document.getElementById("recordStatus");
-        if (nameEl?.previousElementSibling)
-          nameEl.previousElementSibling.textContent = "Event Name";
-        if (nameEl) nameEl.placeholder = "e.g., Sports Day, Parents Meeting";
-        if (descEl?.previousElementSibling)
-          descEl.previousElementSibling.textContent = "Description";
-        if (descEl) descEl.placeholder = "Event description...";
-        if (dateEl?.previousElementSibling)
-          dateEl.previousElementSibling.textContent = "Event Date";
-        if (statusEl?.previousElementSibling)
-          statusEl.previousElementSibling.textContent = "Category";
+        document.getElementById("recordType").value = 'special_event';
         new bootstrap.Modal(document.getElementById('formModal')).show();
     }
     function editRecord(index) {
@@ -151,38 +175,49 @@ const ManageCalendarEventsController = (() => {
         document.getElementById("recordName").value =
           item.name || item.title || item.event_name || "";
         document.getElementById('recordDescription').value = item.description || '';
-        document.getElementById("recordDate").value =
-          item.date || item.event_date || item.start_date || "";
-        document.getElementById("recordStatus").value =
-          item.category || item.type || "general";
+        document.getElementById("recordStartDate").value =
+          item.start_date || item.date || item.event_date || "";
+        document.getElementById("recordStartTime").value =
+          item.start_time || (item.start_at ? String(item.start_at).substring(11, 16) : "") || "";
+        document.getElementById("recordEndDate").value = item.end_date || "";
+        document.getElementById("recordEndTime").value =
+          item.end_time || (item.end_at ? String(item.end_at).substring(11, 16) : "") || "";
+        document.getElementById("recordType").value =
+          (item.category || item.type || item.event_type || "general").toLowerCase();
+        document.getElementById("recordLocation").value = item.location || item.venue || "";
         new bootstrap.Modal(document.getElementById('formModal')).show();
     }
     async function saveRecord() {
         const id = document.getElementById('recordId').value;
-        const data = {
-          name: document.getElementById("recordName").value,
-          description: document.getElementById("recordDescription").value,
-          date: document.getElementById("recordDate").value,
-          category: document.getElementById("recordStatus").value,
+        const name = document.getElementById("recordName").value;
+        const startDate = document.getElementById("recordStartDate").value;
+        if (!name) { showNotification("Event name is required", "warning"); return; }
+        if (!startDate) { showNotification("Event start date is required", "warning"); return; }
+        const payload = {
+            name,
+            description: document.getElementById("recordDescription").value || null,
+            start_date: startDate,
+            start_time: document.getElementById("recordStartTime").value || null,
+            end_date: document.getElementById("recordEndDate").value || null,
+            end_time: document.getElementById("recordEndTime").value || null,
+            type: document.getElementById("recordType").value,
+            location: document.getElementById("recordLocation").value || null,
+            status: "upcoming",
         };
-        if (!data.name) {
-          showNotification("Event name is required", "warning");
-          return;
-        }
-        if (!data.date) {
-          showNotification("Event date is required", "warning");
-          return;
-        }
         try {
-            await window.API.apiCall(id ? '/academic/calendar-events/' + id : '/academic/calendar-events', id ? 'PUT' : 'POST', data);
+            if (id) {
+                await window.API.schedules.updateEvent(id, payload);
+            } else {
+                await window.API.schedules.createEvent(payload);
+            }
             showNotification("Event saved successfully", "success");
             bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide(); await loadData();
         } catch (e) { showNotification(e.message || 'Failed to save', 'danger'); }
     }
     async function deleteRecord(id) {
-        if (!confirm("Delete this calendar event?")) return;
+        if (!(await window.confirmAction('Confirm Deletion', "Delete this calendar event? This will also clear the linked calendar day if applicable.", { confirmText: 'Delete', danger: true }))) return;
         try {
-          await window.API.apiCall("/academic/calendar-events/" + id, "DELETE");
+          await window.API.schedules.deleteEvent(id);
           showNotification("Event deleted", "success");
           await loadData();
         } catch (e) {
@@ -194,18 +229,20 @@ const ManageCalendarEventsController = (() => {
         const headers = [
           "#",
           "Event Name",
-          "Date",
-          "Time",
-          "Category",
+          "Start",
+          "End",
+          "Type",
+          "Status",
           "Location",
           "Description",
         ];
         const rows = allData.map((d, i) => [
           i + 1,
           d.name || d.title || d.event_name,
-          d.date || d.event_date,
-          d.time || d.start_time,
+          (d.start_date || d.date || d.event_date || "") + (d.start_time ? " " + d.start_time : ""),
+          (d.end_date || "") + (d.end_time ? " " + d.end_time : ""),
           d.category || d.type,
+          d.status,
           d.location || d.venue,
           d.description || "",
         ]);
@@ -225,6 +262,6 @@ const ManageCalendarEventsController = (() => {
         .replace(/"/g, "&quot;");
     }
     function showNotification(message, type) { window.showNotification(message, type); }
-    return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
+    return { init, refresh: loadData, syncNow, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
 })();
 document.addEventListener('DOMContentLoaded', () => ManageCalendarEventsController.init());

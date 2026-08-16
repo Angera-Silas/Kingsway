@@ -12,13 +12,9 @@ const AssembliesController = (() => {
     }
     async function loadData() {
         try {
-            const r =
-              (await window.API.apiCall("/activities/assemblies", "GET").catch(
+            const r = await window.API.activities?.list?.({ category: "assembly" }).catch(
                 () => null,
-              )) ||
-              (await window.API.activities
-                ?.list?.({ category: "assembly" })
-                .catch(() => null));
+            );
             allData = r?.data || r || [];
             renderStats(allData);
             renderTable(Array.isArray(allData) ? allData : []);
@@ -163,15 +159,19 @@ const AssembliesController = (() => {
           return;
         }
         try {
-            await window.API.apiCall(id ? '/activities/assemblies/' + id : '/activities/assemblies', id ? 'PUT' : 'POST', data);
+            if (id) {
+                await window.API.activities.update(id, data);
+            } else {
+                await window.API.activities.create(data);
+            }
             showNotification("Assembly saved successfully", "success");
             bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide(); await loadData();
         } catch (e) { showNotification(e.message || 'Failed to save', 'danger'); }
     }
     async function deleteRecord(id) {
-        if (!confirm("Delete this assembly?")) return;
+        if (!(await window.confirmAction('Confirm Deletion', "Delete this assembly?", { confirmText: 'Delete', danger: true }))) return;
         try {
-          await window.API.apiCall("/activities/assemblies/" + id, "DELETE");
+          await window.API.activities.delete(id);
           showNotification("Assembly deleted", "success");
           await loadData();
         } catch (e) {

@@ -80,7 +80,7 @@ const ViewSyllabusController = {
         params.academic_year_id = this.state.currentAcademicYear;
       }
 
-      this.state.syllabus = await window.API.apiCall('/academic/syllabus', 'GET', params) || [];
+      this.state.syllabus = await window.API.academic.getSyllabus(params) || [];
       this.renderSyllabusTable();
       this.updateStats();
       this.populateLearningAreaFilter();
@@ -212,7 +212,7 @@ const ViewSyllabusController = {
       Assessment Criteria: ${entry.assessment_criteria || '--'}
     `;
 
-    alert(details);
+    window.infoDialog && window.infoDialog("Syllabus Entry Details", details);
   },
 
   exportSyllabus() {

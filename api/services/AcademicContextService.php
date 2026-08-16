@@ -161,14 +161,15 @@ class AcademicContextService
             return null;
         }
 
-        $sql = "SELECT id, name, academic_year_id, start_date, end_date, status, term_number
-                FROM academic_terms
-                WHERE academic_year_id = :year_id
-                AND status IN ('active', 'current')
+        $sql = "SELECT ayt.id, t.name, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status, t.code as term_number
+                FROM academic_year_terms ayt
+                JOIN terms t ON ayt.term_id = t.id
+                WHERE ayt.academic_year_id = :year_id
+                AND ayt.status IN ('current')
                 ORDER BY
-                    CASE WHEN status = 'current' THEN 0 ELSE 1 END,
-                    CASE WHEN CURDATE() BETWEEN start_date AND end_date THEN 0 ELSE 1 END,
-                    term_number ASC
+                    CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END,
+                    CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN 0 ELSE 1 END,
+                    t.code ASC
                 LIMIT 1";
 
         try {
@@ -177,15 +178,16 @@ class AcademicContextService
             $result = $stmt->fetch();
 
             if (!$result && !empty($currentYear['year_code'])) {
-                $fallbackSql = "SELECT id, name, academic_year_id, start_date, end_date, status, term_number
-                        FROM academic_terms
-                        WHERE academic_year_id IS NULL
-                        AND year = :year_code
-                        AND status IN ('active', 'current')
+                $fallbackSql = "SELECT ayt.id, t.name, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status, t.code as term_number
+                        FROM academic_year_terms ayt
+                        JOIN terms t ON ayt.term_id = t.id
+                        JOIN academic_years ay ON ayt.academic_year_id = ay.id
+                        WHERE ay.year_code = :year_code
+                        AND ayt.status IN ('current')
                         ORDER BY
-                            CASE WHEN status = 'current' THEN 0 ELSE 1 END,
-                            CASE WHEN CURDATE() BETWEEN start_date AND end_date THEN 0 ELSE 1 END,
-                            term_number ASC
+                            CASE WHEN ayt.status = 'current' THEN 0 ELSE 1 END,
+                            CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN 0 ELSE 1 END,
+                            t.code ASC
                         LIMIT 1";
                 $fallbackStmt = $this->db->prepare($fallbackSql);
                 $fallbackStmt->execute(['year_code' => $currentYear['year_code']]);
@@ -360,9 +362,11 @@ class AcademicContextService
      */
     public function getTerms($academicYearId)
     {
-        $sql = "SELECT * FROM academic_terms 
-                WHERE academic_year_id = :year_id 
-                ORDER BY term_number ASC";
+        $sql = "SELECT ayt.id, t.name, t.code as term_number, ayt.academic_year_id, ayt.opening_date as start_date, ayt.closing_date as end_date, ayt.status
+                FROM academic_year_terms ayt
+                JOIN terms t ON ayt.term_id = t.id
+                WHERE ayt.academic_year_id = :year_id 
+                ORDER BY t.code ASC";
         
         try {
             $stmt = $this->db->prepare($sql);
@@ -423,14 +427,14 @@ class AcademicContextService
             // Deactivate all terms for the current year
             $currentYear = $this->getCurrentAcademicYear();
             if ($currentYear) {
-                $sql = "UPDATE academic_terms SET status = 'upcoming' 
-                        WHERE academic_year_id = :year_id AND status = 'active'";
+                $sql = "UPDATE academic_year_terms SET status = 'upcoming' 
+                        WHERE academic_year_id = :year_id AND status = 'current'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute(['year_id' => $currentYear['id']]);
             }
 
             // Activate specified term
-            $sql = "UPDATE academic_terms SET status = 'active' 
+            $sql = "UPDATE academic_year_terms SET status = 'current' 
                     WHERE id = :term_id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['term_id' => $termId]);

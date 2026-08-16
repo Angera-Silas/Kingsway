@@ -445,7 +445,7 @@ const StaffController = (() => {
   }
 
   async function removeStaff(id) {
-    if (!confirm("Are you sure you want to delete this staff member?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this staff member?", { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.staff.delete(id);
       notify("Staff deleted successfully", "success");

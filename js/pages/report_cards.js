@@ -300,7 +300,7 @@ const reportCardsCtrl = (() => {
         const termId  = document.getElementById('termFilter')?.value  || state.currentTerm?.id;
         const classId = document.getElementById('classFilter')?.value || '';
         if (!termId) { toast('Select a term first', 'error'); return; }
-        if (!confirm('Generate report cards for all students in the selected filter?')) return;
+        if (!(await window.confirmAction('Confirm', 'Generate report cards for all students in the selected filter?'))) return;
         try {
             await api('academic/reports-generate-student-reports', 'POST', {
                 term_id: termId, class_id: classId || undefined,

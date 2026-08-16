@@ -1505,6 +1505,21 @@ class InventoryController extends BaseController
     private function handleResponse($result)
     {
         if (is_array($result)) {
+            // formatResponse shape: {status, message, type, code, data}
+            if (isset($result['code']) && isset($result['status'])) {
+                $code = (int)$result['code'];
+                $message = $result['message'] ?? 'Operation failed';
+                $data = $result['data'] ?? null;
+                if ($code >= 200 && $code < 300) {
+                    return $this->success($data, $message);
+                }
+                if ($code === 401) return $this->unauthorized($message);
+                if ($code === 403) return $this->forbidden($message);
+                if ($code === 404) return $this->notFound($message);
+                if ($code === 422) return $this->error($message, 422);
+                if ($code >= 500) return $this->serverError($message, $data);
+                return $this->badRequest($message, $data);
+            }
             if (isset($result['success'])) {
                 if ($result['success']) {
                     return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
@@ -1530,54 +1545,10 @@ class InventoryController extends BaseController
     {
         if ($guard = $this->guardInventoryWrite()) return $guard;
 
-
         if (!$id) return $this->badRequest('sale_id required');
-        $amountPaid  = (float)($data['amount_paid']    ?? 0);
-        $method      = $data['payment_method'] ?? 'cash';
-        $referenceNo = $data['reference_no']   ?? null;
-        $notes       = $data['notes']          ?? null;
-        $receivedBy  = $this->user['user_id'] ?? $this->user['id'] ?? null;
-
-        if ($amountPaid <= 0) return $this->badRequest('amount_paid must be positive');
-
-        try {
-            $db   = \App\Database\Database::getInstance();
-            $stmt = $db->prepare("SELECT * FROM uniform_sales WHERE id = :id LIMIT 1");
-            $stmt->execute([':id' => $id]);
-            $sale = $stmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$sale) return $this->notFound('Sale not found');
-
-            $currentPaid = (float)($sale['amount_paid'] ?? 0);
-            $totalAmount = (float)($sale['total_amount'] ?? 0);
-            $newPaid     = $currentPaid + $amountPaid;
-            $newBalance  = $totalAmount - $newPaid;
-            $newStatus   = $newBalance <= 0 ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
-
-            // Record in uniform_sale_payments
-            $db->prepare("
-                INSERT INTO uniform_sale_payments
-                  (sale_id, amount_paid, payment_date, payment_method, reference_no, received_by, notes)
-                VALUES (:sid, :amt, NOW(), :meth, :ref, :by, :notes)
-            ")->execute([
-                ':sid' => $id, ':amt' => $amountPaid, ':meth' => $method,
-                ':ref' => $referenceNo, ':by' => $receivedBy, ':notes' => $notes,
-            ]);
-
-            // Update sale totals
-            $db->prepare(
-                "UPDATE uniform_sales SET amount_paid = :ap, payment_status = :ps, updated_at = NOW() WHERE id = :id"
-            )->execute([':ap' => $newPaid, ':ps' => $newStatus, ':id' => $id]);
-
-            return $this->success([
-                'sale_id'        => (int)$id,
-                'amount_paid'    => $newPaid,
-                'balance'        => max(0.0, $newBalance),
-                'payment_status' => $newStatus,
-            ], 'Payment recorded');
-        } catch (\Exception $e) {
-            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->serverError('An internal error occurred.');
-        }
+        $receivedBy = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->recordUniformSalePayment((int)$id, $data, $receivedBy);
+        return $this->handleResponse($result);
     }
 
     /**
@@ -1587,33 +1558,7 @@ return $this->serverError('An internal error occurred.');
     public function getUniformSalesStudentInvoice($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('student_id required');
-        try {
-            $db   = \App\Database\Database::getInstance();
-            $stmt = $db->prepare("
-                SELECT us.*, ui.name AS item_name, ui.code AS item_code,
-                       COALESCE(us.amount_paid, 0) AS amount_paid,
-                       (us.total_amount - COALESCE(us.amount_paid, 0)) AS outstanding
-                FROM uniform_sales us
-                LEFT JOIN uniform_items ui ON us.item_id = ui.id
-                WHERE us.student_id = :sid
-                ORDER BY us.sale_date DESC
-            ");
-            $stmt->execute([':sid' => $id]);
-            $rows       = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            $totalBilled = array_sum(array_column($rows, 'total_amount'));
-            $totalPaid   = array_sum(array_column($rows, 'amount_paid'));
-            $totalOwed   = array_sum(array_column($rows, 'outstanding'));
-            return $this->success([
-                'student_id'   => (int)$id,
-                'items'        => $rows,
-                'total_billed' => $totalBilled,
-                'total_paid'   => $totalPaid,
-                'total_owed'   => $totalOwed,
-            ]);
-        } catch (\Exception $e) {
-            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->serverError('An internal error occurred.');
-        }
+        return $this->handleResponse($this->api->getUniformSalesStudentInvoice((int)$id));
     }
 
     /**
@@ -1622,51 +1567,12 @@ return $this->serverError('An internal error occurred.');
      */
     public function getUniformSalesSummary($id = null, $data = [], $segments = [])
     {
-        $fromDate = $_GET['from_date']      ?? $data['from_date']      ?? null;
-        $toDate   = $_GET['to_date']        ?? $data['to_date']        ?? null;
-        $status   = $_GET['payment_status'] ?? $data['payment_status'] ?? null;
-
-        try {
-            $db     = \App\Database\Database::getInstance();
-            $where  = ['1=1'];
-            $params = [];
-            if ($fromDate) { $where[] = 'us.sale_date >= :fd'; $params[':fd'] = $fromDate; }
-            if ($toDate)   { $where[] = 'us.sale_date <= :td'; $params[':td'] = $toDate; }
-            if ($status)   { $where[] = 'us.payment_status = :ps'; $params[':ps'] = $status; }
-            $ws = implode(' AND ', $where);
-
-            $stmt = $db->prepare("
-                SELECT COUNT(*) AS total_sales, SUM(us.total_amount) AS total_revenue,
-                       SUM(COALESCE(us.amount_paid,0)) AS total_collected,
-                       SUM(us.total_amount - COALESCE(us.amount_paid,0)) AS total_outstanding
-                FROM uniform_sales us WHERE {$ws}
-            ");
-            foreach ($params as $k => $v) $stmt->bindValue($k, $v);
-            $stmt->execute();
-            $totals = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-            $stmt2 = $db->prepare("
-                SELECT ui.name AS item_name, ui.code AS item_code,
-                       COUNT(*) AS qty_sold, SUM(us.quantity) AS units_sold,
-                       SUM(us.total_amount) AS revenue,
-                       SUM(COALESCE(us.amount_paid,0)) AS collected
-                FROM uniform_sales us
-                LEFT JOIN uniform_items ui ON us.item_id = ui.id
-                WHERE {$ws}
-                GROUP BY us.item_id, ui.name, ui.code ORDER BY revenue DESC
-            ");
-            foreach ($params as $k => $v) $stmt2->bindValue($k, $v);
-            $stmt2->execute();
-
-            return $this->success([
-                'totals'  => $totals,
-                'by_item' => $stmt2->fetchAll(\PDO::FETCH_ASSOC),
-                'filters' => ['from_date' => $fromDate, 'to_date' => $toDate, 'status' => $status],
-            ]);
-        } catch (\Exception $e) {
-            error_log('[InventoryController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->serverError('An internal error occurred.');
-        }
+        $filters = [
+            'from_date' => $_GET['from_date'] ?? $data['from_date'] ?? null,
+            'to_date'   => $_GET['to_date']   ?? $data['to_date']   ?? null,
+            'status'    => $_GET['payment_status'] ?? $data['payment_status'] ?? null,
+        ];
+        return $this->handleResponse($this->api->getUniformSalesSummary($filters));
     }
 
     /**
@@ -1684,42 +1590,7 @@ return $this->serverError('An internal error occurred.');
     /** GET /api/inventory/assets — list fixed assets */
     public function getAssets($id = null, $data = [], $segments = [])
     {
-        if ($id) {
-            $asset = $this->db->query(
-                "SELECT fa.*, ac.name AS category_name, ac.depreciation_method, ac.useful_life_years AS cat_life,
-                        u.full_name AS added_by_name
-                 FROM fixed_assets fa
-                 LEFT JOIN asset_categories ac ON ac.id = fa.category_id
-                 LEFT JOIN users u ON u.id = fa.added_by
-                 WHERE fa.id=? AND fa.deleted_at IS NULL", [$id]
-            )->fetch();
-            return $asset ? $this->success($asset) : $this->notFound('Asset not found');
-        }
-        $where = ['fa.deleted_at IS NULL'];
-        $params = [];
-        if (!empty($data['category_id'])) { $where[] = 'fa.category_id=?'; $params[] = $data['category_id']; }
-        if (!empty($data['status']))      { $where[] = 'fa.status=?';      $params[] = $data['status']; }
-        if (!empty($data['search'])) {
-            $where[] = '(fa.name LIKE ? OR fa.asset_code LIKE ? OR fa.serial_number LIKE ?)';
-            $s = '%'.$data['search'].'%'; $params = array_merge($params, [$s,$s,$s]);
-        }
-        $rows = $this->db->query(
-            "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
-             FROM fixed_assets fa
-             LEFT JOIN asset_categories ac ON ac.id = fa.category_id
-             WHERE ".implode(' AND ',$where)." ORDER BY fa.purchase_date DESC LIMIT 500",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total_assets, COALESCE(SUM(purchase_price),0) AS total_cost,
-                    COALESCE(SUM(current_book_value),0) AS total_book_value,
-                    COALESCE(SUM(accumulated_depr),0) AS total_accumulated_depr,
-                    COUNT(CASE WHEN YEAR(purchase_date)=YEAR(CURDATE()) THEN 1 END) AS acquired_this_year,
-                    COUNT(CASE WHEN status='under_repair' THEN 1 END) AS under_repair
-             FROM fixed_assets WHERE deleted_at IS NULL AND status NOT IN ('disposed','written_off')"
-        )->fetch();
-        return $this->success(['assets' => $rows, 'stats' => $stats]);
+        return $this->handleResponse($this->api->getAssets($id, $data));
     }
 
     /** POST /api/inventory/assets — register a new fixed asset */
@@ -1727,36 +1598,11 @@ return $this->serverError('An internal error occurred.');
     {
         if ($guard = $this->guardInventoryWrite()) return $guard;
 
-
         if (empty($data['name']) || empty($data['category_id']) || empty($data['purchase_date']) || empty($data['purchase_price'])) {
             return $this->badRequest('name, category_id, purchase_date, purchase_price are required');
         }
         $userId = $this->getCurrentUserId();
-        $cat = $this->db->query("SELECT * FROM asset_categories WHERE id=?", [$data['category_id']])->fetch();
-        if (!$cat) return $this->badRequest('Invalid category');
-
-        $assetCode = 'AST-' . strtoupper(substr($cat['code'], 0, 3)) . '-' . date('Y') . '-' . strtoupper(substr(uniqid(), -4));
-        $method    = $data['depreciation_method'] ?? $cat['depreciation_method'];
-        $life      = $data['useful_life_years']   ?? $cat['useful_life_years'];
-        $residual  = $data['residual_value']       ?? (($cat['residual_value_pct'] / 100) * $data['purchase_price']);
-        $bookValue = $data['purchase_price'] - $residual;
-
-        $this->db->query(
-            "INSERT INTO fixed_assets (asset_code, name, category_id, description, serial_number, model, brand,
-              location, purchase_date, purchase_price, supplier_id, invoice_number, warranty_expiry, `condition`,
-              status, acquisition_type, depreciation_method, useful_life_years, residual_value, current_book_value,
-              accumulated_depr, added_by)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)",
-            [
-                $assetCode, $data['name'], $data['category_id'], $data['description'] ?? null,
-                $data['serial_number'] ?? null, $data['model'] ?? null, $data['brand'] ?? null,
-                $data['location'] ?? null, $data['purchase_date'], $data['purchase_price'],
-                $data['supplier_id'] ?? null, $data['invoice_number'] ?? null, $data['warranty_expiry'] ?? null,
-                $data['condition'] ?? 'good', $data['status'] ?? 'active',
-                $data['acquisition_type'] ?? 'purchase', $method, $life, $residual, $bookValue, $userId
-            ]
-        );
-        return $this->success(['id' => $this->db->lastInsertId(), 'asset_code' => $assetCode], 'Asset registered');
+        return $this->handleResponse($this->api->createAsset($data, $userId));
     }
 
     /** PUT /api/inventory/assets/{id} — update asset or record disposal */
@@ -1764,39 +1610,15 @@ return $this->serverError('An internal error occurred.');
     {
         if ($guard = $this->guardInventoryWrite()) return $guard;
 
-
         if (!$id) return $this->badRequest('Asset ID required');
         $userId = $this->getCurrentUserId();
-
-        if (!empty($data['dispose'])) {
-            $asset = $this->db->query("SELECT * FROM fixed_assets WHERE id=?", [$id])->fetch();
-            if (!$asset) return $this->notFound('Asset not found');
-            $this->db->query(
-                "INSERT INTO asset_disposals (asset_id, disposal_date, disposal_type, book_value_at_disposal, proceeds, reason, authorised_by)
-                 VALUES (?,?,?,?,?,?,?)",
-                [$id, $data['disposal_date'] ?? date('Y-m-d'), $data['disposal_type'] ?? 'write_off',
-                 $asset['current_book_value'], $data['proceeds'] ?? 0, $data['reason'] ?? 'Disposed', $userId]
-            );
-            $this->db->query("UPDATE fixed_assets SET status=?, deleted_at=NOW() WHERE id=?", [$data['disposal_type'] ?? 'disposed', $id]);
-            return $this->success(null, 'Asset disposed');
-        }
-
-        $fields = []; $params = [];
-        $allowed = ['name','description','serial_number','model','brand','location','condition','status','warranty_expiry'];
-        foreach ($allowed as $f) {
-            if (array_key_exists($f, $data)) { $fields[] = "$f=?"; $params[] = $data[$f]; }
-        }
-        if (empty($fields)) return $this->badRequest('Nothing to update');
-        $fields[] = 'updated_at=NOW()'; $params[] = $id;
-        $this->db->query("UPDATE fixed_assets SET ".implode(',',$fields)." WHERE id=?", $params);
-        return $this->success(null, 'Asset updated');
+        return $this->handleResponse($this->api->updateAsset((int)$id, $data, $userId));
     }
 
     /** GET /api/inventory/asset-categories — list asset categories */
     public function getAssetCategories($id = null, $data = [], $segments = [])
     {
-        $rows = $this->db->query("SELECT * FROM asset_categories WHERE status='active' ORDER BY name")->fetchAll();
-        return $this->success($rows);
+        return $this->handleResponse($this->api->getAssetCategories());
     }
 
     /** GET /api/inventory/depreciation — depreciation schedule for assets */
@@ -1804,39 +1626,6 @@ return $this->serverError('An internal error occurred.');
     {
         $year = $data['year'] ?? date('Y');
         $catId = $data['category_id'] ?? null;
-        $where = ['fa.deleted_at IS NULL', "fa.status NOT IN ('disposed','written_off')"];
-        $params = [];
-        if ($catId) { $where[] = 'fa.category_id=?'; $params[] = $catId; }
-
-        $assets = $this->db->query(
-            "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
-             FROM fixed_assets fa
-             LEFT JOIN asset_categories ac ON ac.id = fa.category_id
-             WHERE ".implode(' AND ',$where)." ORDER BY ac.name, fa.name",
-            $params
-        )->fetchAll();
-
-        $schedule = [];
-        foreach ($assets as $a) {
-            $cost       = (float)$a['purchase_price'];
-            $residual   = (float)$a['residual_value'];
-            $depreciable= $cost - $residual;
-            $life       = (int)($a['useful_life_years'] ?: $a['cat_life'] ?: 5);
-            $rate       = $life > 0 ? (100 / $life) : 20;
-            $annualDepr = $depreciable / $life;
-            $startYear  = (int)date('Y', strtotime($a['purchase_date']));
-            $yearsUsed  = max(0, (int)$year - $startYear + 1);
-            $accumulated= min($depreciable, $annualDepr * $yearsUsed);
-            $bookValue  = max($residual, $cost - $accumulated);
-            $schedule[] = array_merge($a, [
-                'financial_year'       => $year,
-                'annual_depreciation'  => round($annualDepr, 2),
-                'accumulated_depr'     => round($accumulated, 2),
-                'current_book_value'   => round($bookValue, 2),
-                'depreciation_rate_pct'=> round($rate, 2),
-                'pct_remaining'        => $cost > 0 ? round(($bookValue/$cost)*100, 1) : 0,
-            ]);
-        }
-        return $this->success($schedule);
+        return $this->handleResponse($this->api->getDepreciationSchedule($year, $catId));
     }
 }

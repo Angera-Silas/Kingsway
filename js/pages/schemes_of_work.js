@@ -42,19 +42,19 @@ const SchemesOfWorkController = (() => {
       .replace(/>/g, "&gt;");
   }
 
-  function showSuccess(message) {
+  async function showSuccess(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   }
 
-  function showError(message) {
+  async function showError(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog('Notice', "Error: " + message);
     }
   }
 
@@ -450,7 +450,7 @@ const SchemesOfWorkController = (() => {
 
   async function rejectScheme() {
     if (!state.currentViewId) return;
-    const reason = prompt("Enter reason for rejection:");
+    const reason = await window.promptAction('Input', "Enter reason for rejection:");
     if (reason === null) return;
 
     try {
@@ -470,7 +470,7 @@ const SchemesOfWorkController = (() => {
   }
 
   async function deleteScheme(schemeId) {
-    if (!confirm("Are you sure you want to delete this scheme of work?"))
+    if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this scheme of work?", { confirmText: 'Delete', danger: true })))
       return;
 
     try {

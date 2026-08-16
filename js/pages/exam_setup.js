@@ -81,10 +81,10 @@ const examSetupController = (() => {
   const api = (endpoint, method, body) =>
     window.API.apiCall(endpoint, method, body);
 
-  function toast(message, type = "info") {
+  async function toast(message, type = "info") {
     const el = $("examSetupToast");
     if (!el) {
-      alert(message);
+      await window.infoDialog('Notice', message);
       return;
     }
     const iconEl = $("toastIcon");

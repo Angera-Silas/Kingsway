@@ -52,3 +52,5 @@
     </div>
   </div>
 </div>
+
+<script src="js/pages/manage_library.js"></script>

@@ -125,7 +125,12 @@ return $this->response(['status' => 'error', 'message' => 'An internal error occ
         if (!$student_id) {
             return $this->response(['status' => 'error', 'message' => 'Missing student_id'], 400);
         }
-        $sql = "SELECT * FROM vw_all_school_payments WHERE student_id = ? ORDER BY transaction_date DESC";
+        $sql = "SELECT id, student_id, academic_year, term_id, amount_paid, amount,
+                       payment_date AS transaction_date, payment_method, reference_no,
+                       receipt_no, received_by, status, notes
+                FROM vw_payment_transactions_with_amount
+                WHERE student_id = ?
+                ORDER BY payment_date DESC";
         try {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$student_id]);

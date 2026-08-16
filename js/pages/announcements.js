@@ -152,7 +152,7 @@ const announcementsController = {
   },
 
   deleteAnnouncement: async function(id) {
-    if (!confirm('Delete this announcement?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this announcement?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/communications/announcements/'+id,'DELETE');
       showNotification('Deleted.','success');

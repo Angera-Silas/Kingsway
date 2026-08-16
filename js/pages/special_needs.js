@@ -267,19 +267,19 @@ const SpecialNeedsController = {
 
         return `
           <tr>
-            <td>${i.id || "-"}</td>
-            <td><strong>${this.escape(i.full_name || i.student_name || "-")}</strong></td>
-            <td>${this.escape(i.admission_no || "-")}</td>
-            <td>${this.escape(i.class_name || "-")}</td>
-            <td>${this.escape(i.stream_name || "-")}</td>
-            ${this.state.isBoardingRole ? `<td>${this.escape(i.dormitory_name || "-")}</td>` : ''}
-            <td>${this.escape(i.iep_type || "-")}</td>
-            <td>${this.escape(i.special_needs_category || "-")}</td>
-            <td><span class="badge bg-${statusColors[i.status] || "secondary"}">${this.escape(i.status || "-")}</span></td>
-            <td>${this.escape(i.academic_year || "-")}</td>
-            <td>${this.escape(i.created_at || "-")}</td>
+            <td>${this.escapeHtml(i.id || "-")}</td>
+            <td><strong>${this.escapeHtml(i.full_name || i.student_name || "-")}</strong></td>
+            <td>${this.escapeHtml(i.admission_no || "-")}</td>
+            <td>${this.escapeHtml(i.class_name || "-")}</td>
+            <td>${this.escapeHtml(i.stream_name || "-")}</td>
+            ${this.state.isBoardingRole ? `<td>${this.escapeHtml(i.dormitory_name || "-")}</td>` : ''}
+            <td>${this.escapeHtml(i.iep_type || "-")}</td>
+            <td>${this.escapeHtml(i.special_needs_category || "-")}</td>
+            <td><span class="badge bg-${statusColors[i.status] || "secondary"}">${this.escapeHtml(i.status || "-")}</span></td>
+            <td>${this.escapeHtml(i.academic_year || "-")}</td>
+            <td>${this.escapeHtml(i.created_at || "-")}</td>
             <td>
-              <button class="btn btn-sm btn-outline-info" onclick="SpecialNeedsController.viewIep(${i.id})">
+              <button class="btn btn-sm btn-outline-info" onclick="SpecialNeedsController.viewIep(${this.escapeHtml(i.id)})">
                 <i class="bi bi-eye me-1"></i> View
               </button>
             </td>
@@ -335,7 +335,7 @@ const SpecialNeedsController = {
         // Add dormitory as an additional field
         const dormDiv = document.createElement('div');
         dormDiv.className = 'col-md-4';
-        dormDiv.innerHTML = `<strong>Dormitory:</strong> <span>${this.escape(data.dormitory_name || "-")}</span>`;
+        dormDiv.innerHTML = `<strong>Dormitory:</strong> <span>${this.escapeHtml(data.dormitory_name || "-")}</span>`;
         studentInfoRow.appendChild(dormDiv);
       }
     }
@@ -346,7 +346,7 @@ const SpecialNeedsController = {
     this.ui.academicYear.textContent = iep.academic_year || "-";
 
     const statusColors = { draft: "warning", active: "success", completed: "primary", archived: "secondary" };
-    this.ui.statusBadge.innerHTML = `<span class="badge bg-${statusColors[iep.status] || "secondary"}">${this.escape(iep.status || "-")}</span>`;
+    this.ui.statusBadge.innerHTML = `<span class="badge bg-${statusColors[iep.status] || "secondary"}">${this.escapeHtml(iep.status || "-")}</span>`;
 
     this.ui.createdDate.textContent = iep.created_at || "-";
     this.ui.approvedDate.textContent = iep.approved_date || "-";
@@ -422,7 +422,7 @@ const SpecialNeedsController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.year ?? item.academic_year ?? item.value ?? "";
@@ -585,7 +585,7 @@ const SpecialNeedsController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -607,7 +607,7 @@ const SpecialNeedsController = {
     };
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -618,7 +618,7 @@ const SpecialNeedsController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

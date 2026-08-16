@@ -456,7 +456,7 @@ class WorkflowHandler extends BaseAPI
             'instance_id' => $instance_id,
             'from_stage' => $from_stage,
             'to_stage' => $stage_code,
-            'processed_by' => $this->user_id,
+            'processed_by' => $this->user_id ?? 1,
             'remarks' => $notes
         ]);
     }
@@ -518,9 +518,10 @@ class WorkflowHandler extends BaseAPI
                 $starterId = (int) ($instance['started_by'] ?? 0);
                 if ($starterId > 0) {
                     $stmt = $this->db->prepare(
-                        "SELECT id, username, email
-                         FROM users
-                         WHERE id = :id AND status = 'active'
+                        "SELECT u.id, u.username, p.email
+                         FROM users u
+                         LEFT JOIN persons p ON p.id = u.person_id
+                         WHERE u.id = :id AND u.status = 'active'
                          LIMIT 1"
                     );
                     $stmt->execute(['id' => $starterId]);
@@ -561,10 +562,11 @@ class WorkflowHandler extends BaseAPI
             return [];
         }
 
-        $sql = "SELECT DISTINCT u.id, u.username, u.email, r.name as role_name
+        $sql = "SELECT DISTINCT u.id, u.username, p.email, r.name as role_name
                 FROM users u
+                LEFT JOIN persons p ON p.id = u.person_id
                 LEFT JOIN user_roles ur ON ur.user_id = u.id
-                LEFT JOIN roles r ON r.id = COALESCE(ur.role_id, u.role_id)
+                LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE u.status = 'active'";
 
         $stmt = $this->db->prepare($sql);

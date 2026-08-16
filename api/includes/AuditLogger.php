@@ -6,7 +6,8 @@ use PDO;
 /**
  * AuditLogger - Comprehensive audit logging system
  * 
- * Tracks all user management actions for security and compliance
+ * Tracks all user management actions for security and compliance.
+ * All entries are written to log files (never the database).
  * Logs: who, what, when, where (IP), and changes made
  */
 class AuditLogger
@@ -37,22 +38,18 @@ class AuditLogger
         string $status = 'success'
     ): bool {
         try {
-            $sql = "INSERT INTO audit_logs 
-                    (action, entity, entity_id, user_id, ip_address, user_agent, details, status, created_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())";
-            
-            $stmt = $this->db->prepare($sql);
-            
-            return $stmt->execute([
-                $action,
-                $entity,
-                $entityId,
-                $userId,
-                $this->getClientIP(),
-                $this->getUserAgent(),
-                json_encode($details),
-                $status
+            FileLogger::write('audit', [
+                'type' => 'audit',
+                'action' => $action,
+                'entity' => $entity,
+                'entity_id' => $entityId,
+                'user_id' => $userId,
+                'ip' => $this->getClientIP(),
+                'user_agent' => $this->getUserAgent(),
+                'details' => $details,
+                'status' => $status,
             ]);
+            return true;
         } catch (\Exception $e) {
             error_log("Audit log failed: " . $e->getMessage());
             return false;

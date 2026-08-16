@@ -6,6 +6,7 @@
 const CurriculumCBCController = (() => {
     let curriculumData = [];
     let pagination = { page: 1, limit: 15, total: 0 };
+    let refs = { learningAreas: [], strands: [] };
 
     async function init() {
         // Initialize Academic Context if available
@@ -16,15 +17,64 @@ const CurriculumCBCController = (() => {
                     loadData(1);
                 }
             });
-            
+
             // Ensure context is loaded
             if (!window.AcademicContext.isLoaded()) {
                 await window.AcademicContext.init();
             }
         }
-        
+
         attachListeners();
+        await loadReferences();
         await loadData();
+    }
+
+    async function loadReferences() {
+        try {
+            const [las, strands] = await Promise.all([
+                window.API.apiCall('/academic/learning-areas', 'GET').catch(() => []),
+                window.API.apiCall('/academic/strands', 'GET').catch(() => []),
+            ]);
+            refs.learningAreas = Array.isArray(las?.data || las) ? (las?.data || las) : [];
+            refs.strands = Array.isArray(strands?.data || strands) ? (strands?.data || strands) : [];
+            populateFilters();
+        } catch (e) { console.error('Load curriculum references failed:', e); }
+    }
+
+    function learningAreaLabel(la) {
+        const levels = la && la.levels && la.levels !== 'NONE' ? ` (${la.levels})` : '';
+        return `${la.name || ''}${levels}`;
+    }
+
+    function populateFilters() {
+        const laSel = document.getElementById('learningAreaFilter');
+        if (laSel && refs.learningAreas.length) {
+            const current = laSel.value;
+            laSel.innerHTML = '<option value="">All Learning Areas</option>' +
+                refs.learningAreas.map(la => `<option value="${la.id}">${escapeHtml(learningAreaLabel(la))}</option>`).join('');
+            laSel.value = current;
+        }
+        const strandSel = document.getElementById('strandFilter');
+        if (strandSel && refs.strands.length) {
+            const current = strandSel.value;
+            strandSel.innerHTML = '<option value="">All Strands</option>' +
+                refs.strands.map(s => `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${escapeHtml(s.grade_level || '')}">${escapeHtml((s.code || '') + ' - ' + s.name + (s.grade_level ? ' (' + escapeHtml(s.grade_level) + ')' : ''))}</option>`).join('');
+            strandSel.value = current;
+        }
+    }
+
+    function refreshStrandFilter() {
+        const strandSel = document.getElementById('strandFilter');
+        if (!strandSel || !refs.strands.length) return;
+        const grade = document.getElementById('gradeLevelFilter')?.value || '';
+        const laId = document.getElementById('learningAreaFilter')?.value || '';
+        const selected = strandSel.value;
+        strandSel.innerHTML = '<option value="">All Strands</option>' +
+            refs.strands
+                .filter(s => (!laId || String(s.learning_area_id) === laId) && (!grade || String(s.grade_level) === grade))
+                .map(s => `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${escapeHtml(s.grade_level || '')}">${escapeHtml((s.code || '') + ' - ' + s.name + (s.grade_level ? ' (' + escapeHtml(s.grade_level) + ')' : ''))}</option>`)
+                .join('');
+        strandSel.value = refs.strands.some(s => String(s.id) === selected) ? selected : '';
     }
 
     async function loadData(page = 1) {
@@ -35,9 +85,9 @@ const CurriculumCBCController = (() => {
             const grade = document.getElementById('gradeLevelFilter')?.value;
             if (grade) params.append('grade_level', grade);
             const area = document.getElementById('learningAreaFilter')?.value;
-            if (area) params.append('learning_area', area);
+            if (area) params.append('learning_area_id', area);
             const strand = document.getElementById('strandFilter')?.value;
-            if (strand) params.append('strand', strand);
+            if (strand) params.append('strand_id', strand);
             const search = document.getElementById('searchCurriculum')?.value;
             if (search) params.append('search', search);
 
@@ -58,9 +108,9 @@ const CurriculumCBCController = (() => {
 
     function renderStats(data) {
         const learningAreas = new Set(data.map(d => d.learning_area)).size;
-        const strands = new Set(data.map(d => d.strand)).size;
-        const subStrands = new Set(data.filter(d => d.sub_strand).map(d => d.sub_strand)).size;
-        const competencies = data.filter(d => d.indicators || d.competency_indicators).length;
+        const strands = data.filter(d => d.strand).length;
+        const subStrands = data.reduce((sum, d) => sum + (Number(d.sub_strand_count) || 0), 0);
+        const competencies = data.reduce((sum, d) => sum + (Number(d.outcome_count) || 0), 0);
 
         document.getElementById('totalLearningAreas').textContent = learningAreas;
         document.getElementById('totalStrands').textContent = strands;
@@ -73,19 +123,24 @@ const CurriculumCBCController = (() => {
         if (!tbody) return;
 
         if (!items.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No curriculum entries found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No curriculum entries found</td></tr>';
             return;
         }
 
-        tbody.innerHTML = items.map((c, i) => `
-            <tr>
+        tbody.innerHTML = items.map((c, i) => {
+            const subStrands = (c.sub_strands || '').split('; ').filter(Boolean);
+            const shown = subStrands.slice(0, 4);
+            const chips = shown.map(s => `<span class="badge bg-info-subtle text-info border border-info me-1">${escapeHtml(s)}</span>`).join('');
+            const more = subStrands.length > shown.length
+                ? `<span class="badge bg-secondary" title="${escapeHtml(subStrands.slice(4).join('; '))}">+${subStrands.length - shown.length} more</span>`
+                : '';
+            return `<tr>
                 <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                <td><span class="badge bg-primary">${c.grade_level || '-'}</span></td>
-                <td><strong>${c.learning_area || '-'}</strong></td>
-                <td>${c.strand || '-'}</td>
-                <td>${c.sub_strand || '-'}</td>
-                <td><small>${(c.indicators || c.competency_indicators || '-').substring(0, 80)}${(c.indicators || '').length > 80 ? '...' : ''}</small></td>
-                <td><small>${(c.assessment_criteria || '-').substring(0, 80)}${(c.assessment_criteria || '').length > 80 ? '...' : ''}</small></td>
+                <td><span class="badge bg-primary">${escapeHtml(c.grade_level || '-')}</span></td>
+                <td><strong>${escapeHtml(c.learning_area || '-')}</strong></td>
+                <td>${escapeHtml((c.strand_code ? c.strand_code + ' - ' : '') + (c.strand || '-'))}</td>
+                <td>${subStrands.length ? chips + more : '<span class="text-muted">--</span>'}</td>
+                <td><span class="badge bg-warning-subtle text-warning">${Number(c.outcome_count) || 0} outcomes</span></td>
                 <td>
                     <div class="btn-group btn-group-sm">
                         <button class="btn btn-info btn-sm" onclick="CurriculumCBCController.view(${c.id})" title="View"><i class="bi bi-eye"></i></button>
@@ -93,8 +148,8 @@ const CurriculumCBCController = (() => {
                         <button class="btn btn-danger btn-sm" onclick="CurriculumCBCController.remove(${c.id})" title="Delete"><i class="bi bi-trash"></i></button>
                     </div>
                 </td>
-            </tr>
-        `).join('');
+            </tr>`;
+        }).join('');
     }
 
     function renderPagination() {
@@ -119,11 +174,12 @@ const CurriculumCBCController = (() => {
     }
 
     function openModal(entry = null) {
+        const firstSubStrand = (entry?.sub_strands || '').split('; ').filter(Boolean)[0] || '';
         document.getElementById('curriculumId').value = entry?.id || '';
         document.getElementById('currGradeLevel').value = entry?.grade_level || '';
         document.getElementById('currLearningArea').value = entry?.learning_area || '';
         document.getElementById('currStrand').value = entry?.strand || '';
-        document.getElementById('currSubStrand').value = entry?.sub_strand || '';
+        document.getElementById('currSubStrand').value = firstSubStrand;
         document.getElementById('currIndicators').value = entry?.indicators || entry?.competency_indicators || '';
         document.getElementById('currAssessment').value = entry?.assessment_criteria || '';
         document.getElementById('curriculumModalLabel').textContent = entry ? 'Edit Curriculum Entry' : 'Add Curriculum Entry';
@@ -169,12 +225,32 @@ const CurriculumCBCController = (() => {
         try {
             const resp = await window.API.apiCall(`/academic/curriculum/${id}`, 'GET');
             const c = resp?.data || resp;
-            alert(`Grade: ${c.grade_level}\nLearning Area: ${c.learning_area}\nStrand: ${c.strand}\nSub-Strand: ${c.sub_strand || '-'}\nIndicators: ${c.indicators || '-'}\nAssessment: ${c.assessment_criteria || '-'}`);
+            const subStrands = (c.sub_strands || '').split('; ').filter(Boolean);
+            const indicators = c.indicators || '';
+            const body = document.getElementById('viewCurriculumBody');
+            if (!body) { showNotification('Detail view unavailable', 'error'); return; }
+            body.innerHTML = `
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Grade</dt>
+                    <dd class="col-sm-9">${escapeHtml(c.grade_level || '-')}</dd>
+                    <dt class="col-sm-3">Learning Area</dt>
+                    <dd class="col-sm-9">${escapeHtml(c.learning_area || '-')}</dd>
+                    <dt class="col-sm-3">Strand</dt>
+                    <dd class="col-sm-9">${escapeHtml((c.strand_code ? c.strand_code + ' - ' : '') + (c.strand || '-'))}</dd>
+                    <dt class="col-sm-3">Sub-Strands</dt>
+                    <dd class="col-sm-9">${subStrands.length ? subStrands.map(escapeHtml).join('<br>') : '-'}</dd>
+                    <dt class="col-sm-3">Learning Outcomes</dt>
+                    <dd class="col-sm-9">${Number(c.outcome_count) || 0} outcome(s)</dd>
+                    <dt class="col-sm-3">Indicators</dt>
+                    <dd class="col-sm-9">${escapeHtml(indicators.substring(0, 300))}${indicators.length > 300 ? '...' : ''}</dd>
+                </dl>`;
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('viewCurriculumModal')).show();
         } catch (e) { showNotification('Failed to load entry', 'error'); }
     }
 
     async function remove(id) {
-        if (!confirm('Delete this curriculum entry?')) return;
+        const confirmed = await window.API.confirmAction('Delete Curriculum Entry', 'Delete this curriculum entry? This cannot be undone.');
+        if (!confirmed) return;
         try {
             await window.API.apiCall(`/academic/curriculum/${id}`, 'DELETE');
             showNotification('Entry deleted', 'success');
@@ -183,12 +259,19 @@ const CurriculumCBCController = (() => {
     }
 
     function showNotification(message, type) { window.showNotification(message, type); }
+    function escapeHtml(s) {
+        return String(s ?? '')
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
 
     function attachListeners() {
         document.getElementById('addCurriculumBtn')?.addEventListener('click', () => openModal());
         document.getElementById('saveCurriculumBtn')?.addEventListener('click', () => save());
-        document.getElementById('gradeLevelFilter')?.addEventListener('change', () => loadData(1));
-        document.getElementById('learningAreaFilter')?.addEventListener('change', () => loadData(1));
+        document.getElementById('gradeLevelFilter')?.addEventListener('change', () => { refreshStrandFilter(); loadData(1); });
+        document.getElementById('learningAreaFilter')?.addEventListener('change', () => { refreshStrandFilter(); loadData(1); });
         document.getElementById('strandFilter')?.addEventListener('change', () => loadData(1));
         document.getElementById('searchCurriculum')?.addEventListener('keyup', () => {
             clearTimeout(window._currSearchTimeout);

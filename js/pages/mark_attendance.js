@@ -213,17 +213,17 @@ const MarkAttendanceController = {
       .map((p) => {
         const att = this.state.attendance[p.student_id] || {};
         return `
-          <tr data-student-id="${p.student_id}">
-            <td><input type="checkbox" class="passenger-checkbox" data-student-id="${p.student_id}"></td>
-            <td>${this.escape(p.admission_no || "-")}</td>
-            <td><strong>${this.escape(p.full_name || "-")}</strong></td>
-            <td>${this.escape(p.class_name || "-")}</td>
-            <td>${this.escape(p.stream_name || "-")}</td>
-            <td>${this.escape(p.pickup_point || "-")}</td>
-            <td>${this.escape(p.dropoff_point || "-")}</td>
+          <tr data-student-id="${this.escapeHtml(p.student_id)}">
+            <td><input type="checkbox" class="passenger-checkbox" data-student-id="${this.escapeHtml(p.student_id)}"></td>
+            <td>${this.escapeHtml(p.admission_no || "-")}</td>
+            <td><strong>${this.escapeHtml(p.full_name || "-")}</strong></td>
+            <td>${this.escapeHtml(p.class_name || "-")}</td>
+            <td>${this.escapeHtml(p.stream_name || "-")}</td>
+            <td>${this.escapeHtml(p.pickup_point || "-")}</td>
+            <td>${this.escapeHtml(p.dropoff_point || "-")}</td>
             <td><i class="bi bi-check-circle text-success"></i></td>
             <td>
-              <select class="form-select form-select-sm status-select" data-student-id="${p.student_id}">
+              <select class="form-select form-select-sm status-select" data-student-id="${this.escapeHtml(p.student_id)}">
                 <option value="pending" ${att.status === "pending" ? "selected" : ""}>Pending</option>
                 <option value="picked_up" ${att.status === "picked_up" ? "selected" : ""}>Picked Up</option>
                 <option value="dropped_off" ${att.status === "dropped_off" ? "selected" : ""}>Dropped Off</option>
@@ -233,13 +233,13 @@ const MarkAttendanceController = {
               </select>
             </td>
             <td>
-              <input type="time" class="form-control form-control-sm time-input" data-student-id="${p.student_id}" value="${att.time || ""}">
+              <input type="time" class="form-control form-control-sm time-input" data-student-id="${this.escapeHtml(p.student_id)}" value="${this.escapeHtml(att.time || "")}">
             </td>
             <td>
-              <input type="text" class="form-control form-control-sm notes-input" data-student-id="${p.student_id}" value="${this.escape(att.notes || "")}" placeholder="Notes">
+              <input type="text" class="form-control form-control-sm notes-input" data-student-id="${this.escapeHtml(p.student_id)}" value="${this.escapeHtml(att.notes || "")}" placeholder="Notes">
             </td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="MarkAttendanceController.markOne(${p.student_id}, 'picked_up')">
+              <button class="btn btn-sm btn-outline-primary" onclick="MarkAttendanceController.markOne(${this.escapeHtml(p.student_id)}, 'picked_up')">
                 <i class="bi bi-arrow-up"></i>
               </button>
             </td>
@@ -444,7 +444,7 @@ const MarkAttendanceController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -465,7 +465,7 @@ const MarkAttendanceController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -563,7 +563,7 @@ const MarkAttendanceController = {
     return counts;
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -574,7 +574,7 @@ const MarkAttendanceController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

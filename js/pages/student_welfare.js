@@ -290,17 +290,17 @@ const StudentWelfareController = {
         return `
           <tr>
             <td>${c.case_code || "-"}</td>
-            <td><strong>${this.escape(c.full_name || "-")}</strong></td>
-            <td>${this.escape(c.admission_no || "-")}</td>
-            <td>${this.escape(c.class_name || "-")}</td>
-            <td>${this.escape(c.stream_name || "-")}</td>
-            <td>${this.escape(c.welfare_category || "-")}</td>
-            <td>${this.escape(c.referral_source || "-")}</td>
-            <td><span class="badge bg-${priorityColors[c.priority] || "secondary"}">${this.escape(c.priority || "-")}</span></td>
-            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escape(c.status || "-")}</span></td>
-            <td>${this.escape(c.assigned_to_name || "-")}</td>
-            <td>${this.escape(c.last_interaction || "-")}</td>
-            <td>${this.escape(c.next_follow_up_at || "-")}</td>
+            <td><strong>${this.escapeHtml(c.full_name || "-")}</strong></td>
+            <td>${this.escapeHtml(c.admission_no || "-")}</td>
+            <td>${this.escapeHtml(c.class_name || "-")}</td>
+            <td>${this.escapeHtml(c.stream_name || "-")}</td>
+            <td>${this.escapeHtml(c.welfare_category || "-")}</td>
+            <td>${this.escapeHtml(c.referral_source || "-")}</td>
+            <td><span class="badge bg-${priorityColors[c.priority] || "secondary"}">${this.escapeHtml(c.priority || "-")}</span></td>
+            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escapeHtml(c.status || "-")}</span></td>
+            <td>${this.escapeHtml(c.assigned_to_name || "-")}</td>
+            <td>${this.escapeHtml(c.last_interaction || "-")}</td>
+            <td>${this.escapeHtml(c.next_follow_up_at || "-")}</td>
             <td>
               <button class="btn btn-sm btn-outline-warning" onclick="StudentWelfareController.viewCase(${c.id})">
                 <i class="bi bi-eye"></i> View
@@ -370,25 +370,25 @@ const StudentWelfareController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Student Profile</h5>
-          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
-          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
-          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
-          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escapeHtml(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escapeHtml(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escapeHtml(data.stream_name || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Case Details</h5>
-          <p><strong>Title:</strong> ${this.escape(caseData.title || "-")}</p>
-          <p><strong>Category:</strong> ${this.escape(caseData.welfare_category || "-")}</p>
-          <p><strong>Referral Source:</strong> ${this.escape(caseData.referral_source || "-")}</p>
-          <p><strong>Priority:</strong> ${this.escape(caseData.priority || "-")}</p>
-          <p><strong>Status:</strong> ${this.escape(caseData.status || "-")}</p>
-          <p><strong>Assigned To:</strong> ${this.escape(data.assigned_to_name || "-")}</p>
-          <p><strong>Opened At:</strong> ${this.escape(caseData.opened_at || "-")}</p>
-          <p><strong>Next Follow-up:</strong> ${this.escape(caseData.next_follow_up_at || "-")}</p>
+          <p><strong>Title:</strong> ${this.escapeHtml(caseData.title || "-")}</p>
+          <p><strong>Category:</strong> ${this.escapeHtml(caseData.welfare_category || "-")}</p>
+          <p><strong>Referral Source:</strong> ${this.escapeHtml(caseData.referral_source || "-")}</p>
+          <p><strong>Priority:</strong> ${this.escapeHtml(caseData.priority || "-")}</p>
+          <p><strong>Status:</strong> ${this.escapeHtml(caseData.status || "-")}</p>
+          <p><strong>Assigned To:</strong> ${this.escapeHtml(data.assigned_to_name || "-")}</p>
+          <p><strong>Opened At:</strong> ${this.escapeHtml(caseData.opened_at || "-")}</p>
+          <p><strong>Next Follow-up:</strong> ${this.escapeHtml(caseData.next_follow_up_at || "-")}</p>
           <p><strong>Description:</strong></p>
-          <p>${this.escape(caseData.description || "-")}</p>
+          <p>${this.escapeHtml(caseData.description || "-")}</p>
         </div>
       </div>
       <div class="card">
@@ -406,9 +406,9 @@ const StudentWelfareController = {
             <tbody>
               ${notes.slice(0, 5).map(n => `
                 <tr>
-                  <td>${this.escape(n.note_type || "-")}</td>
-                  <td>${this.escape(n.note || "-")}</td>
-                  <td>${this.escape(n.created_at || "-")}</td>
+                  <td>${this.escapeHtml(n.note_type || "-")}</td>
+                  <td>${this.escapeHtml(n.note || "-")}</td>
+                  <td>${this.escapeHtml(n.created_at || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -596,7 +596,7 @@ const StudentWelfareController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -625,7 +625,7 @@ const StudentWelfareController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -647,7 +647,7 @@ const StudentWelfareController = {
     };
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -658,7 +658,7 @@ const StudentWelfareController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

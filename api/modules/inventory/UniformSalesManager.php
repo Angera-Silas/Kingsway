@@ -19,6 +19,13 @@ class UniformSalesManager extends BaseAPI
         parent::__construct('inventory');
     }
 
+    private function nextId(string $table, string $column = 'id'): int
+    {
+        return (int)$this->dbQuery(
+            "SELECT COALESCE(MAX($column), 0) + 1 FROM $table"
+        )->fetchColumn();
+    }
+
     /**
      * Get all uniform items with size availability
      * @param array $params Filter parameters
@@ -186,7 +193,7 @@ return $this->formatError('An internal error occurred.', 500);
                     us.size,
                     us.quantity,
                     us.unit_price,
-                    us.total_amount,
+                    (us.quantity * us.unit_price) as total_amount,
                     us.payment_status,
                     us.sale_date,
                     us.received_date,
@@ -267,12 +274,12 @@ return $this->formatError('An internal error occurred.', 500);
             $monthlySql = "
                 SELECT 
                     COUNT(*) as total_sales,
-                    SUM(total_amount) as total_revenue,
-                    SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as paid_amount,
-                    SUM(CASE WHEN payment_status IN ('pending', 'partial') THEN total_amount ELSE 0 END) as pending_amount
-                FROM uniform_sales
-                WHERE MONTH(sale_date) = MONTH(CURDATE()) 
-                AND YEAR(sale_date) = YEAR(CURDATE())
+                    SUM(us.quantity * us.unit_price) as total_revenue,
+                    SUM(CASE WHEN us.payment_status = 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as paid_amount,
+                    SUM(CASE WHEN us.payment_status IN ('pending', 'partial') THEN us.quantity * us.unit_price ELSE 0 END) as pending_amount
+                FROM uniform_sales us
+                WHERE MONTH(us.sale_date) = MONTH(CURDATE()) 
+                AND YEAR(us.sale_date) = YEAR(CURDATE())
             ";
 
             $monthlyStmt = $this->dbQuery($monthlySql, []);
@@ -285,7 +292,7 @@ return $this->formatError('An internal error occurred.', 500);
                     ii.name,
                     COUNT(us.id) as sales_count,
                     SUM(us.quantity) as total_quantity,
-                    SUM(us.total_amount) as total_amount
+                    SUM(us.quantity * us.unit_price) as total_amount
                 FROM uniform_sales us
                 JOIN inventory_items ii ON us.item_id = ii.id
                 WHERE MONTH(us.sale_date) = MONTH(CURDATE())
@@ -334,7 +341,7 @@ return $this->formatError('An internal error occurred.', 500);
                 SELECT 
                     payment_status,
                     COUNT(*) as total_sales,
-                    SUM(total_amount) as total_amount,
+                    SUM(quantity * unit_price) as total_amount,
                     COUNT(DISTINCT student_id) as unique_students
                 FROM uniform_sales
                 GROUP BY payment_status
@@ -469,24 +476,26 @@ return $this->formatError('An internal error occurred.', 500);
                 SELECT 
                     us.id,
                     us.student_id,
-                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
-                    s.admission_number,
+                    CONCAT(p.first_name, ' ', p.last_name) as student_name,
+                    s.admission_no as admission_number,
                     us.item_id,
                     ii.name as item_name,
                     ii.code as item_code,
                     us.size,
                     us.quantity,
                     us.unit_price,
-                    us.total_amount,
+                    (us.quantity * us.unit_price) as total_amount,
                     us.payment_status,
                     us.sale_date,
                     us.received_date,
                     us.notes,
-                    CONCAT(st.first_name, ' ', st.last_name) as sold_by_name
+                    CONCAT(sp.first_name, ' ', sp.last_name) as sold_by_name
                 FROM uniform_sales us
                 JOIN students s ON us.student_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 JOIN inventory_items ii ON us.item_id = ii.id
                 LEFT JOIN staff st ON us.sold_by = st.id
+                LEFT JOIN persons sp ON sp.id = st.person_id
                 WHERE {$whereClause}
                 ORDER BY us.sale_date DESC, us.id DESC
                 LIMIT {$limit} OFFSET {$offset}
@@ -563,11 +572,10 @@ return $this->formatError('An internal error occurred.', 500);
                 $transactionSql = "
                     INSERT INTO inventory_transactions 
                         (item_id, transaction_type, quantity, transaction_date, created_at, 
-                         reference_type, notes, unit_cost, total_cost)
-                    VALUES (?, 'in', ?, CURDATE(), NOW(), 'restock', ?, ?, ?)
+                         reference_type, notes, unit_cost)
+                    VALUES (?, 'in', ?, CURDATE(), NOW(), 'purchase', ?, ?)
                 ";
-                $totalCost = $quantity * ($unit_price ?? 0);
-                $this->dbQuery($transactionSql, [$item_id, $quantity, $notes, $unit_price ?? 0, $totalCost]);
+                $this->dbQuery($transactionSql, [$item_id, $quantity, $notes, $unit_price ?? 0]);
 
                 $this->db->commit();
 
@@ -661,9 +669,9 @@ return $this->formatError('An internal error occurred.', 500);
                     ii.name as item_name,
                     ii.code as item_code,
                     SUM(us.quantity) as total_quantity,
-                    SUM(us.total_amount) as total_amount,
-                    SUM(CASE WHEN us.payment_status = 'paid' THEN us.total_amount ELSE 0 END) as paid_amount,
-                    SUM(CASE WHEN us.payment_status != 'paid' THEN us.total_amount ELSE 0 END) as pending_amount,
+                    SUM(us.quantity * us.unit_price) as total_amount,
+                    SUM(CASE WHEN us.payment_status = 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as paid_amount,
+                    SUM(CASE WHEN us.payment_status != 'paid' THEN us.quantity * us.unit_price ELSE 0 END) as pending_amount,
                     COUNT(*) as sale_count
                 FROM uniform_sales us
                 JOIN inventory_items ii ON us.item_id = ii.id
@@ -681,7 +689,7 @@ return $this->formatError('An internal error occurred.', 500);
                     us.sale_date,
                     COUNT(*) as sale_count,
                     SUM(us.quantity) as total_quantity,
-                    SUM(us.total_amount) as total_amount
+                    SUM(us.quantity * us.unit_price) as total_amount
                 FROM uniform_sales us
                 WHERE us.sale_date BETWEEN ? AND ?
                 GROUP BY us.sale_date
@@ -697,7 +705,7 @@ return $this->formatError('An internal error occurred.', 500);
                     us.size,
                     COUNT(*) as sale_count,
                     SUM(us.quantity) as total_quantity,
-                    SUM(us.total_amount) as total_amount
+                    SUM(us.quantity * us.unit_price) as total_amount
                 FROM uniform_sales us
                 WHERE us.sale_date BETWEEN ? AND ?
                 GROUP BY us.size
@@ -712,10 +720,10 @@ return $this->formatError('An internal error occurred.', 500);
                 SELECT 
                     COUNT(*) as total_sales,
                     SUM(quantity) as total_items,
-                    SUM(total_amount) as total_revenue,
-                    SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_paid,
-                    SUM(CASE WHEN payment_status = 'pending' THEN total_amount ELSE 0 END) as total_pending,
-                    SUM(CASE WHEN payment_status = 'partial' THEN total_amount ELSE 0 END) as total_partial,
+                    SUM(quantity * unit_price) as total_revenue,
+                    SUM(CASE WHEN payment_status = 'paid' THEN quantity * unit_price ELSE 0 END) as total_paid,
+                    SUM(CASE WHEN payment_status = 'pending' THEN quantity * unit_price ELSE 0 END) as total_pending,
+                    SUM(CASE WHEN payment_status = 'partial' THEN quantity * unit_price ELSE 0 END) as total_partial,
                     COUNT(DISTINCT student_id) as unique_students
                 FROM uniform_sales
                 WHERE sale_date BETWEEN ? AND ?
@@ -829,16 +837,29 @@ return $this->formatError('An internal error occurred.', 500);
 
             $this->db->beginTransaction();
             try {
-                // Create purchase header
+                $reqId = $this->nextId('requisitions');
+                $reqNumber = 'PUR-' . $reqId;
+
+                $noteMeta = array_filter([
+                    'uniform_purchase' => true,
+                    'supplier_id'   => $supplierId ? (int)$supplierId : null,
+                    'supplier_name' => $supplierName ?: null,
+                    'invoice_number'=> $invoiceNo ?: null,
+                    'delivery_note' => $deliveryNote ?: null,
+                    'purchase_note' => $notes ?: null,
+                ], fn($v) => $v !== null);
+
+                // Create purchase header as a fulfilled requisition
                 $this->dbQuery(
-                    "INSERT INTO uniform_purchases
-                       (purchase_date, supplier_id, supplier_name, invoice_number, delivery_note,
-                        total_cost, received_by, notes, status, created_by, created_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, NOW())",
-                    [$purchaseDate, $supplierId, $supplierName, $invoiceNo, $deliveryNote,
-                     $totalCost, $userId, $notes, $userId]
+                    "INSERT INTO requisitions
+                       (id, requisition_number, requisition_date, required_date,
+                        priority, status, requested_by, approved_by, approved_at,
+                        fulfilled_at, notes, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, 'medium', 'fulfilled', ?, ?, NOW(), NOW(), ?, NOW(), NOW())",
+                    [$reqId, $reqNumber, $purchaseDate, $purchaseDate,
+                     $userId ?: null, $userId ?: null, json_encode($noteMeta)]
                 );
-                $purchaseId = $this->db->lastInsertId();
+                $purchaseId = $reqId;
 
                 foreach ($items as $line) {
                     $itemId   = (int)($line['item_id'] ?? 0);
@@ -850,9 +871,11 @@ return $this->formatError('An internal error occurred.', 500);
 
                     // Purchase line
                     $this->dbQuery(
-                        "INSERT INTO uniform_purchase_items
-                           (purchase_id, item_id, size, quantity, unit_cost) VALUES (?, ?, ?, ?, ?)",
-                        [$purchaseId, $itemId, $size, $qty, $unitCost]
+                        "INSERT INTO requisition_items
+                           (requisition_id, item_id, requested_quantity, approved_quantity,
+                            fulfilled_quantity, unit, unit_cost, notes)
+                         VALUES (?, ?, ?, ?, ?, 'pcs', ?, ?)",
+                        [$purchaseId, $itemId, $qty, $qty, $qty, $unitCost, 'size: ' . $size]
                     );
 
                     // Upsert uniform_sizes row
@@ -876,10 +899,10 @@ return $this->formatError('An internal error occurred.', 500);
                     // Inventory transaction log
                     $this->dbQuery(
                         "INSERT INTO inventory_transactions
-                           (item_id, transaction_type, quantity, unit_cost, total_cost,
-                            transaction_date, reference_type, notes, created_at)
-                         VALUES (?, 'in', ?, ?, ?, ?, 'purchase', ?, NOW())",
-                        [$itemId, $qty, $unitCost, $qty * $unitCost, $purchaseDate,
+                           (item_id, transaction_type, quantity, unit_cost,
+                            transaction_date, reference_type, reference_id, notes, created_at)
+                         VALUES (?, 'in', ?, ?, ?, 'purchase', ?, ?, NOW())",
+                        [$itemId, $qty, $unitCost, $purchaseDate, $purchaseId,
                          'Invoice ' . ($invoiceNo ?: $purchaseId)]
                     );
                 }
@@ -910,18 +933,26 @@ return $this->formatError('An internal error occurred.', 500);
             $offset = ($page - 1) * $limit;
 
             $rows = $this->dbQuery(
-                "SELECT up.id, up.purchase_date, up.supplier_name, up.invoice_number,
-                        up.delivery_note, up.total_cost, up.payment_status, up.amount_paid,
-                        up.status, up.notes,
-                        CONCAT(s.first_name,' ',s.last_name) AS received_by_name,
-                        (SELECT COUNT(*) FROM uniform_purchase_items WHERE purchase_id = up.id) AS line_count
-                 FROM uniform_purchases up
-                 LEFT JOIN staff s ON s.id = up.received_by
-                 ORDER BY up.purchase_date DESC, up.id DESC
+                "SELECT r.id AS purchase_id, r.requisition_date AS purchase_date,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.supplier_name')) AS supplier_name,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.invoice_number')) AS invoice_number,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.delivery_note')) AS delivery_note,
+                        r.status, r.notes,
+                        CONCAT(p.first_name,' ',p.last_name) AS received_by_name,
+                        (SELECT COUNT(*) FROM requisition_items ri WHERE ri.requisition_id = r.id) AS line_count,
+                        (SELECT COALESCE(SUM(ri.fulfilled_quantity * ri.unit_cost),0)
+                           FROM requisition_items ri WHERE ri.requisition_id = r.id) AS total_cost
+                 FROM requisitions r
+                 LEFT JOIN staff s ON s.id = r.approved_by
+                 LEFT JOIN persons p ON p.id = s.person_id
+                 WHERE r.requisition_number LIKE 'PUR-%'
+                 ORDER BY r.requisition_date DESC, r.id DESC
                  LIMIT $limit OFFSET $offset"
             )->fetchAll(\PDO::FETCH_ASSOC);
 
-            $total = (int)$this->dbQuery("SELECT COUNT(*) FROM uniform_purchases")->fetchColumn();
+            $total = (int)$this->dbQuery(
+                "SELECT COUNT(*) FROM requisitions WHERE requisition_number LIKE 'PUR-%'"
+            )->fetchColumn();
 
             return $this->formatSuccess([
                 'purchases'  => $rows,
@@ -941,19 +972,26 @@ return $this->formatError('An internal error occurred.', 500);
     {
         try {
             $header = $this->dbQuery(
-                "SELECT up.*, CONCAT(s.first_name,' ',s.last_name) AS received_by_name
-                 FROM uniform_purchases up LEFT JOIN staff s ON s.id = up.received_by
-                 WHERE up.id = ?",
+                "SELECT r.id AS purchase_id, r.requisition_number, r.requisition_date AS purchase_date,
+                        r.required_date, r.status, r.priority, r.notes,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.supplier_name')) AS supplier_name,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.invoice_number')) AS invoice_number,
+                        JSON_UNQUOTE(JSON_EXTRACT(r.notes, '$.delivery_note')) AS delivery_note,
+                        CONCAT(p.first_name,' ',p.last_name) AS received_by_name
+                 FROM requisitions r
+                 LEFT JOIN staff s ON s.id = r.approved_by
+                 LEFT JOIN persons p ON p.id = s.person_id
+                 WHERE r.id = ?",
                 [$id]
             )->fetch(\PDO::FETCH_ASSOC);
 
             if (!$header) return $this->formatError('Purchase not found', 404);
 
             $lines = $this->dbQuery(
-                "SELECT upi.*, ii.name AS item_name, ii.code AS item_code
-                 FROM uniform_purchase_items upi
-                 JOIN inventory_items ii ON ii.id = upi.item_id
-                 WHERE upi.purchase_id = ?",
+                "SELECT ri.*, ii.name AS item_name, ii.code AS item_code
+                 FROM requisition_items ri
+                 JOIN inventory_items ii ON ii.id = ri.item_id
+                 WHERE ri.requisition_id = ?",
                 [$id]
             )->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -1002,10 +1040,11 @@ return $this->formatError('An internal error occurred.', 500);
         try {
             $sale = $this->dbQuery(
                 "SELECT us.*, ii.name AS item_name,
-                        CONCAT(st.first_name,' ',st.last_name) AS student_name,
-                        st.admission_number
+                        CONCAT(p.first_name,' ',p.last_name) AS student_name,
+                        s.admission_no AS admission_number
                  FROM uniform_sales us
-                 JOIN students st ON st.id = us.student_id
+                 JOIN students s ON s.id = us.student_id
+                 JOIN persons p ON p.id = s.person_id
                  JOIN inventory_items ii ON ii.id = us.item_id
                  WHERE us.id = ?",
                 [$saleId]
@@ -1014,9 +1053,10 @@ return $this->formatError('An internal error occurred.', 500);
             if (!$sale) return $this->formatError('Sale not found', 404);
 
             $payments = $this->dbQuery(
-                "SELECT upr.*, CONCAT(s.first_name,' ',s.last_name) AS recorded_by_name
+                "SELECT upr.*, CONCAT(p.first_name,' ',p.last_name) AS recorded_by_name
                  FROM uniform_payment_records upr
                  LEFT JOIN staff s ON s.id = upr.recorded_by
+                 LEFT JOIN persons p ON p.id = s.person_id
                  WHERE upr.sale_id = ?
                  ORDER BY upr.payment_date, upr.id",
                 [$saleId]
@@ -1041,33 +1081,43 @@ return $this->formatError('An internal error occurred.', 500);
             $offset = ($page - 1) * $limit;
 
             $where = $search
-                ? "AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_number LIKE ?)"
+                ? "WHERE (p.first_name LIKE ? OR p.last_name LIKE ? OR s.admission_no LIKE ?)"
                 : '';
             $bind = $search
                 ? ["%$search%", "%$search%", "%$search%"]
                 : [];
 
             $rows = $this->dbQuery(
-                "SELECT s.id AS student_id, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                        s.admission_number,
+                "SELECT s.id AS student_id, CONCAT(p.first_name,' ',p.last_name) AS student_name,
+                        s.admission_no AS admission_number,
                         COUNT(us.id) AS total_sales,
-                        SUM(us.total_amount) AS total_billed,
-                        SUM(us.amount_paid) AS total_paid,
-                        SUM(us.balance_due) AS total_balance,
+                        SUM(us.quantity * us.unit_price) AS total_billed,
+                        COALESCE(SUM(upr.amount), 0) AS total_paid,
+                        SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) AS total_balance,
                         MAX(us.sale_date) AS last_purchase
                  FROM students s
+                 JOIN persons p ON p.id = s.person_id
                  JOIN uniform_sales us ON us.student_id = s.id
-                 WHERE us.balance_due > 0 $where
-                 GROUP BY s.id
+                 LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
+                 $where
+                 GROUP BY s.id, p.first_name, p.last_name, s.admission_no
+                 HAVING total_balance > 0
                  ORDER BY total_balance DESC
                  LIMIT $limit OFFSET $offset",
                 $bind
             )->fetchAll(\PDO::FETCH_ASSOC);
 
             $total = (int)$this->dbQuery(
-                "SELECT COUNT(DISTINCT us.student_id) FROM uniform_sales us
-                 JOIN students s ON s.id = us.student_id
-                 WHERE us.balance_due > 0 $where",
+                "SELECT COUNT(*) FROM (
+                    SELECT s.id
+                    FROM students s
+                    JOIN persons p ON p.id = s.person_id
+                    JOIN uniform_sales us ON us.student_id = s.id
+                    LEFT JOIN uniform_payment_records upr ON upr.sale_id = us.id
+                    $where
+                    GROUP BY s.id
+                    HAVING SUM(us.quantity * us.unit_price) - COALESCE(SUM(upr.amount), 0) > 0
+                ) t",
                 $bind
             )->fetchColumn();
 

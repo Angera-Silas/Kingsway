@@ -114,6 +114,7 @@ class TermTransitionService
                 'from_term_id' => $fromTermId,
                 'to_term_id' => $toTermId,
             ]);
+            $this->recordSystemEvent($fromTermId, $toTermId, $academicYearId, $timetableCopied);
             $this->db->commit();
 
             return formatResponse(true, [
@@ -227,17 +228,36 @@ class TermTransitionService
     {
         $startDate = $dates['start_date'] ?? null;
         $endDate = $dates['end_date'] ?? null;
-        if (!$startDate && !$endDate) {
+        $halfTermStart = $dates['half_term_start'] ?? null;
+        $halfTermEnd = $dates['half_term_end'] ?? null;
+
+        // Normalize blank half-term fields to null so an empty value clears
+        // them ("no half-term for this term").
+        $halfTermStart = ($halfTermStart !== null && $halfTermStart !== '') ? $halfTermStart : null;
+        $halfTermEnd = ($halfTermEnd !== null && $halfTermEnd !== '') ? $halfTermEnd : null;
+
+        if ($startDate === null && $endDate === null && $halfTermStart === null && $halfTermEnd === null) {
             return;
         }
 
+        // Opening/closing dates use COALESCE (never cleared through this path);
+        // half-term dates are set directly so they can be removed.
         $stmt = $this->db->prepare(
             "UPDATE academic_year_terms
              SET opening_date = COALESCE(?, opening_date),
-                 closing_date = COALESCE(?, closing_date)
+                 closing_date = COALESCE(?, closing_date),
+                 half_term_start = ?,
+                 half_term_end = ?
              WHERE id = ? AND academic_year_id = ?"
         );
-        $stmt->execute([$startDate ?: null, $endDate ?: null, $toTermId, $academicYearId]);
+        $stmt->execute([
+            $startDate ?: null,
+            $endDate ?: null,
+            $halfTermStart,
+            $halfTermEnd,
+            $toTermId,
+            $academicYearId,
+        ]);
     }
 
     private function activateTerm(int $toTermId, int $academicYearId): void
@@ -259,31 +279,47 @@ class TermTransitionService
 
     private function logAction(?int $fromTermId, ?int $toTermId, int $academicYearId, string $action, string $status, array $details = [], ?string $error = null): int
     {
-        $stmt = $this->db->prepare(
-            "INSERT INTO term_transition_log (
-                from_term_id, to_term_id, academic_year_id, action, status, details, error_message, performed_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-        );
-        $stmt->execute([
-            $fromTermId,
-            $toTermId,
-            $academicYearId,
-            $action,
-            $status,
-            json_encode($details),
-            $error,
-            $this->userId,
+        \App\API\Includes\FileLogger::write('term_transition', [
+            'type' => 'term_transition',
+            'from_term_id' => $fromTermId,
+            'to_term_id' => $toTermId,
+            'academic_year_id' => $academicYearId,
+            'action' => $action,
+            'status' => $status,
+            'details' => $details,
+            'error_message' => $error,
+            'performed_by' => $this->userId,
         ]);
-        return (int) $this->db->lastInsertId();
+        return (int) (microtime(true) * 1000);
     }
 
     private function updateLog(int $logId, string $status, array $details = [], ?string $error = null): void
     {
-        $stmt = $this->db->prepare(
-            "UPDATE term_transition_log
-             SET status = ?, details = ?, error_message = ?
-             WHERE id = ?"
-        );
-        $stmt->execute([$status, json_encode($details), $error, $logId]);
+        \App\API\Includes\FileLogger::write('term_transition', [
+            'type' => 'term_transition_update',
+            'log_id' => $logId,
+            'status' => $status,
+            'details' => $details,
+            'error_message' => $error,
+        ]);
+    }
+
+    /**
+     * Write a system_events entry so the context/audit layer knows the school
+     * has moved into a new term.
+     */
+    private function recordSystemEvent(int $fromTermId, int $toTermId, int $academicYearId, int $timetableCopied): void
+    {
+        \App\API\Includes\FileLogger::write('events', [
+            'type' => 'system_event',
+            'event' => 'term_transitioned',
+            'data' => [
+                'from_academic_year_term_id' => $fromTermId,
+                'to_academic_year_term_id' => $toTermId,
+                'academic_year_id' => $academicYearId,
+                'timetable_copied' => $timetableCopied,
+                'performed_by' => $this->userId,
+            ],
+        ]);
     }
 }

@@ -1,190 +1,164 @@
 <?php
 namespace App\API\Controllers;
-use Exception;
-use PDO;
+
+use App\API\Modules\inventory\InventoryAPI;
 
 class VendorsController extends BaseController
 {
+    private $api;
+
     public function __construct($request = null)
     {
         parent::__construct($request);
+        $this->api = new InventoryAPI();
     }
 
     // GET /api/vendors - list vendors
     public function getVendors($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user)
+        if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
         if (!$this->userHasAny(['finance.view', 'finance_view'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 
-        try {
-            // suppliers table exists in this schema
-            $stmt = $this->db->query('SELECT * FROM suppliers ORDER BY name');
-            $rows = $stmt ? $stmt->fetchAll() : [];
-            return $this->success(['vendors' => $rows]);
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        $result = $this->api->listSuppliers($data);
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to load vendors');
         }
+
+        return $this->success(['vendors' => $result['data']['suppliers'] ?? []]);
     }
 
     // POST /api/vendors - create vendor
     public function postVendors($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user)
+        if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 
-        $name = $data['name'] ?? null;
-        if (!$name) return $this->badRequest('Missing vendor name');
-
-        try {
-            $this->db->query(
-                'INSERT INTO suppliers (name, contact_person, phone, email, address, category, bank_name, account_number, notes, status, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "active", NOW())',
-                [
-                    $name,
-                    $data['contact_person'] ?? $data['contact'] ?? null,
-                    $data['phone']          ?? null,
-                    $data['email']          ?? null,
-                    $data['address']        ?? null,
-                    $data['category']       ?? 'other',
-                    $data['bank_name']      ?? null,
-                    $data['account_number'] ?? null,
-                    $data['notes']          ?? null,
-                ]
-            );
-            return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Vendor created');
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        $data['supplier_name'] = $data['supplier_name'] ?? $data['name'] ?? null;
+        if (!$data['supplier_name']) {
+            return $this->badRequest('Missing vendor name');
         }
+
+        $result = $this->api->createSupplier($data, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to create vendor');
+        }
+
+        return $this->success($result['data'] ?? ['id' => null], $result['message'] ?? 'Vendor created');
     }
 
     // GET /api/vendors/purchase-orders
     public function getPurchaseOrders($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user)
+        if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
         if (!$this->userHasAny(['finance.view', 'finance_view'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 
-        try {
-            // purchase_orders uses supplier_id in this schema
-            $stmt = $this->db->query('SELECT po.*, s.name as vendor_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id ORDER BY po.created_at DESC LIMIT 200');
-            $rows = $stmt ? $stmt->fetchAll() : [];
-            return $this->success(['purchase_orders' => $rows]);
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        $result = $this->api->listPurchaseOrders($data);
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to load purchase orders');
         }
+
+        return $this->success(['purchase_orders' => $result['data']['orders'] ?? []]);
     }
 
     // POST /api/vendors/purchase-orders - create PO
     public function postPurchaseOrders($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user)
+        if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 
-        $vendorId = $data['vendor_id'] ?? $data['supplier_id'] ?? null;
-        $amount = $data['amount'] ?? null;
-        $description = $data['description'] ?? null;
-        if (!$vendorId || !$amount)
-            return $this->badRequest('Missing vendor or amount');
+        $data['supplier_id'] = $data['vendor_id'] ?? $data['supplier_id'] ?? null;
+        $data['total_amount'] = $data['amount'] ?? $data['total_amount'] ?? null;
+        $data['remarks'] = $data['remarks'] ?? $data['description'] ?? null;
 
-        try {
-            // Use query() method which handles prepare internally
-            $this->db->query(
-                'INSERT INTO purchase_orders (supplier_id, total_amount, remarks, created_by, created_at) VALUES (?, ?, ?, ?, NOW())',
-                [$vendorId, $amount, $description, $user['id'] ?? null]
-            );
-            return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Purchase order created');
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$data['supplier_id'] || !$data['total_amount']) {
+            return $this->badRequest('Missing vendor or amount');
         }
+
+        $result = $this->api->createPurchaseOrder($data, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to create purchase order');
+        }
+
+        return $this->success($result['data'] ?? ['id' => null], $result['message'] ?? 'Purchase order created');
     }
 
     // PUT /api/vendors/{id} - update vendor
     public function putVendors($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user) return $this->unauthorized('Authentication required');
-        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10]))
-            return $this->forbidden('Insufficient permissions');
-        if (!$id) return $this->badRequest('Vendor ID required');
-
-        try {
-            $fields  = ['name','contact_person','phone','email','address','category',
-                        'status','bank_name','account_number','notes'];
-            $setClauses = [];
-            $params     = [];
-            foreach ($fields as $f) {
-                if (array_key_exists($f, $data)) {
-                    $setClauses[] = "$f = ?";
-                    $params[]     = $data[$f];
-                }
-            }
-            if (empty($setClauses)) return $this->badRequest('No fields to update');
-            $params[] = $id;
-            $this->db->query('UPDATE suppliers SET ' . implode(', ', $setClauses) . ', updated_at=NOW() WHERE id=?', $params);
-            return $this->success(['id' => $id], 'Vendor updated');
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
         }
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+        if (!$id) {
+            return $this->badRequest('Vendor ID required');
+        }
+
+        if (isset($data['name']) && !isset($data['supplier_name'])) {
+            $data['supplier_name'] = $data['name'];
+        }
+
+        $result = $this->api->updateSupplier($id, $data, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to update vendor');
+        }
+
+        return $this->success(['id' => $id], $result['message'] ?? 'Vendor updated');
     }
 
     // DELETE /api/vendors/{id} - soft delete vendor
     public function deleteVendors($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user) return $this->unauthorized('Authentication required');
-        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10]))
-            return $this->forbidden('Insufficient permissions');
-        if (!$id) return $this->badRequest('Vendor ID required');
-
-        try {
-            $this->db->query('UPDATE suppliers SET status=\'inactive\', updated_at=NOW() WHERE id=?', [$id]);
-            return $this->success(['id' => $id], 'Vendor deactivated');
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
         }
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+        if (!$id) {
+            return $this->badRequest('Vendor ID required');
+        }
+
+        $result = $this->api->deleteSupplier($id, $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to deactivate vendor');
+        }
+
+        return $this->success(['id' => $id], $result['message'] ?? 'Vendor deactivated');
     }
 
     // GET /api/vendors/outstanding-liabilities
     public function getOutstandingLiabilities($id = null, $data = [], $segments = [])
     {
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user) return $this->unauthorized('Authentication required');
-        if (!$this->userHasAny(['finance.view', 'finance_view'], [10]))
-            return $this->forbidden('Insufficient permissions');
-
-        try {
-            $sql = "SELECT s.id as vendor_id, s.name as vendor,
-                           COALESCE(SUM(CASE WHEN po.status != 'received' THEN po.total_amount ELSE 0 END),0) as outstanding
-                    FROM suppliers s
-                    LEFT JOIN purchase_orders po ON po.supplier_id = s.id
-                    GROUP BY s.id
-                    ORDER BY outstanding DESC";
-            $stmt = $this->db->query($sql);
-            return $this->success(['outstanding' => $stmt ? $stmt->fetchAll() : []]);
-        } catch (Exception $e) {
-            error_log('[VendorsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->error('An internal error occurred.');
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
         }
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+
+        $result = $this->api->getOutstandingLiabilities();
+        if (($result['code'] ?? 200) >= 400) {
+            return $this->error($result['message'] ?? 'Failed to load liabilities');
+        }
+
+        return $this->success($result['data'] ?? ['outstanding' => []]);
     }
 }

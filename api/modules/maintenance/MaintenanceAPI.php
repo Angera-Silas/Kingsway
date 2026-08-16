@@ -203,7 +203,7 @@ class MaintenanceAPI extends BaseAPI
     {
         try {
             $equipmentRes = $this->equipmentManager->getOverdueEquipment();
-            $vehicleRes = $this->vehicleManager->getUpcomingVehicleSchedule();
+            $vehicleRes = $this->vehicleManager->getUpcomingSchedule();
 
             return [
                 'success' => true,

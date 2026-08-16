@@ -15,6 +15,7 @@ use App\API\Modules\communications\InternalCommManager;
 use App\API\Modules\communications\ParentPortalMessageManager;
 use App\API\Modules\communications\StaffForumManager;
 use App\API\Modules\communications\StaffRequestManager;
+use App\API\Modules\communications\InternalMessagingManager;
 
 
 
@@ -33,6 +34,7 @@ class CommunicationsAPI extends BaseAPI
     private $parentPortalMessageManager;
     private $staffForumManager;
     private $staffRequestManager;
+    private $internalMessagingManager;
 
     public function __construct()
     {
@@ -48,6 +50,134 @@ class CommunicationsAPI extends BaseAPI
         $this->parentPortalMessageManager = new ParentPortalMessageManager($this->db);
         $this->staffForumManager = new StaffForumManager($this->db);
         $this->staffRequestManager = new StaffRequestManager($this->db);
+        $this->internalMessagingManager = new InternalMessagingManager($this->db);
+    }
+
+    /**
+     * Communications hub summary for the dashboard.
+     * Returns global counts by channel/status plus per-user unread messaging counts
+     * and recent activity, suitable for the Manage Communications landing page.
+     *
+     * @return array
+     */
+    public function getSummary()
+    {
+        $result = [
+            'totals' => [
+                'communications' => 0,
+                'by_type' => [
+                    'email' => 0,
+                    'sms' => 0,
+                    'whatsapp' => 0,
+                    'notification' => 0,
+                    'internal' => 0,
+                ],
+                'by_status' => [
+                    'draft' => 0,
+                    'sent' => 0,
+                    'scheduled' => 0,
+                    'failed' => 0,
+                ],
+                'by_priority' => [
+                    'low' => 0,
+                    'medium' => 0,
+                    'high' => 0,
+                ],
+                'announcements' => [
+                    'total' => 0,
+                    'published' => 0,
+                    'draft' => 0,
+                    'scheduled' => 0,
+                ],
+                'messaging' => [
+                    'conversations' => 0,
+                    'unread' => 0,
+                ],
+                'last_activity_at' => null,
+            ],
+            'recent' => [],
+            'generated_at' => date('c'),
+        ];
+
+        try {
+            // Totals and breakdown by type/status/priority
+            $stmt = $this->db->query("SELECT type, status, priority, COUNT(*) AS c FROM communications GROUP BY type, status, priority");
+            $total = 0;
+            $lastActivity = null;
+            while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+                $c = (int)$row['c'];
+                $total += $c;
+                if (isset($result['totals']['by_type'][$row['type']])) {
+                    $result['totals']['by_type'][$row['type']] += $c;
+                }
+                if (isset($result['totals']['by_status'][$row['status']])) {
+                    $result['totals']['by_status'][$row['status']] += $c;
+                }
+                if (isset($result['totals']['by_priority'][$row['priority']])) {
+                    $result['totals']['by_priority'][$row['priority']] += $c;
+                }
+            }
+            $result['totals']['communications'] = $total;
+
+            // Announcement breakdown (type = notification)
+            $stmt = $this->db->query("SELECT status, COUNT(*) AS c FROM communications WHERE type = 'notification' GROUP BY status");
+            while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+                $result['totals']['announcements']['total'] += (int)$row['c'];
+                if ($row['status'] === 'sent') {
+                    $result['totals']['announcements']['published'] = (int)$row['c'];
+                } elseif ($row['status'] === 'draft') {
+                    $result['totals']['announcements']['draft'] = (int)$row['c'];
+                } elseif ($row['status'] === 'scheduled') {
+                    $result['totals']['announcements']['scheduled'] = (int)$row['c'];
+                }
+            }
+
+            // Last activity
+            $stmt = $this->db->query("SELECT MAX(created_at) AS last FROM communications");
+            $lastRow = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($lastRow && !empty($lastRow['last'])) {
+                $result['totals']['last_activity_at'] = $lastRow['last'];
+            }
+
+            // Per-user messaging (conversations + unread)
+            $userId = $this->user_id;
+            if ($userId) {
+                $stmt = $this->db->prepare("SELECT COUNT(*) AS c, COALESCE(SUM(unread_count), 0) AS u FROM conversation_participants WHERE participant_id = :uid AND left_at IS NULL");
+                $stmt->execute([':uid' => $userId]);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                $result['totals']['messaging']['conversations'] = (int)($row['c'] ?? 0);
+                $result['totals']['messaging']['unread'] = (int)($row['u'] ?? 0);
+            }
+
+            // Recent communications (last 5)
+            $stmt = $this->db->query("SELECT id, type, subject, status, priority, sender_id, created_at FROM communications ORDER BY id DESC LIMIT 5");
+            $recent = [];
+            while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+                $recent[] = [
+                    'id' => (int)$row['id'],
+                    'type' => $row['type'],
+                    'subject' => $row['subject'],
+                    'status' => $row['status'],
+                    'priority' => $row['priority'],
+                    'sender_id' => $row['sender_id'] !== null ? (int)$row['sender_id'] : null,
+                    'created_at' => $row['created_at'],
+                ];
+            }
+            $result['recent'] = $recent;
+        } catch (\Exception $e) {
+            error_log('[CommunicationsAPI::getSummary] ' . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => 'Failed to build communications summary',
+                'data' => null,
+            ];
+        }
+
+        return [
+            'status' => 'success',
+            'message' => 'Communications summary',
+            'data' => $result,
+        ];
     }
 
     /**
@@ -549,20 +679,20 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
     private function logFeeReminderActivity($studentId, $phone, $balance, $type, $status)
     {
         try {
-            $sql = "INSERT INTO system_logs (log_type, action, entity_type, entity_id, details, ip_address, created_at) 
-                    VALUES ('fee_reminder', :action, 'student', :student_id, :details, :ip, NOW())";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
+            \App\API\Includes\FileLogger::write('communications', [
+                'type' => 'fee_reminder',
                 'action' => $type . '_reminder_' . $status,
-                'student_id' => $studentId,
-                'details' => json_encode([
+                'entity' => 'student',
+                'entity_id' => $studentId,
+                'user_id' => $_SERVER['auth_user']['user_id'] ?? $_SERVER['auth_user']['sub'] ?? null,
+                'details' => [
                     'phone' => $phone,
                     'balance' => $balance,
                     'type' => $type,
-                    'status' => $status
-                ]),
-                'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+                    'status' => $status,
+                ],
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+                'status' => 'success',
             ]);
         } catch (\Exception $e) {
             // Log error but don't fail the main operation
@@ -1049,6 +1179,28 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
     public function listCommunicationWorkflows($filters = [])
     {
         return $this->workflowHandler->listCommunicationWorkflows($filters);
+    }
+
+    // --- Internal User-to-User Messaging ---
+    public function listConversations($userId)
+    {
+        return $this->internalMessagingManager->listConversations($userId);
+    }
+    public function getConversationThread($userId, $conversationId)
+    {
+        return $this->internalMessagingManager->getConversation($userId, (int)$conversationId);
+    }
+    public function createConversation($userId, $data)
+    {
+        return $this->internalMessagingManager->createConversation($userId, $data);
+    }
+    public function sendConversationReply($userId, $conversationId, $data)
+    {
+        return $this->internalMessagingManager->sendReply($userId, (int)$conversationId, $data);
+    }
+    public function searchMessageRecipients($userId, $term)
+    {
+        return $this->internalMessagingManager->searchRecipients($userId, (string)$term);
     }
 
     // --- Communications CRUD ---

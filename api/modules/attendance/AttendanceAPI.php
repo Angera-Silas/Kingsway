@@ -257,16 +257,17 @@ return errorResponse('An internal error occurred.', 500);
                     throw new Exception("Missing required field: student_id");
                 }
 
-                $sql = "INSERT INTO student_attendance (student_id, date, status, class_id, term_id, marked_by, created_at)
-                        VALUES (:student_id, :date, :status, :class_id, :term_id, :marked_by, NOW())";
+                $sql = "INSERT INTO student_attendance (student_academic_enrollment_id, date, status, marked_by, created_at)
+                        SELECT sae.id, :date, :status, :marked_by, NOW()
+                        FROM student_academic_enrollments sae
+                        WHERE sae.student_id = :student_id AND sae.enrollment_status = 'active'
+                        LIMIT 1";
 
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     'student_id' => $data['student_id'],
                     'date' => $data['date'],
                     'status' => $data['status'],
-                    'class_id' => $data['class_id'] ?? null,
-                    'term_id' => $data['term_id'] ?? null,
                     'marked_by' => $this->user_id
                 ]);
 

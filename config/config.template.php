@@ -247,6 +247,14 @@ define(
 );
 
 define(
+    'MPESA_CALLBACK_BASE_URL',
+    rtrim(
+        (string) ($_ENV['MPESA_CALLBACK_BASE_URL'] ?? BASE_URL),
+        '/'
+    )
+);
+
+define(
     'MPESA_CONSUMER_KEY',
     $_ENV['MPESA_CONSUMER_KEY'] ?? ''
 );

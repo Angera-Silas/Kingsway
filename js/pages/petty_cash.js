@@ -199,7 +199,7 @@ const pettyCashController = {
   },
 
   delete: async function (id) {
-    if (!confirm('Delete this petty cash record?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this petty cash record?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/finance/petty-cash/' + id, 'DELETE');
       showNotification('Record deleted.', 'success');

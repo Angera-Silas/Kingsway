@@ -188,7 +188,7 @@ const PrintManager = (() => {
 
     if (type === "error") {
       console.error(message);
-      window.alert(message);
+      window.infoDialog && window.infoDialog("Notice", message);
       return;
     }
 

@@ -48,7 +48,8 @@ final class StaffRecordsService
         return $this->db->query(
             "SELECT r.id role_id, r.name, r.description, ur.created_at
              FROM staff s
-             JOIN user_roles ur ON ur.user_id = s.user_id
+             JOIN users u ON u.person_id = s.person_id
+             JOIN user_roles ur ON ur.user_id = u.id
              JOIN roles r ON r.id = ur.role_id
              WHERE s.id = ?
              ORDER BY r.name",
@@ -129,14 +130,15 @@ final class StaffRecordsService
                     c.created_at,
                     c.updated_at,
                     s.staff_no,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     s.position,
-                    u.email,
-                    s.phone,
-                    s.profile_pic_url,
+                    p.email,
+                    p.phone,
+                    p.photo_url AS profile_pic_url,
                     d.name AS department_name
              FROM staff s
+             JOIN persons p ON p.id = s.person_id
              LEFT JOIN (
                 SELECT c1.*
                 FROM staff_id_cards c1
@@ -146,13 +148,13 @@ final class StaffRecordsService
                     GROUP BY staff_id
                 ) latest ON latest.id = c1.id
              ) c ON c.staff_id = s.id
-             LEFT JOIN users u ON u.id = s.user_id
-             LEFT JOIN departments d ON d.id = s.department_id
+             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+             LEFT JOIN departments d ON d.id = sda.department_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY
                 CASE WHEN c.id IS NULL THEN 0 ELSE 1 END,
-                s.last_name,
-                s.first_name,
+                p.last_name,
+                p.first_name,
                 s.staff_no",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
@@ -311,22 +313,51 @@ final class StaffRecordsService
             $where[] = 'pr.staff_id = ?';
             $params[] = (int)$filters['staff_id'];
         }
-        if (!empty($filters['academic_year_id'])) {
-            $where[] = 'pr.academic_year_id = ?';
-            $params[] = (int)$filters['academic_year_id'];
-        }
         if (!empty($filters['status'])) {
             $where[] = 'pr.status = ?';
             $params[] = $filters['status'];
         }
 
         return $this->db->query(
-            "SELECT pr.*, CONCAT(s.first_name, ' ', s.last_name) teacher_name,
-                    CONCAT(r.first_name, ' ', r.last_name) reviewer_name, ay.year_name academic_year
-             FROM staff_performance_reviews pr
+            "SELECT pr.id AS id,
+                    pr.id AS review_id,
+                    pr.staff_id,
+                    pr.staff_id AS teacher_id,
+                    pr.period AS review_period,
+                    pr.review_date,
+                    pr.rating AS overall_rating,
+                    pr.rating AS rating,
+                    pr.status,
+                    pr.notes AS comments,
+                    pr.notes AS remarks,
+                    pr.notes AS strengths,
+                    pr.notes AS areas_for_improvement,
+                    pr.notes AS recommendations,
+                    pr.reviewed_by AS reviewer_id,
+                    NULL AS subject_id,
+                    NULL AS category,
+                    NULL AS academic_year,
+                    NULL AS review_type,
+                    NULL AS term_id,
+                    (SELECT COALESCE(ROUND(AVG(prk.score), 1), 0)
+                       FROM performance_review_kpis prk WHERE prk.review_id = pr.id) AS overall_score,
+                    CASE
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 80 THEN 'Excellent'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 70 THEN 'Good'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 60 THEN 'Satisfactory'
+                        WHEN (SELECT COALESCE(AVG(prk.score), 0) FROM performance_review_kpis prk WHERE prk.review_id = pr.id) >= 50 THEN 'Below Expectation'
+                        ELSE 'Needs Improvement'
+                    END AS performance_grade,
+                    CONCAT(sp.first_name, ' ', sp.last_name) AS staff_name,
+                    d.name AS department,
+                    CONCAT(rp.first_name, ' ', rp.last_name) AS reviewer_name
+             FROM performance_reviews pr
              JOIN staff s ON s.id = pr.staff_id
-             LEFT JOIN staff r ON r.id = pr.reviewer_id
-             LEFT JOIN academic_years ay ON ay.id = pr.academic_year_id
+             JOIN persons sp ON sp.id = s.person_id
+             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+             LEFT JOIN departments d ON d.id = sda.department_id
+             LEFT JOIN staff r ON r.id = pr.reviewed_by
+             LEFT JOIN persons rp ON rp.id = r.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY pr.review_date DESC, pr.id DESC",
             $params
@@ -335,52 +366,77 @@ final class StaffRecordsService
 
     public function createPerformanceReview(array $data): int
     {
-        foreach (['staff_id', 'academic_year_id', 'reviewer_id'] as $field) {
+        foreach (['staff_id', 'reviewer_id'] as $field) {
             if (empty($data[$field])) {
                 throw new RuntimeException("{$field} is required");
             }
         }
 
+        $period = $data['review_period'] ?? null;
+        if (!$period && !empty($data['academic_year_id'])) {
+            $period = (string)(int)$data['academic_year_id'];
+        }
+        if (!$period) {
+            throw new RuntimeException('review_period is required');
+        }
+
+        $status = $data['status'] ?? 'draft';
+        $statusMap = ['pending' => 'draft', 'completed' => 'submitted'];
+        $status = $statusMap[$status] ?? $status;
+
+        $notes = implode(' ', array_filter([
+            $data['comments'] ?? null,
+            $data['strengths'] ?? null,
+            $data['areas_for_improvement'] ?? null,
+            $data['recommendations'] ?? null,
+            $data['action_plan'] ?? null,
+        ], function ($v) {
+            return $v !== null && $v !== '';
+        }));
+
+        $reviewId = (int)$this->db->query('SELECT COALESCE(MAX(id),0)+1 FROM performance_reviews')->fetchColumn();
         $this->db->query(
-            "INSERT INTO staff_performance_reviews
-             (staff_id, academic_year_id, term_id, review_period, review_type, reviewer_id,
-              review_date, overall_score, performance_grade, overall_rating, strengths,
-              areas_for_improvement, recommendations, action_plan, follow_up_date, status,
-              created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())",
+            "INSERT INTO performance_reviews
+             (id, staff_id, period, rating, reviewed_by, review_date, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
+                $reviewId,
                 (int)$data['staff_id'],
-                (int)$data['academic_year_id'],
-                $data['term_id'] ?? null,
-                $data['review_period'] ?? null,
-                $data['review_type'] ?? 'annual',
+                $period,
+                $data['overall_rating'] ?? null,
                 (int)$data['reviewer_id'],
                 $data['review_date'] ?? date('Y-m-d'),
-                $data['overall_score'] ?? null,
-                $data['performance_grade'] ?? null,
-                $data['overall_rating'] ?? null,
-                $data['strengths'] ?? null,
-                $data['areas_for_improvement'] ?? null,
-                $data['recommendations'] ?? null,
-                $data['action_plan'] ?? null,
-                $data['follow_up_date'] ?? null,
-                $data['status'] ?? 'draft',
+                $status,
+                $notes !== '' ? $notes : null,
             ]
         );
 
-        return (int)$this->db->lastInsertId();
+        return $reviewId;
     }
 
     public function updatePerformanceReview(int $id, array $data): array
     {
         $before = $this->performanceReview($id);
-        $allowed = ['review_period', 'review_type', 'review_date', 'overall_score', 'performance_grade', 'overall_rating', 'strengths', 'areas_for_improvement', 'recommendations', 'action_plan', 'follow_up_date', 'status', 'term_id'];
+        $fieldMap = [
+            'review_period' => 'period',
+            'review_date' => 'review_date',
+            'overall_rating' => 'rating',
+            'rating' => 'rating',
+            'comments' => 'notes',
+            'notes' => 'notes',
+            'status' => 'status',
+        ];
         $sets = [];
         $params = [];
-        foreach ($allowed as $field) {
-            if (array_key_exists($field, $data)) {
-                $sets[] = "{$field} = ?";
-                $params[] = $data[$field];
+        foreach ($fieldMap as $inputField => $column) {
+            if (array_key_exists($inputField, $data)) {
+                $value = $data[$inputField];
+                if ($column === 'status') {
+                    $statusMap = ['pending' => 'draft', 'completed' => 'submitted'];
+                    $value = $statusMap[$value] ?? $value;
+                }
+                $sets[] = "{$column} = ?";
+                $params[] = $value;
             }
         }
         if (!$sets) {
@@ -388,7 +444,7 @@ final class StaffRecordsService
         }
         $params[] = $id;
         $this->db->query(
-            'UPDATE staff_performance_reviews SET ' . implode(',', $sets) . ', updated_at = NOW() WHERE id = ?',
+            'UPDATE performance_reviews SET ' . implode(',', $sets) . ' WHERE id = ?',
             $params
         );
         return $before;
@@ -400,7 +456,7 @@ final class StaffRecordsService
         if (($before['status'] ?? '') !== 'draft') {
             throw new RuntimeException('Only draft reviews can be deleted');
         }
-        $this->db->query('DELETE FROM staff_performance_reviews WHERE id = ?', [$id]);
+        $this->db->query('DELETE FROM performance_reviews WHERE id = ?', [$id]);
         return $before;
     }
 
@@ -411,115 +467,17 @@ final class StaffRecordsService
 
     public function promotions(array $filters = []): array
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($filters['staff_id'])) {
-            $where[] = 'sp.staff_id = ?';
-            $params[] = (int)$filters['staff_id'];
-        }
-        if (!empty($filters['status'])) {
-            $where[] = 'sp.status = ?';
-            $params[] = $filters['status'];
-        }
-
-        return $this->db->query(
-            "SELECT sp.*,
-                    CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
-                    s.staff_no,
-                    fd.name AS from_department,
-                    td.name AS to_department,
-                    CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name,
-                    CONCAT(c.first_name, ' ', c.last_name) AS created_by_name
-             FROM staff_promotions sp
-             JOIN staff s ON s.id = sp.staff_id
-             LEFT JOIN departments fd ON fd.id = sp.from_department_id
-             LEFT JOIN departments td ON td.id = sp.to_department_id
-             LEFT JOIN staff a ON a.id = sp.approved_by
-             LEFT JOIN staff c ON c.id = sp.created_by
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY sp.created_at DESC
-             LIMIT 200",
-            $params
-        )->fetchAll(PDO::FETCH_ASSOC);
+        return (new StaffAppointmentsService($this->db))->listInternal($filters);
     }
 
     public function createPromotion(array $data, int $actorId): int
     {
-        $staffId = (int)($data['staff_id'] ?? 0);
-        if (!$staffId) {
-            throw new RuntimeException('staff_id is required');
-        }
-        if (empty($data['effective_date'])) {
-            throw new RuntimeException('effective_date is required');
-        }
-
-        $staff = $this->db->query('SELECT * FROM staff WHERE id = ?', [$staffId])->fetch(PDO::FETCH_ASSOC);
-        if (!$staff) {
-            throw new RuntimeException('Staff member not found');
-        }
-
-        $this->db->query(
-            "INSERT INTO staff_promotions
-                (staff_id, promotion_type, from_position, to_position,
-                 from_department_id, to_department_id, from_salary, to_salary,
-                 effective_date, status, reason, letter_url, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
-            [
-                $staffId,
-                $data['promotion_type'] ?? 'substantive',
-                $staff['position'],
-                $data['to_position'] ?? $staff['position'],
-                $staff['department_id'],
-                $data['to_department_id'] ?? $staff['department_id'],
-                $staff['salary'],
-                isset($data['to_salary']) ? (float)$data['to_salary'] : null,
-                $data['effective_date'],
-                $data['reason'] ?? null,
-                $data['letter_url'] ?? null,
-                $actorId,
-            ]
-        );
-
-        return (int)$this->db->lastInsertId();
+        return (new StaffAppointmentsService($this->db))->submitInternal($data, $actorId);
     }
 
     public function decidePromotion(int $promotionId, string $action, int $actorId, ?string $reason = null): void
     {
-        if (!in_array($action, ['approve', 'reject'], true)) {
-            throw new RuntimeException('action must be approve or reject');
-        }
-
-        $promo = $this->db->query('SELECT * FROM staff_promotions WHERE id = ?', [$promotionId])->fetch(PDO::FETCH_ASSOC);
-        if (!$promo) {
-            throw new RuntimeException('Promotion not found');
-        }
-
-        $this->db->beginTransaction();
-        try {
-            $newStatus = $action === 'approve' ? 'approved' : 'rejected';
-            $this->db->query(
-                "UPDATE staff_promotions
-                 SET status = ?, approved_by = ?, approved_at = NOW(), rejected_reason = ?, updated_at = NOW()
-                 WHERE id = ?",
-                [$newStatus, $actorId, $action === 'reject' ? $reason : null, $promotionId]
-            );
-
-            if ($action === 'approve') {
-                $this->db->query(
-                    'UPDATE staff SET position = ?, salary = ?, updated_at = NOW() WHERE id = ?',
-                    [$promo['to_position'], $promo['to_salary'], $promo['staff_id']]
-                );
-                if ($promo['effective_date'] <= date('Y-m-d')) {
-                    $this->db->query("UPDATE staff_promotions SET status = 'effective' WHERE id = ?", [$promotionId]);
-                }
-            }
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            throw $e;
-        }
+        (new StaffAppointmentsService($this->db))->reviewInternal($promotionId, $action, $actorId, ['reason' => $reason]);
     }
 
     public function offboarding(array $filters = []): array
@@ -541,14 +499,17 @@ final class StaffRecordsService
 
         return $this->db->query(
             "SELECT so.*,
-                    CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
+                    CONCAT(sp.first_name, ' ', sp.last_name) AS staff_name,
                     s.staff_no,
-                    CONCAT(p.first_name, ' ', p.last_name) AS processed_by_name,
-                    CONCAT(c.first_name, ' ', c.last_name) AS created_by_name
+                    CONCAT(pp.first_name, ' ', pp.last_name) AS processed_by_name,
+                    CONCAT(cp.first_name, ' ', cp.last_name) AS created_by_name
              FROM staff_offboarding so
              JOIN staff s ON s.id = so.staff_id
+             JOIN persons sp ON sp.id = s.person_id
              LEFT JOIN staff p ON p.id = so.processed_by
+             LEFT JOIN persons pp ON pp.id = p.person_id
              LEFT JOIN staff c ON c.id = so.created_by
+             LEFT JOIN persons cp ON cp.id = c.person_id
              WHERE " . implode(' AND ', $where) . "
              ORDER BY so.created_at DESC
              LIMIT 200",
@@ -677,19 +638,21 @@ final class StaffRecordsService
         $cutoff = date('Y-m-d', strtotime("+{$months} months"));
 
         return $this->db->query(
-            "SELECT s.id, s.staff_no, s.first_name, s.last_name,
-                    s.position, s.employment_date, s.date_of_birth,
+            "SELECT s.id, s.staff_no, p.first_name, p.last_name,
+                    s.position, s.employment_date, p.dob AS date_of_birth,
                     d.name AS department,
-                    TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) AS age,
-                    DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) AS retirement_date,
-                    DATEDIFF(DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
+                    TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) AS age,
+                    DATE_ADD(p.dob, INTERVAL 60 YEAR) AS retirement_date,
+                    DATEDIFF(DATE_ADD(p.dob, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
                     s.status
              FROM staff s
-             LEFT JOIN departments d ON d.id = s.department_id
+             JOIN persons p ON p.id = s.person_id
+             LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+             LEFT JOIN departments d ON d.id = sda.department_id
              WHERE s.status = 'active'
-               AND s.date_of_birth IS NOT NULL
-               AND TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) >= 55
-               AND DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) <= ?
+               AND p.dob IS NOT NULL
+               AND TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) >= 55
+               AND DATE_ADD(p.dob, INTERVAL 60 YEAR) <= ?
              ORDER BY days_remaining ASC",
             [$cutoff]
         )->fetchAll(PDO::FETCH_ASSOC);
@@ -732,7 +695,7 @@ final class StaffRecordsService
     private function performanceReview(int $id): array
     {
         $row = $this->db->query(
-            'SELECT * FROM staff_performance_reviews WHERE id = ?',
+            'SELECT * FROM performance_reviews WHERE id = ?',
             [$id]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$row) {
@@ -746,8 +709,13 @@ final class StaffRecordsService
         if ($staffId <= 0) {
             throw new RuntimeException('staff_id is required');
         }
+        // staff.user_id is dropped; the staff↔user link is via the shared person
+        // (staff.person_id = users.person_id). Resolve the user id through persons.
         $staff = $this->db->query(
-            'SELECT id, user_id FROM staff WHERE id = ? LIMIT 1',
+            'SELECT s.id, u.id AS user_id
+             FROM staff s
+             LEFT JOIN users u ON u.person_id = s.person_id
+             WHERE s.id = ? LIMIT 1',
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
         if (!$staff) {
@@ -761,8 +729,12 @@ final class StaffRecordsService
 
     private function staffIdForUser(int $userId): ?int
     {
+        // Bridge user→staff through the shared person (staff.user_id dropped).
         $id = $this->db->query(
-            'SELECT id FROM staff WHERE user_id = ? LIMIT 1',
+            'SELECT s.id
+             FROM staff s
+             JOIN users u ON u.person_id = s.person_id
+             WHERE u.id = ? LIMIT 1',
             [$userId]
         )->fetchColumn();
 

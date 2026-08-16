@@ -108,7 +108,7 @@
                     <h6 class="dashboard-section-title">
                         <i class="bi bi-megaphone"></i>Staff Messages & Announcements
                     </h6>
-                    <button type="button" class="btn btn-sm btn-outline-success" data-route="manage_communications">Open messages</button>
+                    <button type="button" class="btn btn-sm btn-outline-success" data-route="communications/messages_inbox">Open messages</button>
                 </div>
                 <div class="card-body p-0 dashboard-table-wrap">
                     <div class="table-responsive">

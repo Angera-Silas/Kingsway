@@ -66,6 +66,7 @@
                 <div class="col-md-3">
                     <select class="form-select" id="gradeLevelFilter">
                         <option value="">All Grade Levels</option>
+                        <option value="PlayGroup">PlayGroup</option>
                         <option value="PP1">PP1</option>
                         <option value="PP2">PP2</option>
                         <option value="Grade 1">Grade 1</option>
@@ -107,9 +108,8 @@
                             <th scope="col">Grade Level</th>
                             <th scope="col">Learning Area</th>
                             <th scope="col">Strand</th>
-                            <th scope="col">Sub-Strand</th>
-                            <th scope="col">Indicators</th>
-                            <th scope="col">Assessment Criteria</th>
+                            <th scope="col">Sub-Strands</th>
+                            <th scope="col">Learning Outcomes</th>
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
@@ -146,7 +146,8 @@
                             <label class="form-label">Grade Level *</label>
                             <select class="form-select" id="currGradeLevel" required>
                                 <option value="">Select Grade</option>
-                                <option value="PP1">PP1</option>
+                                <option value="PlayGroup">PlayGroup</option>
+                        <option value="PP1">PP1</option>
                                 <option value="PP2">PP2</option>
                                 <option value="Grade 1">Grade 1</option>
                                 <option value="Grade 2">Grade 2</option>
@@ -187,6 +188,22 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveCurriculumBtn">Save Entry</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Curriculum Entry Details Modal -->
+<div class="modal fade" id="viewCurriculumModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="viewCurriculumModalLabel">Curriculum Entry Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="viewCurriculumBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>

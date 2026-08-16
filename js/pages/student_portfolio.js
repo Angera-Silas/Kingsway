@@ -502,7 +502,7 @@ const PortfolioController = {
     },
 
     async deleteArtifact(artifactId) {
-        if (!window.confirm('Delete this artifact? This cannot be undone.')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this artifact? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.apiCall(`/academic/portfolio/artifact-delete/${artifactId}`, 'DELETE');
             this.showNotification('Artifact deleted', 'success');

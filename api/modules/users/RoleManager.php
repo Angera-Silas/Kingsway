@@ -3,6 +3,7 @@ namespace App\API\Modules\users;
 
 use PDO;
 use Exception;
+use function App\API\Includes\formatResponse;
 
 class RoleManager
 {
@@ -14,12 +15,11 @@ class RoleManager
     // CRUD for roles
     public function createRole($data)
     {
-        $sql = 'INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)';
+        $sql = 'INSERT INTO roles (name, description) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([
             $data['name'],
-            $data['description'] ?? null,
-            json_encode($data['permissions'] ?? [])
+            $data['description'] ?? null
         ]);
         return ['success' => $ok, 'id' => $this->db->lastInsertId()];
     }
@@ -38,12 +38,11 @@ class RoleManager
     }
     public function updateRole($id, $data)
     {
-        $sql = 'UPDATE roles SET name = ?, description = ?, permissions = ?, updated_at = NOW() WHERE id = ?';
+        $sql = 'UPDATE roles SET name = ?, description = ?, updated_at = NOW() WHERE id = ?';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([
             $data['name'],
             $data['description'] ?? null,
-            json_encode($data['permissions'] ?? []),
             $id
         ]);
         return ['success' => $ok, 'id' => $id];
@@ -57,16 +56,14 @@ class RoleManager
     // Assign/revoke permissions to role
     public function assignPermission($roleId, $formPermissionId)
     {
-        $sql = 'INSERT INTO role_form_permissions (role_id, form_permission_id, allowed_actions) VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE allowed_actions = VALUES(allowed_actions)';
-        $actions = json_encode(['grant']);
+        $sql = 'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
-        $ok = $stmt->execute([$roleId, $formPermissionId, $actions]);
+        $ok = $stmt->execute([$roleId, $formPermissionId]);
         return ['success' => $ok, 'role_id' => $roleId, 'form_permission_id' => $formPermissionId];
     }
     public function revokePermission($roleId, $formPermissionId)
     {
-        $sql = 'DELETE FROM role_form_permissions WHERE role_id = ? AND form_permission_id = ?';
+        $sql = 'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([$roleId, $formPermissionId]);
         return ['success' => $ok, 'role_id' => $roleId, 'form_permission_id' => $formPermissionId];
@@ -74,14 +71,13 @@ class RoleManager
     // Bulk operations
     public function bulkCreateRoles($roles)
     {
-        $sql = 'INSERT INTO roles (name, description, permissions) VALUES (?, ?, ?)';
+        $sql = 'INSERT INTO roles (name, description) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
         $ids = [];
         foreach ($roles as $role) {
             $stmt->execute([
                 $role['name'],
-                $role['description'] ?? null,
-                json_encode($role['permissions'] ?? [])
+                $role['description'] ?? null
             ]);
             $ids[] = $this->db->lastInsertId();
         }
@@ -89,14 +85,13 @@ class RoleManager
     }
     public function bulkUpdateRoles($roles)
     {
-        $sql = 'UPDATE roles SET name = ?, description = ?, permissions = ?, updated_at = NOW() WHERE id = ?';
+        $sql = 'UPDATE roles SET name = ?, description = ?, updated_at = NOW() WHERE id = ?';
         $stmt = $this->db->prepare($sql);
         $updated = [];
         foreach ($roles as $role) {
             $ok = $stmt->execute([
                 $role['name'],
                 $role['description'] ?? null,
-                json_encode($role['permissions'] ?? []),
                 $role['id']
             ]);
             if ($ok)
@@ -118,22 +113,115 @@ class RoleManager
     }
     public function bulkAssignPermissions($roleId, $formPermissionIds)
     {
-        $sql = 'INSERT INTO role_form_permissions (role_id, form_permission_id, allowed_actions) VALUES (?, ?, ?)
-                ON DUPLICATE KEY UPDATE allowed_actions = VALUES(allowed_actions)';
-        $stmt = $this->db->prepare($sql);
-        $actions = json_encode(['grant']);
-        foreach ($formPermissionIds as $pid) {
-            $stmt->execute([$roleId, $pid, $actions]);
-        }
-        return ['success' => true, 'role_id' => $roleId, 'form_permission_ids' => $formPermissionIds];
-    }
-    public function bulkRevokePermissions($roleId, $formPermissionIds)
-    {
-        $sql = 'DELETE FROM role_form_permissions WHERE role_id = ? AND form_permission_id = ?';
+        $sql = 'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)';
         $stmt = $this->db->prepare($sql);
         foreach ($formPermissionIds as $pid) {
             $stmt->execute([$roleId, $pid]);
         }
         return ['success' => true, 'role_id' => $roleId, 'form_permission_ids' => $formPermissionIds];
+    }
+    public function bulkRevokePermissions($roleId, $formPermissionIds)
+    {
+        $sql = 'DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?';
+        $stmt = $this->db->prepare($sql);
+        foreach ($formPermissionIds as $pid) {
+            $stmt->execute([$roleId, $pid]);
+        }
+        return ['success' => true, 'role_id' => $roleId, 'form_permission_ids' => $formPermissionIds];
+    }
+
+    // ======= Settings-page variants (formatResponse shape; column aliases match js/pages/settings.js DataTables) =======
+
+    public function listRolesForSettings()
+    {
+        $rows = $this->db->query(
+            "SELECT id, name AS role_name, description,
+                    is_active AS status, user_count,
+                    (SELECT COUNT(*) FROM role_permissions rp WHERE rp.role_id = roles.id) AS permission_count
+             FROM roles ORDER BY name ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        return formatResponse(true, $rows);
+    }
+
+    public function getRoleForSettings($id)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id, name AS role_name, description,
+                    is_active AS status, user_count,
+                    (SELECT COUNT(*) FROM role_permissions rp WHERE rp.role_id = roles.id) AS permission_count
+             FROM roles WHERE id = ?"
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return formatResponse(false, null, 'Role not found', 404);
+        }
+        return formatResponse(true, $row);
+    }
+
+    public function createRoleForSettings($name, $description = '')
+    {
+        $check = $this->db->prepare("SELECT id FROM roles WHERE name = ?");
+        $check->execute([$name]);
+        if ($check->fetch()) {
+            return formatResponse(false, null, 'A role with that name already exists', 409);
+        }
+        $stmt = $this->db->prepare("INSERT INTO roles (name, description, scope, is_active) VALUES (?, ?, 'school', 1)");
+        $stmt->execute([$name, $description]);
+        return formatResponse(true, ['id' => $this->db->lastInsertId(), 'role_name' => $name], 'Role created', 201);
+    }
+
+    public function updateRoleForSettings($id, $name, $description = '')
+    {
+        $stmt = $this->db->prepare("SELECT id, is_system FROM roles WHERE id = ?");
+        $stmt->execute([$id]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$existing) {
+            return formatResponse(false, null, 'Role not found', 404);
+        }
+        if (!empty($existing['is_system'])) {
+            return formatResponse(false, null, 'System roles cannot be modified', 403);
+        }
+        if ($name !== '') {
+            $dup = $this->db->prepare("SELECT id FROM roles WHERE name = ? AND id <> ?");
+            $dup->execute([$name, $id]);
+            if ($dup->fetch()) {
+                return formatResponse(false, null, 'A role with that name already exists', 409);
+            }
+        }
+        $upd = $this->db->prepare(
+            "UPDATE roles SET name = COALESCE(NULLIF(?, ''), name), description = ? WHERE id = ?"
+        );
+        $upd->execute([$name, $description, $id]);
+        return formatResponse(true, ['id' => $id], 'Role updated');
+    }
+
+    public function deleteRoleForSettings($id)
+    {
+        $stmt = $this->db->prepare("SELECT id, is_system FROM roles WHERE id = ?");
+        $stmt->execute([$id]);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$existing) {
+            return formatResponse(false, null, 'Role not found', 404);
+        }
+        if (!empty($existing['is_system'])) {
+            return formatResponse(false, null, 'System roles cannot be deleted', 403);
+        }
+        $this->db->prepare("DELETE FROM role_permissions WHERE role_id = ?")->execute([$id]);
+        $this->db->prepare("DELETE FROM user_roles WHERE role_id = ?")->execute([$id]);
+        $this->db->prepare("DELETE FROM roles WHERE id = ?")->execute([$id]);
+        return formatResponse(true, ['id' => $id], 'Role deleted');
+    }
+
+    public function listPermissionsForSettings()
+    {
+        $rows = $this->db->query(
+            "SELECT p.id, p.code AS permission_key, p.description AS permission_label,
+                    p.module, p.entity, p.action,
+                    (SELECT COUNT(*) FROM role_permissions rp WHERE rp.permission_id = p.id) AS role_count
+             FROM permissions p
+             ORDER BY p.module ASC, p.code ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        return formatResponse(true, $rows);
     }
 }

@@ -1,7 +1,8 @@
 /**
  * Academic Years Controller
  * Page: academic_years.php
- * Manages academic years and terms CRUD
+ * Registry for academic years: view all years, edit year metadata, view terms.
+ * New years and terms are created exclusively in Year Transition (Rollover).
  * Integrates with AcademicContext for centralized context management
  */
 const AcademicYearsController = {
@@ -44,14 +45,6 @@ const AcademicYearsController = {
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         this.saveAcademicYear();
-      });
-    }
-
-    const addTermForm = document.getElementById("addTermForm");
-    if (addTermForm) {
-      addTermForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        this.saveTerm();
       });
     }
 
@@ -160,21 +153,11 @@ const AcademicYearsController = {
                 <td>${statusBadge}</td>
                 <td>
                     <div class="btn-group btn-group-sm">
-                        ${
-                          !isCurrent
-                            ? `<button class="btn btn-outline-success" onclick="AcademicYearsController.setAsCurrent(${year.id})" title="Set as Current">
-                            <i class="fas fa-check"></i>
-                        </button>`
-                            : ""
-                        }
                         <button class="btn btn-outline-primary" onclick="AcademicYearsController.editYear(${year.id})" title="Edit">
                             <i class="fas fa-edit"></i>
                         </button>
                         <button class="btn btn-outline-info" onclick="AcademicYearsController.viewTerms(${year.id})" title="View Terms">
                             <i class="fas fa-list"></i>
-                        </button>
-                        <button class="btn btn-outline-danger" onclick="AcademicYearsController.deleteYear(${year.id})" title="Delete">
-                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
                 </td>
@@ -191,19 +174,18 @@ const AcademicYearsController = {
     const data = Object.fromEntries(formData.entries());
 
     try {
+      // This page manages existing years only — new years are created in Year
+      // Transition (Rollover), so the create path is intentionally removed.
       const editId = form.dataset.editId;
-      if (editId) {
-        await window.API.academic.updateYear(editId, data);
-      } else {
-        await window.API.academic.createYear(data);
+      if (!editId) {
+        this.showNotification("New years are created via Year Transition (Rollover).", "warning");
+        return;
       }
+      await window.API.academic.updateYear(editId, data);
 
-      this.showNotification(
-        editId ? "Academic year updated" : "Academic year created",
-        "success",
-      );
+      this.showNotification("Academic year updated", "success");
       const modal = bootstrap.Modal.getInstance(
-        document.getElementById("addAcademicYearModal"),
+        document.getElementById("editYearModal"),
       );
       if (modal) modal.hide();
       form.reset();
@@ -228,54 +210,13 @@ const AcademicYearsController = {
             if (input && year[field]) input.value = year[field];
           });
           const modal = new bootstrap.Modal(
-            document.getElementById("addAcademicYearModal"),
+            document.getElementById("editYearModal"),
           );
           modal.show();
         }
       }
     } catch (error) {
       console.error("Error loading year for edit:", error);
-    }
-  },
-
-  async setAsCurrent(yearId) {
-    if (!confirm("Set this as the current academic year?")) return;
-    try {
-      // Use AcademicContext if available for centralized management
-      if (window.AcademicContext) {
-        const success = await window.AcademicContext.setCurrentAcademicYear(yearId);
-        if (success) {
-          this.showNotification("Current academic year updated", "success");
-          // AcademicContext automatically refreshes and notifies subscribers
-          // No need to call loadData() here - it will be triggered by context change
-        } else {
-          this.showNotification("Failed to update current year", "error");
-        }
-      } else {
-        // Fallback to direct API call
-        await window.API.academic.setCurrentYear(yearId);
-        this.showNotification("Current academic year updated", "success");
-        await this.loadData();
-      }
-    } catch (error) {
-      console.error("Error setting current year:", error);
-      this.showNotification("Operation failed", "error");
-    }
-  },
-
-  async deleteYear(yearId) {
-    if (
-      !confirm(
-        "Are you sure you want to delete this academic year? This cannot be undone.",
-      )
-    )
-      return;
-    try {
-      await window.API.academic.deleteYear(yearId);
-      this.showNotification("Academic year deleted", "success");
-      await this.loadData();
-    } catch (error) {
-      console.error("Error deleting year:", error);
     }
   },
 
@@ -306,22 +247,6 @@ const AcademicYearsController = {
       this.showModal("Academic Year Terms", html);
     } catch (error) {
       console.error("Error loading terms:", error);
-    }
-  },
-
-  async saveTerm() {
-    const form = document.getElementById("addTermForm");
-    if (!form) return;
-    const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
-
-    try {
-      await window.API.academic.createTerm(data);
-      this.showNotification("Term created successfully", "success");
-      form.reset();
-      await this.loadData();
-    } catch (error) {
-      console.error("Error saving term:", error);
     }
   },
 

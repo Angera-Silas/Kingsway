@@ -17,7 +17,7 @@ const StudentsWithBalanceController = {
   },
 
   init: async function () {
-    await window.AuthContext?.ready();
+    await window.AuthContext.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -114,7 +114,7 @@ const StudentsWithBalanceController = {
       if (this.filters.class_id) params.class_id = this.filters.class_id;
       if (this.filters.amount_range) params.amount_range = this.filters.amount_range;
 
-      const resp = await window.API.finance.getPaymentStatus(params);
+      const resp = await window.API.finance.getStudentPaymentStatusList(params);
       const payload = this.unwrapPayload(resp);
 
       if (payload) {
@@ -429,7 +429,7 @@ const StudentsWithBalanceController = {
   },
 
   sendReminder: async function (studentId) {
-    if (!confirm("Send payment reminder to this student's parent/guardian?")) return;
+    if (!(await window.confirmAction("Send Reminder", "Send payment reminder to this student's parent/guardian?"))) return;
 
     try {
       await window.API.apiCall("/communications/send-reminder", "POST", {
@@ -452,7 +452,7 @@ const StudentsWithBalanceController = {
       return;
     }
 
-    if (!confirm(`Send payment reminders to ${selected.length} parent(s)/guardian(s)?`)) return;
+    if (!(await window.confirmAction("Send Reminders", `Send payment reminders to ${selected.length} parent(s)/guardian(s)?`, { confirmText: "Send Reminders" }))) return;
 
     try {
       for (const id of selected) {
@@ -541,7 +541,7 @@ const StudentsWithBalanceController = {
     if (window.API?.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      window.infoDialog("Success", message);
     }
   },
 
@@ -549,7 +549,7 @@ const StudentsWithBalanceController = {
     if (window.API?.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      window.infoDialog("Error", "Error: " + message);
     }
   },
 };

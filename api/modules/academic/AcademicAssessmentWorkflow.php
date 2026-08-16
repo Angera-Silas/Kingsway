@@ -78,26 +78,26 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             $this->db->beginTransaction();
 
             // Create assessment record
+            $classStreamId = $this->resolveClassStreamId((int) $plan['class_id']);
+            $assessmentTypeId = $this->resolveAssessmentTypeId($plan['classification_code'], $plan['assessment_type'] ?? null);
+
             $assessmentStmt = $this->db->prepare(
                 "INSERT INTO assessments (
-                    title, subject_id, class_id, term_id, 
-                    classification_code, total_marks, assessment_date, 
-                    assessment_type, status
+                    title, learning_area_id, academic_year_class_stream_id, academic_year_term_id,
+                    max_marks, assessment_date, assessment_type_id, status
                 ) VALUES (
-                    :title, :subject_id, :class_id, :term_id,
-                    :classification, :total_marks, :assessment_date,
-                    :type, 'draft'
+                    :title, :learning_area_id, :academic_year_class_stream_id, :academic_year_term_id,
+                    :max_marks, :assessment_date, :assessment_type_id, 'pending_submission'
                 )"
             );
             $assessmentStmt->execute([
                 'title' => $plan['title'],
-                'subject_id' => (int)$plan['subject_id'],
-                'class_id' => (int)$plan['class_id'],
-                'term_id' => (int)$plan['term_id'],
-                'classification' => $plan['classification_code'],
-                'total_marks' => (int)$plan['total_marks'],
-                'assessment_date' => $plan['assessment_date'] ?? null,
-                'type' => $plan['assessment_type'] ?? 'written',
+                'learning_area_id' => (int)$plan['subject_id'],
+                'academic_year_class_stream_id' => $classStreamId,
+                'academic_year_term_id' => (int)$plan['term_id'],
+                'max_marks' => (int)$plan['total_marks'],
+                'assessment_date' => $plan['assessment_date'] ?? date('Y-m-d'),
+                'assessment_type_id' => $assessmentTypeId,
             ]);
             $assessmentId = (int)$this->db->lastInsertId();
 
@@ -239,7 +239,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             // Update assessment status
             $this->db->prepare(
                 "UPDATE assessments 
-                SET status = 'administered',
+                SET status = 'submitted',
                     assessment_date = :date
                 WHERE id = :id"
             )->execute([
@@ -321,19 +321,18 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             // Insert/update marks
             $insertStmt = $this->db->prepare(
                 "INSERT INTO assessment_results (
-                    assessment_id, student_id, score_obtained, percentage,
-                    grade_code, grade_points, performance_level, remarks, marked_by
+                    assessment_id, student_academic_enrollment_id, marks_obtained,
+                    grade, points, remarks, responder_type, responder_id
                 ) VALUES (
-                    :assessment_id, :student_id, :score, :percentage,
-                    :grade, :points, :perf_level, :remarks, :marked_by
+                    :assessment_id, :enrollment_id, :score,
+                    :grade, :points, :remarks, 'teacher', :responder_id
                 ) ON DUPLICATE KEY UPDATE
-                    score_obtained = VALUES(score_obtained),
-                    percentage = VALUES(percentage),
-                    grade_code = VALUES(grade_code),
-                    grade_points = VALUES(grade_points),
-                    performance_level = VALUES(performance_level),
+                    marks_obtained = VALUES(marks_obtained),
+                    grade = VALUES(grade),
+                    points = VALUES(points),
                     remarks = VALUES(remarks),
-                    marked_by = VALUES(marked_by)"
+                    responder_type = 'teacher',
+                    responder_id = VALUES(responder_id)"
             );
 
             $gradedCount = 0;
@@ -341,6 +340,10 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
 
             foreach ($marks as $mark) {
                 $studentId = (int)$mark['student_id'];
+                $enrollmentId = $this->resolveEnrollmentId($studentId);
+                if ($enrollmentId <= 0) {
+                    continue;
+                }
                 $score = (float)$mark['score_obtained'];
                 $percentage = $totalMarks > 0 ? round(($score / $totalMarks) * 100, 2) : 0;
 
@@ -359,14 +362,12 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
 
                 $insertStmt->execute([
                     'assessment_id' => $assessmentId,
-                    'student_id' => $studentId,
+                    'enrollment_id' => $enrollmentId,
                     'score' => $score,
-                    'percentage' => $percentage,
                     'grade' => $gradeInfo['grade_code'],
                     'points' => $gradeInfo['grade_points'],
-                    'perf_level' => $gradeInfo['performance_level'],
                     'remarks' => $mark['remarks'] ?? '',
-                    'marked_by' => $this->user_id,
+                    'responder_id' => $this->user_id,
                 ]);
 
                 $gradedCount++;
@@ -379,7 +380,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             // Update assessment status
             $this->db->prepare(
                 "UPDATE assessments 
-                SET status = 'marked'
+                SET status = 'submitted'
                 WHERE id = :id"
             )->execute(['id' => $assessmentId]);
 
@@ -387,12 +388,13 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             $statsStmt = $this->db->prepare(
                 "SELECT 
                     COUNT(*) as total_marked,
-                    AVG(percentage) as mean_percentage,
-                    MAX(percentage) as highest_percentage,
-                    MIN(percentage) as lowest_percentage,
-                    STDDEV(percentage) as std_deviation
-                FROM assessment_results
-                WHERE assessment_id = :id"
+                    AVG(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as mean_percentage,
+                    MAX(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as highest_percentage,
+                    MIN(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as lowest_percentage,
+                    STDDEV(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END) as std_deviation
+                FROM assessment_results ar
+                JOIN assessments a ON a.id = ar.assessment_id
+                WHERE ar.assessment_id = :id"
             );
             $statsStmt->execute(['id' => $assessmentId]);
             $statistics = $statsStmt->fetch(PDO::FETCH_ASSOC);
@@ -451,7 +453,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             $resultsStmt = $this->db->prepare(
                 "SELECT * FROM assessment_results 
                 WHERE assessment_id = :id 
-                ORDER BY percentage DESC"
+                ORDER BY marks_obtained DESC"
             );
             $resultsStmt->execute(['id' => $assessmentId]);
             $results = $resultsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -463,7 +465,7 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
             // Performance level distribution
             $perfLevelDist = [];
             foreach ($results as $result) {
-                $level = $result['performance_level'] ?? 'Unknown';
+                $level = $this->derivePerformanceLevel($result['grade'] ?? '');
                 $perfLevelDist[$level] = ($perfLevelDist[$level] ?? 0) + 1;
             }
 
@@ -562,5 +564,86 @@ class AcademicAssessmentWorkflow extends WorkflowHandler {
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * Resolve an input class id to an academic_year_class_streams row id.
+     * Accepts either a stream id (used directly) or a classes.id resolved
+     * through the most recent academic year.
+     */
+    private function resolveClassStreamId(int $classId): int
+    {
+        if ($classId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_class_streams WHERE id = ? LIMIT 1");
+        $stmt->execute([$classId]);
+        if ($streamId = $stmt->fetchColumn()) {
+            return (int) $streamId;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT aycs.id
+             FROM academic_year_classes ayc
+             JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+             WHERE ayc.class_id = ?
+             ORDER BY ayc.academic_year_id DESC, aycs.id
+             LIMIT 1"
+        );
+        $stmt->execute([$classId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve the assessment_types row id from a CBC classification (CA/SBA/SA)
+     * and an optional assessment type name, falling back to the first active
+     * formative (CA) or summative (SBA/SA) type.
+     */
+    private function resolveAssessmentTypeId(string $classification, $assessmentType = null): ?int
+    {
+        if ($assessmentType) {
+            $stmt = $this->db->prepare("SELECT id FROM assessment_types WHERE LOWER(name) = LOWER(?) AND status = 'active' LIMIT 1");
+            $stmt->execute([(string) $assessmentType]);
+            $id = $stmt->fetchColumn();
+            if ($id) {
+                return (int) $id;
+            }
+        }
+        $isSummative = in_array(strtoupper($classification), ['SBA', 'SA'], true) ? 1 : 0;
+        $stmt = $this->db->query("SELECT id FROM assessment_types WHERE status='active' AND is_summative = {$isSummative} ORDER BY id LIMIT 1");
+        $id = $stmt->fetchColumn();
+        return $id ? (int) $id : null;
+    }
+
+    /**
+     * Resolve a student id to the current student_academic_enrollments row id.
+     */
+    private function resolveEnrollmentId(int $studentId): int
+    {
+        if ($studentId <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT id
+             FROM student_academic_enrollments
+             WHERE student_id = ? AND enrollment_status IN ('active', 'pending')
+             ORDER BY id DESC
+             LIMIT 1"
+        );
+        $stmt->execute([$studentId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Map a CBC grade code back to its performance level label.
+     */
+    private function derivePerformanceLevel(string $grade): string
+    {
+        $map = [
+            'EE' => 'Exceeding Expectations',
+            'ME' => 'Meeting Expectations',
+            'AE' => 'Approaching Expectations',
+            'BE' => 'Below Expectations',
+        ];
+        return $map[strtoupper($grade)] ?? 'Unknown';
     }
 }

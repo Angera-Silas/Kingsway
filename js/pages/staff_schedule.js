@@ -228,9 +228,9 @@ const staffScheduleController = {
     return `${h12}:${String(m).padStart(2,'0')}${ampm}`;
   },
 
-  printSchedule: function () {
+  printSchedule: async function () {
     if (!this._schedule || this._schedule.length === 0) {
-      alert('No schedule data to print');
+      await window.infoDialog('Print', 'No schedule data to print');
       return;
     }
 

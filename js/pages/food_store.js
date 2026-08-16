@@ -2,12 +2,16 @@
  * Food Store Controller
  * Page: food_store.php
  * Kitchen inventory management - items, stock levels, issuance
+ * Backed by the inventory module (inventory_items / vw_inventory_health).
  */
 const FoodStoreController = {
   state: {
     items: [],
     allItems: [],
     editId: null,
+    categories: [],
+    locations: [],
+    suppliers: [],
   },
 
   async init() {
@@ -17,6 +21,7 @@ const FoodStoreController = {
       return;
     }
     this.bindEvents();
+    await this.loadReferenceData();
     await this.loadData();
   },
 
@@ -30,6 +35,9 @@ const FoodStoreController = {
     document
       .getElementById("saveItemBtn")
       ?.addEventListener("click", () => this.saveItem());
+    document
+      .getElementById("saveIssueBtn")
+      ?.addEventListener("click", () => this.issueItems());
     document
       .getElementById("exportBtn")
       ?.addEventListener("click", () => this.exportCSV());
@@ -45,21 +53,95 @@ const FoodStoreController = {
       ?.addEventListener("change", () => this.applyFilters());
   },
 
+  async loadReferenceData() {
+    try {
+      const cat =
+        (await window.API.inventory.listCategories().catch(() => null)) || {};
+      this.state.categories = Array.isArray(cat.categories) ? cat.categories : [];
+
+      const loc =
+        (await window.API.inventory
+          .listLocations({ limit: 200 })
+          .catch(() => null)) || {};
+      this.state.locations = Array.isArray(loc.locations) ? loc.locations : [];
+
+      const sup =
+        (await window.API.inventory
+          .listSuppliers({ limit: 200 })
+          .catch(() => null)) || {};
+      this.state.suppliers = Array.isArray(sup.suppliers) ? sup.suppliers : [];
+
+      this.populateReferenceSelects();
+    } catch (error) {
+      console.error("Error loading reference data:", error);
+    }
+  },
+
+  populateReferenceSelects() {
+    const catSel = document.getElementById("category");
+    if (catSel) {
+      catSel.innerHTML = this.state.categories
+        .map(
+          (c) =>
+            `<option value="${this.esc(c.category_name)}">${this.esc(
+              c.category_name,
+            )}</option>`,
+        )
+        .join("");
+    }
+    const catFilter = document.getElementById("categoryFilter");
+    if (catFilter) {
+      catFilter.innerHTML =
+        '<option value="">All Categories</option>' +
+        this.state.categories
+          .map(
+            (c) =>
+              `<option value="${this.esc(c.category_name)}">${this.esc(
+                c.category_name,
+              )}</option>`,
+          )
+          .join("");
+    }
+    const locSel = document.getElementById("storageLocation");
+    if (locSel) {
+      locSel.innerHTML = this.state.locations
+        .map(
+          (l) =>
+            `<option value="${l.id}">${this.esc(l.location_name)}</option>`,
+        )
+        .join("");
+    }
+  },
+
+  mapItem(i) {
+    return {
+      id: i.id,
+      name: i.name || i.item_name || "",
+      category: i.category_name || "",
+      quantity: parseFloat(i.current_quantity ?? i.quantity ?? 0),
+      unit: i.unit || "",
+      reorder_level: parseFloat(i.reorder_level ?? 0),
+      unit_price: parseFloat(i.unit_cost ?? i.unit_price ?? 0),
+      location_id: i.location_id ?? null,
+      supplier_name: i.supplier_name || "",
+    };
+  },
+
   async loadData() {
     try {
       this.showTableLoading();
       const res =
-        (await window.API.boarding.getFoodStore().catch(() => null)) ||
-        (await window.API.academic
-          .getCustom({ action: "food-store" })
-          .catch(() => null));
-
-      this.state.allItems = res || [];
+        (await window.API.inventory
+          .listItems({ limit: 200, status: "active" })
+          .catch(() => null)) || {};
+      const rows = Array.isArray(res.items) ? res.items : [];
+      this.state.allItems = rows.map((i) => this.mapItem(i));
       this.state.items = [...this.state.allItems];
       this.updateStats();
       this.renderTable();
     } catch (error) {
       console.error("Error loading food store:", error);
+      this.renderTable();
     }
   },
 
@@ -177,6 +259,8 @@ const FoodStoreController = {
         document.getElementById("reorderLevel").value = i.reorder_level || 0;
         const priceEl = document.getElementById("unitPrice");
         if (priceEl) priceEl.value = i.unit_price || 0;
+        const locEl = document.getElementById("storageLocation");
+        if (locEl) locEl.value = i.location_id || "";
       }
     } else {
       title.textContent = "Add Food Item";
@@ -185,66 +269,155 @@ const FoodStoreController = {
   },
 
   async saveItem() {
-    const data = {
-      name: document.getElementById("itemName")?.value,
-      category: document.getElementById("category")?.value,
-      unit: document.getElementById("unit")?.value,
-      quantity: document.getElementById("quantity")?.value,
-      reorder_level: document.getElementById("reorderLevel")?.value,
-      unit_price: document.getElementById("unitPrice")?.value || 0,
-    };
-    if (!data.name) {
+    const id = document.getElementById("itemId")?.value;
+    const name = document.getElementById("itemName")?.value?.trim();
+    const catName = document.getElementById("category")?.value;
+    const unit = document.getElementById("unit")?.value;
+    const quantity = parseFloat(document.getElementById("quantity")?.value || 0);
+    const reorder = parseFloat(
+      document.getElementById("reorderLevel")?.value || 0,
+    );
+    const price = parseFloat(document.getElementById("unitPrice")?.value || 0);
+    const locationId = document.getElementById("storageLocation")?.value || null;
+    const supplierName =
+      document.getElementById("supplier")?.value?.trim() || "";
+
+    if (!name) {
       this.showNotification("Item name is required", "warning");
       return;
     }
+    const categoryId = this.state.categories.find(
+      (c) => c.category_name === catName,
+    )?.id;
+    if (!categoryId) {
+      this.showNotification("Select a valid category", "warning");
+      return;
+    }
+    const supplierId = this.state.suppliers.find(
+      (s) => (s.supplier_name || "").toLowerCase() === supplierName.toLowerCase(),
+    )?.id || null;
 
     try {
-      const id = document.getElementById("itemId")?.value;
       if (id) {
-        await window.API.boarding.updateFoodItem(id, data).catch(() => null);
+        const item = this.state.allItems.find((x) => x.id == id);
+        await window.API.inventory.update(id, {
+          item_name: name,
+          category_id: categoryId,
+          unit_of_measure: unit,
+          unit_cost: price,
+          reorder_level: reorder,
+          location_id: locationId,
+          supplier_id: supplierId,
+        });
+        const prevQty = item ? parseFloat(item.quantity || 0) : 0;
+        if (prevQty !== quantity) {
+          const delta = quantity - prevQty;
+          await window.API.inventory.recordMovement({
+            transaction_type: delta > 0 ? "adjustment_in" : "adjustment_out",
+            item_id: parseInt(id, 10),
+            quantity: Math.abs(delta),
+            unit_cost: price,
+            notes: "Food store quantity update",
+            transaction_date: new Date().toISOString().slice(0, 10),
+            update_quantity: true,
+          });
+        }
       } else {
-        await window.API.boarding.addFoodItem(data).catch(() => null);
+        await window.API.inventory.create({
+          item_name: name,
+          item_code: this.generateCode(),
+          category_id: categoryId,
+          unit_of_measure: unit,
+          quantity_on_hand: quantity,
+          unit_cost: price,
+          reorder_level: reorder,
+          location_id: locationId,
+          supplier_id: supplierId,
+        });
       }
       bootstrap.Modal.getInstance(document.getElementById("itemModal"))?.hide();
       this.showNotification("Item saved", "success");
       await this.loadData();
     } catch (error) {
+      console.error("Error saving item:", error);
       this.showNotification("Error saving item", "error");
     }
   },
 
   async deleteItem(id) {
-    if (!confirm("Delete this item?")) return;
-    this.state.allItems = this.state.allItems.filter((i) => i.id != id);
-    this.state.items = this.state.items.filter((i) => i.id != id);
-    this.updateStats();
-    this.renderTable();
-    this.showNotification("Item deleted", "success");
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this item?", { confirmText: 'Delete', danger: true }))) return;
+    try {
+      await window.API.inventory.delete(id);
+      this.showNotification("Item deleted", "success");
+      await this.loadData();
+    } catch (error) {
+      console.error("Error deleting item:", error);
+      this.showNotification("Error deleting item", "error");
+    }
+  },
+
+  generateCode() {
+    return "FS-" + Date.now().toString(36).toUpperCase();
   },
 
   openIssueModal() {
-    let modal = document.getElementById("issueModal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "issueModal";
-      modal.className = "modal fade";
-      modal.tabIndex = -1;
-      modal.innerHTML = `<div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Issue Items</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">
-                <form id="issueForm">
-                    <div class="mb-3"><label class="form-label">Item</label><select class="form-select" id="issueItem">${this.state.allItems.map((i) => `<option value="${i.id}">${this.esc(i.name || i.item_name)} (${i.quantity} ${i.unit})</option>`).join("")}</select></div>
-                    <div class="mb-3"><label class="form-label">Quantity</label><input type="number" class="form-control" id="issueQty" min="0.01" step="0.01" required></div>
-                    <div class="mb-3"><label class="form-label">Issued To</label><input type="text" class="form-control" id="issuedTo" placeholder="e.g. Kitchen"></div>
-                    <div class="mb-3"><label class="form-label">Reason</label><textarea class="form-control" id="issueReason" rows="2"></textarea></div>
-                    <button type="submit" class="btn btn-primary">Issue</button>
-                </form></div></div></div>`;
-      document.body.appendChild(modal);
-      document.getElementById("issueForm")?.addEventListener("submit", (e) => {
-        e.preventDefault();
-        bootstrap.Modal.getInstance(modal)?.hide();
-        this.showNotification("Items issued successfully", "success");
-      });
+    const modal = document.getElementById("issueModal");
+    if (!modal) return;
+    const sel = document.getElementById("issueItem");
+    if (sel) {
+      sel.innerHTML = this.state.allItems
+        .map(
+          (i) =>
+            `<option value="${i.id}">${this.esc(i.name)} (${i.quantity} ${i.unit})</option>`,
+        )
+        .join("");
+      sel.onchange = () => this.updateIssueAvailability();
+      this.updateIssueAvailability();
     }
+    const dateEl = document.getElementById("issueDate");
+    if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
     new bootstrap.Modal(modal).show();
+  },
+
+  updateIssueAvailability() {
+    const sel = document.getElementById("issueItem");
+    const item = this.state.allItems.find((x) => x.id == sel?.value);
+    const qtyEl = document.getElementById("availableQty");
+    const unitEl = document.getElementById("availableUnit");
+    if (qtyEl) qtyEl.textContent = item ? item.quantity : 0;
+    if (unitEl) unitEl.textContent = item ? item.unit : "";
+  },
+
+  async issueItems() {
+    const id = document.getElementById("issueItem")?.value;
+    const qty = parseFloat(document.getElementById("issueQuantity")?.value || 0);
+    const issuedTo = document.getElementById("issuedTo")?.value?.trim();
+    const purpose = document.getElementById("purpose")?.value;
+    const date = document.getElementById("issueDate")?.value;
+    const notes = document.getElementById("issueNotes")?.value?.trim() || "";
+    if (!id || !qty || !issuedTo || !date) {
+      this.showNotification("Complete all required fields", "warning");
+      return;
+    }
+    const item = this.state.allItems.find((x) => x.id == id);
+    if (!item) return;
+    try {
+      await window.API.inventory.recordMovement({
+        transaction_type: "issue",
+        item_id: parseInt(id, 10),
+        quantity: qty,
+        unit_cost: parseFloat(item.unit_price || 0),
+        notes: `Issued to ${issuedTo} (${purpose || "other"})${notes ? ": " + notes : ""}`,
+        transaction_date: date,
+        update_quantity: true,
+      });
+      bootstrap.Modal.getInstance(document.getElementById("issueModal"))?.hide();
+      this.showNotification("Items issued", "success");
+      await this.loadData();
+    } catch (error) {
+      console.error("Error issuing items:", error);
+      this.showNotification("Error issuing items", "error");
+    }
   },
 
   exportCSV() {

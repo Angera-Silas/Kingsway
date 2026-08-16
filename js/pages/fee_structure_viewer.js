@@ -635,9 +635,9 @@ class FeeStructureViewerController {
   /**
    * Print summary
    */
-  printSummary() {
+  async printSummary() {
     if (!this.currentAggregated || this.currentAggregated.length === 0) {
-      alert("No fee structure data to print");
+      await window.infoDialog('Notice', "No fee structure data to print");
       return;
     }
 
@@ -687,9 +687,9 @@ class FeeStructureViewerController {
     });
   }
 
-  printStructure() {
+  async printStructure() {
     if (!this.selectedStructure) {
-      alert("No fee structure selected");
+      await window.infoDialog('Notice', "No fee structure selected");
       return;
     }
 
@@ -781,8 +781,8 @@ class FeeStructureViewerController {
     }
   }
 
-  showError(message) {
-    alert("Error: " + message);
+  async showError(message) {
+    await window.infoDialog('Notice', "Error: " + message);
   }
 
   exportCsv(rows, filename) {

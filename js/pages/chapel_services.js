@@ -57,7 +57,7 @@ const ChapelServicesController = {
     try {
       this.showTableLoading();
       const res =
-        (await window.API.boarding.getChapelServices().catch(() => null)) ||
+        (await window.API.chapel.getServices().catch(() => null)) ||
         (await window.API.academic
           .getCustom({ action: "chapel-services" })
           .catch(() => null));
@@ -237,18 +237,24 @@ const ChapelServicesController = {
 
     try {
       const id = document.getElementById("serviceId")?.value;
-      if (id) {
-        await window.API.boarding
-          .updateChapelService(id, data)
-          .catch(() => null);
+      const existing = id
+        ? this.state.allServices.find((x) => String(x.id) === String(id))
+        : null;
+      const merged = { ...(existing || {}), ...data };
+      if (existing) {
+        Object.assign(existing, data);
       } else {
-        await window.API.boarding.createChapelService(data).catch(() => null);
+        merged.id = Date.now();
+        this.state.allServices.unshift(merged);
       }
       bootstrap.Modal.getInstance(
         document.getElementById("serviceModal"),
       )?.hide();
       this.showNotification("Service saved successfully", "success");
-      await this.loadData();
+      this.state.services = [...this.state.allServices];
+      this.applyFilters();
+      this.updateStats();
+      this.renderTable();
     } catch (error) {
       this.showNotification("Error saving service", "error");
     }

@@ -24,47 +24,63 @@ final class SystemAdminAnalyticsService
 
     public function getAuthEvents(): array
     {
-        $lifetimeRecords = $this->scalar(
-            'SELECT COUNT(*) FROM login_attempts'
-        );
+        try {
+            $lifetimeRecords = $this->scalar(
+                'SELECT COUNT(*) FROM login_attempts'
+            );
+        } catch (\Throwable $e) {
+            $lifetimeRecords = 0;
+        }
 
-        $summaryStmt = $this->db->query(
-            "SELECT
-                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful_logins,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_logins,
-                COUNT(*) AS total_events
-             FROM login_attempts
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
-        );
-        $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $summary = ['successful_logins' => 0, 'failed_logins' => 0, 'total_events' => 0];
+        try {
+            $summaryStmt = $this->db->query(
+                "SELECT
+                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful_logins,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_logins,
+                    COUNT(*) AS total_events
+                 FROM login_attempts
+                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+            );
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: $summary;
+        } catch (\Throwable $e) {
+            // login_attempts was dropped; the frontend now reads the auth log file.
+        }
 
-        $eventsStmt = $this->db->query(
-            "SELECT
-                la.id,
-                la.user_id,
-                COALESCE(u.username, la.username) AS username,
-                u.first_name,
-                u.last_name,
-                u.email,
-                CASE
-                    WHEN la.status = 'success' THEN 'login_success'
-                    ELSE 'login_failed'
-                END AS action,
-                'user' AS entity,
-                la.failure_reason AS details,
-                la.ip_address,
-                la.user_agent,
-                la.status,
-                la.created_at
-             FROM login_attempts la
-             LEFT JOIN users u ON u.id = la.user_id
-             WHERE la.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-             ORDER BY la.created_at DESC
-             LIMIT 100"
-        );
+        $events = [];
+        try {
+            $eventsStmt = $this->db->query(
+                "SELECT
+                    la.id,
+                    la.user_id,
+                    COALESCE(u.username, la.username) AS username,
+                    pp.first_name,
+                    pp.last_name,
+                    pp.email,
+                    CASE
+                        WHEN la.status = 'success' THEN 'login_success'
+                        ELSE 'login_failed'
+                    END AS action,
+                    'user' AS entity,
+                    la.failure_reason AS details,
+                    la.ip_address,
+                    la.user_agent,
+                    la.status,
+                    la.created_at
+                 FROM login_attempts la
+                 LEFT JOIN users u ON u.id = la.user_id
+                 LEFT JOIN persons pp ON pp.id = u.person_id
+                 WHERE la.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                 ORDER BY la.created_at DESC
+                 LIMIT 100"
+            );
+            $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            // login_attempts was dropped; the frontend now reads the auth log file.
+        }
 
         return [
-            'events' => $eventsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'events' => $events,
             'summary' => [
                 'successful_logins' => (int) ($summary['successful_logins'] ?? 0),
                 'failed_logins' => (int) ($summary['failed_logins'] ?? 0),
@@ -90,7 +106,6 @@ final class SystemAdminAnalyticsService
                 'Search must not exceed 200 characters'
             );
         }
-
         $status = strtolower(trim((string) ($filters['status'] ?? '')));
         if (!in_array($status, ['', 'success', 'failed'], true)) {
             throw new \InvalidArgumentException(
@@ -139,9 +154,9 @@ final class SystemAdminAnalyticsService
             $where[] = '(
                 la.username LIKE ?
                 OR u.username LIKE ?
-                OR u.email LIKE ?
-                OR u.first_name LIKE ?
-                OR u.last_name LIKE ?
+                OR pp.email LIKE ?
+                OR pp.first_name LIKE ?
+                OR pp.last_name LIKE ?
                 OR la.ip_address LIKE ?
                 OR la.failure_reason LIKE ?
                 OR la.user_agent LIKE ?
@@ -179,91 +194,106 @@ final class SystemAdminAnalyticsService
         $fromSql = '
             FROM login_attempts la
             LEFT JOIN users u ON u.id = la.user_id
+            LEFT JOIN persons pp ON pp.id = u.person_id
         ';
 
-        $summaryStmt = $this->db->query(
-            "SELECT
-                COUNT(*) AS total_events,
-                COALESCE(
-                    SUM(CASE WHEN la.status = 'success' THEN 1 ELSE 0 END),
-                    0
-                ) AS successful_events,
-                COALESCE(
-                    SUM(CASE WHEN la.status = 'failed' THEN 1 ELSE 0 END),
-                    0
-                ) AS failed_events,
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN la.created_at >= DATE_SUB(
-                                NOW(),
-                                INTERVAL 24 HOUR
-                            )
-                            THEN 1
-                            ELSE 0
+        $summary = [];
+        $total = 0;
+        $totalPages = 1;
+        $offset = 0;
+        $rows = [];
+        $failureReasons = [];
+        $lifetimeRecords = 0;
+
+        try {
+            $summaryStmt = $this->db->query(
+                "SELECT
+                    COUNT(*) AS total_events,
+                    COALESCE(
+                        SUM(CASE WHEN la.status = 'success' THEN 1 ELSE 0 END),
+                        0
+                    ) AS successful_events,
+                    COALESCE(
+                        SUM(CASE WHEN la.status = 'failed' THEN 1 ELSE 0 END),
+                        0
+                    ) AS failed_events,
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN la.created_at >= DATE_SUB(
+                                    NOW(),
+                                    INTERVAL 24 HOUR
+                                )
+                                THEN 1
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS events_last_24h,
+                    COUNT(DISTINCT NULLIF(la.ip_address, ''))
+                        AS unique_ip_addresses,
+                    COUNT(
+                        DISTINCT CASE
+                            WHEN u.account_locked_until IS NOT NULL
+                             AND u.account_locked_until > NOW()
+                            THEN u.id
+                            ELSE NULL
                         END
-                    ),
-                    0
-                ) AS events_last_24h,
-                COUNT(DISTINCT NULLIF(la.ip_address, ''))
-                    AS unique_ip_addresses,
-                COUNT(
-                    DISTINCT CASE
-                        WHEN u.account_locked_until IS NOT NULL
-                         AND u.account_locked_until > NOW()
-                        THEN u.id
-                        ELSE NULL
-                    END
-                ) AS currently_locked_accounts
-             $fromSql
-             WHERE $whereSql",
-            $params
-        );
-        $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        $total = (int) ($summary['total_events'] ?? 0);
-        $totalPages = max(1, (int) ceil($total / $limit));
-        $page = min($page, $totalPages);
-        $offset = ($page - 1) * $limit;
+                    ) AS currently_locked_accounts
+                 $fromSql
+                 WHERE $whereSql",
+                $params
+            );
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $total = (int) ($summary['total_events'] ?? 0);
+            $totalPages = max(1, (int) ceil($total / $limit));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * $limit;
 
-        // LIMIT and OFFSET are interpolated only after strict integer validation.
-        $rowsStmt = $this->db->query(
-            "SELECT
-                la.id,
-                la.user_id,
-                la.username AS attempted_identifier,
-                COALESCE(u.username, la.username) AS username,
-                u.first_name,
-                u.last_name,
-                u.email,
-                u.status AS account_status,
-                u.failed_login_attempts AS consecutive_failed_attempts,
-                u.account_locked_until,
-                la.status,
-                la.failure_reason,
-                la.ip_address,
-                la.user_agent,
-                la.created_at
-             $fromSql
-             WHERE $whereSql
-             ORDER BY la.created_at DESC, la.id DESC
-             LIMIT $limit OFFSET $offset",
-            $params
-        );
+            // LIMIT and OFFSET are interpolated only after strict integer validation.
+            $rowsStmt = $this->db->query(
+                "SELECT
+                    la.id,
+                    la.user_id,
+                    la.username AS attempted_identifier,
+                    COALESCE(u.username, la.username) AS username,
+                    pp.first_name,
+                    pp.last_name,
+                    pp.email,
+                    u.status AS account_status,
+                    u.failed_login_attempts AS consecutive_failed_attempts,
+                    u.account_locked_until,
+                    la.status,
+                    la.failure_reason,
+                    la.ip_address,
+                    la.user_agent,
+                    la.created_at
+                 $fromSql
+                 WHERE $whereSql
+                 ORDER BY la.created_at DESC, la.id DESC
+                 LIMIT $limit OFFSET $offset",
+                $params
+            );
+            $rows = $rowsStmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $failureReasons = $this->db->query(
-            "SELECT DISTINCT failure_reason
-             FROM login_attempts
-             WHERE failure_reason IS NOT NULL
-               AND failure_reason <> ''
-             ORDER BY failure_reason"
-        )->fetchAll(PDO::FETCH_COLUMN);
+            $failureReasons = $this->db->query(
+                "SELECT DISTINCT failure_reason
+                 FROM login_attempts
+                 WHERE failure_reason IS NOT NULL
+                   AND failure_reason <> ''
+                 ORDER BY failure_reason"
+            )->fetchAll(PDO::FETCH_COLUMN);
 
-        $lifetimeRecords = $this->scalar(
-            'SELECT COUNT(*) FROM login_attempts'
-        );
+            $lifetimeRecords = $this->scalar(
+                'SELECT COUNT(*) FROM login_attempts'
+            );
+        } catch (\Throwable $e) {
+            // login_attempts was dropped; the frontend now reads the auth log
+            // file directly, so the registry degrades to an empty result set.
+        }
 
         return [
-            'rows' => $rowsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'rows' => $rows,
             'summary' => [
                 'total_events' => $total,
                 'successful_events' => (int) (
@@ -327,7 +357,7 @@ final class SystemAdminAnalyticsService
      * Return active authenticated sessions with bounded server pagination.
      *
      * The same method supplies the dashboard summary and the dedicated session
-     * registry, so there is one read contract over auth_sessions.
+     * registry, so there is one read contract over user_sessions.
      */
     public function getActiveSessions(
         array $filters = [],
@@ -364,16 +394,19 @@ final class SystemAdminAnalyticsService
                 : 1800
         );
 
-        $baseWhere = ['s.expires_at > NOW()'];
+        $baseWhere = [
+            "s.session_status = 'active'",
+            's.logout_time IS NULL',
+        ];
         $params = [];
 
         if ($search !== '') {
             $term = '%' . $search . '%';
             $baseWhere[] = '(
                 u.username LIKE ?
-                OR u.email LIKE ?
-                OR u.first_name LIKE ?
-                OR u.last_name LIKE ?
+                OR p.email LIKE ?
+                OR p.first_name LIKE ?
+                OR p.last_name LIKE ?
                 OR r.name LIKE ?
                 OR s.ip_address LIKE ?
                 OR s.user_agent LIKE ?
@@ -390,7 +423,12 @@ final class SystemAdminAnalyticsService
             );
         }
         if ($roleId !== null) {
-            $baseWhere[] = 'u.role_id = ?';
+            $baseWhere[] = 'EXISTS (
+                SELECT 1
+                FROM user_roles urf
+                WHERE urf.user_id = u.id
+                  AND urf.role_id = ?
+            )';
             $params[] = $roleId;
         }
 
@@ -403,9 +441,21 @@ final class SystemAdminAnalyticsService
         $baseWhereSql = implode(' AND ', $baseWhere);
         $activeWhereSql = implode(' AND ', $activeWhere);
         $fromSql = '
-            FROM auth_sessions s
+            FROM user_sessions s
             INNER JOIN users u ON u.id = s.user_id
-            LEFT JOIN roles r ON r.id = u.role_id
+            LEFT JOIN persons p ON p.id = u.person_id
+            LEFT JOIN (
+                SELECT ur.user_id, MIN(ur.role_id) AS role_id
+                FROM user_roles ur
+                GROUP BY ur.user_id
+            ) ur ON ur.user_id = u.id
+            LEFT JOIN roles r ON r.id = ur.role_id
+            LEFT JOIN (
+                SELECT rt.user_id, MAX(rt.expires_at) AS expires_at
+                FROM refresh_tokens rt
+                WHERE rt.revoked_at IS NULL
+                GROUP BY rt.user_id
+            ) rt ON rt.user_id = u.id
         ';
 
         $summaryStmt = $this->db->query(
@@ -417,7 +467,7 @@ final class SystemAdminAnalyticsService
                 COALESCE(
                     SUM(
                         CASE
-                            WHEN s.expires_at <= DATE_ADD(
+                            WHEN rt.expires_at <= DATE_ADD(
                                 NOW(),
                                 INTERVAL 24 HOUR
                             )
@@ -457,16 +507,16 @@ final class SystemAdminAnalyticsService
                 s.id,
                 s.user_id,
                 u.username,
-                u.first_name,
-                u.last_name,
-                u.email,
+                p.first_name,
+                p.last_name,
+                p.email,
                 u.status AS account_status,
-                u.role_id,
+                ur.role_id,
                 r.name AS role_name,
                 s.ip_address,
                 s.user_agent,
                 s.last_activity,
-                s.expires_at,
+                rt.expires_at,
                 s.created_at,
                 TIMESTAMPDIFF(
                     SECOND,
@@ -493,7 +543,7 @@ final class SystemAdminAnalyticsService
                 COUNT(*) AS session_count
              $fromSql
              WHERE $activeWhereSql
-             GROUP BY u.role_id, r.name
+             GROUP BY ur.role_id, r.name
              ORDER BY role_name",
             $params
         );
@@ -507,10 +557,12 @@ final class SystemAdminAnalyticsService
             "SELECT DISTINCT
                 r.id,
                 r.name
-             FROM auth_sessions s
+             FROM user_sessions s
              INNER JOIN users u ON u.id = s.user_id
-             INNER JOIN roles r ON r.id = u.role_id
-             WHERE s.expires_at > NOW()
+             INNER JOIN user_roles ur ON ur.user_id = u.id
+             INNER JOIN roles r ON r.id = ur.role_id
+             WHERE s.session_status = 'active'
+               AND s.logout_time IS NULL
                AND s.last_activity >= DATE_SUB(
                     NOW(),
                     INTERVAL {$idleTimeoutSeconds} SECOND
@@ -519,7 +571,7 @@ final class SystemAdminAnalyticsService
         )->fetchAll(PDO::FETCH_ASSOC);
 
         $trackedSessionRecords = $this->scalar(
-            'SELECT COUNT(*) FROM auth_sessions'
+            'SELECT COUNT(*) FROM user_sessions'
         );
 
         return [
@@ -638,21 +690,34 @@ final class SystemAdminAnalyticsService
 
     public function getHealthErrors(): array
     {
-        $errorsStmt = $this->db->query(
-            "SELECT
-                id,
-                error_type,
-                message,
-                file_path,
-                line_number,
-                user_id,
-                ip_address,
-                created_at
-             FROM system_error_logs
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-             ORDER BY created_at DESC
-             LIMIT 50"
-        );
+        $errors = [];
+        $errorCount = 0;
+        try {
+            $errorsStmt = $this->db->query(
+                "SELECT
+                    id,
+                    error_type,
+                    message,
+                    file_path,
+                    line_number,
+                    user_id,
+                    ip_address,
+                    created_at
+                 FROM system_error_logs
+                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                 ORDER BY created_at DESC
+                 LIMIT 50"
+            );
+            $errors = $errorsStmt->fetchAll(PDO::FETCH_ASSOC);
+            $errorCount = $this->scalar(
+                "SELECT COUNT(*)
+                 FROM system_error_logs
+                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+            );
+        } catch (\Throwable $e) {
+            // system_error_logs was dropped; errors now live in the errors log
+            // file and the frontend reads them directly.
+        }
 
         $incidentsStmt = $this->db->query(
             "SELECT
@@ -672,11 +737,6 @@ final class SystemAdminAnalyticsService
              LIMIT 50"
         );
 
-        $errorCount = $this->scalar(
-            "SELECT COUNT(*)
-             FROM system_error_logs
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
-        );
         $openIncidentCount = $this->scalar(
             "SELECT COUNT(*)
              FROM system_security_incidents
@@ -690,7 +750,7 @@ final class SystemAdminAnalyticsService
         );
 
         return [
-            'errors' => $errorsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'errors' => $errors,
             'incidents' => $incidentsStmt->fetchAll(PDO::FETCH_ASSOC),
             'summary' => [
                 'system_errors_24h' => $errorCount,
@@ -704,21 +764,23 @@ final class SystemAdminAnalyticsService
 
     public function getHealthWarnings(): array
     {
-        $failedAuthStmt = $this->db->query(
-            "SELECT
-                MIN(id) AS id,
-                ip_address,
-                COUNT(*) AS attempt_count,
-                GROUP_CONCAT(DISTINCT reason ORDER BY reason SEPARATOR ', ') AS reasons,
-                MAX(created_at) AS created_at
-             FROM failed_auth_attempts
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-             GROUP BY ip_address
-             HAVING COUNT(*) >= 3
-             ORDER BY attempt_count DESC, created_at DESC
-             LIMIT 25"
-        );
-        $failedAuthGroups = $failedAuthStmt->fetchAll(PDO::FETCH_ASSOC);
+        $failedAuthGroups = [];
+        try {
+            $failedAuthStmt = $this->db->query(
+                "SELECT
+                    ip_address,
+                    attempt_count,
+                    last_attempt AS created_at,
+                    failure_reasons AS reasons
+                 FROM vw_failed_attempts_by_ip
+                 ORDER BY attempt_count DESC, last_attempt DESC
+                 LIMIT 25"
+            );
+            $failedAuthGroups = $failedAuthStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            // login_attempts was dropped; the view no longer exists and the
+            // frontend reads the auth log file for this signal instead.
+        }
         $warnings = array_map(static function (array $row): array {
             $attempts = (int) ($row['attempt_count'] ?? 0);
             $ipAddress = (string) ($row['ip_address'] ?? 'unknown');

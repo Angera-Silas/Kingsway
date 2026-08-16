@@ -2,18 +2,20 @@ const CBCController = {
     state: {
         subStrands: [],
         learningOutcomes: [],
-        rubrics: [],
         crosswalks: [],
         tree: [],
         strands: [],
         learningAreas: [],
         competencies: [],
-        tools: [],
     },
     esc: (s) => {
         const d = document.createElement('div');
         d.textContent = String(s ?? '');
         return d.innerHTML;
+    },
+    laLabel: (la) => {
+        const levels = la && la.levels && la.levels !== 'NONE' ? ` (${la.levels})` : '';
+        return `${la.name || ''}${levels}`;
     },
     async init() {
         await window.AuthContext?.ready?.();
@@ -22,7 +24,6 @@ const CBCController = {
         this.setupFilters();
         await this.loadSubStrands();
         await this.loadLearningOutcomes();
-        await this.loadRubrics();
         await this.loadCrosswalks();
         this.bindEvents();
     },
@@ -31,23 +32,21 @@ const CBCController = {
         return r?.data ?? r ?? [];
     },
     async loadReferences() {
-        const [las, strands, comps, tools] = await Promise.all([
+        const [las, strands, comps] = await Promise.all([
             this.callAPI('/academic/learning-areas', 'GET'),
             this.callAPI('/academic/strands', 'GET'),
             this.callAPI('/academic/core-competencies', 'GET'),
-            this.callAPI('/academic/assessment-tools', 'GET'),
         ]);
         this.state.learningAreas = Array.isArray(las) ? las : [];
         this.state.strands = Array.isArray(strands) ? strands : [];
         this.state.competencies = Array.isArray(comps) ? comps : [];
-        this.state.tools = Array.isArray(tools) ? tools : [];
         this.populateSelects();
     },
     populateSelects() {
         const laOpts = (sel, empty) => {
             sel.innerHTML = empty ? '<option value="">All Learning Areas</option>' : '<option value="">Select Learning Area</option>';
             this.state.learningAreas.forEach(la => {
-                sel.innerHTML += `<option value="${la.id}">${this.esc(la.name)}</option>`;
+                sel.innerHTML += `<option value="${la.id}">${this.esc(this.laLabel(la))}</option>`;
             });
         };
         laOpts(document.getElementById('ssLearningAreaFilter'), true);
@@ -57,9 +56,8 @@ const CBCController = {
 
         const strandOpts = (sel, filter) => {
             sel.innerHTML = filter ? '<option value="">All Strands</option>' : '<option value="">Select Strand</option>';
-            const strands = filter ? this.state.strands : this.state.strands;
-            strands.forEach(s => {
-                sel.innerHTML += `<option value="${s.id}" data-la="${s.learning_area_id || ''}">${this.esc(s.code + ' - ' + s.name)}</option>`;
+            this.state.strands.forEach(s => {
+                sel.innerHTML += `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${this.esc(s.grade_level || '')}">${this.esc(s.code + ' - ' + s.name)}</option>`;
             });
         };
         strandOpts(document.getElementById('ssStrandFilter'), true);
@@ -77,20 +75,23 @@ const CBCController = {
         this.state.competencies.forEach(c => {
             compEl2.innerHTML += `<option value="${c.id}">${this.esc(c.name)}</option>`;
         });
-
-        const toolEl = document.getElementById('rubricToolFilter');
-        toolEl.innerHTML = '<option value="">All Assessment Tools</option>';
-        this.state.tools.forEach(t => {
-            toolEl.innerHTML += `<option value="${t.id}">${this.esc(t.tool_name || t.name || '')}</option>`;
-        });
-        const toolEl2 = document.getElementById('rubricTool');
-        toolEl2.innerHTML = '<option value="">Select Tool</option>';
-        this.state.tools.forEach(t => {
-            toolEl2.innerHTML += `<option value="${t.id}">${this.esc(t.tool_name || t.name || '')}</option>`;
+        this.refreshSSStrandFilter();
+    },
+    refreshSSStrandFilter() {
+        const sel = document.getElementById('ssStrandFilter');
+        if (!sel) return;
+        const laId = document.getElementById('ssLearningAreaFilter')?.value;
+        const grade = document.getElementById('ssGradeFilter')?.value;
+        sel.innerHTML = '<option value="">All Strands</option>';
+        this.state.strands.forEach(s => {
+            if (laId && String(s.learning_area_id) !== laId) return;
+            if (grade && String(s.grade_level) !== grade) return;
+            sel.innerHTML += `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${this.esc(s.grade_level || '')}">${this.esc(s.code + ' - ' + s.name)}</option>`;
         });
     },
     setupFilters() {
-        document.getElementById('ssLearningAreaFilter')?.addEventListener('change', () => this.loadSubStrands());
+        document.getElementById('ssGradeFilter')?.addEventListener('change', () => { this.refreshSSStrandFilter(); this.loadSubStrands(); });
+        document.getElementById('ssLearningAreaFilter')?.addEventListener('change', () => { this.refreshSSStrandFilter(); this.loadSubStrands(); });
         document.getElementById('ssStrandFilter')?.addEventListener('change', () => this.loadSubStrands());
         document.getElementById('ssSearch')?.addEventListener('keyup', () => {
             clearTimeout(this._ssTimer);
@@ -102,11 +103,6 @@ const CBCController = {
             clearTimeout(this._loTimer);
             this._loTimer = setTimeout(() => this.loadLearningOutcomes(), 300);
         });
-        document.getElementById('rubricToolFilter')?.addEventListener('change', () => this.loadRubrics());
-        document.getElementById('rubricSearch')?.addEventListener('keyup', () => {
-            clearTimeout(this._rubTimer);
-            this._rubTimer = setTimeout(() => this.loadRubrics(), 300);
-        });
         document.getElementById('cwStrandFilter')?.addEventListener('change', () => this.loadCrosswalks());
         document.getElementById('cwCompetencyFilter')?.addEventListener('change', () => this.loadCrosswalks());
         document.getElementById('treeLearningAreaFilter')?.addEventListener('change', () => this.loadCurriculumTree());
@@ -115,7 +111,6 @@ const CBCController = {
     bindEvents() {
         document.getElementById('saveSubStrandBtn')?.addEventListener('click', () => this.saveSubStrand());
         document.getElementById('saveLoBtn')?.addEventListener('click', () => this.saveLearningOutcome());
-        document.getElementById('saveRubricBtn')?.addEventListener('click', () => this.saveRubric());
         document.getElementById('saveCwBtn')?.addEventListener('click', () => this.saveCrosswalk());
     },
 
@@ -123,14 +118,16 @@ const CBCController = {
     async loadSubStrands() {
         try {
             const laId = document.getElementById('ssLearningAreaFilter')?.value;
+            const grade = document.getElementById('ssGradeFilter')?.value;
             const strandId = document.getElementById('ssStrandFilter')?.value;
             const search = (document.getElementById('ssSearch')?.value || '').toLowerCase();
             let strands = this.state.strands;
             if (laId) strands = strands.filter(s => String(s.learning_area_id) === laId);
+            if (grade) strands = strands.filter(s => String(s.grade_level) === grade);
             let url = '/academic/sub-strands';
             if (strandId) {
                 url += '?strand_id=' + strandId;
-            } else if (laId && strands.length === 1) {
+            } else if (strands.length === 1) {
                 url += '?strand_id=' + strands[0].id;
             }
             let data = await this.callAPI(url, 'GET');
@@ -140,7 +137,10 @@ const CBCController = {
             }
             data = data.filter(ss => {
                 const s = this.state.strands.find(x => x.id == ss.strand_id);
-                return !laId || (s && String(s.learning_area_id) === laId);
+                if (!s) return false;
+                if (laId && String(s.learning_area_id) !== laId) return false;
+                if (grade && String(s.grade_level) !== grade) return false;
+                return true;
             });
             this.state.subStrands = data;
             this.renderSubStrands();
@@ -150,7 +150,7 @@ const CBCController = {
         const tbody = document.getElementById('ssTableBody');
         if (!tbody) return;
         if (!this.state.subStrands.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No sub-strands found. Add approved syllabus records for this strand.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No sub-strands found. Add approved syllabus records for this strand.</td></tr>';
             return;
         }
         tbody.innerHTML = this.state.subStrands.map((ss, i) => {
@@ -163,6 +163,7 @@ const CBCController = {
                 <td><strong>${this.esc(ss.name)}</strong></td>
                 <td>${this.esc(strand ? strand.name : '--')}</td>
                 <td>${this.esc(la ? la.name : '--')}</td>
+                <td><span class="badge bg-primary">${this.esc(strand ? strand.grade_level : '--')}</span></td>
                 <td>${ss.sort_order || 1}</td>
                 <td><span class="badge ${statusBadge}">${ss.status || 'active'}</span></td>
                 <td>
@@ -222,7 +223,7 @@ const CBCController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to save', 'error'); }
     },
     async deleteSubStrand(id) {
-        if (!confirm('Delete this sub-strand?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this sub-strand?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await this.callAPI('/academic/sub-strands/' + id, 'DELETE');
             window.showNotification?.('Sub-strand deleted', 'success');
@@ -230,7 +231,7 @@ const CBCController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to delete', 'error'); }
     },
     async bulkPopulateSubStrands() {
-        if (!confirm('Importing placeholder curriculum is disabled. Continue only if an approved CBC syllabus import is ready.')) return;
+        if (!(await window.confirmAction('Confirm', 'Importing placeholder curriculum is disabled. Continue only if an approved CBC syllabus import is ready.'))) return;
         try {
             const resp = await window.API.apiCall('/academic/sub-strands/bulk', 'POST');
             window.showNotification?.(resp?.message || 'Sub-strands created', 'success');
@@ -341,113 +342,11 @@ const CBCController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to save', 'error'); }
     },
     async deleteLearningOutcome(id) {
-        if (!confirm('Delete this learning outcome?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this learning outcome?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await this.callAPI('/academic/learning-outcomes/' + id, 'DELETE');
             window.showNotification?.('Outcome deleted', 'success');
             await this.loadLearningOutcomes();
-        } catch (e) { window.showNotification?.(e.message || 'Failed to delete', 'error'); }
-    },
-
-    // ==================== RUBRICS ====================
-    async loadRubrics() {
-        try {
-            const toolId = document.getElementById('rubricToolFilter')?.value;
-            const search = (document.getElementById('rubricSearch')?.value || '').toLowerCase();
-            let url = '/academic/assessment-rubrics';
-            if (toolId) url += '?tool_id=' + toolId;
-            let data = await this.callAPI(url, 'GET');
-            if (!Array.isArray(data)) data = [];
-            if (search) {
-                data = data.filter(r => (r.criteria_name || '').toLowerCase().includes(search) || (r.tool_name || '').toLowerCase().includes(search));
-            }
-            this.state.rubrics = data;
-            this.renderRubrics();
-        } catch (e) { console.error('loadRubrics:', e); }
-    },
-    renderRubrics() {
-        const tbody = document.getElementById('rubricTableBody');
-        if (!tbody) return;
-        if (!this.state.rubrics.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">No rubrics found.</td></tr>';
-            return;
-        }
-        tbody.innerHTML = this.state.rubrics.map((r, i) => `<tr>
-            <td>${i + 1}</td>
-            <td><strong>${this.esc(r.criteria_name)}</strong></td>
-            <td>${this.esc(r.tool_name || '--')}</td>
-            <td><small>${this.esc((r.level_1_descriptor || '').substring(0, 40))}</small></td>
-            <td><small>${this.esc((r.level_2_descriptor || '').substring(0, 40))}</small></td>
-            <td><small>${this.esc((r.level_3_descriptor || '').substring(0, 40))}</small></td>
-            <td><small>${this.esc((r.level_4_descriptor || '').substring(0, 40))}</small></td>
-            <td>${r.points_per_level || 0}</td>
-            <td>
-                <button class="btn btn-sm btn-warning" onclick="CBCController.openRubricModal(${r.id})" title="Edit"><i class="bi bi-pencil"></i></button>
-                <button class="btn btn-sm btn-danger" onclick="CBCController.deleteRubric(${r.id})" title="Delete"><i class="bi bi-trash"></i></button>
-            </td>
-        </tr>`).join('');
-    },
-    async openRubricModal(id) {
-        const modal = new bootstrap.Modal(document.getElementById('rubricModal'));
-        document.getElementById('rubricModalLabel').textContent = id ? 'Edit Rubric' : 'Add Rubric';
-        document.getElementById('rubricId').value = id || '';
-        if (id) {
-            const r = this.state.rubrics.find(x => x.id == id);
-            if (r) {
-                document.getElementById('rubricTool').value = r.tool_id;
-                document.getElementById('rubricCriteria').value = r.criteria_name;
-                document.getElementById('rubricL1').value = r.level_1_descriptor || '';
-                document.getElementById('rubricL2').value = r.level_2_descriptor || '';
-                document.getElementById('rubricL3').value = r.level_3_descriptor || '';
-                document.getElementById('rubricL4').value = r.level_4_descriptor || '';
-                document.getElementById('rubricPoints').value = r.points_per_level || 0;
-                document.getElementById('rubricSort').value = r.sort_order || 1;
-            }
-        } else {
-            document.getElementById('rubricTool').value = '';
-            document.getElementById('rubricCriteria').value = '';
-            document.getElementById('rubricL1').value = '';
-            document.getElementById('rubricL2').value = '';
-            document.getElementById('rubricL3').value = '';
-            document.getElementById('rubricL4').value = '';
-            document.getElementById('rubricPoints').value = '0';
-            document.getElementById('rubricSort').value = '1';
-        }
-        modal.show();
-    },
-    async saveRubric() {
-        const id = document.getElementById('rubricId').value;
-        const payload = {
-            tool_id: parseInt(document.getElementById('rubricTool').value) || 0,
-            criteria_name: document.getElementById('rubricCriteria').value.trim(),
-            level_1_descriptor: document.getElementById('rubricL1').value.trim() || null,
-            level_2_descriptor: document.getElementById('rubricL2').value.trim() || null,
-            level_3_descriptor: document.getElementById('rubricL3').value.trim() || null,
-            level_4_descriptor: document.getElementById('rubricL4').value.trim() || null,
-            points_per_level: parseInt(document.getElementById('rubricPoints').value) || 0,
-            sort_order: parseInt(document.getElementById('rubricSort').value) || 1,
-        };
-        if (!payload.tool_id || !payload.criteria_name) {
-            window.showNotification?.('Tool and criteria name are required', 'error');
-            return;
-        }
-        try {
-            if (id) {
-                await this.callAPI('/academic/assessment-rubrics/' + id, 'PUT', payload);
-            } else {
-                await this.callAPI('/academic/assessment-rubrics', 'POST', payload);
-            }
-            bootstrap.Modal.getInstance(document.getElementById('rubricModal')).hide();
-            window.showNotification?.(id ? 'Rubric updated' : 'Rubric created', 'success');
-            await this.loadRubrics();
-        } catch (e) { window.showNotification?.(e.message || 'Failed to save', 'error'); }
-    },
-    async deleteRubric(id) {
-        if (!confirm('Delete this rubric criterion?')) return;
-        try {
-            await this.callAPI('/academic/assessment-rubrics/' + id, 'DELETE');
-            window.showNotification?.('Rubric deleted', 'success');
-            await this.loadRubrics();
         } catch (e) { window.showNotification?.(e.message || 'Failed to delete', 'error'); }
     },
 
@@ -525,7 +424,7 @@ const CBCController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to save', 'error'); }
     },
     async deleteCrosswalk(id) {
-        if (!confirm('Delete this mapping?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this mapping?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await this.callAPI('/academic/strand-competencies/' + id, 'DELETE');
             window.showNotification?.('Mapping deleted', 'success');

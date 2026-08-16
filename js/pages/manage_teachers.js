@@ -51,13 +51,13 @@ const manageTeachersController = {
     );
   },
 
-  toast(message, type = "success") {
+  async toast(message, type = "success") {
     const toastEl = document.getElementById("teacherToast");
     const icon = document.getElementById("toastIcon");
     const title = document.getElementById("toastTitle");
     const body = document.getElementById("toastBody");
     if (!toastEl || !body) {
-      alert(message);
+      await window.infoDialog('Notice', message);
       return;
     }
     if (icon) {

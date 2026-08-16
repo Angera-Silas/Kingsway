@@ -1,0 +1,263 @@
+<?php
+
+namespace App\API\Services\payments;
+
+use Exception;
+
+/**
+ * MpesaApiClient
+ *
+ * Thin, official-docs-driven HTTP layer for Safaricom Daraja 3.0.
+ *
+ * - OAuth token acquisition with static in-process caching (tokens live ~1hr;
+ *   we refresh 5 minutes before expiry instead of requesting on every call).
+ * - Shared helpers: timestamps (Africa/Nairobi), STK Push password,
+ *   SecurityCredential (from config or generated from the M-Pesa cert), and
+ *   transaction-date formatting.
+ * - Single curl request() used by every API so behaviour (timeouts, SSL,
+ *   JSON, error decoding) is consistent.
+ *
+ * No database access lives here — this class is pure M-Pesa communication.
+ */
+class MpesaApiClient
+{
+    private $consumerKey;
+    private $consumerSecret;
+    private $shortcode;
+    private $passkey;
+    private $environment;
+    private $initiatorName;
+    private $initiatorPassword;
+    private $securityCredential;
+
+    /** @var array|null Static token cache: ['token' => string, 'expires_at' => int] */
+    private static $tokenCache = null;
+
+    public function __construct()
+    {
+        $this->consumerKey = defined('MPESA_CONSUMER_KEY') ? MPESA_CONSUMER_KEY : '';
+        $this->consumerSecret = defined('MPESA_CONSUMER_SECRET') ? MPESA_CONSUMER_SECRET : '';
+        $this->shortcode = defined('MPESA_SHORTCODE') ? MPESA_SHORTCODE : '';
+        $this->passkey = defined('MPESA_PASSKEY') ? MPESA_PASSKEY : '';
+        $this->environment = defined('MPESA_ENVIRONMENT') ? MPESA_ENVIRONMENT : 'sandbox';
+        $this->initiatorName = defined('MPESA_INITIATOR_NAME') ? MPESA_INITIATOR_NAME : '';
+        $this->initiatorPassword = defined('MPESA_INITIATOR_PASSWORD') ? MPESA_INITIATOR_PASSWORD : '';
+        $this->securityCredential = defined('MPESA_SECURITY_CREDENTIAL') ? MPESA_SECURITY_CREDENTIAL : '';
+    }
+
+    public function getEnvironment(): string
+    {
+        return $this->environment;
+    }
+
+    public function getShortcode(): string
+    {
+        return $this->shortcode;
+    }
+
+    public function getInitiatorName(): string
+    {
+        return $this->initiatorName;
+    }
+
+    public function isSandbox(): bool
+    {
+        return $this->environment !== 'production';
+    }
+
+    public function getBaseUrl(): string
+    {
+        return $this->environment === 'production'
+            ? 'https://api.safaricom.co.ke'
+            : 'https://sandbox.safaricom.co.ke';
+    }
+
+    /**
+     * Official timestamp format used by Daraja: yyyyMMddHHmmss (Africa/Nairobi).
+     */
+    public function timestamp(): string
+    {
+        date_default_timezone_set('Africa/Nairobi');
+        return date('YmdHis');
+    }
+
+    /**
+     * STK Push password: base64(Shortcode . Passkey . Timestamp).
+     */
+    public function lipaNaMpesaPassword(string $timestamp = null): string
+    {
+        $ts = $timestamp ?: $this->timestamp();
+        return base64_encode($this->shortcode . $this->passkey . $ts);
+    }
+
+    /**
+     * B2C/B2B/status/balance/reversal SecurityCredential.
+     * Uses the pre-encrypted value from config when provided; otherwise
+     * encrypts the initiator password with the M-Pesa public certificate
+     * (config/mpesa_*.cer) when present.
+     */
+    public function securityCredential(): string
+    {
+        if (!empty($this->securityCredential)) {
+            return $this->securityCredential;
+        }
+
+        $certPath = dirname(__DIR__, 3) . '/config/mpesa_production_cert.cer';
+        if (file_exists($certPath)) {
+            $publicKey = file_get_contents($certPath);
+            $encrypted = null;
+            if (openssl_public_encrypt($this->initiatorPassword, $encrypted, $publicKey, OPENSSL_PKCS1_PADDING)) {
+                return base64_encode($encrypted);
+            }
+        }
+
+        // Sandbox fallback: base64 of the initiator password.
+        return base64_encode($this->initiatorPassword);
+    }
+
+    /**
+     * Convert a Daraja transaction timestamp (yyyyMMddHHmmss) to SQL datetime.
+     */
+    public function formatTransactionDate($transactionDate): string
+    {
+        if (is_string($transactionDate) && strlen($transactionDate) === 14 && ctype_digit($transactionDate)) {
+            return substr($transactionDate, 0, 4) . '-' .
+                substr($transactionDate, 4, 2) . '-' .
+                substr($transactionDate, 6, 2) . ' ' .
+                substr($transactionDate, 8, 2) . ':' .
+                substr($transactionDate, 10, 2) . ':' .
+                substr($transactionDate, 12, 2);
+        }
+        date_default_timezone_set('Africa/Nairobi');
+        return date('Y-m-d H:i:s');
+    }
+
+    /**
+     * OAuth access token (client_credentials), cached ~55 minutes.
+     *
+     * @throws Exception
+     */
+    public function getAccessToken(): string
+    {
+        $now = time();
+        if (self::$tokenCache !== null && self::$tokenCache['expires_at'] > $now + 300) {
+            return self::$tokenCache['token'];
+        }
+
+        $url = $this->getBaseUrl() . '/oauth/v1/generate?grant_type=client_credentials';
+        $basic = base64_encode($this->consumerKey . ':' . $this->consumerSecret);
+
+        $response = $this->curl($url, [
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Basic ' . $basic,
+                'Content-Type: application/json',
+            ],
+        ]);
+
+        $httpCode = $response['http_code'];
+        $data = $response['data'];
+
+        if ($httpCode !== 200 || empty($data['access_token'])) {
+            error_log(
+                '[MpesaApiClient] Access token failed (HTTP ' . $httpCode . '): ' .
+                json_encode($data)
+            );
+            throw new Exception(
+                'Failed to obtain M-Pesa access token (HTTP ' . $httpCode . ')'
+            );
+        }
+
+        self::$tokenCache = [
+            'token' => $data['access_token'],
+            'expires_at' => $now + (int) ($data['expires_in'] ?? 3600),
+        ];
+
+        return self::$tokenCache['token'];
+    }
+
+    /**
+     * Authenticated POST to a Daraja business endpoint.
+     *
+     * @throws Exception
+     */
+    public function post(string $path, array $payload): array
+    {
+        $token = $this->getAccessToken();
+
+        $response = $this->curl($this->getBaseUrl() . $path, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $token,
+            ],
+        ]);
+
+        $data = $response['data'];
+        if ($response['http_code'] === 401) {
+            // Token invalidated server-side — clear cache and retry once.
+            self::$tokenCache = null;
+            $token = $this->getAccessToken();
+            $response = $this->curl($this->getBaseUrl() . $path, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Authorization: Bearer ' . $token,
+                ],
+            ]);
+            $data = $response['data'];
+        }
+
+        if ($response['http_code'] >= 500) {
+            error_log(
+                '[MpesaApiClient] ' . $path . ' server error (HTTP ' .
+                $response['http_code'] . '): ' . json_encode($data)
+            );
+            throw new Exception(
+                'M-Pesa service temporarily unavailable (HTTP ' . $response['http_code'] . ')'
+            );
+        }
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Raw curl helper — never touches the filesystem/DB, always returns both
+     * the HTTP status and the decoded body.
+     */
+    private function curl(string $url, array $options): array
+    {
+        $ch = curl_init($url);
+        $defaults = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => false,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ];
+        foreach ($defaults as $k => $v) {
+            if (!array_key_exists($k, $options)) {
+                $options[$k] = $v;
+            }
+        }
+        curl_setopt_array($ch, $options);
+
+        $body = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $errno = curl_errno($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false || $errno !== 0) {
+            throw new Exception('M-Pesa network error (' . $errno . '): ' . $error);
+        }
+
+        $decoded = json_decode($body, true);
+        return [
+            'http_code' => $httpCode,
+            'data' => is_array($decoded) ? $decoded : ['raw' => $body],
+        ];
+    }
+}

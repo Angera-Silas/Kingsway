@@ -59,7 +59,7 @@ class BaseAPI extends FileLifecycleBase
         $this->user_id = $this->getCurrentUserId();
         $this->request_id = uniqid('req_');
         // Canonical log directory (project-root/logs). Keep a single source of truth.
-        $this->logDir = realpath(__DIR__ . '/..') . '/../../logs';
+        $this->logDir = dirname(__DIR__, 2) . '/logs';
 
         // If directory doesn't exist, try to create it but do not let logging failures
         // break the API response flow. Fall back to system temp dir if creation fails.
@@ -150,7 +150,7 @@ class BaseAPI extends FileLifecycleBase
     protected function logAction($action_type, $record_id, $description)
     {
         try {
-            // Log to system activity log file
+            // Log to system activity log file (never database)
             $this->logToFile('system_activity.log', [
                 'request_id' => $this->request_id,
                 'timestamp' => date('Y-m-d H:i:s'),
@@ -160,26 +160,6 @@ class BaseAPI extends FileLifecycleBase
                 'record_id' => $record_id,
                 'user_id' => $this->user_id,
                 'description' => $description
-            ]);
-
-            // Log to database
-            $stmt = $this->db->prepare("
-                INSERT INTO audit_logs (
-                    action, entity, entity_id, user_id, ip_address,
-                    user_agent, details, status, created_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, 'success', NOW()
-                )
-            ");
-
-            $stmt->execute([
-                $action_type,
-                $this->module,
-                $record_id,
-                $this->user_id,
-                $_SERVER['REMOTE_ADDR'] ?? null,
-                $_SERVER['HTTP_USER_AGENT'] ?? null,
-                $description
             ]);
 
             // For audit logs
@@ -225,6 +205,14 @@ class BaseAPI extends FileLifecycleBase
         }
         // Log to errors.log only (never DB)
         $this->logToFile('errors.log', $errorData);
+
+        // Mirror into the structured FileLogger errors category so health checks
+        // and file-based readers share one source of truth.
+        try {
+            \App\API\Includes\FileLogger::write('errors', $errorData, 'error');
+        } catch (\Throwable $e) {
+            error_log('Failed to mirror error log: ' . $e->getMessage());
+        }
     }
 
     protected function logAudit($action, $record_id, $description)
@@ -272,7 +260,7 @@ class BaseAPI extends FileLifecycleBase
     {
         try {
             // Use the instance logDir (set in constructor). If absent, compute a sane default.
-            $logDir = $this->logDir ?? (realpath(__DIR__ . '/..') . '/../../logs');
+            $logDir = $this->logDir ?? (dirname(__DIR__, 2) . '/logs');
 
             // Ensure directory exists and is writable. Try to create if missing, suppress warnings.
             if (!is_dir($logDir)) {
@@ -430,14 +418,13 @@ class BaseAPI extends FileLifecycleBase
     protected function emitEvent($eventType, array $data = [])
     {
         try {
-            // Prefer stored procedure if available
-            if ($this->routineExists('sp_emit_event', 'PROCEDURE')) {
-                $this->callProcedure('sp_emit_event', [$eventType, json_encode($data)], false);
-                return;
-            }
-            // Fallback direct insert
-            $stmt = $this->db->prepare("INSERT INTO system_events (event_type, event_data, created_at) VALUES (?, ?, NOW())");
-            $stmt->execute([$eventType, json_encode($data)]);
+            // Write events to a file, never the database
+            FileLogger::write('events', [
+                'event' => $eventType,
+                'data' => $data,
+                'module' => $this->module,
+                'user_id' => $this->user_id,
+            ]);
         } catch (Exception $e) {
             // Swallow errors to avoid breaking main flow
             $this->logError($e, 'emitEvent failed');

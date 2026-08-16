@@ -64,7 +64,7 @@ const teachingMaterialsController = {
 
   _loadClassDropdown: async function () {
     try {
-      const r = await callAPI('/academic/classes?status=active', 'GET');
+      const r = await callAPI('/academic/classes/list?status=active', 'GET');
       const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('tmClass');
       if (!sel) return;

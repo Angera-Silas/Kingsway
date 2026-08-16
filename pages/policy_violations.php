@@ -4,7 +4,7 @@
 <div class="container-fluid py-4"
      data-system-admin-page
      data-resource="violations"
-     data-mode="crud"
+     data-mode="readonly"
      data-title="Policy Violations">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>

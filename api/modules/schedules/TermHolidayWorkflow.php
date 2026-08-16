@@ -12,6 +12,9 @@ class TermHolidayWorkflow extends WorkflowHandler
 {
     /**
      * Stage 1: Define Term/Holiday Dates
+     * Persists the term into academic_year_terms and any holidays into
+     * academic_year_calendar_days (backed by auto-created week buckets).
+     *
      * @param array $data { year_id, term_name, start_date, end_date, holidays: [{name, date, description}] }
      * @return array
      */
@@ -24,37 +27,178 @@ class TermHolidayWorkflow extends WorkflowHandler
                     throw new Exception("Missing required field: $field");
                 }
             }
+
+            // Resolve the term template (terms holds only id/name/code)
+            $termStmt = $this->db->prepare("SELECT id FROM terms WHERE name = :term_name");
+            $termStmt->execute(['term_name' => $data['term_name']]);
+            $termId = $termStmt->fetchColumn();
+            if (!$termId) {
+                throw new Exception('Term not found: ' . $data['term_name']);
+            }
+
             $this->db->beginTransaction();
-            // Insert term into terms table
-            $stmt = $this->db->prepare("INSERT INTO terms (year_id, name, start_date, end_date, status) VALUES (:year_id, :name, :start_date, :end_date, 'proposed')");
-            $stmt->execute([
-                'year_id' => $data['year_id'],
-                'name' => $data['term_name'],
-                'start_date' => $data['start_date'],
-                'end_date' => $data['end_date']
-            ]);
-            $term_id = $this->db->lastInsertId();
-            // Insert holidays if provided
+
+            // Upsert the academic-year term instance
+            $existing = $this->db->prepare(
+                "SELECT id FROM academic_year_terms WHERE academic_year_id = :year_id AND term_id = :term_id"
+            );
+            $existing->execute(['year_id' => $data['year_id'], 'term_id' => $termId]);
+            $aytId = $existing->fetchColumn();
+
+            if ($aytId) {
+                $stmt = $this->db->prepare(
+                    "UPDATE academic_year_terms
+                     SET opening_date = :start_date, closing_date = :end_date, status = 'upcoming'
+                     WHERE id = :id"
+                );
+                $stmt->execute(['start_date' => $data['start_date'], 'end_date' => $data['end_date'], 'id' => $aytId]);
+            } else {
+                $nextAytId = $this->db->query(
+                    "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_terms"
+                )->fetchColumn();
+                $stmt = $this->db->prepare(
+                    "INSERT INTO academic_year_terms
+                        (id, academic_year_id, term_id, opening_date, closing_date, status)
+                     VALUES (:id, :year_id, :term_id, :start_date, :end_date, 'upcoming')"
+                );
+                $stmt->execute([
+                    'id' => (int) $nextAytId,
+                    'year_id' => $data['year_id'],
+                    'term_id' => $termId,
+                    'start_date' => $data['start_date'],
+                    'end_date' => $data['end_date']
+                ]);
+                $aytId = $nextAytId;
+            }
+
+            // Insert holidays into the term calendar
             if (!empty($data['holidays']) && is_array($data['holidays'])) {
+                $holidayTypeId = $this->resolveHolidayDayType();
                 foreach ($data['holidays'] as $holiday) {
-                    $stmt = $this->db->prepare("INSERT INTO holidays (term_id, name, date, description, status) VALUES (:term_id, :name, :date, :description, 'proposed')");
-                    $stmt->execute([
-                        'term_id' => $term_id,
-                        'name' => $holiday['name'],
-                        'date' => $holiday['date'],
-                        'description' => $holiday['description'] ?? ''
-                    ]);
+                    $holidayDate = $holiday['date'] ?? null;
+                    if (!$holidayDate) {
+                        continue;
+                    }
+                    $calendarId = $this->ensureCalendarForDate((int) $aytId, $holidayDate);
+
+                    $existingDay = $this->db->prepare(
+                        "SELECT id FROM academic_year_calendar_days
+                         WHERE academic_year_calendar_id = :calendar_id AND date = :date"
+                    );
+                    $existingDay->execute(['calendar_id' => $calendarId, 'date' => $holidayDate]);
+                    $dayId = $existingDay->fetchColumn();
+
+                    if ($dayId) {
+                        $stmt = $this->db->prepare(
+                            "UPDATE academic_year_calendar_days
+                             SET calendar_day_type_id = :day_type_id, title = :title, description = :description
+                             WHERE id = :id"
+                        );
+                        $stmt->execute([
+                            'day_type_id' => $holidayTypeId,
+                            'title' => $holiday['name'] ?? 'Holiday',
+                            'description' => $holiday['description'] ?? '',
+                            'id' => $dayId
+                        ]);
+                    } else {
+                        $nextDayId = $this->db->query(
+                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_calendar_days"
+                        )->fetchColumn();
+                        $stmt = $this->db->prepare(
+                            "INSERT INTO academic_year_calendar_days
+                                (id, academic_year_calendar_id, date, calendar_day_type_id, title, description)
+                             VALUES (:id, :calendar_id, :date, :day_type_id, :title, :description)"
+                        );
+                        $stmt->execute([
+                            'id' => (int) $nextDayId,
+                            'calendar_id' => $calendarId,
+                            'date' => $holidayDate,
+                            'day_type_id' => $holidayTypeId,
+                            'title' => $holiday['name'] ?? 'Holiday',
+                            'description' => $holiday['description'] ?? ''
+                        ]);
+                    }
                 }
             }
-            // Start workflow instance
-            $instance_id = parent::startWorkflow('term', $term_id, $data);
+
+            // Start workflow instance referencing the academic_year_term
+            $instance_id = parent::startWorkflow('term', $aytId, $data);
             $this->db->commit();
             return ['success' => true, 'instance_id' => $instance_id, 'next_stage' => 'review'];
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return ['success' => false, 'error' => 'An internal error occurred.'];
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
+    }
+
+    /**
+     * Resolve the calendar day type used for holidays, preferring 'school_holiday'.
+     *
+     * @return int
+     */
+    private function resolveHolidayDayType()
+    {
+        foreach (['school_holiday', 'holiday', 'public_holiday'] as $code) {
+            $stmt = $this->db->prepare("SELECT id FROM calendar_day_types WHERE code = :code");
+            $stmt->execute(['code' => $code]);
+            $id = $stmt->fetchColumn();
+            if ($id) {
+                return (int) $id;
+            }
+        }
+        throw new Exception('No calendar_day_types row available for holidays');
+    }
+
+    /**
+     * Find or create the week bucket in academic_year_calendar covering the given date.
+     * The table uses a manually-assigned id and sequentially numbers weeks per term
+     * starting from the term's opening date.
+     *
+     * @param int $aytId
+     * @param string $date Y-m-d
+     * @return int
+     */
+    private function ensureCalendarForDate(int $aytId, string $date)
+    {
+        $openingStmt = $this->db->prepare("SELECT opening_date FROM academic_year_terms WHERE id = :id");
+        $openingStmt->execute(['id' => $aytId]);
+        $openingDate = $openingStmt->fetchColumn();
+
+        if ($openingDate) {
+            $weekNumber = max(1, floor((strtotime($date) - strtotime($openingDate)) / 604800) + 1);
+            $weekStart = date('Y-m-d', strtotime($openingDate . ' + ' . ($weekNumber - 1) . ' weeks'));
+        } else {
+            $weekNumber = (int) date('W', strtotime($date));
+            $weekStart = date('Y-m-d', strtotime('monday this week', strtotime($date)));
+        }
+        $weekEnd = date('Y-m-d', strtotime($weekStart . ' + 6 days'));
+
+        $stmt = $this->db->prepare(
+            "SELECT id FROM academic_year_calendar WHERE academic_year_term_id = :ayt_id AND week_number = :week_number"
+        );
+        $stmt->execute(['ayt_id' => $aytId, 'week_number' => (int) $weekNumber]);
+        $id = $stmt->fetchColumn();
+        if ($id) {
+            return (int) $id;
+        }
+
+        $nextId = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_calendar")->fetchColumn();
+
+        $stmt = $this->db->prepare(
+            "INSERT INTO academic_year_calendar (id, academic_year_term_id, week_number, week_start, week_end)
+             VALUES (:id, :ayt_id, :week_number, :week_start, :week_end)"
+        );
+        $stmt->execute([
+            'id' => (int) $nextId,
+            'ayt_id' => $aytId,
+            'week_number' => (int) $weekNumber,
+            'week_start' => $weekStart,
+            'week_end' => $weekEnd
+        ]);
+        return (int) $nextId;
     }
 
     /**
@@ -83,7 +227,7 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
             return ['success' => true, 'conflicts' => $conflicts, 'next_stage' => empty($conflicts) ? 'activate' : 'define'];
         } catch (Exception $e) {
             error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return ['success' => false, 'error' => 'An internal error occurred.'];
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -99,17 +243,14 @@ return ['success' => false, 'error' => 'An internal error occurred.'];
             if (!$instance) {
                 throw new Exception('Workflow instance not found');
             }
-            $data = json_decode($instance['data_json'], true);
-            // Mark term and holidays as active
-            $stmt = $this->db->prepare('UPDATE terms SET status = "active" WHERE id = :term_id');
-            $stmt->execute(['term_id' => $instance['reference_id']]);
-            $stmt = $this->db->prepare('UPDATE holidays SET status = "active" WHERE term_id = :term_id');
+            // Mark the academic-year term as current
+            $stmt = $this->db->prepare('UPDATE academic_year_terms SET status = "current" WHERE id = :term_id');
             $stmt->execute(['term_id' => $instance['reference_id']]);
             $this->advanceStage($instance_id, 'completed', 'activated');
             return ['success' => true, 'next_stage' => 'completed'];
         } catch (Exception $e) {
             error_log('[TermHolidayWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return ['success' => false, 'error' => 'An internal error occurred.'];
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
     public function __construct()

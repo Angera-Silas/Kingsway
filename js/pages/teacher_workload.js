@@ -270,7 +270,7 @@ const TeacherWorkloadController = {
         const teacher = this.state.teachers.find(t => t.id === teacherId);
         if (!teacher) return;
 
-        alert(`Teacher: ${teacher.first_name} ${teacher.last_name}\nLessons/Week: ${teacher.lessons_per_week}\nSubjects: ${teacher.subjects_count}\nClasses: ${teacher.classes_count}\nStatus: ${teacher.workload_status}`);
+        window.infoDialog('Teacher Workload', `Teacher: ${teacher.first_name} ${teacher.last_name}\nLessons/Week: ${teacher.lessons_per_week}\nSubjects: ${teacher.subjects_count}\nClasses: ${teacher.classes_count}\nStatus: ${teacher.workload_status}`);
     },
 
     exportWorkload() {

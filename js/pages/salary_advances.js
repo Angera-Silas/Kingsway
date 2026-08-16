@@ -240,7 +240,7 @@ const salaryAdvancesController = {
     const advance = this._data.find(a => a.id == id);
     if (!advance) return;
     const amt = advance.amount_per_deduction || advance.balance_remaining;
-    if (!confirm(`Record deduction of KES ${Number(amt).toLocaleString()} for ${advance.staff_name}?`)) return;
+    if (!(await window.confirmAction('Confirm', `Record deduction of KES ${Number(amt).toLocaleString()} for ${advance.staff_name}?`))) return;
     try {
       await callAPI('/finance/salary-advances/' + id, 'PUT', { action: 'record_deduction', amount: amt });
       showNotification('Deduction recorded.', 'success');

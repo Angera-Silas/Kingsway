@@ -10,7 +10,7 @@ const payrollController = {
   selectedStaffId: null,
   currentPayslip: null,
 
-  notify: function (message, type) {
+  notify: async function (message, type) {
     if (typeof showNotification === "function") {
       showNotification(message, type || "info");
     } else if (
@@ -19,7 +19,7 @@ const payrollController = {
     ) {
       window.API.showNotification(message, type || "info");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   },
 
@@ -212,7 +212,7 @@ const payrollController = {
   },
 
   approvePayroll: async function (payrollId) {
-    if (!confirm('Approve this payroll entry?')) return;
+    if (!(await window.confirmAction('Confirm', 'Approve this payroll entry?'))) return;
     try {
       await window.API.finance.approvePayroll({ payroll_id: payrollId });
       this.notify('Payroll approved successfully!', 'success');

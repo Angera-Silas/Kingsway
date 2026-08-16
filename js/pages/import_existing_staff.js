@@ -68,11 +68,11 @@ const ImportExistingStaffController = {
       if (button) void this.viewBatch(button.dataset.view);
     });
 
-    this.byId("smRows")?.addEventListener("click", (event) => {
+    this.byId("smRows")?.addEventListener("click", async (event) => {
       const button = event.target.closest("[data-errors]");
       if (!button) return;
       const errors = JSON.parse(button.dataset.errors || "[]");
-      alert(errors.join("\n"));
+      await window.infoDialog('Notice', errors.join("\n"));
     });
   },
 
@@ -174,7 +174,7 @@ const ImportExistingStaffController = {
 
   async commitImport() {
     if (!this.currentBatch) return;
-    if (!confirm("Create all staff and user records from this validated batch?")) return;
+    if (!(await window.confirmAction('Confirm', "Create all staff and user records from this validated batch?"))) return;
 
     this.setState("Importing atomically...", "info");
     try {
@@ -190,7 +190,7 @@ const ImportExistingStaffController = {
 
   async rollbackImport() {
     if (!this.currentBatch) return;
-    if (!confirm("Rollback this import? This is blocked when operational records already exist.")) return;
+    if (!(await window.confirmAction('Confirm', "Rollback this import? This is blocked when operational records already exist."))) return;
 
     try {
       const detail = this.unwrap(await window.API.staffMigration.rollback(this.currentBatch));

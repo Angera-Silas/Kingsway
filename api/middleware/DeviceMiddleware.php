@@ -66,15 +66,20 @@ class DeviceMiddleware
     }
 
     /**
-     * Check if device is blacklisted for this user
+     * Check if the request User-Agent matches a blocked device pattern
      */
     private static function isDeviceBlacklisted($userId, $fingerprint)
     {
         try {
+            $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? '';
+            if ($userAgent === '') {
+                return false;
+            }
+
             $db = Database::getInstance();
             $stmt = $db->query(
-                "SELECT id FROM device_blacklist WHERE user_id = ? AND device_fingerprint = ? AND is_active = 1",
-                [$userId, $fingerprint]
+                "SELECT id FROM blocked_devices WHERE ? LIKE CONCAT('%', user_agent_pattern, '%') LIMIT 1",
+                [$userAgent]
             );
 
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -87,17 +92,25 @@ class DeviceMiddleware
     }
 
     /**
-     * Log device activity to database
+     * Log device activity to audit trail
      */
     private static function logDeviceActivity($userId, $fingerprint, $ipAddress, $userAgent, $acceptLanguage)
     {
         try {
-            $db = Database::getInstance();
-            $db->query(
-                "INSERT INTO device_logs (user_id, device_fingerprint, ip_address, user_agent, accept_language, logged_at)
-                 VALUES (?, ?, ?, ?, ?, NOW())",
-                [$userId, $fingerprint, $ipAddress, $userAgent, $acceptLanguage]
-            );
+            \App\API\Includes\FileLogger::write('device', [
+                'type' => 'device_login',
+                'action' => 'device_login',
+                'entity' => 'device',
+                'entity_id' => (int) $userId,
+                'user_id' => (int) $userId,
+                'ip' => $ipAddress,
+                'user_agent' => $userAgent,
+                'details' => [
+                    'device_fingerprint' => $fingerprint,
+                    'accept_language'    => $acceptLanguage,
+                ],
+                'status' => 'success',
+            ]);
         } catch (\Exception $e) {
             // Log but don't block on database error
             error_log("Device logging failed: " . $e->getMessage());

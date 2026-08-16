@@ -420,7 +420,7 @@ const timetableController = (() => {
 
   async function removeCell(day, startTime, entryId, td) {
     const classId = document.getElementById("classFilter").value;
-    if (!confirm("Remove this timetable entry?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Remove this timetable entry?", { confirmText: 'Delete', danger: true }))) return;
     try {
       if (entryId) {
         await API.schedules.deleteTimetableById(entryId);

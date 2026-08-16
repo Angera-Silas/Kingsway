@@ -10,7 +10,8 @@ const manageWebsiteController = {
     allSettings: [],
   },
 
-  API: window.callAPI || (() => Promise.reject('callAPI not loaded')),
+  API: (method, endpoint, data, params, opts) =>
+    window.callAPI(endpoint, method, data, params, opts),
 
   /* ── Permission helpers ──────────────────────────────────────────────────── */
   can(perm) {
@@ -240,7 +241,7 @@ const manageWebsiteController = {
   },
 
   async wsDeleteNews(id, title) {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    if (!(await window.confirmAction('Confirm Deletion', `Delete "${title}"? This cannot be undone.`, { confirmText: 'Delete', danger: true }))) return;
     try {
       await this.API('DELETE', `website/news/${id}`);
       this.notify('Article deleted'); this.loadNews(); this.loadStats();
@@ -322,7 +323,7 @@ const manageWebsiteController = {
   },
 
   async wsDeleteEvent(id, title) {
-    if (!confirm(`Delete event "${title}"?`)) return;
+    if (!(await window.confirmAction('Confirm Deletion', `Delete event "${title}"?`, { confirmText: 'Delete', danger: true }))) return;
     try { await this.API('DELETE',`website/events/${id}`); this.notify('Event deleted'); this.loadEvents(); this.loadStats(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
@@ -388,7 +389,7 @@ const manageWebsiteController = {
   },
 
   async wsDeleteGallery(id) {
-    if (!confirm('Remove this image from the gallery?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Remove this image from the gallery?', { confirmText: 'Delete', danger: true }))) return;
     try { await this.API('DELETE',`website/gallery/${id}`); this.notify('Image removed'); this.loadGallery(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
@@ -466,7 +467,7 @@ const manageWebsiteController = {
   },
 
   async wsDeleteDownload(id) {
-    if (!confirm('Hide this download from the public site?')) return;
+    if (!(await window.confirmAction('Confirm', 'Hide this download from the public site?'))) return;
     try { await this.API('DELETE',`website/downloads/${id}`); this.notify('Download hidden'); this.loadDownloads(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
@@ -504,14 +505,14 @@ const manageWebsiteController = {
     });
     document.getElementById('jobType').value   = 'Full-Time';
     document.getElementById('jobStatus').value = 'open';
-    document.getElementById('jobLocation').value = 'Londiani Campus';
+    document.getElementById('jobLocation').value = 'Londiani, Kenya';
     if (id) {
       const r = await this.API('GET',`website/jobs/${id}`);
       const j = r?.data;
       if (j) {
         document.getElementById('jobTitle').value          = j.title||'';
         document.getElementById('jobDepartment').value     = j.department||'';
-        document.getElementById('jobLocation').value       = j.location||'Londiani Campus';
+        document.getElementById('jobLocation').value       = j.location||'Londiani, Kenya';
         document.getElementById('jobDescription').value    = j.description||'';
         document.getElementById('jobDeadline').value       = j.deadline?.split('T')[0]||'';
         document.getElementById('jobType').value           = j.job_type||'Full-Time';
@@ -551,7 +552,7 @@ const manageWebsiteController = {
   },
 
   async wsCloseJob(id, title) {
-    if (!confirm(`Close vacancy "${title}"?`)) return;
+    if (!(await window.confirmAction('Confirm', `Close vacancy "${title}"?`))) return;
     try { await this.API('DELETE',`website/jobs/${id}`); this.notify('Vacancy closed'); this.loadJobs(); this.loadStats(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
@@ -686,9 +687,9 @@ const manageWebsiteController = {
   },
 
   async wsAddCategory() {
-    const name  = prompt('New category name (e.g. "Events", "Science"):');
+    const name  = await window.promptAction('Input', 'New category name (e.g. "Events", "Science"):');
     if (!name?.trim()) return;
-    const color = prompt('Hex color (e.g. #1976d2):', '#198754');
+    const color = await window.promptAction('Input', 'Hex color (e.g. #1976d2):', '#198754');
     try {
       const r = await this.API('POST','website/categories',{name:name.trim(), color:color||'#198754'});
       if (r.status === 'success') { this.notify('Category added'); this.loadContent(); }
@@ -697,7 +698,7 @@ const manageWebsiteController = {
   },
 
   async wsDeleteCategory(id, name) {
-    if (!confirm(`Deactivate category "${name}"?`)) return;
+    if (!(await window.confirmAction('Confirm', `Deactivate category "${name}"?`))) return;
     try { await this.API('DELETE',`website/categories/${id}`); this.notify('Category removed'); this.loadContent(); }
     catch(e) { this.notify(e.message,'danger'); }
   },
@@ -901,7 +902,7 @@ const manageWebsiteController = {
   },
 
   async stDelete(resource, id) {
-    if (!window.confirm('Delete this record? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this record? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       const r = await this.API('DELETE','website/'+resource+'/'+id);
       if (r.status === 'success') { this.notify('Deleted'); this.loadStaticTables(); }

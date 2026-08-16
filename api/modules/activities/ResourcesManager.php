@@ -110,7 +110,7 @@ class ResourcesManager extends BaseAPI
             $resource = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$resource) {
-                throw new Exception('Resource not found');
+                throw new \RuntimeException('Resource not found', 404);
             }
 
             return [
@@ -139,7 +139,7 @@ class ResourcesManager extends BaseAPI
             $required = ['activity_id', 'resource_name'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    throw new Exception("Field '$field' is required");
+                    throw new \InvalidArgumentException("Field '$field' is required");
                 }
             }
 
@@ -149,7 +149,7 @@ class ResourcesManager extends BaseAPI
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$activity) {
-                throw new Exception('Activity not found');
+                throw new \RuntimeException('Activity not found', 404);
             }
 
             if (!$this->db->inTransaction()) {
@@ -219,7 +219,7 @@ class ResourcesManager extends BaseAPI
             $resource = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$resource) {
-                throw new Exception('Resource not found');
+                throw new \RuntimeException('Resource not found', 404);
             }
 
             if (!$this->db->inTransaction()) {
@@ -282,7 +282,7 @@ class ResourcesManager extends BaseAPI
             $resource = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$resource) {
-                throw new Exception('Resource not found');
+                throw new \RuntimeException('Resource not found', 404);
             }
 
             if (!$this->db->inTransaction()) {
@@ -523,7 +523,7 @@ class ResourcesManager extends BaseAPI
             $resource = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$resource) {
-                throw new Exception('Resource not found');
+                throw new \RuntimeException('Resource not found', 404);
             }
 
             $this->db->beginTransaction();

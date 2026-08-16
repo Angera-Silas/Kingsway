@@ -128,10 +128,10 @@ class InternalCommManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Forum topics/discussions
+    // Forum topics/discussions - mapped to live forum_threads (forum_type='internal')
     public function createForumTopic($data)
     {
-        $sql = "INSERT INTO internal_forum_topics (title, created_by, status, created_at) VALUES (:title, :created_by, 'open', NOW())";
+        $sql = "INSERT INTO forum_threads (title, created_by, forum_type, status, created_at, updated_at) VALUES (:title, :created_by, 'internal', 'open', NOW(), NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':title' => $data['title'],
@@ -142,14 +142,14 @@ class InternalCommManager
 
     public function getForumTopic($id)
     {
-        $stmt = $this->db->prepare("SELECT * FROM internal_forum_topics WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM forum_threads WHERE id = ? AND forum_type = 'internal'");
         $stmt->execute([$id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function updateForumTopic($id, $data)
     {
-        $sql = "UPDATE internal_forum_topics SET title = :title, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE forum_threads SET title = :title, updated_at = NOW() WHERE id = :id AND forum_type = 'internal'";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':title' => $data['title'],
@@ -160,14 +160,14 @@ class InternalCommManager
 
     public function deleteForumTopic($id)
     {
-        $stmt = $this->db->prepare("DELETE FROM internal_forum_topics WHERE id = ?");
+        $stmt = $this->db->prepare("DELETE FROM forum_threads WHERE id = ? AND forum_type = 'internal'");
         $stmt->execute([$id]);
         return $stmt->rowCount() > 0;
     }
 
     public function listForumTopics($filters = [])
     {
-        $sql = "SELECT * FROM internal_forum_topics WHERE 1=1";
+        $sql = "SELECT * FROM forum_threads WHERE forum_type = 'internal'";
         $params = [];
         if (isset($filters['status'])) {
             $sql .= " AND status = :status";
@@ -181,29 +181,29 @@ class InternalCommManager
 
     public function createForumPost($topicId, $data)
     {
-        $sql = "INSERT INTO internal_forum_posts (topic_id, content, created_by, status, created_at) VALUES (:topic_id, :content, :created_by, 'visible', NOW())";
+        $sql = "INSERT INTO forum_posts (thread_id, author_id, author_type, body, reply_to_id, created_at) VALUES (:thread_id, :author_id, 'user', :body, NULL, NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':topic_id' => $topicId,
-            ':content' => $data['content'],
-            ':created_by' => $data['created_by']
+            ':thread_id' => $topicId,
+            ':author_id' => $data['created_by'],
+            ':body' => $data['content']
         ]);
         return $this->db->lastInsertId();
     }
 
     public function getForumPost($id)
     {
-        $stmt = $this->db->prepare("SELECT * FROM internal_forum_posts WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM forum_posts WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function updateForumPost($id, $data)
     {
-        $sql = "UPDATE internal_forum_posts SET content = :content, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE forum_posts SET body = :body WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':content' => $data['content'],
+            ':body' => $data['content'],
             ':id' => $id
         ]);
         return $stmt->rowCount() > 0;
@@ -211,14 +211,14 @@ class InternalCommManager
 
     public function deleteForumPost($id)
     {
-        $stmt = $this->db->prepare("DELETE FROM internal_forum_posts WHERE id = ?");
+        $stmt = $this->db->prepare("DELETE FROM forum_posts WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->rowCount() > 0;
     }
 
     public function listForumPosts($topicId)
     {
-        $stmt = $this->db->prepare("SELECT * FROM internal_forum_posts WHERE topic_id = ? ORDER BY created_at ASC");
+        $stmt = $this->db->prepare("SELECT * FROM forum_posts WHERE thread_id = ? ORDER BY created_at ASC");
         $stmt->execute([$topicId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

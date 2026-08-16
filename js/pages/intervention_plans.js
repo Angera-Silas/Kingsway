@@ -183,7 +183,7 @@ const interventionPlansController = {
   },
 
   deletePlan: async function (id) {
-    if (!confirm('Delete this intervention plan?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this intervention plan?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/counseling/session/' + id, 'DELETE');
       showNotification('Plan deleted.', 'success');

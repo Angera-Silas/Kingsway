@@ -222,7 +222,7 @@ const addResultsController = (() => {
       !payload.class_id ||
       isNaN(payload.marks)
     ) {
-      alert("Please fill all required fields.");
+      await window.infoDialog('Notice', "Please fill all required fields.");
       return;
     }
     const { grade, points } = calcGrade(payload.marks);
@@ -238,15 +238,15 @@ const addResultsController = (() => {
         document.getElementById("marksInput").value = "";
         document.getElementById("remarksInput").value = "";
         previewGrade();
-        alert("Result saved successfully!");
+        await window.infoDialog('Notice', "Result saved successfully!");
       } else {
-        alert("Failed to save result.");
+        await window.infoDialog('Notice', "Failed to save result.");
       }
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Result';
     } catch (err) {
       console.error("Save result:", err);
-      alert("Error saving result.");
+      await window.infoDialog('Notice', "Error saving result.");
     }
   }
 

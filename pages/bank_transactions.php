@@ -108,11 +108,12 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small text-muted">Type</label>
+                    <label class="form-label small text-muted">Status</label>
                     <select class="form-select" id="btTypeFilter" onchange="BankTransactionsController.filterData()">
-                        <option value="">All Types</option>
-                        <option value="Credit">Credit</option>
-                        <option value="Debit">Debit</option>
+                        <option value="">All Statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="processed">Processed</option>
+                        <option value="failed">Failed</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -152,7 +153,7 @@
                             <th scope="col">Account</th>
                             <th scope="col">Reference</th>
                             <th scope="col">Description</th>
-                            <th class="text-center">Type</th>
+                            <th class="text-center">Status</th>
                             <th class="text-end">Amount (KES)</th>
                             <th class="text-end">Balance After (KES)</th>
                             <th class="text-center">Reconciled</th>
@@ -208,11 +209,11 @@
                             <input type="text" class="form-control" id="bt_reference" placeholder="Transaction reference">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Type <span class="text-danger">*</span></label>
-                            <select class="form-select" id="bt_type" required>
-                                <option value="">Select Type</option>
-                                <option value="Credit">Credit</option>
-                                <option value="Debit">Debit</option>
+                            <label class="form-label">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" id="bt_status" required>
+                                <option value="pending" selected>Pending</option>
+                                <option value="processed">Processed</option>
+                                <option value="failed">Failed</option>
                             </select>
                         </div>
                         <div class="col-12">

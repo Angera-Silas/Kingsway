@@ -527,7 +527,7 @@ const PermissionsExeatsController = (() => {
   }
 
   async function cancelRequest(requestId) {
-    if (!window.confirm("Cancel this permission request?")) {
+    if (!(await window.confirmAction('Confirm', "Cancel this permission request?"))) {
       return;
     }
 

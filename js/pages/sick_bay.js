@@ -212,7 +212,7 @@ const sickBayController = {
   },
 
   dismissStudent: async function (id) {
-    if (!confirm('Dismiss this student from the sick bay?')) return;
+    if (!(await window.confirmAction('Confirm', 'Dismiss this student from the sick bay?'))) return;
     try {
       await callAPI('/health/sick-bay/' + id + '/dismiss', 'PUT', {});
       showNotification('Student dismissed', 'success');

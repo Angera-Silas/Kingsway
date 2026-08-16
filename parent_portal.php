@@ -161,7 +161,12 @@ if ($appBase === '.') $appBase = '';
       <h4 class="text-white fw-bold mb-0">Welcome, <span id="parentName"></span></h4>
       <small class="text-white-50">Kingsway Preparatory School · Parent Portal</small>
     </div>
-    <button class="btn btn-outline-light btn-sm" id="btnLogout"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+    <div class="d-flex gap-2">
+      <a href="<?= $appBase ?>/admissions.php#apply" target="_blank" class="btn btn-light btn-sm">
+        <i class="bi bi-person-plus me-1"></i>Apply for Admission
+      </a>
+      <button class="btn btn-outline-light btn-sm" id="btnLogout"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+    </div>
   </div>
   <div id="portal-loading" class="text-center py-5">
     <div class="spinner-border text-light"></div>

@@ -541,9 +541,9 @@ function renderBillingHistoryModal(data) {
   contentEl.innerHTML = html;
 }
 
-BalancesByClassController.printBillingStatement = function printBillingStatement() {
+BalancesByClassController.printBillingStatement = async function printBillingStatement() {
   if (!this.state.selectedStudentBilling || this.state.selectedStudentBilling.length === 0) {
-    alert('No billing data to print');
+    await window.infoDialog('Notice', 'No billing data to print');
     return;
   }
 

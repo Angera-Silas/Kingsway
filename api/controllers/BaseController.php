@@ -49,7 +49,7 @@ abstract class BaseController extends FileLifecycleBase
      * Produces a uniform shape that ApiResponse::normalize() can reconcile:
      *   { success, status, data, message, code, timestamp, request_id }
      */
-    protected function respond($data = null, string $message = 'OK', int $code = 200, bool $success = true): array
+    public function respond($data = null, string $message = 'OK', int $code = 200, bool $success = true): array
     {
         http_response_code($code);
         return [
@@ -66,7 +66,7 @@ abstract class BaseController extends FileLifecycleBase
     /**
      * Success response (200 OK)
      */
-    protected function success($data = null, $message = 'Success')
+    public function success($data = null, $message = 'Success')
     {
         return $this->respond($data, $message, 200, true);
     }
@@ -99,15 +99,27 @@ abstract class BaseController extends FileLifecycleBase
     /**
      * Bad request (400 Bad Request)
      */
-    protected function badRequest($message = 'Bad request', $data = null)
+    public function badRequest($message = 'Bad request', $data = null)
     {
         return $this->respond($data, $message, 400, false);
     }
 
     /**
+     * Public guard bridge for module services that receive a controller instance.
+     * @deprecated Module services should use their own guards; kept for BC.
+     */
+    public function requireAcademicWorkflowAccess(array $permissions)
+    {
+        if ($this->userHasAny($permissions, [1, 3, 4, 5, 6], [])) {
+            return null;
+        }
+        return $this->forbidden('You do not have permission to perform this action');
+    }
+
+    /**
      * Unauthorized response (401 Unauthorized)
      */
-    protected function unauthorized($message = 'Unauthorized')
+    public function unauthorized($message = 'Unauthorized')
     {
         return $this->respond(null, $message, 401, false);
     }
@@ -115,7 +127,7 @@ abstract class BaseController extends FileLifecycleBase
     /**
      * Forbidden response (403 Forbidden)
      */
-    protected function forbidden($message = 'Access forbidden')
+    public function forbidden($message = 'Access forbidden')
     {
         return $this->respond(null, $message, 403, false);
     }
@@ -123,7 +135,7 @@ abstract class BaseController extends FileLifecycleBase
     /**
      * Not found response (404 Not Found)
      */
-    protected function notFound($message = 'Resource not found')
+    public function notFound($message = 'Resource not found')
     {
         return $this->respond(null, $message, 404, false);
     }
@@ -147,7 +159,7 @@ abstract class BaseController extends FileLifecycleBase
     /**
      * Server error (500 Internal Server Error)
      */
-    protected function serverError($message = 'Internal server error', $debugData = null)
+    public function serverError($message = 'Internal server error', $debugData = null)
     {
         return $this->respond(
             DEBUG ? ['debug' => $debugData, 'request_id' => $this->requestId] : null,
@@ -161,7 +173,7 @@ abstract class BaseController extends FileLifecycleBase
      * Legacy — generic error response.
      * @deprecated Use badRequest(), notFound(), etc.
      */
-    protected function error($message = 'An error occurred', $data = null, $code = 400)
+    public function error($message = 'An error occurred', $data = null, $code = 400)
     {
         return $this->respond($data, $message, $code, false);
     }
@@ -492,7 +504,7 @@ abstract class BaseController extends FileLifecycleBase
      * @param array $roleNames Role names
      * @return bool
      */
-    protected function userHasAny($permissions = [], $roleIds = [], $roleNames = [])
+    public function userHasAny($permissions = [], $roleIds = [], $roleNames = [])
     {
         // Check permissions
         foreach ($permissions as $perm) {
@@ -726,6 +738,21 @@ abstract class BaseController extends FileLifecycleBase
     protected function kebabToCamel($kebab)
     {
         return lcfirst(str_replace('-', '', ucwords($kebab, '-')));
+    }
+
+    /**
+     * Read the raw request body (JSON or form-encoded) without consuming it.
+     * Mirrors ControllerRouter::getRequestBody for controllers that need to
+     * re-read payload when the routed $data may be empty.
+     */
+    protected function getRequestData()
+    {
+        $input = file_get_contents('php://input');
+        $decoded = json_decode($input, true);
+        if (json_last_error() === JSON_ERROR_NONE && $decoded !== null) {
+            return $decoded;
+        }
+        return $_POST ?? [];
     }
 
     // ========================================================================

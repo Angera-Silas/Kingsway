@@ -203,7 +203,7 @@ const AssignSubjectsController = (() => {
     }
 
     async function remove(id) {
-        if (!confirm('Remove this assignment?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Remove this assignment?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.apiCall(`/academic/subject-assignments/${id}`, 'DELETE');
             showNotification('Assignment removed', 'success');

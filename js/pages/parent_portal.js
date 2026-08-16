@@ -172,6 +172,7 @@ const parentPortalController = {
                 var nameEl = document.getElementById('parentName');
                 if (nameEl) nameEl.textContent = parent.first_name || 'Parent';
                 self.renderChildren(d.children || []);
+                self.stashGuardianForAdmission(parent);
             })
             .catch(function (err) {
                 document.getElementById('childrenCards').innerHTML =
@@ -715,14 +716,14 @@ const parentPortalController = {
         content.innerHTML = html;
     },
 
-    printPortfolio: function () {
+    printPortfolio: async function () {
         var stdIdEl = document.getElementById('studentDetailContent');
         var studentId = this.state.currentStudentId;
-        if (!studentId) { alert('No student selected.'); return; }
+        if (!studentId) { await window.infoDialog('Notice', 'No student selected.'); return; }
         if (window.PrintManager) {
             window.PrintManager.printPortfolio({ student_id: studentId });
         } else {
-            alert('Print service not available.');
+            await window.infoDialog('Notice', 'Print service not available.');
         }
     },
 
@@ -823,10 +824,26 @@ const parentPortalController = {
         }
     },
 
+    stashGuardianForAdmission(parent) {
+        try {
+            var name = [parent.first_name, parent.last_name].filter(Boolean).join(' ').trim();
+            var email = (parent.email || '').trim();
+            var phone = (parent.phone || '').trim();
+            if (name || email || phone) {
+                sessionStorage.setItem('kw_admissions_guardian', JSON.stringify({
+                    parent_name: name,
+                    parent_email: email,
+                    parent_phone: phone,
+                }));
+            }
+        } catch (e) { /* sessionStorage may be unavailable; prefill is optional */ }
+    },
+
     clearAuth() {
         this.state.token = null;
         sessionStorage.removeItem('pp_token');
         sessionStorage.removeItem('pp_expires');
+        sessionStorage.removeItem('kw_admissions_guardian');
     },
 
     setLoading(on) {

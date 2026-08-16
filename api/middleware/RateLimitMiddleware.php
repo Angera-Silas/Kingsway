@@ -36,6 +36,13 @@ class RateLimitMiddleware
         try {
             $db = Database::getInstance();
 
+            // The runtime counter store is optional: if it has not been
+            // provisioned, fail open (the nginx edge layer still enforces
+            // per-route limits).
+            if (!self::rateLimitStoreAvailable($db)) {
+                return;
+            }
+
             // Clean old entries (older than time window)
             $db->query(
                 "DELETE FROM rate_limit_logs WHERE request_time < ?",
@@ -66,6 +73,27 @@ class RateLimitMiddleware
             // Log but don't block on database error
             error_log("Rate limit check failed: " . $e->getMessage());
         }
+    }
+
+    private static $rateLimitStoreChecked = false;
+    private static $rateLimitStoreAvailable = false;
+
+    private static function rateLimitStoreAvailable($db): bool
+    {
+        if (self::$rateLimitStoreChecked) {
+            return self::$rateLimitStoreAvailable;
+        }
+
+        $stmt = $db->query(
+            "SELECT COUNT(*)
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name = 'rate_limit_logs'"
+        );
+        self::$rateLimitStoreAvailable = (int) $stmt->fetchColumn() === 1;
+        self::$rateLimitStoreChecked = true;
+
+        return self::$rateLimitStoreAvailable;
     }
 
     private static function resolveLimit($rateKey)

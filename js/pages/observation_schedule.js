@@ -129,7 +129,7 @@ const observationScheduleController = {
   },
 
   markCompleted: async function (id) {
-    if (!confirm('Mark this observation as completed?')) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this observation as completed?'))) return;
     try {
       await callAPI('/staff/observation-schedule/' + id, 'PUT', { status: 'completed' });
       showNotification('Marked as completed.', 'success');

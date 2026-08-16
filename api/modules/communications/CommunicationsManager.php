@@ -263,16 +263,15 @@ class CommunicationsManager extends FileLifecycleBase
             $content = $body;
         }
 
-        $sql = "INSERT INTO communications (sender_id, subject, content, type, category, status, priority, template_id, scheduled_at, reminder_at, sender_signature) VALUES (:sender_id, :subject, :content, :type, :category, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature)";
+        $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':sender_id' => $data['sender_id'] ?? 1,
             ':subject' => $data['subject'] ?? 'No subject',
-            ':content' => $content,
+            ':body' => $content,
             ':type' => $type,
-            ':category' => $data['category'] ?? $data['message_type'] ?? null,
-            ':status' => $data['status'] ?? 'draft',
-            ':priority' => $data['priority'] ?? 'medium',
+            ':status' => $this->normalizeStatus($data['status'] ?? 'draft'),
+            ':priority' => $this->normalizePriority($data['priority'] ?? 'medium'),
             ':template_id' => $data['template_id'] ?? null,
             ':scheduled_at' => $data['scheduled_at'] ?? null,
             ':reminder_at' => $data['reminder_at'] ?? null,
@@ -285,20 +284,29 @@ class CommunicationsManager extends FileLifecycleBase
         $sql = "SELECT * FROM communications WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $id]);
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row === false ? null : $this->decorateRow($row);
     }
     public function updateCommunication($id, $data)
     {
         $fields = [];
         $params = [':id' => $id];
-        foreach (["sender_id", "subject", "content", "type", "category", "status", "priority", "template_id", "scheduled_at", "reminder_at", "sender_signature"] as $col) {
+        foreach (["sender_id", "subject", "body", "type", "template_id", "scheduled_at", "reminder_at", "sender_signature"] as $col) {
             if (isset($data[$col])) {
                 $fields[] = "$col = :$col";
                 $params[":$col"] = $data[$col];
             }
         }
+        if (isset($data['status'])) {
+            $fields[] = "status = :status";
+            $params[':status'] = $this->normalizeStatus($data['status']);
+        }
+        if (isset($data['priority'])) {
+            $fields[] = "priority = :priority";
+            $params[':priority'] = $this->normalizePriority($data['priority']);
+        }
         if (!$fields) {
-            throw new \Exception("No fields to update");
+            throw new \InvalidArgumentException('No fields to update');
         }
         $sql = "UPDATE communications SET " . implode(",", $fields) . " WHERE id = :id";
         $stmt = $this->db->prepare($sql);
@@ -332,7 +340,68 @@ class CommunicationsManager extends FileLifecycleBase
         $sql .= " ORDER BY created_at DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map(function ($row) {
+            return $this->decorateRow($row);
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Add frontend-friendly aliases to a communications row. The JS page
+     * controllers read `content`/`title` while the DB column is `body`/`subject`.
+     */
+    private function decorateRow(array $row): array
+    {
+        if (!array_key_exists('content', $row)) {
+            $row['content'] = $row['body'] ?? null;
+        }
+        if (!array_key_exists('title', $row)) {
+            $row['title'] = $row['subject'] ?? null;
+        }
+        return $row;
+    }
+
+    /**
+     * Normalize a priority value to the communications.priority enum
+     * ('low'|'medium'|'high'). Frontends send UI aliases such as 'normal'
+     * (→ medium) and 'urgent' (→ high), which would otherwise be rejected
+     * by the strict enum column.
+     *
+     * @param mixed $priority
+     * @return string
+     */
+    private function normalizePriority($priority): string
+    {
+        $map = [
+            'low' => 'low',
+            'normal' => 'medium',
+            'medium' => 'medium',
+            'high' => 'high',
+            'urgent' => 'high',
+        ];
+        $key = strtolower(trim((string)$priority));
+        return $map[$key] ?? 'medium';
+    }
+
+    /**
+     * Normalize a status value to the communications.status enum
+     * ('draft'|'sent'|'scheduled'|'failed'). Frontends use 'published'
+     * as an alias for 'sent'.
+     *
+     * @param mixed $status
+     * @return string
+     */
+    private function normalizeStatus($status): string
+    {
+        $map = [
+            'draft' => 'draft',
+            'published' => 'sent',
+            'sent' => 'sent',
+            'scheduled' => 'scheduled',
+            'pending' => 'draft',
+            'failed' => 'failed',
+        ];
+        $key = strtolower(trim((string)$status));
+        return $map[$key] ?? 'draft';
     }
 
     // Attachments CRUD
@@ -407,6 +476,9 @@ class CommunicationsManager extends FileLifecycleBase
             $type = 'custom';
         }
 
+        if (empty($data['name'])) {
+            throw new \InvalidArgumentException('name is required');
+        }
         $sql = "INSERT INTO communication_groups (name, description, type, created_by) VALUES (:name, :description, :type, :created_by)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
@@ -435,7 +507,7 @@ class CommunicationsManager extends FileLifecycleBase
             }
         }
         if (!$fields) {
-            throw new \Exception("No fields to update");
+            throw new \InvalidArgumentException('No fields to update');
         }
         $sql = "UPDATE communication_groups SET " . implode(", ", $fields) . ", updated_at = CURRENT_TIMESTAMP WHERE id = :id";
         $sql = preg_replace('/,\s*,/', ',', $sql); // Remove accidental double commas
@@ -466,68 +538,73 @@ class CommunicationsManager extends FileLifecycleBase
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Logs CRUD - use log files
+    // Logs CRUD - stored in the file-based communication log
     public function addLog($data)
     {
         // If communication_id is not provided, create a placeholder or use a system entry
         $communicationId = $data['communication_id'] ?? 0;
         $recipientId = $data['recipient_id'] ?? 0;
 
-        // If no recipient, use a generic system log entry
-        if (!$recipientId && !$communicationId) {
-            // Store in file-based log instead
-            $logData = [
-                'timestamp' => date('Y-m-d H:i:s'),
-                'action' => $data['action'] ?? 'log',
-                'recipient' => $data['recipient'] ?? 'system',
-                'channel' => $data['channel'] ?? 'system',
-                'status' => $data['status'] ?? 'pending',
-                'details' => $data['details'] ?? null
-            ];
-            $logFile = dirname(__DIR__) . '/logs/communications.log';
-            @(new \App\API\Services\UploadService())->writeFile($logFile, json_encode($logData) . "\n", FILE_APPEND);
-            return ['status' => 'logged', 'type' => 'file'];
+        $eventType = $data['event_type'] ?? $data['action'] ?? 'log';
+        $details = $data['details'] ?? null;
+        $payload = ['event_type' => $eventType];
+        if ($details !== null) {
+            $payload['details'] = is_array($details) ? $details : json_decode((string) $details, true);
         }
 
-        $sql = "INSERT INTO communication_logs (communication_id, recipient_id, event_type, details) VALUES (:communication_id, :recipient_id, :event_type, :details)";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':communication_id' => $communicationId,
-            ':recipient_id' => $recipientId,
-            ':event_type' => $data['event_type'] ?? $data['action'] ?? 'log',
-            ':details' => isset($data['details']) ? json_encode($data['details']) : null
+        \App\API\Includes\FileLogger::write('audit', [
+            'type' => 'audit',
+            'action' => 'communication_log',
+            'entity' => 'communication',
+            'entity_id' => (int) $communicationId,
+            'user_id' => (int) $recipientId,
+            'details' => $payload,
+            'status' => 'success',
         ]);
-        return $this->getLog($this->db->lastInsertId());
+        return [
+            'id' => null,
+            'communication_id' => (int) $communicationId,
+            'recipient_id' => (int) $recipientId,
+            'event_type' => $eventType,
+            'details' => $payload
+        ];
     }
     public function getLog($id)
     {
-        $sql = "SELECT * FROM communication_logs WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':id' => $id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && isset($row['details'])) {
-            $row['details'] = json_decode($row['details'], true);
+        $entries = \App\API\Includes\FileLogger::recent('audit', 100, ['action' => 'communication_log']);
+        foreach ($entries as $row) {
+            $row['communication_id'] = $row['entity_id'] ?? null;
+            $row['recipient_id'] = $row['user_id'] ?? null;
+            $decoded = isset($row['details']) && is_array($row['details']) ? $row['details'] : [];
+            $row['event_type'] = $decoded['event_type'] ?? 'log';
+            $row['details'] = $decoded['details'] ?? $decoded;
+            $row['recipient'] = $row['recipient_id'];
+            $row['status'] = 'logged';
+            $row['created_at'] = $row['timestamp'] ?? null;
+            return $row;
         }
-        return $row;
+        return null;
     }
     public function listLogs($filters = [])
     {
-        $sql = "SELECT * FROM communupdate the frontend forms to send all the required data including uploadsication_logs WHERE 1=1";
-        $params = [];
-        foreach (["communication_id", "recipient_id", "event_type"] as $col) {
-            if (isset($filters[$col])) {
-                $sql .= " AND $col = :$col";
-                $params[":$col"] = $filters[$col];
+        $entries = \App\API\Includes\FileLogger::recent('audit', 500, ['action' => 'communication_log']);
+        $rows = [];
+        foreach ($entries as $row) {
+            if (!empty($filters['communication_id']) && (int) ($row['entity_id'] ?? 0) !== (int) $filters['communication_id']) {
+                continue;
             }
-        }
-        $sql .= " ORDER BY created_at DESC";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$row) {
-            if (isset($row['details'])) {
-                $row['details'] = json_decode($row['details'], true);
+            if (!empty($filters['recipient_id']) && (int) ($row['user_id'] ?? 0) !== (int) $filters['recipient_id']) {
+                continue;
             }
+            $decoded = isset($row['details']) && is_array($row['details']) ? $row['details'] : [];
+            $rows[] = [
+                'id' => null,
+                'communication_id' => $row['entity_id'] ?? null,
+                'recipient_id' => $row['user_id'] ?? null,
+                'event_type' => $decoded['event_type'] ?? 'log',
+                'details' => $decoded['details'] ?? $decoded,
+                'created_at' => $row['timestamp'] ?? null,
+            ];
         }
         return $rows;
     }
@@ -591,17 +668,18 @@ class CommunicationsManager extends FileLifecycleBase
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Templates CRUD
+    // Templates CRUD - mapped to live message_templates (legacy communication_templates retired)
     public function createTemplate($data)
     {
-        // Map channel to template_type
+        // Map channel to message_templates.type (enum: email, sms, notification)
         $templateType = $data['template_type'] ?? $data['channel'] ?? 'sms';
         $typeMap = [
             'sms' => 'sms',
             'email' => 'email',
-            'announcement' => 'announcement',
-            'internal' => 'internal_message',
-            'internal_message' => 'internal_message',
+            'notification' => 'notification',
+            'announcement' => 'notification',
+            'internal' => 'notification',
+            'internal_message' => 'notification',
             'message' => 'email'
         ];
         $templateType = $typeMap[$templateType] ?? 'sms';
@@ -609,64 +687,74 @@ class CommunicationsManager extends FileLifecycleBase
         // Get template body from content or template_body or message field
         $templateBody = $data['template_body'] ?? $data['content'] ?? $data['message'] ?? 'No template body';
 
-        $sql = "INSERT INTO communication_templates (name, template_type, category, subject, template_body, variables_json, example_output, created_by, status, usage_count) VALUES (:name, :template_type, :category, :subject, :template_body, :variables_json, :example_output, :created_by, :status, :usage_count)";
+        $sql = "INSERT INTO message_templates (name, type, category, subject, body, variables, created_by, status, use_count) VALUES (:name, :type, :category, :subject, :body, :variables, :created_by, :status, :use_count)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':name' => $data['name'] ?? 'Unnamed Template',
-            ':template_type' => $templateType,
+            ':type' => $templateType,
             ':category' => $data['category'] ?? null,
             ':subject' => $data['subject'] ?? null,
-            ':template_body' => $templateBody,
-            ':variables_json' => isset($data['variables_json']) ? json_encode($data['variables_json']) : null,
-            ':example_output' => $data['example_output'] ?? null,
+            ':body' => $templateBody,
+            ':variables' => isset($data['variables_json']) ? json_encode($data['variables_json']) : ($data['variables'] ?? null),
             ':created_by' => $data['created_by'] ?? 1,
             ':status' => $data['status'] ?? 'active',
-            ':usage_count' => $data['usage_count'] ?? 0
+            ':use_count' => $data['usage_count'] ?? 0
         ]);
         return $this->getTemplate($this->db->lastInsertId());
     }
     public function getTemplate($id)
     {
-        $sql = "SELECT * FROM communication_templates WHERE id = :id";
+        $sql = "SELECT * FROM message_templates WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && isset($row['variables_json'])) {
-            $row['variables_json'] = json_decode($row['variables_json'], true);
+        if ($row) {
+            $row = $this->decorateTemplate($row);
         }
         return $row;
     }
     public function updateTemplate($id, $data)
     {
+        $colMap = [
+            'name' => 'name',
+            'template_type' => 'type',
+            'category' => 'category',
+            'subject' => 'subject',
+            'template_body' => 'body',
+            'variables_json' => 'variables',
+            'status' => 'status',
+            'usage_count' => 'use_count',
+        ];
         $fields = [];
         $params = [':id' => $id];
-        foreach (["name", "template_type", "category", "subject", "template_body", "variables_json", "example_output", "status", "usage_count"] as $col) {
-            if (isset($data[$col])) {
+        foreach ($colMap as $inputKey => $col) {
+            if (isset($data[$inputKey])) {
                 $fields[] = "$col = :$col";
-                $params[":$col"] = $col === 'variables_json' ? json_encode($data[$col]) : $data[$col];
+                $params[":$col"] = ($inputKey === 'variables_json') ? json_encode($data[$inputKey]) : $data[$inputKey];
             }
         }
         if (!$fields) {
-            throw new \Exception("No fields to update");
+            throw new \InvalidArgumentException('No fields to update');
         }
-        $sql = "UPDATE communication_templates SET " . implode(", ", $fields) . ", updated_at = CURRENT_TIMESTAMP WHERE id = :id";
-        $sql = preg_replace('/,\s*,/', ',', $sql);
-        $sql = str_replace('SET ,', 'SET ', $sql);
+        $sql = "UPDATE message_templates SET " . implode(", ", $fields) . " WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $this->getTemplate($id);
     }
     public function deleteTemplate($id)
     {
-        $sql = "DELETE FROM communication_templates WHERE id = :id";
+        $sql = "DELETE FROM message_templates WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         return $stmt->execute([':id' => $id]);
     }
     public function listTemplates($filters = [])
     {
-        $sql = "SELECT * FROM communication_templates WHERE 1=1";
+        $sql = "SELECT * FROM message_templates WHERE 1=1";
         $params = [];
-        foreach (["template_type", "category", "status", "created_by"] as $col) {
+        if (isset($filters['template_type']) && $filters['template_type'] !== '') {
+            $filters['type'] = $filters['template_type'];
+        }
+        foreach (["type", "category", "status", "created_by"] as $col) {
             if (isset($filters[$col])) {
                 $sql .= " AND $col = :$col";
                 $params[":$col"] = $filters[$col];
@@ -677,11 +765,19 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$row) {
-            if (isset($row['variables_json'])) {
-                $row['variables_json'] = json_decode($row['variables_json'], true);
-            }
+            $row = $this->decorateTemplate($row);
         }
         return $rows;
+    }
+
+    private function decorateTemplate(array $row): array
+    {
+        $row['template_type'] = $row['type'] ?? null;
+        $row['template_body'] = $row['body'] ?? null;
+        $row['usage_count'] = $row['use_count'] ?? 0;
+        $row['example_output'] = null;
+        $row['variables_json'] = isset($row['variables']) ? json_decode($row['variables'], true) : null;
+        return $row;
     }
 
 }

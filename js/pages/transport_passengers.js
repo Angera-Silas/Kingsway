@@ -569,7 +569,11 @@ const TransportPassengersController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = "";
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = placeholder;
+    select.appendChild(placeholderOption);
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -631,7 +635,7 @@ const TransportPassengersController = {
       return;
     }
 
-    alert(message);
+    window.infoDialog && window.infoDialog("Notice", message);
   },
 };
 

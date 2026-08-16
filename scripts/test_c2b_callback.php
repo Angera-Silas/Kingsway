@@ -61,7 +61,12 @@ echo "- Payer: $firstName $middleName $lastName\n\n";
 try {
     // 1. Check if student exists
     echo "Step 1: Looking up student...\n";
-    $stmt = $db->prepare("SELECT id, first_name, last_name, status FROM students WHERE admission_no = ?");
+    $stmt = $db->prepare("
+        SELECT s.id, p.first_name, p.last_name, s.status
+        FROM students s
+        JOIN persons p ON p.id = s.person_id
+        WHERE s.admission_no = ?
+    ");
     $stmt->execute([$billRefNumber]);
     $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -184,29 +189,30 @@ try {
     ]);
 
     echo "\nPayment Transaction Record:\n";
-    $stmt = $db->prepare("SELECT id, student_id, amount_paid, payment_method, reference_no, status, payment_date FROM payment_transactions WHERE reference_no = ?");
+    $stmt = $db->prepare("SELECT id, student_id, amount, method AS payment_method, reference AS reference_no, status, payment_date FROM payments WHERE reference = ?");
     $stmt->execute([$transID]);
     $paymentRecord = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($paymentRecord) {
         print_r($paymentRecord);
     } else {
-        echo "  (No record found - check if stored procedure creates payment_transactions)\n";
+        echo "  (No record found - check if stored procedure creates payments)\n";
     }
 
     echo "\nStudent Fee Obligations Updated:\n";
     $stmt = $db->prepare("
-        SELECT sfo.id, ft.name as fee_component, sfo.amount_due, sfo.amount_paid, sfo.balance, sfo.status 
+        SELECT sfo.id, fc.name as fee_component, sfo.amount_due, sfo.status 
         FROM student_fee_obligations sfo
-        LEFT JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
-        LEFT JOIN fee_types ft ON fsd.fee_type_id = ft.id
-        WHERE sfo.student_id = ? 
+        JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+        LEFT JOIN academic_year_fee_schedules ayfs ON sfo.academic_year_fee_schedule_id = ayfs.id
+        LEFT JOIN fee_catalog fc ON ayfs.fee_catalog_id = fc.id
+        WHERE sae.student_id = ? 
         ORDER BY sfo.id DESC LIMIT 3
     ");
     $stmt->execute([$studentId]);
     $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
     if ($obligations) {
         foreach ($obligations as $o) {
-            echo "  - {$o['fee_component']}: Due={$o['amount_due']}, Paid={$o['amount_paid']}, Balance={$o['balance']}, Status={$o['status']}\n";
+            echo "  - {$o['fee_component']}: Due={$o['amount_due']}, Status={$o['status']}\n";
         }
     } else {
         echo "  (No fee obligations found for student)\n";

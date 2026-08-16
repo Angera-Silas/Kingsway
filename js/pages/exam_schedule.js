@@ -41,19 +41,19 @@ const ExamScheduleController = (() => {
       .replace(/>/g, "&gt;");
   }
 
-  function showSuccess(message) {
+  async function showSuccess(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   }
 
-  function showError(message) {
+  async function showError(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog('Notice', "Error: " + message);
     }
   }
 
@@ -406,7 +406,7 @@ const ExamScheduleController = (() => {
   }
 
   async function deleteExam(examId) {
-    if (!confirm("Are you sure you want to delete this exam schedule?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this exam schedule?", { confirmText: 'Delete', danger: true }))) return;
 
     try {
       await window.API.apiCall(`/academic/exam-schedule/${examId}`, "DELETE");

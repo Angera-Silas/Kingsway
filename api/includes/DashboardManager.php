@@ -119,7 +119,7 @@ class DashboardManager
         $stmt = $this->db->query(
             "SELECT d.*, r.name as route_name, r.url as route_url
              FROM dashboards d
-             LEFT JOIN routes r ON r.id = d.route_id
+             LEFT JOIN routes_registry r ON r.id = d.route_id
              WHERE d.is_active = 1
              ORDER BY d.id"
         );
@@ -147,7 +147,7 @@ class DashboardManager
             "SELECT DISTINCT d.*, r.name as route_name, r.url as route_url, rd.is_primary
              FROM dashboards d
              JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             LEFT JOIN routes r ON r.id = d.route_id
+             LEFT JOIN routes_registry r ON r.id = d.route_id
              WHERE rd.role_id IN ({$placeholders}) AND d.is_active = 1
              ORDER BY rd.is_primary DESC, rd.display_order"
         );
@@ -171,7 +171,7 @@ class DashboardManager
             "SELECT d.*, r.name as route_name, r.url as route_url
              FROM dashboards d
              JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             LEFT JOIN routes r ON r.id = d.route_id
+             LEFT JOIN routes_registry r ON r.id = d.route_id
              WHERE rd.role_id = ? AND d.is_active = 1
              ORDER BY rd.is_primary DESC, rd.display_order
              LIMIT 1"
@@ -193,14 +193,14 @@ class DashboardManager
             $stmt = $this->db->prepare(
                 "SELECT d.*, r.name as route_name, r.url as route_url
                  FROM dashboards d
-                 LEFT JOIN routes r ON r.id = d.route_id
+                 LEFT JOIN routes_registry r ON r.id = d.route_id
                  WHERE d.id = ? AND d.is_active = 1"
             );
         } else {
             $stmt = $this->db->prepare(
                 "SELECT d.*, r.name as route_name, r.url as route_url
                  FROM dashboards d
-                 LEFT JOIN routes r ON r.id = d.route_id
+                 LEFT JOIN routes_registry r ON r.id = d.route_id
                  WHERE d.name = ? AND d.is_active = 1"
             );
         }
@@ -325,7 +325,7 @@ class DashboardManager
         $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
         $stmt = $this->db->prepare(
             "SELECT COUNT(*) FROM role_routes rr
-             JOIN routes r ON r.id = rr.route_id
+             JOIN routes_registry r ON r.id = rr.route_id
              WHERE rr.role_id IN ({$placeholders}) AND r.name = ? AND rr.is_allowed = 1"
         );
         $params = array_merge($roleIds, [$route]);
@@ -344,7 +344,7 @@ class DashboardManager
         $stmt = $this->db->prepare(
             "SELECT d.*, r.name as route_name, r.url as route_url
              FROM dashboards d
-             JOIN routes r ON r.id = d.route_id
+             JOIN routes_registry r ON r.id = d.route_id
              WHERE r.name = ? AND d.is_active = 1"
         );
         $stmt->execute([$routeName]);
@@ -443,7 +443,7 @@ class DashboardManager
             "SELECT r.name
              FROM dashboards d
              JOIN role_dashboards rd ON rd.dashboard_id = d.id
-             JOIN routes r ON r.id = d.route_id
+             JOIN routes_registry r ON r.id = d.route_id
              WHERE rd.role_id = ? AND d.is_active = 1
              ORDER BY rd.is_primary DESC
              LIMIT 1"

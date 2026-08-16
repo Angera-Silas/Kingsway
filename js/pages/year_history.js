@@ -14,9 +14,7 @@ const YearHistoryController = (() => {
     async function loadData() {
         try {
             const r =
-              (await window.API.apiCall("/academic/year-history", "GET").catch(
-                () => null,
-              )) ||
+              (await window.API.academic.getYearHistory().catch(() => null)) ||
               (await window.API.academic
                 ?.getAllAcademicYears?.()
                 .catch(() => null));

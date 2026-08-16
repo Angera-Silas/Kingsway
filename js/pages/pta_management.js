@@ -157,7 +157,7 @@ const PTAManagementController = (() => {
         } catch (e) { showNotification(e.message || 'Failed to save', 'danger'); }
     }
     async function deleteRecord(id) {
-        if (!confirm("Remove this PTA member?")) return;
+        if (!(await window.confirmAction('Confirm Deletion', "Remove this PTA member?", { confirmText: 'Delete', danger: true }))) return;
         try {
           await window.API.apiCall("/communications/pta/" + id, "DELETE");
           showNotification("Member removed", "success");

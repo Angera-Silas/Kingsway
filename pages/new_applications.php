@@ -243,6 +243,11 @@ if ($appBase === '.')
                                 <i class="bi bi-heart-pulse me-1"></i> Health
                             </button>
                         </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tab-documents" data-bs-toggle="tab" data-bs-target="#content-documents" type="button" role="tab">
+                                <i class="bi bi-paperclip me-1"></i> Documents
+                            </button>
+                        </li>
                     </ul>
 
                     <!-- Tab Content -->
@@ -332,12 +337,41 @@ if ($appBase === '.')
                         <!-- Parent/Guardian Tab -->
                         <div class="tab-pane fade" id="content-parent" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-md-12">
-                                    <label class="form-label fw-semibold">Parent/Guardian <span class="text-danger">*</span></label>
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold">Parent / Guardian <span class="text-danger">*</span></label>
+                                    <div class="btn-group w-100" role="group" aria-label="Parent type">
+                                        <input type="radio" class="btn-check" name="parent_type" id="parentTypeExisting" value="existing" checked>
+                                        <label class="btn btn-outline-primary" for="parentTypeExisting">Existing Parent</label>
+                                        <input type="radio" class="btn-check" name="parent_type" id="parentTypeNew" value="new">
+                                        <label class="btn btn-outline-primary" for="parentTypeNew">New Parent</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-12" id="existingParentFields">
+                                    <label class="form-label fw-semibold">Select Existing Parent <span class="text-danger">*</span></label>
                                     <select name="parent_id" id="parentSelect" class="form-select" required>
                                         <option value="">Select Parent/Guardian</option>
                                     </select>
-                                    <small class="text-muted">Parent must exist in the system. If not, please add parent first.</small>
+                                    <small class="text-muted">Parent must exist in the system.</small>
+                                </div>
+                                <div class="col-md-6" id="newParentFields" style="display:none;">
+                                    <label class="form-label fw-semibold">Parent Full Name <span class="text-danger">*</span></label>
+                                    <input type="text" name="new_parent_name" class="form-control" placeholder="Enter full name">
+                                </div>
+                                <div class="col-md-6" id="newParentIdField" style="display:none;">
+                                    <label class="form-label fw-semibold">National ID / Passport No.</label>
+                                    <input type="text" name="new_parent_id_number" class="form-control" placeholder="ID number">
+                                </div>
+                                <div class="col-md-6" id="newParentPhoneField" style="display:none;">
+                                    <label class="form-label fw-semibold">Phone Number <span class="text-danger">*</span></label>
+                                    <input type="tel" name="new_parent_phone" class="form-control" placeholder="e.g. 0720 113 030">
+                                </div>
+                                <div class="col-md-6" id="newParentEmailField" style="display:none;">
+                                    <label class="form-label fw-semibold">Email Address</label>
+                                    <input type="email" name="new_parent_email" class="form-control" placeholder="parent@email.com">
+                                </div>
+                                <div class="col-12" id="newParentAddressField" style="display:none;">
+                                    <label class="form-label fw-semibold">Residential Address</label>
+                                    <input type="text" name="new_parent_address" class="form-control" placeholder="Town, Sub-county, County">
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold">Relationship</label>
@@ -392,6 +426,65 @@ if ($appBase === '.')
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold">Allergies</label>
                                     <input type="text" name="allergies" class="form-control" placeholder="Any known allergies">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Documents Tab -->
+                        <div class="tab-pane fade" id="content-documents" role="tabpanel">
+                            <div class="alert alert-warning small mb-3">
+                                <i class="bi bi-info-circle-fill me-1"></i>
+                                Documents are part of the application — they are uploaded now, not after submission.
+                                Accepted formats: PDF, JPG, PNG (max 5MB each).
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Birth Certificate <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_birth_certificate" class="form-control" required accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Passport Photo <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_passport_photo" class="form-control" required accept=".jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6" id="newParentIdDocWrap">
+                                    <label class="form-label fw-semibold">Parent / Guardian ID</label>
+                                    <input type="file" name="doc_parent_id" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required when registering a new parent/guardian.</small>
+                                </div>
+                                <div class="col-md-6" id="immunizationDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Immunization Card <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_immunization_card" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Playgroup to Grade 3.</small>
+                                </div>
+                                <div class="col-md-6" id="schoolReportDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Previous School Report <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_previous_school_report" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Grade 4–9 applicants.</small>
+                                </div>
+                                <div class="col-md-6" id="medicalDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Medical Test Results <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_medical_records" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Grade 4–9 applicants — to identify conditions/disabilities (e.g. eyesight, ulcers).</small>
+                                </div>
+                            </div>
+                            <h6 class="fw-semibold text-muted mt-4 mb-2"><i class="bi bi-plus-circle me-2"></i>Additional Documents (Optional)</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Progress Report</label>
+                                    <input type="file" name="doc_progress_report" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Leaving Certificate</label>
+                                    <input type="file" name="doc_leaving_certificate" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Transfer Letter</label>
+                                    <input type="file" name="doc_transfer_letter" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Other Documents</label>
+                                    <input type="file" name="doc_other" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Student portfolio, reports, or any other relevant document.</small>
                                 </div>
                             </div>
                         </div>

@@ -241,7 +241,7 @@ const LessonPlanApprovalController = (() => {
       showNotification("Please select lesson plans to approve", "error");
       return;
     }
-    if (!confirm(`Approve ${selected.length} selected lesson plans?`)) return;
+    if (!(await window.confirmAction('Confirm', `Approve ${selected.length} selected lesson plans?`))) return;
 
     try {
       await window.API.academic.bulkApproveLessonPlans(selected);

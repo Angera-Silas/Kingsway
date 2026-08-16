@@ -14,14 +14,17 @@ class ContactDirectoryManager
     // CRUD for contact_directory
     public function createContact($data)
     {
-        $sql = "INSERT INTO contact_directory (name, phone, email, contact_type, department, role, notes, created_at) VALUES (:name, :phone, :email, :contact_type, :department, :role, :notes, NOW())";
+        if (empty($data['name'])) {
+            throw new \InvalidArgumentException('name is required');
+        }
+        $sql = "INSERT INTO contact_directory (name, phone, email, contact_type, department_id, role, notes, created_at) VALUES (:name, :phone, :email, :contact_type, :department_id, :role, :notes, NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':name' => $data['name'],
             ':phone' => $data['phone'] ?? null,
             ':email' => $data['email'] ?? null,
             ':contact_type' => $data['type'] ?? $data['contact_type'] ?? 'external',
-            ':department' => $data['department'] ?? null,
+            ':department_id' => $this->resolveDepartmentId($data['department'] ?? null),
             ':role' => $data['role'] ?? null,
             ':notes' => $data['notes'] ?? null
         ]);
@@ -39,7 +42,7 @@ class ContactDirectoryManager
     {
         $fields = [];
         $params = [':id' => $id];
-        foreach (['name', 'phone', 'email', 'contact_type', 'department', 'role', 'notes'] as $col) {
+        foreach (['name', 'phone', 'email', 'contact_type', 'role', 'notes'] as $col) {
             if (isset($data[$col]) || (isset($data['type']) && $col === 'contact_type')) {
                 $fields[] = "$col = :$col";
                 if ($col === 'contact_type') {
@@ -48,6 +51,11 @@ class ContactDirectoryManager
                     $params[":$col"] = $data[$col] ?? null;
                 }
             }
+        }
+        if (isset($data['department'])) {
+            $departmentId = $this->resolveDepartmentId($data['department']);
+            $fields[] = "department_id = :department_id";
+            $params[':department_id'] = $departmentId;
         }
         if (!$fields) {
             return false;
@@ -72,9 +80,10 @@ class ContactDirectoryManager
             $sql .= " AND contact_type = :contact_type";
             $params[':contact_type'] = $filters['type'] ?? $filters['contact_type'];
         }
-        if (isset($filters['department'])) {
-            $sql .= " AND department = :department";
-            $params[':department'] = $filters['department'];
+        if (isset($filters['department']) && $filters['department'] !== '') {
+            $departmentId = $this->resolveDepartmentId($filters['department']);
+            $sql .= " AND department_id = :department_id";
+            $params[':department_id'] = $departmentId;
         }
         $sql .= " ORDER BY name ASC";
         $stmt = $this->db->prepare($sql);
@@ -82,31 +91,62 @@ class ContactDirectoryManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Approval workflow
+    // Approval workflow - contact_directory has no status/approval columns;
+    // approval actions are recorded in audit_logs.
     public function submitForReview($id)
     {
-        $sql = "UPDATE contact_directory SET status = 'pending_review', updated_at = NOW() WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':id' => $id]);
-        // Optionally: notify reviewers
-        return $stmt->rowCount() > 0;
+        $contact = $this->getContact($id);
+        if (!$contact) {
+            return false;
+        }
+        $this->audit('contact_submitted', $id, null);
+        return true;
     }
 
     public function approveContact($id, $adminId)
     {
-        $sql = "UPDATE contact_directory SET status = 'approved', approved_by = :adminId, approved_at = NOW() WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':adminId' => $adminId, ':id' => $id]);
-        // Optionally: notify contact owner
-        return $stmt->rowCount() > 0;
+        $contact = $this->getContact($id);
+        if (!$contact) {
+            return false;
+        }
+        $this->audit('contact_approved', $id, $adminId);
+        return true;
     }
 
     public function rejectContact($id, $adminId)
     {
-        $sql = "UPDATE contact_directory SET status = 'rejected', approved_by = :adminId, approved_at = NOW() WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([':adminId' => $adminId, ':id' => $id]);
-        // Optionally: notify contact owner
-        return $stmt->rowCount() > 0;
+        $contact = $this->getContact($id);
+        if (!$contact) {
+            return false;
+        }
+        $this->audit('contact_rejected', $id, $adminId);
+        return true;
+    }
+
+    private function audit(string $action, int $id, $adminId): void
+    {
+        \App\API\Includes\FileLogger::write('audit', [
+            'type' => 'audit',
+            'action' => $action,
+            'entity' => 'contact_directory',
+            'entity_id' => $id,
+            'user_id' => $adminId,
+            'details' => null,
+            'status' => 'success',
+        ]);
+    }
+
+    private function resolveDepartmentId($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM departments WHERE name = ? OR code = ? LIMIT 1");
+        $stmt->execute([$value, $value]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? (int) $row['id'] : null;
     }
 }

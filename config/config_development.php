@@ -254,6 +254,17 @@ define(
         : 'https://sandbox.safaricom.co.ke'
 );
 
+// Callback URLs sent to Safaricom must be publicly reachable, so they cannot
+// reuse the local BASE_URL in development/sandbox. Override per environment;
+// falls back to BASE_URL (kept for sandbox stubs and production-like setups).
+define(
+    'MPESA_CALLBACK_BASE_URL',
+    rtrim(
+        (string) ($_ENV['MPESA_CALLBACK_BASE_URL'] ?? BASE_URL),
+        '/'
+    )
+);
+
 define(
     'MPESA_CONSUMER_KEY',
     $_ENV['MPESA_CONSUMER_KEY'] ?? ''

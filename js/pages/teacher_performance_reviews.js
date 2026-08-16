@@ -190,7 +190,7 @@ const TeacherPerformanceReviewsController = {
         const teacher = this.getTeacherName(review.teacher_id);
         const subject = this.getSubjectName(review.subject_id);
 
-        alert(`Performance Review Details:\n\nTeacher: ${teacher}\nSubject: ${subject}\nDate: ${review.review_date}\nReviewer: ${review.reviewer_name}\nRating: ${review.rating}\nCategory: ${review.category}\nRemarks: ${review.remarks}`);
+        window.infoDialog('Performance Review Details', `Performance Review Details:\n\nTeacher: ${teacher}\nSubject: ${subject}\nDate: ${review.review_date}\nReviewer: ${review.reviewer_name}\nRating: ${review.rating}\nCategory: ${review.category}\nRemarks: ${review.remarks}`);
     },
 
     refresh() {

@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', function () {
         contentId:   'fee-structure-content',
         templateDir: '/pages/fee_structure/',
         module:      'Fee Structure',
+        scriptSrc:   '/js/pages/fee_structure.js',
         levels: [
             {
                 file: 'admin_fee_structure.php',

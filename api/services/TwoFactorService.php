@@ -415,6 +415,119 @@ class TwoFactorService
     }
 
     // ========================================================================
+    // Supporting operations (password check, backup rotation, pending setup)
+    // ========================================================================
+
+    /**
+     * Verify a user's password against the stored hash.
+     */
+    public function verifyUserPassword(int $userId, string $password): bool
+    {
+        $stmt = $this->db->prepare("SELECT password FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $hash = $stmt->fetchColumn();
+
+        return (bool) $hash && password_verify($password, $hash);
+    }
+
+    /**
+     * Rotate backup codes: delete existing codes and generate a fresh set.
+     *
+     * @return string[] New backup codes.
+     */
+    public function rotateBackupCodes(int $userId): array
+    {
+        $stmt = $this->db->prepare("DELETE FROM user_2fa_backup_codes WHERE user_id = ?");
+        $stmt->execute([$userId]);
+
+        return $this->generateBackupCodes($userId);
+    }
+
+    /**
+     * Fetch a user's contact channels for OTP delivery.
+     *
+     * @return array ['email' => ?string, 'phone_1' => ?string]
+     */
+    public function getUserContact(int $userId): array
+    {
+        $stmt = $this->db->prepare("SELECT p.email, p.phone AS phone_1 FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?");
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'email'   => $row['email'] ?? null,
+            'phone_1' => $row['phone_1'] ?? null,
+        ];
+    }
+
+    /**
+     * Store a pending TOTP setup secret (plaintext, 15-minute TTL).
+     */
+    public function storePendingSecret(int $userId, string $secret, string $method): void
+    {
+        if ($method !== 'totp') return;
+
+        $stmt = $this->db->prepare(
+            "DELETE FROM user_2fa_otp_sessions WHERE user_id = ? AND otp_type = 'setup_pending'"
+        );
+        $stmt->execute([$userId]);
+
+        $expires = date('Y-m-d H:i:s', time() + 900);
+        $stmt = $this->db->prepare(
+            "INSERT INTO user_2fa_otp_sessions
+             (user_id, otp_code, otp_type, method, otp_expires_at)
+             VALUES (?, ?, 'setup_pending', 'totp', ?)"
+        );
+        $stmt->execute([$userId, $secret, $expires]);
+    }
+
+    /**
+     * Retrieve a pending 2FA setup state.
+     *
+     * @return array|null ['secret' => ?string, 'method' => string]
+     */
+    public function getPendingSecret(int $userId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT otp_code AS secret, method FROM user_2fa_otp_sessions
+             WHERE user_id = ? AND otp_type = 'setup_pending'
+             AND otp_expires_at > NOW() ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row && $row['method'] === 'totp') {
+            return $row;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT method FROM user_2fa_otp_sessions
+             WHERE user_id = ? AND otp_type = 'setup'
+             AND otp_expires_at > NOW() ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            return ['secret' => null, 'method' => $row['method']];
+        }
+
+        return null;
+    }
+
+    /**
+     * Clear pending 2FA setup state for a user.
+     */
+    public function clearPendingSecret(int $userId): void
+    {
+        $stmt = $this->db->prepare(
+            "DELETE FROM user_2fa_otp_sessions
+             WHERE user_id = ? AND otp_type IN ('setup_pending', 'setup')"
+        );
+        $stmt->execute([$userId]);
+    }
+
+    // ========================================================================
     // Base32 helpers (RFC 4648)
     // ========================================================================
 

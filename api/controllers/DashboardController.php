@@ -424,7 +424,7 @@ class DashboardController extends BaseController
      * GET /api/dashboard/system-admin/api-load
      * System-only: API request metrics
      */
-    public function getSystemAdminAPILoad($id = null, $data = [], $segments = [])
+    public function getSystemAdminApiLoad($id = null, $data = [], $segments = [])
     {
         if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');

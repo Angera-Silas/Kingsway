@@ -15,6 +15,7 @@
 | `02_objects_inventory.md` | 2 | Complete inventory of **84 views, 150 procedures, 21 functions, 58 triggers, 10 events** |
 | `03_table_classification.md` | 3/20 | Full classification of all 431 tables into MASTER/REF/ACTX/SCTX/TXN/HIST/SYS/JXN/CFG/DEP + RESTR flags + per-column methodology (the legacy "as-is" classification) |
 | `04_phase4_bad_current_state.md` | 4 | Verified bad-current-state catalogue with live-DB measurements (the 6 structural defects + 7 time-bomb patterns) |
+| `14_LEGACY_REFERENCE_AUDIT_AND_MIGRATION_PLAN.md` | 25+ | **Runtime legacy-SQL sweep** — scanner-verified inventory (59 missing tables, 54 bad columns, 1 missing proc) with live replacements, module-by-module migration plan (§5), and the "zero legacy object anywhere" gate |
 
 ## Executive summary
 

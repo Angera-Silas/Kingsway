@@ -65,7 +65,7 @@ const pastPapersController = {
 
   _loadYearDropdown: async function () {
     try {
-      const r = await callAPI('/academic/years', 'GET');
+      const r = await callAPI('/academic/years/list', 'GET');
       const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('ppYear');
       if (!sel) return;

@@ -135,9 +135,10 @@
                     <thead class="table-light">
                         <tr>
                             <th width="50">#</th>
-                            <th scope="col">Settlement Date</th>
-                            <th scope="col">Reference</th>
-                            <th class="text-center">Transaction Count</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">M-Pesa Code</th>
+                            <th scope="col">Phone Number</th>
+                            <th class="text-center">Count</th>
                             <th class="text-end">Gross Amount (KES)</th>
                             <th class="text-end">Charges (KES)</th>
                             <th class="text-end">Net Amount (KES)</th>
@@ -147,7 +148,7 @@
                     </thead>
                     <tbody id="mpesaSettlementsTableBody">
                         <tr>
-                            <td colspan="9" class="text-center py-4">
+                            <td colspan="10" class="text-center py-4">
                                 <div class="spinner-border text-success spinner-border-sm me-2" role="status"></div>
                                 Loading M-Pesa settlements...
                             </td>

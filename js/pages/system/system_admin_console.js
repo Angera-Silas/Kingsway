@@ -255,21 +255,18 @@
     "role-navigation": {
       title: "Role Navigation Config",
       list: function (p) { return API.system.getRoleNavigation(p); },
-      save: function (id, d) { return API.system.updateRoleNavigation ? API.system.updateRoleNavigation(id, d) : Promise.resolve(); },
+      save: null,
       del: null,
+      readonly: true,
       columns: [
+        { key: "id", label: "#" },
         { key: "role_name", label: "Role" },
         { key: "menu_label", label: "Menu Item" },
         { key: "route", label: "Route" },
         { key: "visible", label: "Visible", badge: true, badgeMap: { true: "success", false: "secondary", 1: "success", 0: "secondary" } },
-        { key: "sort_order", label: "Order" }
-      ],
-      fields: [
-        { name: "role_name", label: "Role Name", type: "text", required: true },
-        { name: "menu_label", label: "Menu Label", type: "text", required: true },
-        { name: "route", label: "Route", type: "text" },
-        { name: "visible", label: "Visible", type: "select", options: [{ v: "1", t: "Yes" }, { v: "0", t: "No" }] },
-        { name: "sort_order", label: "Sort Order", type: "number" }
+        { key: "sort_order", label: "Order" },
+        { key: "status", label: "Status", badge: true },
+        { key: "updated_at", label: "Updated" }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
@@ -323,6 +320,62 @@
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
 
+    dashboards: {
+      title: "Dashboard Registry",
+      list: function (p) { return API.system.getDashboards(p); },
+      save: function (id, d) {
+        return id ? API.system.updateDashboard(id, d) : API.system.createDashboard(d);
+      },
+      del: function (id) { return API.system.deleteDashboard(id); },
+      columns: [
+        { key: "id", label: "#" },
+        { key: "key", label: "Key" },
+        { key: "name", label: "Name" },
+        { key: "domain", label: "Domain", badge: true },
+        { key: "component", label: "Component" },
+        { key: "role_name", label: "Roles" },
+        { key: "status", label: "Status", badge: true }
+      ],
+      fields: [
+        { name: "key", label: "Dashboard Key", type: "text", required: true, placeholder: "e.g. director_dashboard" },
+        { name: "name", label: "Display Name", type: "text", required: true },
+        { name: "description", label: "Description", type: "textarea" },
+        { name: "domain", label: "Domain", type: "select", options: [{ v: "SCHOOL", t: "SCHOOL" }, { v: "SYSTEM", t: "SYSTEM" }] },
+        { name: "status", label: "Status", type: "select", options: [{ v: "active", t: "Active" }, { v: "inactive", t: "Inactive" }] }
+      ],
+      extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
+    },
+
+    widgets: {
+      title: "Widget Registry",
+      list: function (p) { return API.system.getWidgets(p); },
+      save: function (id, d) {
+        return id ? API.system.updateWidget(id, d) : API.system.createWidget(d);
+      },
+      del: function (id) { return API.system.deleteWidget(id); },
+      columns: [
+        { key: "id", label: "#" },
+        { key: "key", label: "Key" },
+        { key: "name", label: "Name" },
+        { key: "type", label: "Type", badge: true },
+        { key: "permission", label: "Permission" },
+        { key: "description", label: "Description" },
+        { key: "status", label: "Status", badge: true }
+      ],
+      fields: [
+        { name: "key", label: "Widget Key", type: "text", required: true, placeholder: "e.g. student_count" },
+        { name: "name", label: "Widget Name", type: "text", required: true },
+        { name: "type", label: "Type", type: "select", options: [
+          { v: "chart", t: "Chart" }, { v: "stat", t: "Stat" },
+          { v: "table", t: "Table" }, { v: "list", t: "List" }, { v: "custom", t: "Custom" }
+        ] },
+        { name: "permission", label: "Required Permission", type: "text", placeholder: "e.g. dashboard.view" },
+        { name: "description", label: "Description", type: "textarea" },
+        { name: "status", label: "Status", type: "select", options: [{ v: "active", t: "Active" }, { v: "inactive", t: "Inactive" }] }
+      ],
+      extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
+    },
+
     webhooks: {
       title: "Webhook Registry",
       list: function (p) { return API.system.getWebhookRegistry(p); },
@@ -351,21 +404,17 @@
     incidents: {
       title: "Security Incidents",
       list: function (p) { return API.system.getSecurityIncidents(p); },
-      save: function (id, d) { return API.system.updateSecurityIncident ? API.system.updateSecurityIncident(id, d) : Promise.resolve(); },
+      save: null,
       del: null,
+      readonly: true,
       columns: [
         { key: "id", label: "#" },
-        { key: "type", label: "Type" },
-        { key: "severity", label: "Severity", badge: true, badgeMap: { critical: "danger", high: "warning", medium: "info", low: "secondary" } },
-        { key: "description", label: "Description" },
-        { key: "status", label: "Status", badge: true },
+        { key: "action", label: "Event", badge: true, badgeMap: { security_incident: "danger", unauthorized_access: "danger", permission_denied: "warning", failed_login: "warning", login_failed: "warning" } },
+        { key: "entity", label: "Entity" },
+        { key: "entity_id", label: "Entity ID" },
+        { key: "details", label: "Details" },
+        { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Reported" }
-      ],
-      fields: [
-        { name: "type", label: "Type", type: "text", required: true },
-        { name: "severity", label: "Severity", type: "select", required: true, options: [{ v: "critical", t: "Critical" }, { v: "high", t: "High" }, { v: "medium", t: "Medium" }, { v: "low", t: "Low" }] },
-        { name: "description", label: "Description", type: "textarea", required: true },
-        { name: "status", label: "Status", type: "select", options: [{ v: "open", t: "Open" }, { v: "investigating", t: "Investigating" }, { v: "resolved", t: "Resolved" }, { v: "dismissed", t: "Dismissed" }] }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
@@ -373,20 +422,17 @@
     violations: {
       title: "Policy Violations",
       list: function (p) { return API.system.getPolicyViolations(p); },
-      save: function (id, d) { return API.system.updatePolicyViolation ? API.system.updatePolicyViolation(id, d) : Promise.resolve(); },
+      save: null,
       del: null,
+      readonly: true,
       columns: [
         { key: "id", label: "#" },
-        { key: "policy_name", label: "Policy" },
-        { key: "user_name", label: "User" },
-        { key: "description", label: "Description" },
-        { key: "severity", label: "Severity", badge: true, badgeMap: { critical: "danger", high: "warning", medium: "info", low: "secondary" } },
+        { key: "action", label: "Event", badge: true, badgeMap: { policy_violation: "danger", permission_denied: "warning", rbac_denied: "warning", access_denied: "warning" } },
+        { key: "entity", label: "Entity" },
+        { key: "entity_id", label: "Entity ID" },
+        { key: "details", label: "Details" },
+        { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Date" }
-      ],
-      fields: [
-        { name: "policy_name", label: "Policy Name", type: "text", required: true },
-        { name: "description", label: "Description", type: "textarea" },
-        { name: "severity", label: "Severity", type: "select", options: [{ v: "critical", t: "Critical" }, { v: "high", t: "High" }, { v: "medium", t: "Medium" }, { v: "low", t: "Low" }] }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
     },
@@ -527,22 +573,18 @@
     "rate-limits": {
       title: "Rate Limiting",
       list: function (p) { return API.system.getRateLimiting(p); },
-      save: function (id, d) { return API.system.updateRateLimit ? API.system.updateRateLimit(d) : Promise.resolve(); },
+      save: null,
       del: null,
+      readonly: true,
       columns: [
-        { key: "key", label: "Key" },
-        { key: "max_attempts", label: "Max Attempts" },
-        { key: "decay_minutes", label: "Decay (min)" },
-        { key: "current_count", label: "Current" },
-        { key: "status", label: "Status", badge: true, badgeMap: { active: "success", throttled: "warning" } }
+        { key: "status", label: "Status", badge: true, badgeMap: { active: "success", throttled: "warning" } },
+        { key: "window", label: "Window (sec)" },
+        { key: "max_requests", label: "Max Requests" },
+        { key: "uptime", label: "Uptime" },
+        { key: "source", label: "Source" },
+        { key: "timestamp", label: "Timestamp" }
       ],
-      fields: [
-        { name: "key", label: "Key", type: "text", required: true },
-        { name: "max_attempts", label: "Max Attempts", type: "number", required: true },
-        { name: "decay_minutes", label: "Decay Minutes", type: "number" },
-        { name: "status", label: "Status", type: "select", options: [{ v: "active", t: "Active" }, { v: "throttled", t: "Throttled" }] }
-      ],
-      extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
+      extract: function (r) { var d = r && r.data ? r.data : r; return d ? [d] : []; }
     },
 
     "permission-changes": {
@@ -553,10 +595,11 @@
       readonly: true,
       columns: [
         { key: "id", label: "#" },
-        { key: "user_name", label: "User" },
-        { key: "permission", label: "Permission" },
-        { key: "change_type", label: "Change", badge: true, badgeMap: { granted: "success", revoked: "danger" } },
-        { key: "changed_by", label: "Changed By" },
+        { key: "action", label: "Action", badge: true, badgeMap: { permission_create: "info", permission_update: "warning", permission_delete: "danger", role_permission_assign: "success", role_permission_remove: "danger" } },
+        { key: "entity", label: "Entity" },
+        { key: "entity_id", label: "Entity ID" },
+        { key: "user_id", label: "User ID" },
+        { key: "status", label: "Status", badge: true, badgeMap: { success: "success", failure: "danger" } },
         { key: "created_at", label: "Date" }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }
@@ -973,7 +1016,7 @@
 
     deleteRecord: async function (id) {
       if (!this.config || !this.config.del) return;
-      if (!confirm("Are you sure you want to delete this record? This action cannot be undone.")) return;
+      if (!(await window.confirmAction("Confirm Deletion", "Are you sure you want to delete this record? This action cannot be undone.", { confirmText: "Delete", danger: true }))) return;
 
       try {
         await this.config.del(id);

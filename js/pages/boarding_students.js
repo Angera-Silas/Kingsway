@@ -285,16 +285,16 @@ const BoardingStudentsController = {
         return `
           <tr>
             <td><input type="checkbox" class="student-checkbox" data-student-id="${s.student_id}"></td>
-            <td>${this.escape(s.admission_no || "-")}</td>
-            <td><strong>${this.escape(s.full_name || "-")}</strong></td>
-            <td>${this.escape(s.class_name || "-")}</td>
-            <td>${this.escape(s.stream_name || "-")}</td>
-            <td>${this.escape(s.gender || "-")}</td>
-            <td>${this.escape(s.dormitory_name || "-")}</td>
-            <td>${this.escape(s.bed_number || "-")}</td>
-            <td><span class="badge bg-${statusColors[s.boarding_status] || "secondary"}">${this.escape(s.boarding_status || "-")}</span></td>
-            <td><span class="badge bg-${rollCallColors[s.roll_call_status_today] || "secondary"}">${this.escape(s.roll_call_status_today || "-")}</span></td>
-            <td>${this.escape(s.exeat_status || "-")}</td>
+            <td>${this.escapeHtml(s.admission_no || "-")}</td>
+            <td><strong>${this.escapeHtml(s.full_name || "-")}</strong></td>
+            <td>${this.escapeHtml(s.class_name || "-")}</td>
+            <td>${this.escapeHtml(s.stream_name || "-")}</td>
+            <td>${this.escapeHtml(s.gender || "-")}</td>
+            <td>${this.escapeHtml(s.dormitory_name || "-")}</td>
+            <td>${this.escapeHtml(s.bed_number || "-")}</td>
+            <td><span class="badge bg-${statusColors[s.boarding_status] || "secondary"}">${this.escapeHtml(s.boarding_status || "-")}</span></td>
+            <td><span class="badge bg-${rollCallColors[s.roll_call_status_today] || "secondary"}">${this.escapeHtml(s.roll_call_status_today || "-")}</span></td>
+            <td>${this.escapeHtml(s.exeat_status || "-")}</td>
             <td>${s.has_special_alert ? '<i class="bi bi-exclamation-triangle text-danger"></i>' : ''}</td>
             <td>
               <button class="btn btn-sm btn-outline-success" onclick="BoardingStudentsController.viewBoardingProfile(${s.student_id})">
@@ -366,21 +366,21 @@ const BoardingStudentsController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Student Profile</h5>
-          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
-          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
-          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
-          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
-          <p><strong>Gender:</strong> ${this.escape(student.gender || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escapeHtml(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escapeHtml(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escapeHtml(data.stream_name || "-")}</p>
+          <p><strong>Gender:</strong> ${this.escapeHtml(student.gender || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Boarding Information</h5>
-          <p><strong>Dormitory:</strong> ${this.escape(data.dormitory_name || "-")}</p>
-          <p><strong>Room:</strong> ${this.escape(boarding.room_name || "-")}</p>
-          <p><strong>Bed:</strong> ${this.escape(boarding.bed_number || "-")}</p>
-          <p><strong>Status:</strong> ${this.escape(boarding.status || "-")}</p>
-          <p><strong>Assigned Date:</strong> ${this.escape(boarding.assigned_date || "-")}</p>
+          <p><strong>Dormitory:</strong> ${this.escapeHtml(data.dormitory_name || "-")}</p>
+          <p><strong>Room:</strong> ${this.escapeHtml(boarding.room_name || "-")}</p>
+          <p><strong>Bed:</strong> ${this.escapeHtml(boarding.bed_number || "-")}</p>
+          <p><strong>Status:</strong> ${this.escapeHtml(boarding.status || "-")}</p>
+          <p><strong>Assigned Date:</strong> ${this.escapeHtml(boarding.assigned_date || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
@@ -398,9 +398,9 @@ const BoardingStudentsController = {
             <tbody>
               ${rollCallHistory.slice(0, 5).map(h => `
                 <tr>
-                  <td>${this.escape(h.date || "-")}</td>
-                  <td>${this.escape(h.session || "-")}</td>
-                  <td>${this.escape(h.status || "-")}</td>
+                  <td>${this.escapeHtml(h.date || "-")}</td>
+                  <td>${this.escapeHtml(h.session || "-")}</td>
+                  <td>${this.escapeHtml(h.status || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -423,10 +423,10 @@ const BoardingStudentsController = {
             <tbody>
               ${exeatHistory.slice(0, 5).map(h => `
                 <tr>
-                  <td>${this.escape(h.exeat_type || "-")}</td>
-                  <td>${this.escape(h.leave_at || "-")}</td>
-                  <td>${this.escape(h.expected_return_at || "-")}</td>
-                  <td>${this.escape(h.status || "-")}</td>
+                  <td>${this.escapeHtml(h.exeat_type || "-")}</td>
+                  <td>${this.escapeHtml(h.leave_at || "-")}</td>
+                  <td>${this.escapeHtml(h.expected_return_at || "-")}</td>
+                  <td>${this.escapeHtml(h.status || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -448,9 +448,9 @@ const BoardingStudentsController = {
             <tbody>
               ${boardingNotes.slice(0, 5).map(n => `
                 <tr>
-                  <td>${this.escape(n.note_type || "-")}</td>
-                  <td>${this.escape(n.note || "-")}</td>
-                  <td>${this.escape(n.created_at || "-")}</td>
+                  <td>${this.escapeHtml(n.note_type || "-")}</td>
+                  <td>${this.escapeHtml(n.note || "-")}</td>
+                  <td>${this.escapeHtml(n.created_at || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -551,9 +551,9 @@ const BoardingStudentsController = {
             ${students.map((s, i) => `
               <tr class="roll-call-row" data-student-id="${s.id}">
                 <td>${i + 1}</td>
-                <td>${this.escape(s.student_name || "-")}</td>
-                <td>${this.escape(s.admission_no || "-")}</td>
-                <td>${this.escape(s.dormitory_name || "-")}</td>
+                <td>${this.escapeHtml(s.student_name || "-")}</td>
+                <td>${this.escapeHtml(s.admission_no || "-")}</td>
+                <td>${this.escapeHtml(s.dormitory_name || "-")}</td>
                 <td>
                   <select class="form-select form-select-sm roll-call-status">
                     <option value="present" selected>Present</option>
@@ -570,7 +570,7 @@ const BoardingStudentsController = {
         <p class="text-muted small mb-0">${students.length} student(s) loaded</p>
       `;
     } catch (error) {
-      list.innerHTML = `<p class="text-danger">Failed to load students: ${this.escape(error.message)}</p>`;
+      list.innerHTML = `<p class="text-danger">Failed to load students: ${this.escapeHtml(error.message)}</p>`;
     }
   },
 
@@ -771,7 +771,7 @@ const BoardingStudentsController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -800,7 +800,7 @@ const BoardingStudentsController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -822,7 +822,7 @@ const BoardingStudentsController = {
     };
   },
 
-  notify(message, type = "info") {
+  notify: async function (message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -833,7 +833,7 @@ const BoardingStudentsController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

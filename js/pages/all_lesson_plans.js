@@ -12,23 +12,20 @@ const AllLessonPlansController = (() => {
   async function loadData(page = 1) {
     try {
       pagination.page = page;
-      const params = new URLSearchParams({ page, limit: pagination.limit });
+      const params = { page, limit: pagination.limit };
 
       const teacher = document.getElementById("teacherFilterLP")?.value;
-      if (teacher) params.append("teacher_id", teacher);
+      if (teacher) params.teacher_id = teacher;
       const subject = document.getElementById("subjectFilterLP")?.value;
-      if (subject) params.append("subject_id", subject);
+      if (subject) params.learning_area_id = subject;
       const cls = document.getElementById("classFilterLP")?.value;
-      if (cls) params.append("class_id", cls);
+      if (cls) params.class_id = cls;
       const status = document.getElementById("statusFilterLP")?.value;
-      if (status) params.append("status", status);
+      if (status) params.status = status;
       const search = document.getElementById("searchLessonPlans")?.value;
-      if (search) params.append("search", search);
+      if (search) params.search = search;
 
-      const response = await window.API.apiCall(
-        `/academic/lesson-plans?${params.toString()}`,
-        "GET",
-      );
+      const response = await window.API.academic.listLessonPlans(params);
       const data = response?.data || response || [];
       lessonPlans = Array.isArray(data)
         ? data
@@ -242,13 +239,9 @@ const AllLessonPlansController = (() => {
     }
     try {
       if (id) {
-        await window.API.apiCall(
-          `/academic/lesson-plans/${id}`,
-          "PUT",
-          payload,
-        );
+        await window.API.academic.updateLessonPlan(id, payload);
       } else {
-        await window.API.apiCall("/academic/lesson-plans", "POST", payload);
+        await window.API.academic.createLessonPlan(payload);
       }
       bootstrap.Modal.getInstance(
         document.getElementById("lessonPlanModal"),
@@ -265,10 +258,7 @@ const AllLessonPlansController = (() => {
 
   async function view(id) {
     try {
-      const resp = await window.API.apiCall(
-        `/academic/lesson-plans/${id}`,
-        "GET",
-      );
+      const resp = await window.API.academic.getLessonPlan(id);
       const lp = resp?.data || resp;
       const statusColors = {
         approved: "success",
@@ -303,10 +293,7 @@ const AllLessonPlansController = (() => {
 
   async function edit(id) {
     try {
-      const resp = await window.API.apiCall(
-        `/academic/lesson-plans/${id}`,
-        "GET",
-      );
+      const resp = await window.API.academic.getLessonPlan(id);
       openModal(resp?.data || resp);
     } catch (e) {
       showNotification("Failed to load lesson plan", "error");
@@ -314,9 +301,9 @@ const AllLessonPlansController = (() => {
   }
 
   async function remove(id) {
-    if (!confirm("Delete this lesson plan?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this lesson plan?", { confirmText: 'Delete', danger: true }))) return;
     try {
-      await window.API.apiCall(`/academic/lesson-plans/${id}`, "DELETE");
+      await window.API.academic.deleteLessonPlan(id);
       showNotification("Lesson plan deleted", "success");
       await loadData();
     } catch (e) {

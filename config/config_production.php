@@ -28,7 +28,7 @@ define(
     rtrim(
         (string) (
             $_ENV['BASE_URL']
-            ?? 'https://www.kingswaypreparatoryschool.sc.ke'
+            ?? 'https://kingswaypreparatoryschool.sc.ke'
         ),
         '/'
     )
@@ -256,6 +256,18 @@ define(
     MPESA_ENVIRONMENT === 'production'
         ? 'https://api.safaricom.co.ke'
         : 'https://sandbox.safaricom.co.ke'
+);
+
+// Callback URLs handed to Safaricom must be publicly reachable HTTPS and are
+// resolved independently of the local BASE_URL (localhost cannot be reached
+// by Safaricom even in sandbox). Set MPESA_CALLBACK_BASE_URL per environment;
+// falls back to BASE_URL for simple single-host production setups.
+define(
+    'MPESA_CALLBACK_BASE_URL',
+    rtrim(
+        (string) ($_ENV['MPESA_CALLBACK_BASE_URL'] ?? BASE_URL),
+        '/'
+    )
 );
 
 define(

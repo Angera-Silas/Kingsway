@@ -36,10 +36,21 @@ class AcademicCalendarService
     /**
      * Generate (or regenerate) the full term calendar for an academic year.
      *
+     * Week counts are DERIVED from the recorded opening/closing dates using
+     * real Monday-Friday school weeks (see countWeeks()), so terms that run
+     * shorter or longer than the standard 14/14/10 Kenyan template produce a
+     * correct week grid. The standard counts are only used as a fallback when
+     * an explicit $weekCounts override is passed (e.g. from the year-rollover
+     * prefill).
+     *
+     * Manually-marked days (is_manual = 1: emergency/national holidays,
+     * closures, special events) are snapshotted before regeneration and
+     * re-applied afterwards, so editing term dates never wipes them.
+     *
      * @param int   $academicYearId
      * @param array $weekCounts      Optional explicit week counts keyed by term
      *                               number (e.g. [1 => 14, 2 => 14, 3 => 10]).
-     *                               Omitted terms fall back to date derivation.
+     *                               Missing terms fall back to the derived count.
      * @return array formatResponse payload with per-term summary
      */
     public function generateYearCalendar(int $academicYearId, array $weekCounts = []): array
@@ -68,9 +79,26 @@ class AcademicCalendarService
                 );
             }
 
-            $t1 = isset($weekCounts[1]) ? max(1, (int) $weekCounts[1]) : 0;
-            $t2 = isset($weekCounts[2]) ? max(1, (int) $weekCounts[2]) : 0;
-            $t3 = isset($weekCounts[3]) ? max(1, (int) $weekCounts[3]) : 0;
+            $manualDays = $this->getManualDays($academicYearId);
+
+            // Derive per-term week counts from the actual date span unless an
+            // explicit override was supplied for that term.
+            $derived = $weekCounts;
+            foreach ($terms as $term) {
+                $termNo = (int) $term['term_id'];
+                if (isset($derived[$termNo])) {
+                    continue;
+                }
+                $derived[$termNo] = $this->countWeeks(
+                    $term['opening_date'],
+                    $term['closing_date'],
+                    self::DEFAULT_WEEKS[$termNo] ?? 14
+                );
+            }
+
+            $t1 = max(1, (int) ($derived[1] ?? self::DEFAULT_WEEKS[1]));
+            $t2 = max(1, (int) ($derived[2] ?? self::DEFAULT_WEEKS[2]));
+            $t3 = max(1, (int) ($derived[3] ?? self::DEFAULT_WEEKS[3]));
 
             $stmt = $this->db->prepare('CALL sp_generate_year_calendar(:year_id, :t1, :t2, :t3)');
             $stmt->execute([
@@ -80,11 +108,99 @@ class AcademicCalendarService
                 't3' => $t3,
             ]);
 
+            $this->reapplyManualDays($academicYearId, $manualDays);
+
             $summary = $this->getCalendar($academicYearId);
 
             return formatResponse(true, $summary, 'Academic calendar generated successfully');
         } catch (Exception $e) {
             return formatResponse(false, null, 'Calendar generation failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Number of Monday-Friday school weeks spanned by an opening/closing range.
+     *
+     * Mirrors sp_generate_year_calendar (migration 032): week 1 starts on the
+     * opening day when that is a Mon-Fri (a weekend opening starts the first
+     * week the following Monday); each week then runs Monday-Friday. The count
+     * is the number of school weeks whose start falls on or before the closing
+     * date, so a midweek close yields a short final week but still counts.
+     */
+    private function countWeeks(string $opening, string $closing, int $fallback): int
+    {
+        $start = strtotime($opening);
+        $end = strtotime($closing);
+        if (!$start || !$end || $end < $start) {
+            return max(1, $fallback);
+        }
+        // Anchor to the Monday of the opening week (or the Monday after a
+        // weekend opening). date('N'): 1=Mon .. 7=Sun.
+        $dow = (int) date('N', $start);
+        if ($dow >= 6) {
+            $start = strtotime('next monday', $start);
+        } else {
+            $start = strtotime('-' . ($dow - 1) . ' days', $start);
+        }
+        $weeks = 0;
+        for ($cursor = $start; $cursor !== false && $cursor <= $end; $cursor = strtotime('+7 days', $cursor)) {
+            $weeks++;
+        }
+        return max(1, $weeks);
+    }
+
+    /**
+     * Snapshot manually-marked calendar days for a year so regeneration can
+     * re-apply them (the stored procedure rebuilds every term day).
+     */
+    private function getManualDays(int $academicYearId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT d.id, d.date, d.calendar_day_type_id, d.title, d.description
+             FROM academic_year_calendar_days d
+             JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
+             JOIN academic_year_terms ayt ON ayt.id = c.academic_year_term_id
+             WHERE ayt.academic_year_id = ? AND d.is_manual = 1"
+        );
+        $stmt->execute([$academicYearId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Re-apply manually-marked days onto the freshly generated calendar by
+     * matching each one to the regenerated day row for its date.
+     */
+    private function reapplyManualDays(int $academicYearId, array $days): void
+    {
+        if (empty($days)) {
+            return;
+        }
+
+        $find = $this->db->prepare(
+            "SELECT d.id
+             FROM academic_year_calendar_days d
+             JOIN academic_year_calendar c ON c.id = d.academic_year_calendar_id
+             JOIN academic_year_terms ayt ON ayt.id = c.academic_year_term_id
+             WHERE ayt.academic_year_id = ? AND d.date = ?
+             LIMIT 1"
+        );
+        $update = $this->db->prepare(
+            "UPDATE academic_year_calendar_days
+             SET calendar_day_type_id = ?, title = ?, description = ?, is_manual = 1
+             WHERE id = ?"
+        );
+
+        foreach ($days as $day) {
+            $find->execute([$academicYearId, $day['date']]);
+            $id = $find->fetchColumn();
+            if ($id) {
+                $update->execute([
+                    $day['calendar_day_type_id'],
+                    $day['title'],
+                    $day['description'],
+                    $id,
+                ]);
+            }
         }
     }
 

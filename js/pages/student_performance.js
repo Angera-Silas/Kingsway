@@ -1168,7 +1168,7 @@ const StudentPerformanceController = {
     });
   },
 
-  notify: function (message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -1179,7 +1179,7 @@ const StudentPerformanceController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

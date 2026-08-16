@@ -722,7 +722,7 @@ const UniformSalesController = {
      * Update payment status
      */
     updatePaymentStatus: async function(saleId, status) {
-        if (!confirm('Mark this sale as paid?')) return;
+        if (!(await window.confirmAction('Confirm Payment', 'Mark this sale as paid?'))) return;
 
         try {
             const response = await API.inventory.updateUniformPayment(saleId, status);
@@ -787,7 +787,7 @@ const UniformSalesController = {
      * Delete a sale
      */
     deleteSale: async function(saleId) {
-        if (!confirm('Are you sure you want to delete this sale? Stock will be restored.')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this sale? Stock will be restored.', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             const response = await (API.inventory.deleteUniformSale

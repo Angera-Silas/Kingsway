@@ -41,15 +41,8 @@ class TransportController extends BaseController
     public function get($id = null, $data = [], $segments = [])
     {
         // GET /api/transport — return summary of routes, vehicles, students
-        try {
-            $routes   = (int)$this->db->query("SELECT COUNT(*) FROM transport_routes WHERE status='active'")->fetchColumn();
-            $vehicles = (int)$this->db->query("SELECT COUNT(*) FROM transport_vehicles WHERE status='active'")->fetchColumn();
-            $students = (int)$this->db->query("SELECT COUNT(*) FROM transport_subscriptions WHERE status='active'")->fetchColumn();
-            return $this->success(['routes' => $routes, 'vehicles' => $vehicles, 'active_subscriptions' => $students]);
-        } catch (Exception $e) {
-            error_log('[TransportController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return $this->serverError('An internal error occurred.');
-        }
+        $result = $this->api->getSummary();
+        return $this->handleResponse($result);
     }
 
     /**
@@ -172,6 +165,9 @@ return $this->serverError('An internal error occurred.');
     public function postDriverAssign($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
+        if (empty($data['driver_id']) || empty($data['route_id'])) {
+            return $this->badRequest('driver_id and route_id are required');
+        }
         $result = $this->api->assignDriverToRoute($data['driver_id'], $data['route_id']);
         return $this->handleResponse($result);
     }
@@ -180,23 +176,29 @@ return $this->serverError('An internal error occurred.');
     public function postAssignStudent($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
-        $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'], $data['month'], $data['year']);
+        if (empty($data['student_id']) || empty($data['route_id'])) {
+            return $this->badRequest('student_id and route_id are required');
+        }
+        $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'] ?? null, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function postWithdrawAssignment($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
-        $result = $this->api->withdrawAssignment($data['student_id'], $data['month'], $data['year']);
+        if (empty($data['student_id'])) {
+            return $this->badRequest('student_id is required');
+        }
+        $result = $this->api->withdrawAssignment($data['student_id'], $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function getAssignments($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAssignments($data['student_id']);
+        $result = $this->api->getAssignments($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function getStudentsByRoute($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getStudentsByRoute($data['route_id'], $data['month'] ?? null, $data['year'] ?? null);
+        $result = $this->api->getStudentsByRoute($data['route_id'] ?? null, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
 
@@ -204,28 +206,38 @@ return $this->serverError('An internal error occurred.');
     public function postRecordPayment($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
-        $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'], $data['year'], $data['payment_date'], $data['payment_method'], $data['transaction_id']);
+        if (empty($data['student_id']) || empty($data['amount'])) {
+            return $this->badRequest('student_id and amount are required');
+        }
+        $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'] ?? null, $data['year'] ?? null, $data['payment_date'] ?? null, $data['payment_method'] ?? null, $data['transaction_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function putPaymentStatus($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
+        if (empty($data['status'])) {
+            return $this->badRequest('status is required');
+        }
         $result = $this->api->updatePaymentStatus($id, $data['status']);
         return $this->handleResponse($result);
     }
     public function getPayments($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getPayments($data['student_id']);
+        $result = $this->api->getPayments($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function getPaymentSummary($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getPaymentSummary($data['student_id']);
+        $result = $this->api->getPaymentSummary($data['student_id'] ?? null);
         return $this->handleResponse($result);
     }
     public function getRoutePaymentSummary($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getRoutePaymentSummary($data['route_id'], $data['month'], $data['year']);
+        $routeId = $data['route_id'] ?? $id ?? null;
+        if (!$routeId) {
+            return $this->badRequest('route_id is required');
+        }
+        $result = $this->api->getRoutePaymentSummary($routeId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function getAllArrearsCredits($id = null, $data = [], $segments = [])
@@ -237,7 +249,11 @@ return $this->serverError('An internal error occurred.');
     // STATUS & MANIFEST ENDPOINTS
     public function getCheckStatus($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->checkStatus($data['student_id'], $data['month'], $data['year']);
+        $studentId = $data['student_id'] ?? $id ?? null;
+        if (!$studentId) {
+            return $this->badRequest('student_id is required');
+        }
+        $result = $this->api->checkStatus($studentId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function getCurrentStatus($id = null, $data = [], $segments = [])
@@ -247,22 +263,38 @@ return $this->serverError('An internal error occurred.');
     }
     public function getFullStatus($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getFullStatus($data['student_id'], $data['month'], $data['year']);
+        $studentId = $data['student_id'] ?? $id ?? null;
+        if (!$studentId) {
+            return $this->badRequest('student_id is required');
+        }
+        $result = $this->api->getFullStatus($studentId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function getRouteManifest($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getRouteManifest($data['route_id'], $data['month'], $data['year']);
+        $routeId = $data['route_id'] ?? $id ?? null;
+        if (!$routeId) {
+            return $this->badRequest('route_id is required');
+        }
+        $result = $this->api->getRouteManifest($routeId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
     public function getStudentSummary($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getStudentSummary($data['student_id']);
+        $studentId = $data['student_id'] ?? $id ?? null;
+        if (!$studentId) {
+            return $this->badRequest('student_id is required');
+        }
+        $result = $this->api->getStudentSummary($studentId);
         return $this->handleResponse($result);
     }
     public function getRouteSummary($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getRouteSummary($data['route_id'], $data['month'], $data['year']);
+        $routeId = $data['route_id'] ?? $id ?? null;
+        if (!$routeId) {
+            return $this->badRequest('route_id is required');
+        }
+        $result = $this->api->getRouteSummary($routeId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
 
@@ -508,26 +540,8 @@ return $this->serverError('An internal error occurred.');
         if (empty($presentIds)) {
             return $this->success(['recorded' => 0, 'message' => 'No student IDs provided']);
         }
-        try {
-            $db = \App\Database\Database::getInstance();
-            $recorded = 0;
-            foreach ($presentIds as $studentId) {
-                $stmt = $db->prepare("
-                    INSERT INTO transport_attendance (driver_id, student_id, date, status, created_at)
-                    VALUES (:did, :sid, :date, 'present', NOW())
-                    ON DUPLICATE KEY UPDATE status = 'present', updated_at = NOW()
-                ");
-                $stmt->execute([
-                    ':did'  => $userId,
-                    ':sid'  => (int) $studentId,
-                    ':date' => $date,
-                ]);
-                $recorded++;
-            }
-            return $this->success(['recorded' => $recorded, 'date' => $date]);
-        } catch (\Exception $e) {
-            return $this->success(['recorded' => 0, 'message' => 'Table not available']);
-        }
+        $result = $this->api->recordStudentAttendance($userId, $date, $presentIds, $data);
+        return $this->handleResponse($result);
     }
 
     // ================================================================

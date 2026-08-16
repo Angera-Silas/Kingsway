@@ -144,7 +144,7 @@ const ModerationController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to approve', 'error'); }
     },
     async rejectResult(assessmentId, studentId) {
-        const reason = prompt('Reason for rejection (optional):');
+        const reason = await window.promptAction('Input', 'Reason for rejection (optional):');
         try {
             await this.callAPI('/academic/reject-assessment', 'POST', { assessment_id: assessmentId, student_id: studentId, reason: reason || '' });
             window.showNotification?.('Result rejected', 'warning');
@@ -153,7 +153,7 @@ const ModerationController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to reject', 'error'); }
     },
     async approveAssessment(assessmentId) {
-        if (!confirm('Approve all pending results in this assessment?')) return;
+        if (!(await window.confirmAction('Confirm', 'Approve all pending results in this assessment?'))) return;
         try {
             const r = await window.API.apiCall('/academic/approve-assessment', 'POST', { assessment_id: assessmentId });
             window.showNotification?.(r?.message || 'Assessment approved', 'success');
@@ -161,7 +161,7 @@ const ModerationController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to approve', 'error'); }
     },
     async approveAll() {
-        if (!this.state.pending.length || !confirm('Approve ALL pending results?')) return;
+        if (!this.state.pending.length || !(await window.confirmAction('Confirm', 'Approve ALL pending results?'))) return;
         let count = 0;
         for (const a of this.state.pending) {
             try {

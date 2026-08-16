@@ -262,7 +262,7 @@ const ClassStreamsController = (() => {
       return;
     }
 
-    if (!confirm("Delete this stream? Active students must be reassigned first.")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this stream? Active students must be reassigned first.", { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.academic.deleteStream(streamId);
       showNotification("Stream removed successfully", "success");

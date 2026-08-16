@@ -43,7 +43,12 @@ class AuthMiddleware
             'payments/index',
             'payments/mpesa-b2c-callback',
             'payments/mpesa-b2c-timeout',
+            'payments/c2b-validation',
+            'payments/c2b-confirmation',
+            'payments/mpesa-c2b-validation',
             'payments/mpesa-c2b-confirmation',
+            'payments/mpesa-stk-callback',
+            'payments/mpesa-result',
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
             'payments/kcb-notification',
@@ -96,13 +101,33 @@ class AuthMiddleware
             'website/history',
             'website/values',
             'website/departments',
-            'website/steps',
             'website/benefits',
+            'website/stats',
+            // Intake terms + active grades for the public admissions form.
+            'website/terms',
+            'website/grades',
+            // Public website forms (POST) — anonymous submission endpoints. The
+            // pages are thin shells; they never touch the DB directly. Each
+            // resource is write-only by design, so a bare GET on the controller
+            // has no get* handler and 404s instead of leaking data.
+            'public/job-applications',
+            'public/inquiries',
+            'public/applications',
+            'public/subscribers',
         ];
 
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
             if (strpos($path, $endpoint) !== false) {
+                // 'payments/mpesa-result' (the public C2B result webhook) is a
+                // string prefix of 'payments/mpesa-results' (the authenticated
+                // results reader). The plural reader must NOT be exempted.
+                if (
+                    $endpoint === 'payments/mpesa-result' &&
+                    strpos($path, 'mpesa-results') !== false
+                ) {
+                    continue;
+                }
                 return;
             }
         }

@@ -19,7 +19,7 @@ const assetPurchasesController = {
     }
     this._modal        = new bootstrap.Modal(document.getElementById('apModal'));
     this._disposeModal = new bootstrap.Modal(document.getElementById('apDisposeModal'));
-    await Promise.all([this._loadData(), this._loadVendors()]);
+    await Promise.all([this._loadData(), this._loadVendors(), this._loadCategories()]);
   },
 
   _loadData: async function () {
@@ -28,7 +28,7 @@ const assetPurchasesController = {
     tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Loading assets…</td></tr>';
     try {
       const r = await callAPI('/inventory/assets', 'GET');
-      this._data = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      this._data = Array.isArray(r?.assets) ? r.assets : (Array.isArray(r) ? r : []);
       this._filtered = [...this._data];
       this._computeStats();
       this._populateFilters();
@@ -40,14 +40,26 @@ const assetPurchasesController = {
 
   _loadVendors: async function () {
     try {
-      const r = await callAPI('/inventory/vendors', 'GET');
-      const vendors = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/inventory/suppliers-list', 'GET');
+      const vendors = Array.isArray(r?.suppliers) ? r.suppliers : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('apVendor');
       if (sel) {
         sel.innerHTML = '<option value="">— Select vendor —</option>' +
-          vendors.map(v => `<option value="${v.id}">${this._esc(v.name || v.vendor_name || '')}</option>`).join('');
+          vendors.map(v => `<option value="${v.id}">${this._esc(v.name || v.supplier_name || '')}</option>`).join('');
       }
     } catch (e) { console.warn('Vendors load failed:', e); }
+  },
+
+  _loadCategories: async function () {
+    try {
+      const r = await callAPI('/inventory/asset-categories', 'GET');
+      const cats = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const sel = document.getElementById('apCategory');
+      if (sel) {
+        sel.innerHTML = '<option value="">— Select category —</option>' +
+          cats.map(c => `<option value="${c.id}">${this._esc(c.name || c.category_name || '')}</option>`).join('');
+      }
+    } catch (e) { console.warn('Asset categories load failed:', e); }
   },
 
   _computeStats: function () {
@@ -64,7 +76,7 @@ const assetPurchasesController = {
   },
 
   _populateFilters: function () {
-    const categories = [...new Set(this._data.map(a => a.category).filter(Boolean))];
+    const categories = [...new Set(this._data.map(a => a.category_name || a.category).filter(Boolean))];
     const catSel = document.getElementById('apFilterCategory');
     if (catSel) {
       const existing = Array.from(catSel.options).slice(0,1);
@@ -87,9 +99,9 @@ const assetPurchasesController = {
     const status = document.getElementById('apFilterStatus')?.value || '';
 
     this._filtered = this._data.filter(a => {
-      const matchSearch = !search || [a.asset_no, a.name, a.asset_name, a.vendor_name, a.location]
+      const matchSearch = !search || [a.asset_no, a.asset_code, a.name, a.asset_name, a.supplier_name, a.vendor_name, a.location]
         .some(f => (f||'').toLowerCase().includes(search));
-      const matchCat    = !cat    || (a.category||'') === cat;
+      const matchCat    = !cat    || (a.category_name||a.category||'') === cat;
       const matchYear   = !year   || (a.purchase_date||'').startsWith(year);
       const matchStatus = !status || (a.status||'').toLowerCase() === status;
       return matchSearch && matchCat && matchYear && matchStatus;
@@ -126,8 +138,8 @@ const assetPurchasesController = {
       return `<tr>
         <td class="small text-muted">${this._esc(a.asset_no || a.asset_code || '—')}</td>
         <td class="fw-semibold">${this._esc(a.name || a.asset_name || '—')}</td>
-        <td>${this._esc(a.category || '—')}</td>
-        <td>${this._esc(a.vendor_name || a.supplier_name || '—')}</td>
+        <td>${this._esc(a.category_name || a.category || '—')}</td>
+        <td>${this._esc(a.supplier_name || a.vendor_name || '—')}</td>
         <td>${this._esc(a.purchase_date || '—')}</td>
         <td class="text-end fw-bold">KES ${Number(a.purchase_price||a.cost||0).toLocaleString()}</td>
         <td><span class="badge bg-${condCls[cond]||'secondary'}">${this._esc(a.condition||'—')}</span></td>
@@ -148,11 +160,17 @@ const assetPurchasesController = {
   },
 
   showModal: function (asset = null) {
+    const catSel = document.getElementById('apCategory');
+    if (asset?.category_id && catSel) {
+      if (!Array.from(catSel.options).some(o => String(o.value) === String(asset.category_id))) {
+        catSel.insertAdjacentHTML('beforeend', `<option value="${asset.category_id}">${this._esc(asset.category_name || asset.category || 'Category')}</option>`);
+      }
+    }
     document.getElementById('apId').value        = asset?.id       || '';
     document.getElementById('apAssetNo').value   = asset?.asset_no || asset?.asset_code || '';
     document.getElementById('apName').value      = asset?.name     || asset?.asset_name || '';
-    document.getElementById('apCategory').value  = asset?.category || '';
-    document.getElementById('apVendor').value    = asset?.vendor_id || '';
+    document.getElementById('apCategory').value  = asset?.category_id || '';
+    document.getElementById('apVendor').value    = asset?.supplier_id || '';
     document.getElementById('apDate').value      = asset?.purchase_date || '';
     document.getElementById('apCost').value      = asset?.purchase_price || asset?.cost || '';
     document.getElementById('apQuantity').value  = asset?.quantity || 1;
@@ -174,13 +192,11 @@ const assetPurchasesController = {
 
   saveAsset: async function () {
     const id       = document.getElementById('apId')?.value;
-    const assetNo  = document.getElementById('apAssetNo')?.value.trim();
     const name     = document.getElementById('apName')?.value.trim();
     const category = document.getElementById('apCategory')?.value;
     const vendor   = document.getElementById('apVendor')?.value;
     const date     = document.getElementById('apDate')?.value;
     const cost     = document.getElementById('apCost')?.value;
-    const qty      = document.getElementById('apQuantity')?.value || 1;
     const cond     = document.getElementById('apCondition')?.value || 'new';
     const location = document.getElementById('apLocation')?.value.trim();
     const invoice  = document.getElementById('apInvoice')?.value.trim();
@@ -188,14 +204,14 @@ const assetPurchasesController = {
     const notes    = document.getElementById('apNotes')?.value.trim();
     const errEl    = document.getElementById('apError');
 
-    if (!name || !cost || !date) {
-      if (errEl) { errEl.textContent = 'Asset name, cost, and purchase date are required.'; errEl.classList.remove('d-none'); }
+    if (!name || !cost || !date || !category) {
+      if (errEl) { errEl.textContent = 'Asset name, category, cost, and purchase date are required.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
 
-    const payload = { asset_no: assetNo, name, category, vendor_id: vendor||null, purchase_date: date,
-      purchase_price: cost, quantity: qty, condition: cond, location, invoice_no: invoice, status, notes };
+    const payload = { name, category_id: category, supplier_id: vendor||null, purchase_date: date,
+      purchase_price: cost, condition: cond, location, invoice_number: invoice, status, description: notes };
     try {
       if (id) {
         await callAPI('/inventory/assets/' + id, 'PUT', payload);
@@ -238,7 +254,7 @@ const assetPurchasesController = {
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      await callAPI('/inventory/assets/' + id, 'PUT', { status: 'disposed', dispose_date: date, dispose_method: method, sale_amount: saleAmt, dispose_notes: notes });
+      await callAPI('/inventory/assets/' + id, 'PUT', { dispose: true, disposal_date: date, disposal_type: method, proceeds: saleAmt||0, reason: notes });
       showNotification('Asset disposed.', 'success');
       this._disposeModal.hide();
       await this._loadData();
@@ -251,7 +267,7 @@ const assetPurchasesController = {
     if (!this._filtered.length) { showNotification('No data to export.', 'warning'); return; }
     const header = ['Asset No','Name','Category','Vendor','Purchase Date','Cost (KES)','Condition','Location','Status'];
     const rows = [header.join(','), ...this._filtered.map(a => [
-      `"${a.asset_no||''}"`,`"${a.name||''}"`,`"${a.category||''}"`,`"${a.vendor_name||''}"`,
+      `"${a.asset_no||a.asset_code||''}"`,`"${a.name||''}"`,`"${a.category_name||a.category||''}"`,`"${a.supplier_name||a.vendor_name||''}"`,
       `"${a.purchase_date||''}"`,Number(a.purchase_price||a.cost||0),`"${a.condition||''}"`,
       `"${a.location||''}"`,`"${a.status||''}"`,
     ].join(','))];

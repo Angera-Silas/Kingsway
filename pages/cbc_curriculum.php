@@ -17,7 +17,6 @@
     <ul class="nav nav-tabs mb-3" id="cbcTabs">
         <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#ssTab">Sub-Strands</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#loTab">Learning Outcomes</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rubricTab">Rubrics</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#crosswalkTab">Strand-Competency</button></li>
         <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#treeTab">Curriculum Tree</button></li>
     </ul>
@@ -36,17 +35,34 @@
                         </div>
                     </div>
                     <div class="row g-2 mb-3">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <select class="form-select form-select-sm" id="ssGradeFilter">
+                                <option value="">All Grades</option>
+                                <option value="PlayGroup">PlayGroup</option>
+                                <option value="PP1">PP1</option>
+                                <option value="PP2">PP2</option>
+                                <option value="Grade 1">Grade 1</option>
+                                <option value="Grade 2">Grade 2</option>
+                                <option value="Grade 3">Grade 3</option>
+                                <option value="Grade 4">Grade 4</option>
+                                <option value="Grade 5">Grade 5</option>
+                                <option value="Grade 6">Grade 6</option>
+                                <option value="Grade 7">Grade 7</option>
+                                <option value="Grade 8">Grade 8</option>
+                                <option value="Grade 9">Grade 9</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <select class="form-select form-select-sm" id="ssLearningAreaFilter">
                                 <option value="">All Learning Areas</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <select class="form-select form-select-sm" id="ssStrandFilter">
                                 <option value="">All Strands</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <input type="text" class="form-control form-control-sm" id="ssSearch" placeholder="Search sub-strands...">
                         </div>
                     </div>
@@ -59,6 +75,7 @@
                                     <th>Name</th>
                                     <th>Strand</th>
                                     <th>Learning Area</th>
+                                    <th>Grade</th>
                                     <th>Sort</th>
                                     <th>Status</th>
                                     <th>Actions</th>
@@ -90,6 +107,7 @@
                         <div class="col-md-3">
                             <select class="form-select form-select-sm" id="loGradeFilter">
                                 <option value="">All Grades</option>
+                                <option value="PlayGroup">PlayGroup</option>
                                 <option value="PP1">PP1</option>
                                 <option value="PP2">PP2</option>
                                 <option value="Grade 1">Grade 1</option>
@@ -120,48 +138,6 @@
                                 </tr>
                             </thead>
                             <tbody id="loTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ==================== RUBRICS TAB ==================== -->
-        <div class="tab-pane fade" id="rubricTab">
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0">Assessment Rubrics</h5>
-                        <button class="btn btn-success btn-sm" onclick="CBCController.openRubricModal()">
-                            <i class="bi bi-plus-circle"></i> Add Rubric
-                        </button>
-                    </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-md-4">
-                            <select class="form-select form-select-sm" id="rubricToolFilter">
-                                <option value="">All Assessment Tools</option>
-                            </select>
-                        </div>
-                        <div class="col-md-8">
-                            <input type="text" class="form-control form-control-sm" id="rubricSearch" placeholder="Search rubrics...">
-                        </div>
-                    </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-bordered table-sm">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>#</th>
-                                    <th>Criteria</th>
-                                    <th>Tool</th>
-                                    <th>Level 1 (BE)</th>
-                                    <th>Level 2 (AE)</th>
-                                    <th>Level 3 (ME)</th>
-                                    <th>Level 4 (EE)</th>
-                                    <th>Points</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="rubricTableBody"></tbody>
                         </table>
                     </div>
                 </div>
@@ -331,65 +307,6 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary btn-sm" id="saveLoBtn">Save</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ==================== RUBRIC MODAL ==================== -->
-<div class="modal fade" id="rubricModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="rubricModalLabel">Add Rubric Criterion</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="rubricForm">
-                    <input type="hidden" id="rubricId">
-                    <div class="mb-2">
-                        <label class="form-label small">Assessment Tool *</label>
-                        <select class="form-select form-select-sm" id="rubricTool" required></select>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small">Criteria Name *</label>
-                        <input type="text" class="form-control form-control-sm" id="rubricCriteria" required>
-                    </div>
-                    <div class="row">
-                        <div class="col-6 mb-2">
-                            <label class="form-label small text-danger">Level 1 (BE) Descriptor</label>
-                            <textarea class="form-control form-control-sm" id="rubricL1" rows="2"></textarea>
-                        </div>
-                        <div class="col-6 mb-2">
-                            <label class="form-label small text-warning">Level 2 (AE) Descriptor</label>
-                            <textarea class="form-control form-control-sm" id="rubricL2" rows="2"></textarea>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-6 mb-2">
-                            <label class="form-label small text-success">Level 3 (ME) Descriptor</label>
-                            <textarea class="form-control form-control-sm" id="rubricL3" rows="2"></textarea>
-                        </div>
-                        <div class="col-6 mb-2">
-                            <label class="form-label small text-primary">Level 4 (EE) Descriptor</label>
-                            <textarea class="form-control form-control-sm" id="rubricL4" rows="2"></textarea>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-6 mb-2">
-                            <label class="form-label small">Points Per Level</label>
-                            <input type="number" class="form-control form-control-sm" id="rubricPoints" value="0" min="0">
-                        </div>
-                        <div class="col-6 mb-2">
-                            <label class="form-label small">Sort Order</label>
-                            <input type="number" class="form-control form-control-sm" id="rubricSort" value="1" min="1">
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="saveRubricBtn">Save</button>
             </div>
         </div>
     </div>

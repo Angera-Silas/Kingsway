@@ -247,18 +247,18 @@ const DisciplineCasesController = {
 
         return `
           <tr>
-            <td>${c.id || "-"}</td>
-            <td><strong>${this.escape(c.full_name || c.student_name || "-")}</strong></td>
-            <td>${this.escape(c.admission_no || "-")}</td>
-            <td>${this.escape(c.class_name || "-")}</td>
-            <td>${this.escape(c.stream_name || "-")}</td>
-            <td>${this.escape(c.description || "-")}</td>
-            <td><span class="badge bg-${severityColors[c.severity] || "secondary"}">${this.escape(c.severity || "-")}</span></td>
-            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escape(c.status || "-")}</span></td>
-            <td>${this.escape(c.incident_date || "-")}</td>
-            <td>${this.escape(c.action_taken || "-")}</td>
+            <td>${this.escapeHtml(c.id || "-")}</td>
+            <td><strong>${this.escapeHtml(c.full_name || c.student_name || "-")}</strong></td>
+            <td>${this.escapeHtml(c.admission_no || "-")}</td>
+            <td>${this.escapeHtml(c.class_name || "-")}</td>
+            <td>${this.escapeHtml(c.stream_name || "-")}</td>
+            <td>${this.escapeHtml(c.description || "-")}</td>
+            <td><span class="badge bg-${severityColors[c.severity] || "secondary"}">${this.escapeHtml(c.severity || "-")}</span></td>
+            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escapeHtml(c.status || "-")}</span></td>
+            <td>${this.escapeHtml(c.incident_date || "-")}</td>
+            <td>${this.escapeHtml(c.action_taken || "-")}</td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="DisciplineCasesController.viewCase(${c.id})">
+              <button class="btn btn-sm btn-outline-primary" onclick="DisciplineCasesController.viewCase(${this.escapeHtml(c.id)})">
                 <i class="bi bi-eye me-1"></i> View
               </button>
             </td>
@@ -310,10 +310,10 @@ const DisciplineCasesController = {
     this.ui.incidentDate.textContent = caseData.incident_date || "-";
 
     const severityColors = { low: "success", medium: "warning", high: "danger" };
-    this.ui.severityBadge.innerHTML = `<span class="badge bg-${severityColors[caseData.severity] || "secondary"}">${this.escape(caseData.severity || "-")}</span>`;
+    this.ui.severityBadge.innerHTML = `<span class="badge bg-${severityColors[caseData.severity] || "secondary"}">${this.escapeHtml(caseData.severity || "-")}</span>`;
 
     const statusColors = { pending: "warning", resolved: "success", escalated: "danger" };
-    this.ui.statusBadge.innerHTML = `<span class="badge bg-${statusColors[caseData.status] || "secondary"}">${this.escape(caseData.status || "-")}</span>`;
+    this.ui.statusBadge.innerHTML = `<span class="badge bg-${statusColors[caseData.status] || "secondary"}">${this.escapeHtml(caseData.status || "-")}</span>`;
 
     this.ui.reportedBy.textContent = data.reported_by_name || "-";
     this.ui.resolvedBy.textContent = data.resolved_by_name || "-";
@@ -424,7 +424,7 @@ const DisciplineCasesController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.year ?? item.academic_year ?? item.value ?? "";
@@ -580,7 +580,7 @@ const DisciplineCasesController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -602,7 +602,7 @@ const DisciplineCasesController = {
     };
   },
 
-  notify(message, type = "info") {
+  notify: async function (message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -613,7 +613,7 @@ const DisciplineCasesController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

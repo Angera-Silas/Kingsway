@@ -50,7 +50,7 @@ class RouteAuthorization
     {
         if (empty(self::$routeCache)) {
             $stmt = self::getDb()->query(
-                "SELECT id, name, url, domain, is_active FROM routes WHERE is_active = 1"
+                "SELECT id, name, url, domain, is_active FROM routes_registry WHERE is_active = 1"
             );
             self::$routeCache = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
@@ -66,7 +66,7 @@ class RouteAuthorization
             $stmt = self::getDb()->prepare(
                 "SELECT r.name 
                  FROM role_routes rr
-                 JOIN routes r ON r.id = rr.route_id
+                 JOIN routes_registry r ON r.id = rr.route_id
                  WHERE rr.role_id = ? AND rr.is_allowed = 1 AND r.is_active = 1"
             );
             $stmt->execute([$roleId]);
@@ -82,7 +82,7 @@ class RouteAuthorization
     {
         if (empty(self::$systemRoutesCache)) {
             $stmt = self::getDb()->query(
-                "SELECT name FROM routes WHERE domain = 'SYSTEM' AND is_active = 1"
+                "SELECT name FROM routes_registry WHERE domain = 'SYSTEM' AND is_active = 1"
             );
             self::$systemRoutesCache = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         }
@@ -96,7 +96,7 @@ class RouteAuthorization
     {
         if (empty(self::$schoolRoutesCache)) {
             $stmt = self::getDb()->query(
-                "SELECT name FROM routes WHERE domain = 'SCHOOL' AND is_active = 1"
+                "SELECT name FROM routes_registry WHERE domain = 'SCHOOL' AND is_active = 1"
             );
             self::$schoolRoutesCache = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         }
@@ -248,7 +248,7 @@ class RouteAuthorization
     {
         $stmt = self::getDb()->prepare(
             "SELECT COUNT(*) FROM role_routes rr
-             JOIN routes r ON r.id = rr.route_id
+             JOIN routes_registry r ON r.id = rr.route_id
              WHERE rr.role_id = ? AND r.domain = ? AND rr.is_allowed = 1"
         );
         $stmt->execute([$roleId, $domain]);
@@ -265,7 +265,7 @@ class RouteAuthorization
     {
         $stmt = self::getDb()->prepare(
             "SELECT id, name, url, domain, description, is_active 
-             FROM routes WHERE name = ? AND is_active = 1"
+             FROM routes_registry WHERE name = ? AND is_active = 1"
         );
         $stmt->execute([$routeName]);
         $result = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -358,7 +358,7 @@ class RouteAuthorization
 
         foreach ($candidates as $url) {
             $stmt = self::getDb()->prepare(
-                "SELECT name FROM routes WHERE url = ? AND is_active = 1 LIMIT 1"
+                "SELECT name FROM routes_registry WHERE url = ? AND is_active = 1 LIMIT 1"
             );
             $stmt->execute([$url]);
             $routeName = $stmt->fetchColumn();
@@ -400,15 +400,12 @@ class RouteAuthorization
     public static function logAuthorizationAttempt($user_id, $role_id, $route, $authorized): void
     {
         try {
-            $stmt = self::getDb()->prepare(
-                "INSERT INTO audit_logs (user_id, action, details, status, created_at)
-                 VALUES (?, ?, ?, ?, NOW())"
-            );
-            $stmt->execute([
-                $user_id,
-                $authorized ? 'route_authorized' : 'route_unauthorized',
-                json_encode(['route' => $route, 'role_id' => $role_id]),
-                $authorized ? 'success' : 'failure'
+            \App\API\Includes\FileLogger::write('auth', [
+                'type' => 'authorization',
+                'user_id' => $user_id,
+                'action' => $authorized ? 'route_authorized' : 'route_unauthorized',
+                'details' => ['route' => $route, 'role_id' => $role_id],
+                'status' => $authorized ? 'success' : 'failure',
             ]);
         } catch (\Exception $e) {
             error_log("Authorization log failed - User: {$user_id}, Role: {$role_id}, Route: {$route}, Result: " . ($authorized ? 'ALLOWED' : 'DENIED'));

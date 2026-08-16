@@ -91,7 +91,7 @@ const developmentProgressController = (() => {
   }
 
   async function markComplete(id) {
-    if (!confirm('Mark this milestone as completed?')) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this milestone as completed?'))) return;
     try {
       await callAPI(`/staff/development-progress/${id}`, 'PUT', { status: 'completed', completed_at: new Date().toISOString().slice(0, 10) });
       showNotification('Milestone marked as completed.', 'success');

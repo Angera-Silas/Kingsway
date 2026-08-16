@@ -136,6 +136,12 @@
             <div class="modal-body">
                 <form id="supervisionForm">
                     <input type="hidden" id="supervisionId">
+                    <div class="mb-3">
+                        <label class="form-label">Exam Schedule *</label>
+                        <select class="form-select" id="supExamSchedule" required>
+                            <option value="">Select exam schedule...</option>
+                        </select>
+                    </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Date *</label>
@@ -147,24 +153,30 @@
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Exam / Activity *</label>
-                        <input type="text" class="form-control" id="supExam" required placeholder="e.g., Mathematics Paper 1">
-                    </div>
-                    <div class="mb-3">
                         <label class="form-label">Venue *</label>
                         <input type="text" class="form-control" id="supVenue" required placeholder="e.g., Hall A">
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Supervisor *</label>
-                        <select class="form-select" id="supSupervisor" required>
-                            <option value="">Select Supervisor</option>
-                        </select>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Supervisor *</label>
+                            <select class="form-select" id="supSupervisor" required>
+                                <option value="">Select Supervisor</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Role *</label>
+                            <select class="form-select" id="supRole" required>
+                                <option value="supervisor">Supervisor</option>
+                                <option value="head_invigilator">Head Invigilator</option>
+                                <option value="invigilator">Invigilator</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Status</label>
                         <select class="form-select" id="supStatus">
                             <option value="assigned">Assigned</option>
-                            <option value="unassigned">Unassigned</option>
+                            <option value="confirmed">Confirmed</option>
                             <option value="completed">Completed</option>
                         </select>
                     </div>

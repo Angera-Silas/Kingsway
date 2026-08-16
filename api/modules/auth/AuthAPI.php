@@ -108,9 +108,10 @@ class AuthAPI extends BaseAPI
 
         try {
             $stmt = $this->db->prepare('
-                SELECT id, email, username, first_name, last_name
-                FROM users
-                WHERE email = ? OR username = ?
+                SELECT u.id, p.email, u.username, p.first_name, p.last_name
+                FROM users u
+                LEFT JOIN persons p ON p.id = u.person_id
+                WHERE p.email = ? OR u.username = ?
                 LIMIT 1
             ');
             $stmt->execute([$identifier, $identifier]);
@@ -232,7 +233,13 @@ class AuthAPI extends BaseAPI
                 ];
             }
 
-            $stmt = $this->db->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $stmt = $this->db->prepare('
+                SELECT u.id
+                FROM users u
+                JOIN persons p ON p.id = u.person_id
+                WHERE p.email = ?
+                LIMIT 1
+            ');
             $stmt->execute([$reset['email']]);
             $user = $stmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -246,7 +253,7 @@ class AuthAPI extends BaseAPI
 
             $stmt = $this->db->prepare('
                 UPDATE users
-                SET password = ?, password_changed_at = NOW(), updated_at = NOW(), force_password_change = 0
+                SET password_hash = ?, password_changed_at = NOW(), updated_at = NOW(), force_password_change = 0
                 WHERE id = ?
             ');
             $stmt->execute([
@@ -716,7 +723,7 @@ class AuthAPI extends BaseAPI
 
             // Create a refresh token only for a new login. A refresh exchange
             // reuses its existing token so one browser session remains one
-            // auth_sessions record instead of spawning a new row per refresh.
+            // user_sessions record instead of spawning a new row per refresh.
             $maxAge = $rememberMe ? (14 * 24 * 60 * 60) : 0;
             $refreshToken = $existingRefreshToken
                 ?? $this->generateRefreshToken(
@@ -861,7 +868,7 @@ class AuthAPI extends BaseAPI
                 "SELECT r.name 
                  FROM role_dashboards rd
                  JOIN dashboards d ON d.id = rd.dashboard_id
-                 JOIN routes r ON r.id = d.route_id
+                 JOIN routes_registry r ON r.id = d.route_id
                  WHERE rd.role_id = ? AND rd.is_primary = 1
                  LIMIT 1"
             );
@@ -877,7 +884,7 @@ class AuthAPI extends BaseAPI
                 "SELECT r.name 
                  FROM role_dashboards rd
                  JOIN dashboards d ON d.id = rd.dashboard_id
-                 JOIN routes r ON r.id = d.route_id
+                 JOIN routes_registry r ON r.id = d.route_id
                  WHERE rd.role_id = ?
                  ORDER BY rd.is_primary DESC
                  LIMIT 1"
@@ -1370,9 +1377,10 @@ class AuthAPI extends BaseAPI
     private function createPasswordSetupInvitation(int $userId): string
     {
         $stmt = $this->db->prepare('
-            SELECT u.email, s.id AS staff_id
+            SELECT p.email, s.id AS staff_id
             FROM users u
-            LEFT JOIN staff s ON s.user_id = u.id
+            LEFT JOIN persons p ON p.id = u.person_id
+            LEFT JOIN staff s ON s.person_id = u.person_id
             WHERE u.id = ?
             LIMIT 1
         ');
@@ -1423,12 +1431,11 @@ class AuthAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare('
-                SELECT s.id AS staff_id, s.phone, s.gender, s.marital_status,
-                       s.date_of_birth, s.address,
-                       sop.profile_completed, sop.communication_completed
-                FROM staff s
-                LEFT JOIN staff_onboarding_progress sop ON sop.staff_id = s.id
-                WHERE s.user_id = ?
+                SELECT s.id AS staff_id, p.phone, p.gender, p.dob, p.email
+                FROM users u
+                JOIN staff s ON s.person_id = u.person_id
+                JOIN persons p ON p.id = s.person_id
+                WHERE u.id = ?
                 LIMIT 1
             ');
             $stmt->execute([$userId]);
@@ -1437,49 +1444,12 @@ class AuthAPI extends BaseAPI
                 return false;
             }
 
-            $staffId = (int)$row['staff_id'];
-            $hasProfile = !empty($row['profile_completed']);
-            $hasComm    = !empty($row['communication_completed']);
-
-            if ($hasProfile && $hasComm) {
-                return false;
-            }
-
             $hasStaffData = !empty($row['phone'])
                 && !empty($row['gender'])
-                && !empty($row['marital_status'])
-                && !empty($row['date_of_birth'])
-                && !empty($row['address']);
+                && !empty($row['dob'])
+                && !empty($row['email']);
 
-            if ($hasStaffData) {
-                if (!$row['profile_completed'] || !$row['communication_completed']) {
-                    $this->db->prepare('
-                        INSERT INTO staff_onboarding_progress
-                            (staff_id, user_id, profile_completed, communication_completed,
-                             onboarding_status, completed_at, created_at, updated_at)
-                        VALUES (?, ?, 1, 1, ?, NOW(), NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE
-                            profile_completed = 1,
-                            communication_completed = 1,
-                            onboarding_status = "completed",
-                            completed_at = NOW(),
-                            updated_at = NOW()
-                    ')->execute([$staffId, $userId, 'completed']);
-                }
-                return false;
-            }
-
-            if (!$row['profile_completed']) {
-                $this->db->prepare('
-                    INSERT INTO staff_onboarding_progress
-                        (staff_id, user_id, profile_completed, communication_completed,
-                         onboarding_status, created_at, updated_at)
-                    VALUES (?, ?, 0, 0, "profile_pending", NOW(), NOW())
-                    ON DUPLICATE KEY UPDATE updated_at = NOW()
-                ')->execute([$staffId, $userId]);
-            }
-
-            return true;
+            return !$hasStaffData;
         } catch (\Throwable $error) {
             error_log('Staff profile completion check failed: ' . $error->getMessage());
             return false;
@@ -1553,7 +1523,7 @@ class AuthAPI extends BaseAPI
 
             $stmt = $this->db->prepare('
                 UPDATE users
-                SET password = ?,
+                SET password_hash = ?,
                     status = "active",
                     password_changed_at = NOW(),
                     force_password_change = 0,
@@ -1564,13 +1534,6 @@ class AuthAPI extends BaseAPI
                 password_hash($newPassword, PASSWORD_DEFAULT),
                 (int) $invitation['user_id']
             ]);
-
-            $stmt = $this->db->prepare('
-                UPDATE staff_onboarding_progress
-                SET password_completed = 1, updated_at = NOW()
-                WHERE user_id = ?
-            ');
-            $stmt->execute([(int) $invitation['user_id']]);
 
             $stmt = $this->db->prepare('
                 UPDATE user_invitations

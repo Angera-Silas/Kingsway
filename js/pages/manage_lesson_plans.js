@@ -309,59 +309,59 @@ const lessonPlansController = (() => {
         document.getElementById("lessonFormModal"),
       )?.hide();
       await loadPlans();
-      alert(id ? "Lesson plan updated." : "Lesson plan created.");
+      await window.infoDialog('Notice', id ? "Lesson plan updated." : "Lesson plan created.");
     } catch (e) {
       console.error("Save plan:", e);
-      alert("Failed to save lesson plan: " + (e.message || ""));
+      await window.infoDialog('Notice', "Failed to save lesson plan: " + (e.message || ""));
     }
   }
 
   async function submitPlan(id) {
-    if (!confirm("Submit this lesson plan for headteacher review?")) return;
+    if (!(await window.confirmAction('Confirm', "Submit this lesson plan for headteacher review?"))) return;
     try {
       await API.academic.submitLessonPlan({ plan_id: id });
       await loadPlans();
-      alert("Lesson plan submitted for review.");
+      await window.infoDialog('Notice', "Lesson plan submitted for review.");
     } catch (e) {
       console.error("Submit:", e);
-      alert("Failed to submit.");
+      await window.infoDialog('Notice', "Failed to submit.");
     }
   }
 
   async function approvePlan(id) {
-    if (!confirm("Approve this lesson plan?")) return;
+    if (!(await window.confirmAction('Confirm', "Approve this lesson plan?"))) return;
     try {
       await API.academic.approveLessonPlan({ plan_id: id });
       await loadPlans();
-      alert("Lesson plan approved.");
+      await window.infoDialog('Notice', "Lesson plan approved.");
     } catch (e) {
       console.error("Approve:", e);
-      alert("Failed to approve.");
+      await window.infoDialog('Notice', "Failed to approve.");
     }
   }
 
   async function rejectPlan(id) {
-    const remarks = prompt("Reason for rejection:");
+    const remarks = await window.promptAction('Input', "Reason for rejection:");
     if (remarks === null) return; // User cancelled
     try {
       await API.academic.rejectLessonPlan({ plan_id: id, remarks: remarks });
       await loadPlans();
-      alert("Lesson plan rejected.");
+      await window.infoDialog('Notice', "Lesson plan rejected.");
     } catch (e) {
       console.error("Reject:", e);
-      alert("Failed to reject.");
+      await window.infoDialog('Notice', "Failed to reject.");
     }
   }
 
   async function deletePlan(id) {
-    if (!confirm("Delete this lesson plan?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this lesson plan?", { confirmText: 'Delete', danger: true }))) return;
     try {
       await API.academic.deleteLessonPlan(id);
       await loadPlans();
-      alert("Lesson plan deleted.");
+      await window.infoDialog('Notice', "Lesson plan deleted.");
     } catch (e) {
       console.error("Delete:", e);
-      alert("Failed to delete.");
+      await window.infoDialog('Notice', "Failed to delete.");
     }
   }
 
@@ -387,10 +387,10 @@ const lessonPlansController = (() => {
     try {
       await API.academic.createLessonPlan(copy);
       await loadPlans();
-      alert("Lesson plan duplicated.");
+      await window.infoDialog('Notice', "Lesson plan duplicated.");
     } catch (e) {
       console.error("Duplicate:", e);
-      alert("Failed to duplicate.");
+      await window.infoDialog('Notice', "Failed to duplicate.");
     }
   }
 

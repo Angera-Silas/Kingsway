@@ -108,7 +108,7 @@ const StaffRoleAssignmentsController = {
     },
 
     async revoke(roleId) {
-        if (!this.selected || !confirm('Remove this role from the selected staff member?')) return;
+        if (!this.selected || !(await window.confirmAction('Confirm Deletion', 'Remove this role from the selected staff member?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.staff.revokeStaffRole(this.selected.id, roleId);
             await this.select(this.selected.id);
@@ -119,7 +119,9 @@ const StaffRoleAssignmentsController = {
     },
 
     notify(m, t = 'info') {
-        window.API?.showNotification?.(m, t) || alert(m);
+        if (!window.API?.showNotification?.(m, t)) {
+            window.infoDialog && window.infoDialog('Notice', m);
+        }
     },
 
     esc(v) {

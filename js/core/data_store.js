@@ -34,6 +34,14 @@ const DataStore = (() => {
   const MEMORY_LIMIT = 100;
   const MEMORY_TTL = 60000;
 
+  // Stable cache scope for anonymous visitors. Every not-signed-in user (new or
+  // returning, across all tabs) reads and writes public data under this single
+  // sentinel, so the shared public-site cache is reused instead of being per-visit.
+  // -1 is reserved and can never collide with a real users.id (positive integers),
+  // so guests never share rows with authenticated accounts. There is no "guest"
+  // account row in the DB — this is purely a cache-scope identity.
+  const GUEST_USER_ID = -1;
+
   const DEFAULT_TTL = Object.freeze({
     REFERENCE: 86400000,
     LONG: 604800000,
@@ -93,7 +101,11 @@ const DataStore = (() => {
 
   function currentUserId() {
     const auth = window.AuthContext;
-    return auth?.isAuthenticated?.() ? auth.getUser?.()?.id ?? null : null;
+    if (auth?.isAuthenticated?.()) {
+      const id = auth.getUser?.()?.id ?? null;
+      return id ?? GUEST_USER_ID;
+    }
+    return GUEST_USER_ID;
   }
 
   function currentRoleId() {
@@ -320,10 +332,28 @@ const DataStore = (() => {
   async function invalidate(key, options = {}) {
     const config = normalizeOptions(key, options);
     const cacheKey = generateCacheKey(key, config.params);
+
+    // Remove the exact entry plus every parameterised variant of it
+    // (cacheKey:{"..."} — e.g. filtered news lists, per-id detail views). A single
+    // mutation (PUT /api/website/news/5) then refreshes ALL views of that resource,
+    // not just the bare key. Safe: prefix always includes the ':' separator.
+    const prefix = cacheKey + ':';
+    for (const k of [...memoryCache.keys()]) {
+      if (k !== cacheKey && k.startsWith(prefix)) memoryCache.delete(k);
+    }
     memoryCache.delete(cacheKey);
+
     if (window.KingswayDB && config.storeName) {
-      try { await KingswayDB.remove?.(config.storeName, cacheKey); }
-      catch (error) { console.warn('[DataStore] IndexedDB invalidation failed:', error); }
+      try {
+        await KingswayDB.remove?.(config.storeName, cacheKey);
+        const rows = await KingswayDB.getAll?.(config.storeName) || [];
+        for (const row of rows) {
+          const id = row && (row.id ?? row.key);
+          if (id && id !== cacheKey && String(id).startsWith(prefix)) {
+            await KingswayDB.remove(config.storeName, id);
+          }
+        }
+      } catch (error) { console.warn('[DataStore] IndexedDB invalidation failed:', error); }
     }
     emit('INVALIDATED', { key, cacheKey });
   }

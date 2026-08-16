@@ -6,10 +6,17 @@ use PDO;
 
 /**
  * Term & Holiday Manager
- * Handles CRUD and coordination logic for academic terms and holidays
+ * Read-side queries for academic terms, holidays, and timetable entries.
+ * Runs entirely against the normalized (live) schema.
  */
 class TermHolidayManager
 {
+    protected $db;
+
+    public function __construct($db)
+    {
+        $this->db = $db;
+    }
 
     // STUDENT: Get all schedules relevant to a student (classes, exams, events, holidays)
     public function getStudentSchedules($studentId, $termId = null)
@@ -151,7 +158,7 @@ class TermHolidayManager
         $activityStmt->execute(['term_id' => $termId]);
         $activitiesCount = (int) ($activityStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
-        $examStmt = $this->db->prepare("SELECT COUNT(*) AS total FROM exam_schedules WHERE term_id = :term_id");
+        $examStmt = $this->db->prepare("SELECT COUNT(*) AS total FROM exam_schedules WHERE academic_year_term_id = :term_id");
         $examStmt->execute(['term_id' => $termId]);
         $examsCount = (int) ($examStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
@@ -165,155 +172,5 @@ class TermHolidayManager
                 'exams_count' => $examsCount,
             ],
         ];
-    }
-    // Get detailed info for a term, including holidays, workflow status, and related schedules
-    public function getTermDetails($termId)
-    {
-        $sql = "SELECT ayt.*, t.name AS term_name, t.code AS term_code, w.status as workflow_status
-                FROM academic_year_terms ayt
-                LEFT JOIN terms t ON t.id = ayt.term_id
-                LEFT JOIN workflow_instances w ON w.reference_id = ayt.id AND w.workflow_id = 'term_holiday_scheduling'
-                WHERE ayt.id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['id' => $termId]);
-        $term = $stmt->fetch(PDO::FETCH_ASSOC);
-        $stats['total_holidays'] = $stmt->fetchColumn();
-        $stmt = $this->db->query("SELECT COUNT(*) as active_terms FROM academic_year_terms WHERE status = 'current'");
-        $stats['active_terms'] = $stmt->fetchColumn();
-        $stmt = $this->db->query("SELECT COUNT(*) as inactive_terms FROM academic_year_terms WHERE status != 'current'");
-        $stats['inactive_terms'] = $stmt->fetchColumn();
-        return $stats;
-    }
-
-    // Cross-link: get all classes/events scheduled in a term
-    public function getTermClassesEvents($termId)
-    {
-        $result = [];
-        $stmt = $this->db->prepare("SELECT * FROM vw_timetable_entries WHERE academic_year_term_id = :term_id AND status = 'scheduled'");
-        $stmt->execute(['term_id' => $termId]);
-        $result['classes'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        // Example: events table
-        if ($this->db->query("SHOW TABLES LIKE 'events'")) {
-            $stmt = $this->db->prepare("SELECT * FROM events WHERE term_id = :term_id");
-            $stmt->execute(['term_id' => $termId]);
-            $result['events'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        }
-        return $result;
-    }
-    protected $db;
-
-    public function __construct($db)
-    {
-        $this->db = $db;
-    }
-
-    // Create a new academic term
-    public function createTerm($data)
-    {
-        $sql = "INSERT INTO academic_terms (name, start_date, end_date, year, status) VALUES (:name, :start_date, :end_date, :year, :status)";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'name' => $data['name'],
-            'start_date' => $data['start_date'],
-            'end_date' => $data['end_date'],
-            'year' => $data['year'],
-            'status' => $data['status'] ?? 'active'
-        ]);
-        return $this->db->lastInsertId();
-    }
-
-    // Update an academic term
-    public function updateTerm($termId, $data)
-    {
-        $sql = "UPDATE academic_terms SET name = :name, start_date = :start_date, end_date = :end_date, year = :year, status = :status WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'id' => $termId,
-            'name' => $data['name'],
-            'start_date' => $data['start_date'],
-            'end_date' => $data['end_date'],
-            'year' => $data['year'],
-            'status' => $data['status'] ?? 'active'
-        ]);
-        return true;
-    }
-
-    // Delete an academic term
-    public function deleteTerm($termId)
-    {
-        $sql = "DELETE FROM academic_terms WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['id' => $termId]);
-        return true;
-    }
-
-    // List all academic terms
-    public function listTerms($year = null)
-    {
-        $sql = "SELECT * FROM academic_terms";
-        $params = [];
-        if ($year) {
-            $sql .= " WHERE year = :year";
-            $params['year'] = $year;
-        }
-        $sql .= " ORDER BY start_date ASC";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    // Create a new holiday
-    public function createHoliday($data)
-    {
-        $sql = "INSERT INTO holidays (name, start_date, end_date, year, status) VALUES (:name, :start_date, :end_date, :year, :status)";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'name' => $data['name'],
-            'start_date' => $data['start_date'],
-            'end_date' => $data['end_date'],
-            'year' => $data['year'],
-            'status' => $data['status'] ?? 'active'
-        ]);
-        return $this->db->lastInsertId();
-    }
-
-    // Update a holiday
-    public function updateHoliday($holidayId, $data)
-    {
-        $sql = "UPDATE holidays SET name = :name, start_date = :start_date, end_date = :end_date, year = :year, status = :status WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'id' => $holidayId,
-            'name' => $data['name'],
-            'start_date' => $data['start_date'],
-            'end_date' => $data['end_date'],
-            'year' => $data['year'],
-            'status' => $data['status'] ?? 'active'
-        ]);
-        return true;
-    }
-
-    // Delete a holiday
-    public function deleteHoliday($holidayId)
-    {
-        $sql = "DELETE FROM holidays WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['id' => $holidayId]);
-        return true;
-    }
-
-    // List all holidays
-    public function listHolidays($year = null)
-    {
-        $sql = "SELECT * FROM holidays";
-        $params = [];
-        if ($year) {
-            $sql .= " WHERE year = :year";
-            $params['year'] = $year;
-        }
-        $sql .= " ORDER BY start_date ASC";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

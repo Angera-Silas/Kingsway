@@ -12,14 +12,9 @@ const CompetitionsController = (() => {
     }
     async function loadData() {
         try {
-            const r =
-              (await window.API.apiCall(
-                "/activities/competitions",
-                "GET",
-              ).catch(() => null)) ||
-              (await window.API.activities
+            const r = await window.API.activities
                 ?.list?.({ category: "competition" })
-                .catch(() => null));
+                .catch(() => null);
             allData = r?.data || r || [];
             renderStats(allData);
             renderTable(Array.isArray(allData) ? allData : []);
@@ -175,14 +170,18 @@ const CompetitionsController = (() => {
           return;
         }
         try {
-            await window.API.apiCall(id ? '/activities/competitions/' + id : '/activities/competitions', id ? 'PUT' : 'POST', data);
+            if (id) {
+                await window.API.activities.update(id, data);
+            } else {
+                await window.API.activities.create(data);
+            }
             showNotification("Competition saved successfully", "success");
             bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide(); await loadData();
         } catch (e) { showNotification(e.message || 'Failed to save', 'danger'); }
     }
     async function deleteRecord(id) {
-        if (!confirm("Delete this competition record?")) return;
-        try { await window.API.apiCall('/activities/competitions/' + id, 'DELETE'); showNotification('Deleted', 'success'); await loadData(); }
+        if (!(await window.confirmAction('Confirm Deletion', "Delete this competition record?", { confirmText: 'Delete', danger: true }))) return;
+        try { await window.API.activities.delete(id); showNotification('Deleted', 'success'); await loadData(); }
         catch (e) { showNotification(e.message || 'Delete failed', 'danger'); }
     }
     function exportCSV() {

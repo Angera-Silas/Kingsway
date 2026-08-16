@@ -292,7 +292,7 @@ const accountSettings = {
     // ═══════════════════════════════════════════════════════════════════
 
     async generateBackupCodes() {
-        if (!confirm('Generate new backup codes? This will invalidate all existing codes.')) {
+        if (!(await window.confirmAction('Confirm', 'Generate new backup codes? This will invalidate all existing codes.'))) {
             return;
         }
 

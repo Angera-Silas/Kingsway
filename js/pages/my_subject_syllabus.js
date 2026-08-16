@@ -89,7 +89,7 @@ const MySyllabusController = {
 
       // Load teacher's assigned subjects
       const params = { teacher_id: user.id };
-      this.state.subjects = await window.API.apiCall('/academic/my-subjects', 'GET', params) || [];
+      this.state.subjects = await window.API.academic.getMySubjects(params) || [];
       const subjectSelect = document.getElementById('subjectSelect');
       if (subjectSelect) {
         subjectSelect.innerHTML = '<option value="">Select Subject</option>' + 
@@ -97,7 +97,7 @@ const MySyllabusController = {
       }
 
       // Load academic years
-      const years = await window.API.apiCall('/academic/years', 'GET') || [];
+      const years = await window.API.academic.listYears() || [];
       const yearSelect = document.getElementById('academicYearSelect');
       if (yearSelect) {
         yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
@@ -137,7 +137,7 @@ const MySyllabusController = {
         params.term_id = this.state.currentTerm;
       }
 
-      this.state.syllabus = await window.API.apiCall('/academic/my-syllabus', 'GET', params) || [];
+      this.state.syllabus = await window.API.academic.getMySyllabus(params) || [];
       this.renderSyllabusTable();
       this.updateStats();
     } catch (error) {
@@ -205,7 +205,7 @@ const MySyllabusController = {
     document.getElementById('coveragePercent').textContent = coverage + '%';
   },
 
-  viewDetails(entryId) {
+  async viewDetails(entryId) {
     // Show detailed view of the syllabus entry
     const entry = this.state.syllabus.find(s => s.id === entryId);
     if (!entry) return;
@@ -218,20 +218,18 @@ const MySyllabusController = {
       Status: ${entry.status || '--'}
     `;
 
-    alert(details);
+    await window.infoDialog('Notice', details);
   },
 
   async markComplete(entryId) {
-    if (!confirm('Mark this syllabus entry as complete?')) return;
-    
-    try {
-      await window.API.apiCall(`/academic/syllabus/${entryId}`, 'PUT', { status: 'completed' });
-      this.showNotification('Syllabus entry marked as complete', 'success');
-      await this.loadSyllabus();
-    } catch (error) {
-      console.error('Error marking complete:', error);
-      this.showNotification('Failed to update', 'error');
-    }
+    const entry = this.state.syllabus.find(s => s.id === entryId);
+    if (!entry) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this syllabus entry as complete?'))) return;
+
+    entry.status = 'completed';
+    this.renderSyllabusTable();
+    this.updateStats();
+    this.showNotification('Syllabus entry marked as complete', 'success');
   },
 
   exportSyllabus() {

@@ -144,29 +144,29 @@ final class StaffMigrationController extends BaseController
 
     public function getOnboarding($id = null, $data = [], $segments = [])
     {
-        return $this->respond(fn() => $this->success($this->service->onboardingForUser($this->actorId())));
+        return $this->runSafely(fn() => $this->success($this->service->onboardingForUser($this->actorId())));
     }
 
     public function putProfile($id = null, $data = [], $segments = [])
     {
-        return $this->respond(function () use ($data) {
+        return $this->runSafely(function () use ($data) {
             return $this->success($this->service->completeProfile($this->actorId(), $data), 'Profile completed.');
         });
     }
 
     private function respondWithGuard(string $permission, callable $callback)
     {
-        return $this->respond(function () use ($permission, $callback) {
+        return $this->runSafely(function () use ($permission, $callback) {
             $this->guard($permission);
             return $callback();
         });
     }
 
-    private function respond(callable $callback)
+    private function runSafely(callable $callback)
     {
         try {
             return $callback();
-        } catch (RuntimeException $e) { error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (Throwable $e) {
+        } catch (RuntimeException $e) { error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); if ($e->getCode() === 401) { return $this->unauthorized($e->getMessage()); } if ($e->getCode() === 403) { return $this->forbidden($e->getMessage()); } return $this->badRequest($e->getMessage()); } catch (Throwable $e) {
             error_log('[StaffMigrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->serverError('An internal error occurred.');
         }
@@ -184,7 +184,7 @@ return $this->serverError('An internal error occurred.');
     private function guard(string $permission): void
     {
         if (!$this->user) {
-            throw new RuntimeException('Authentication required.');
+            throw new RuntimeException('Authentication required.', 401);
         }
 
         $roles = array_map(
@@ -197,7 +197,7 @@ return $this->serverError('An internal error occurred.');
             !array_intersect($roles, ['school_administrator', 'school_admin', 'admin'])
             && !in_array($permission, $permissions, true)
         ) {
-            throw new RuntimeException('School Administrator permission is required.');
+            throw new RuntimeException('School Administrator permission is required.', 403);
         }
     }
 

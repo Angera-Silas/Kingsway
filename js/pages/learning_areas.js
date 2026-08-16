@@ -382,7 +382,7 @@ const LearningAreasController = {
   },
 
   async deleteSubject(id) {
-    if (!confirm("Delete this subject? This action cannot be undone.")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this subject? This action cannot be undone.", { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.academic.deleteLearningArea(id);
       this.showNotification("Subject deleted", "success");
@@ -393,7 +393,7 @@ const LearningAreasController = {
   },
 
   async removeAssignment(id) {
-    if (!confirm("Remove this assignment?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Remove this assignment?", { confirmText: 'Delete', danger: true }))) return;
     this.showNotification("Assignment removed", "info");
     this.state.assignments = this.state.assignments.filter((a) => a.id !== id);
     this.renderAssignmentsTable();

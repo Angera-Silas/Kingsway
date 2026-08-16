@@ -44,13 +44,11 @@ class ClassTeacherAnalyticsService
     {
         try {
             // Find the class assigned to this teacher as class_teacher
-            $query = "SELECT cs.id as stream_id, cs.class_id, c.name as class_name, cs.stream_name
-                      FROM class_streams cs
-                      JOIN classes c ON cs.class_id = c.id
-                      JOIN teacher_class_assignments tca ON tca.stream_id = cs.id
-                      WHERE tca.teacher_id = ? 
-                        AND tca.role = 'class_teacher' 
-                        AND tca.status = 'active'
+            $query = "SELECT aycs.id as stream_id, aycs.academic_year_class_id as class_id
+                      FROM academic_year_class_streams aycs
+                      JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                      WHERE aycs.class_teacher_id = ?
+                        AND ayc.status = 'active'
                       LIMIT 1";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -84,25 +82,31 @@ class ClassTeacherAnalyticsService
                 return ['total' => 0, 'male' => 0, 'female' => 0, 'class_name' => 'Not Assigned'];
             }
 
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         COUNT(*) as total,
-                        SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) as male,
-                        SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) as female
-                      FROM students 
-                      WHERE stream_id = ? AND status = 'active'";
+                        SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
+                        SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female
+                      FROM student_academic_enrollments sae
+                      JOIN students st ON st.id = sae.student_id
+                      LEFT JOIN persons p ON p.id = st.person_id
+                      WHERE sae.academic_year_class_stream_id = ? 
+                        AND sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query, [$this->streamId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get class name
+            // Get class name from academic_year_class_streams and classes
             $classQuery = "SELECT 
                             CASE 
-                                WHEN c.name = cs.stream_name THEN c.name
-                                WHEN cs.stream_name IS NULL THEN c.name
-                                ELSE CONCAT(c.name, ' ', cs.stream_name)
+                                WHEN c.name = s.name THEN c.name
+                                WHEN s.name IS NULL THEN c.name
+                                ELSE CONCAT(c.name, ' ', s.name)
                             END as class_name
-                          FROM class_streams cs
-                          JOIN classes c ON cs.class_id = c.id
-                          WHERE cs.id = ?";
+                          FROM academic_year_class_streams aycs
+                          JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
+                          JOIN classes c ON aac.class_id = c.id
+                          JOIN streams s ON aycs.stream_id = s.id
+                          WHERE aycs.id = ?";
             $classStmt = $this->db->query($classQuery, [$this->streamId]);
             $classResult = $classStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -129,16 +133,17 @@ class ClassTeacherAnalyticsService
                 return ['present' => 0, 'absent' => 0, 'late' => 0, 'percentage' => 0];
             }
 
+            // Map: student_attendance student_id → student_academic_enrollment_id
             $query = "SELECT 
                         SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present,
                         SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
                         SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
                         COUNT(*) as total
                       FROM student_attendance a
-                      JOIN students s ON a.student_id = s.id
-                      WHERE s.stream_id = ?
+                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
+                      WHERE sae.academic_year_class_stream_id = ?
                         AND a.date = CURDATE()
-                        AND s.status = 'active'";
+                        AND sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query, [$this->streamId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -171,19 +176,20 @@ class ClassTeacherAnalyticsService
 
             $query = "SELECT 
                         COUNT(*) as pending,
-                        SUM(CASE WHEN due_date < CURDATE() THEN 1 ELSE 0 END) as overdue
+                        SUM(CASE WHEN assessment_date < CURDATE() THEN 1 ELSE 0 END) as overdue
                       FROM assessments a
-                      WHERE a.teacher_id = ? 
-                        AND a.status = 'pending'";
+                      WHERE a.assigned_by = ? 
+                        AND a.status IN ('submitted','pending_approval')";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get graded this week
-            $gradedQuery = "SELECT COUNT(*) as graded
-                           FROM assessments 
-                           WHERE teacher_id = ? 
-                             AND status = 'graded' 
-                             AND YEARWEEK(graded_at) = YEARWEEK(CURDATE())";
+            // Get graded this week (approved results submitted this week)
+            $gradedQuery = "SELECT COUNT(DISTINCT ar.assessment_id) as graded
+                           FROM assessment_results ar
+                           JOIN assessments a ON a.id = ar.assessment_id
+                           WHERE a.assigned_by = ?
+                             AND ar.is_approved = 1
+                             AND YEARWEEK(ar.submitted_at) = YEARWEEK(CURDATE())";
             $gradedStmt = $this->db->query($gradedQuery, [$this->userId]);
             $gradedResult = $gradedStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -236,9 +242,9 @@ class ClassTeacherAnalyticsService
         try {
             $query = "SELECT 
                         COUNT(*) as total_sent,
-                        SUM(CASE WHEN YEARWEEK(sent_at) = YEARWEEK(CURDATE()) THEN 1 ELSE 0 END) as sent_this_week,
+                        SUM(CASE WHEN YEARWEEK(created_at) = YEARWEEK(CURDATE()) THEN 1 ELSE 0 END) as sent_this_week,
                         SUM(CASE WHEN status = 'unread' THEN 1 ELSE 0 END) as unread_responses
-                      FROM parent_communications 
+                      FROM communications 
                       WHERE sender_id = ?";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -265,13 +271,13 @@ class ClassTeacherAnalyticsService
                 return ['average_score' => 0, 'high_performers' => 0, 'needs_support' => 0];
             }
 
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
-                        AVG(ar.score) as average_score,
-                        SUM(CASE WHEN ar.score >= 75 THEN 1 ELSE 0 END) as high_performers,
-                        SUM(CASE WHEN ar.score < 40 THEN 1 ELSE 0 END) as needs_support
-                      FROM assessment_results ar
-                      JOIN students s ON ar.student_id = s.id
-                      WHERE s.stream_id = ? AND s.status = 'active'";
+                        AVG(v.percentage) as average_score,
+                        SUM(CASE WHEN v.percentage >= 75 THEN 1 ELSE 0 END) as high_performers,
+                        SUM(CASE WHEN v.percentage < 40 THEN 1 ELSE 0 END) as needs_support
+                      FROM vw_assessment_results_detail v
+                      WHERE v.academic_year_class_stream_id = ?";
             $stmt = $this->db->query($query, [$this->streamId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -300,15 +306,16 @@ class ClassTeacherAnalyticsService
                 return ['labels' => [], 'data' => []];
             }
 
+            // Map: student_attendance student_id → student_academic_enrollment_id
             $query = "SELECT 
                         DATE(a.date) as date,
                         ROUND(AVG(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
                       FROM student_attendance a
-                      JOIN students s ON a.student_id = s.id
-                      WHERE s.stream_id = ?
+                      JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
+                      WHERE sae.academic_year_class_stream_id = ?
                         AND a.date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
-                        AND s.status = 'active'
-                      GROUP BY DATE(a.attendance_date)
+                        AND sae.enrollment_status = 'active'
+                      GROUP BY DATE(a.date)
                       ORDER BY date ASC";
             $stmt = $this->db->query($query, [$this->streamId, $weeks]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -337,17 +344,18 @@ class ClassTeacherAnalyticsService
                 return ['labels' => [], 'data' => []];
             }
 
+            // Map: assessment_results uses student_academic_enrollment_id now
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         CASE 
-                            WHEN ar.score >= 80 THEN 'A (80-100)'
-                            WHEN ar.score >= 60 THEN 'B (60-79)'
-                            WHEN ar.score >= 40 THEN 'C (40-59)'
+                            WHEN v.percentage >= 80 THEN 'A (80-100)'
+                            WHEN v.percentage >= 60 THEN 'B (60-79)'
+                            WHEN v.percentage >= 40 THEN 'C (40-59)'
                             ELSE 'D (<40)'
                         END as grade_band,
                         COUNT(*) as count
-                      FROM assessment_results ar
-                      JOIN students s ON ar.student_id = s.id
-                      WHERE s.stream_id = ? AND s.status = 'active'
+                      FROM vw_assessment_results_detail v
+                      WHERE v.academic_year_class_stream_id = ?
                       GROUP BY grade_band
                       ORDER BY grade_band";
             $stmt = $this->db->query($query, [$this->streamId]);
@@ -381,17 +389,20 @@ class ClassTeacherAnalyticsService
                 return [];
             }
 
+            // Map: class_schedules → timetable_entries (normalized schema)
             $query = "SELECT 
-                        ts.start_time as time,
-                        sub.name as subject,
-                        CONCAT(u.first_name, ' ', u.last_name) as teacher,
-                        ts.room as location
-                      FROM timetable_slots ts
-                      JOIN subjects sub ON ts.subject_id = sub.id
-                      JOIN users u ON ts.teacher_id = u.id
-                      WHERE ts.stream_id = ?
-                        AND ts.day_of_week = DAYNAME(CURDATE())
-                      ORDER BY ts.start_time ASC";
+                        te.time_slot_id as time,
+                        la.name as subject,
+                        CONCAT(p.first_name, ' ', p.last_name) as teacher,
+                        aycs.room_id as location
+                      FROM timetable_entries te
+                      JOIN academic_year_class_streams aycs ON te.academic_year_class_stream_id = aycs.id
+                      JOIN learning_areas la ON te.learning_area_id = la.id
+                      JOIN staff st ON te.teacher_id = st.id
+                      LEFT JOIN persons p ON p.id = st.person_id
+                      WHERE te.academic_year_class_stream_id = ?
+                        AND te.day_of_week = WEEKDAY(CURDATE()) + 1
+                      ORDER BY te.time_slot_id ASC";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
@@ -410,21 +421,25 @@ class ClassTeacherAnalyticsService
                 return [];
             }
 
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
-                        CONCAT(s.first_name, ' ', s.last_name) as student_name,
-                        s.admission_no,
-                        ROUND(AVG(ar.score), 1) as average_score,
-                        COUNT(ar.id) as assessments_taken,
+                        CONCAT(p.first_name, ' ', p.last_name) as student_name,
+                        st.admission_no,
+                        ROUND(AVG(v.percentage), 1) as average_score,
+                        COUNT(v.result_id) as assessments_taken,
                         CASE 
-                            WHEN AVG(ar.score) >= 75 THEN 'Excellent'
-                            WHEN AVG(ar.score) >= 50 THEN 'Good'
+                            WHEN AVG(v.percentage) >= 75 THEN 'Excellent'
+                            WHEN AVG(v.percentage) >= 50 THEN 'Good'
                             ELSE 'Needs Support'
                         END as status
-                      FROM students s
-                      LEFT JOIN assessment_results ar ON s.id = ar.student_id
-                      WHERE s.stream_id = ? AND s.status = 'active'
-                      GROUP BY s.id, s.first_name, s.last_name, s.admission_no
-                      ORDER BY s.first_name, s.last_name
+                      FROM student_academic_enrollments sae
+                      JOIN students st ON st.id = sae.student_id
+                      LEFT JOIN persons p ON p.id = st.person_id
+                      LEFT JOIN vw_assessment_results_detail v ON sae.id = v.student_academic_enrollment_id
+                      WHERE sae.academic_year_class_stream_id = ? 
+                        AND sae.enrollment_status = 'active'
+                      GROUP BY sae.id, p.first_name, p.last_name, st.admission_no
+                      ORDER BY p.first_name, p.last_name
                       LIMIT 50";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -444,21 +459,25 @@ class ClassTeacherAnalyticsService
                 return [];
             }
 
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
-                        s.id,
-                        CONCAT(s.first_name, ' ', s.last_name) as name,
-                        s.admission_no,
-                        s.gender,
+                        sae.student_id as id,
+                        CONCAT(p.first_name, ' ', p.last_name) as name,
+                        st.admission_no,
+                        p.gender,
                         CASE 
                             WHEN a.status = 'present' THEN 'Present'
                             WHEN a.status = 'absent' THEN 'Absent'
                             WHEN a.status = 'late' THEN 'Late'
                             ELSE 'Not Marked'
                         END as attendance_today
-                      FROM students s
-                      LEFT JOIN student_attendance a ON s.id = a.student_id AND a.date = CURDATE()
-                      WHERE s.stream_id = ? AND s.status = 'active'
-                      ORDER BY s.first_name, s.last_name";
+                      FROM student_academic_enrollments sae
+                      JOIN students st ON st.id = sae.student_id
+                      LEFT JOIN persons p ON p.id = st.person_id
+                      LEFT JOIN student_attendance a ON a.student_academic_enrollment_id = sae.id AND a.date = CURDATE()
+                      WHERE sae.academic_year_class_stream_id = ? 
+                        AND sae.enrollment_status = 'active'
+                      ORDER BY p.first_name, p.last_name";
             $stmt = $this->db->query($query, [$this->streamId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {

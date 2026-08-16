@@ -34,17 +34,34 @@ class AdmissionPolicy
         return in_array($this->normalizeGrade($grade), self::INTERVIEW_GRADES, true);
     }
 
-    public function getRequiredDocuments(string $grade, string $category = 'standard'): array
+    public function getRequiredDocuments(string $grade, string $category = 'standard', bool $isExistingParent = false): array
     {
-        $requiresTransferDocs = $this->requiresInterview($grade);
+        $normalized = $this->normalizeGrade($grade);
+        $gradeNumber = (int) preg_replace('/\D/', '', $normalized);
+        $isUpper = $gradeNumber >= 4 && $gradeNumber <= 9;
 
-        return [
+        $docs = [
             'birth_certificate' => ['mandatory' => true, 'label' => 'Birth Certificate'],
-            'immunization_card' => ['mandatory' => true, 'label' => 'Immunization Card'],
             'passport_photo' => ['mandatory' => true, 'label' => 'Passport Photo'],
-            'progress_report' => ['mandatory' => $requiresTransferDocs, 'label' => 'Latest Progress Report'],
-            'leaving_certificate' => ['mandatory' => $requiresTransferDocs, 'label' => 'Leaving Certificate from Previous School'],
         ];
+
+        if ($isUpper) {
+            $docs['previous_school_report'] = ['mandatory' => true, 'label' => 'Previous School Report'];
+            $docs['medical_records'] = ['mandatory' => true, 'label' => 'Health / Medical Records'];
+        } else {
+            $docs['immunization_card'] = ['mandatory' => true, 'label' => 'Immunization Card'];
+        }
+
+        if (!$isExistingParent) {
+            $docs['parent_id'] = ['mandatory' => true, 'label' => 'Parent/Guardian National ID'];
+        }
+
+        if ($this->requiresInterview($normalized)) {
+            $docs['progress_report'] = ['mandatory' => false, 'label' => 'Latest Progress Report'];
+            $docs['leaving_certificate'] = ['mandatory' => false, 'label' => 'Leaving Certificate from Previous School'];
+        }
+
+        return $docs;
     }
 
     public function resolveApplicationSource(array $data): string

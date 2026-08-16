@@ -35,7 +35,7 @@ class InventoryItemsManager extends BaseAPI
 
             // Search filter
             if (!empty($search)) {
-                $where[] = "(i.item_name LIKE ? OR i.item_code LIKE ? OR i.barcode LIKE ? OR i.sku LIKE ?)";
+                $where[] = "(i.item_name LIKE ? OR i.code LIKE ? OR i.barcode LIKE ? OR i.sku LIKE ?)";
                 $searchTerm = "%$search%";
                 $bindings = array_merge($bindings, [$searchTerm, $searchTerm, $searchTerm, $searchTerm]);
             }
@@ -198,82 +198,61 @@ class InventoryItemsManager extends BaseAPI
     public function createItem($data)
     {
         try {
+            // Map API input names to live columns
+            $name  = $data['item_name'] ?? $data['name'] ?? null;
+            $code  = $data['item_code'] ?? $data['code'] ?? null;
+            $unit  = $data['unit_of_measure'] ?? $data['unit'] ?? null;
+
             // Validate required fields
-            $required = ['item_name', 'item_code', 'category_id', 'unit_of_measure', 'reorder_level'];
             $missing = [];
-            foreach ($required as $field) {
-                if (empty($data[$field])) {
-                    $missing[] = $field;
-                }
-            }
+            if (empty($name)) $missing[] = 'item_name';
+            if (empty($code)) $missing[] = 'item_code';
+            if (empty($data['category_id'])) $missing[] = 'category_id';
+            if (empty($unit)) $missing[] = 'unit_of_measure';
+            if (empty($data['reorder_level']) && $data['reorder_level'] !== 0) $missing[] = 'reorder_level';
 
             if (!empty($missing)) {
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
             // Check if item code already exists
-            $stmt = $this->db->prepare("SELECT id FROM inventory_items WHERE item_code = ?");
-            $stmt->execute([$data['item_code']]);
+            $stmt = $this->db->prepare("SELECT id FROM inventory_items WHERE code = ?");
+            $stmt->execute([$code]);
             if ($stmt->fetch()) {
                 return formatResponse(false, null, 'Item code already exists');
             }
 
             $this->db->beginTransaction();
 
-            // Try using stored procedure first
-            if ($this->routineExists('sp_add_item_to_inventory', 'PROCEDURE')) {
-                $stmt = $this->db->prepare("CALL sp_add_item_to_inventory(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, @new_item_id)");
-                $stmt->execute([
-                    $data['item_name'],
-                    $data['item_code'],
-                    $data['category_id'],
-                    $data['description'] ?? null,
-                    $data['unit_of_measure'],
-                    $data['quantity_on_hand'] ?? 0,
-                    $data['unit_cost'] ?? 0,
-                    $data['reorder_level'],
-                    $data['location_id'] ?? null,
-                    $data['supplier_id'] ?? null,
-                    $data['barcode'] ?? null,
-                    $data['sku'] ?? null,
-                    $data['expiry_date'] ?? null
-                ]);
-
-                $result = $this->db->query("SELECT @new_item_id as id")->fetch(PDO::FETCH_ASSOC);
-                $itemId = $result['id'];
-
-            } else {
-                // Fallback to direct insert
-                $sql = "
-                    INSERT INTO inventory_items (
-                        item_name, item_code, category_id, description,
-                        unit_of_measure, quantity_on_hand, unit_cost,
-                        reorder_level, location_id, supplier_id,
-                        barcode, sku, expiry_date, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
-                ";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $data['item_name'],
-                    $data['item_code'],
-                    $data['category_id'],
-                    $data['description'] ?? null,
-                    $data['unit_of_measure'],
-                    $data['quantity_on_hand'] ?? 0,
-                    $data['unit_cost'] ?? 0,
-                    $data['reorder_level'],
-                    $data['location_id'] ?? null,
-                    $data['supplier_id'] ?? null,
-                    $data['barcode'] ?? null,
-                    $data['sku'] ?? null,
-                    $data['expiry_date'] ?? null
-                ]);
-                $itemId = $this->db->lastInsertId();
-            }
+            $sql = "
+                INSERT INTO inventory_items (
+                    name, code, category_id, description,
+                    unit, current_quantity, unit_cost,
+                    reorder_level, location_id, supplier_id,
+                    barcode, sku, expiry_date, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $name,
+                $code,
+                $data['category_id'],
+                $data['description'] ?? null,
+                $unit,
+                $data['quantity_on_hand'] ?? 0,
+                $data['unit_cost'] ?? 0,
+                $data['reorder_level'],
+                $data['location_id'] ?? null,
+                $data['supplier_id'] ?? null,
+                $data['barcode'] ?? null,
+                $data['sku'] ?? null,
+                $data['expiry_date'] ?? null
+            ]);
+            $itemId = $this->db->lastInsertId();
 
             $this->db->commit();
-            $this->logAction('create', $itemId, "Created inventory item: {$data['item_name']}");
-            $this->emitEvent('inventory_item_created', ['item_id' => $itemId, 'item_name' => $data['item_name']]);
+            $this->logAction('create', $itemId, "Created inventory item: {$name}");
+            $this->emitEvent('inventory_item_created', ['item_id' => $itemId, 'item_name' => $name]);
 
             return formatResponse(true, ['id' => $itemId], 'Inventory item created successfully');
 
@@ -306,25 +285,28 @@ class InventoryItemsManager extends BaseAPI
             // Build update query
             $updates = [];
             $params = [];
-            $allowedFields = [
-                'item_name',
-                'category_id',
-                'description',
-                'unit_of_measure',
-                'unit_cost',
-                'reorder_level',
-                'location_id',
-                'supplier_id',
-                'barcode',
-                'sku',
-                'expiry_date',
-                'status'
+
+            $fieldMap = [
+                'item_name' => 'name',
+                'name' => 'name',
+                'category_id' => 'category_id',
+                'description' => 'description',
+                'unit_of_measure' => 'unit',
+                'unit' => 'unit',
+                'unit_cost' => 'unit_cost',
+                'reorder_level' => 'reorder_level',
+                'location_id' => 'location_id',
+                'supplier_id' => 'supplier_id',
+                'barcode' => 'barcode',
+                'sku' => 'sku',
+                'expiry_date' => 'expiry_date',
+                'status' => 'status'
             ];
 
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    $updates[] = "$field = ?";
-                    $params[] = $data[$field];
+            foreach ($fieldMap as $key => $column) {
+                if (isset($data[$key]) && !in_array("$column = ?", $updates, true)) {
+                    $updates[] = "$column = ?";
+                    $params[] = $data[$key];
                 }
             }
 

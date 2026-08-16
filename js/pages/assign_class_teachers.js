@@ -86,7 +86,7 @@ const AssignClassTeachersController = {
       this.state.teachers = await window.API.apiCall('/staff/teachers', 'GET') || [];
 
       // Load academic years
-      this.state.academicYears = await window.API.apiCall('/academic/years', 'GET') || [];
+      this.state.academicYears = await window.API.academic.listYears() || [];
 
       // Populate dropdowns
       this.populateDropdowns();
@@ -261,7 +261,7 @@ const AssignClassTeachersController = {
   },
 
   async removeAssignment(assignmentId) {
-    if (!confirm('Are you sure you want to remove this class teacher assignment?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to remove this class teacher assignment?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.apiCall(`/academic/class-teachers/${assignmentId}`, 'DELETE');
       this.showNotification('Assignment removed', 'success');

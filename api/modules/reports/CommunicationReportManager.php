@@ -21,10 +21,11 @@ class CommunicationReportManager extends BaseAPI
 
     public function getParentPortalStats($filters = [])
     {
-        // Count parent portal messages by status
+        // Count parent portal messages by status (stored in communications, type='internal')
         try {
             $sql = "SELECT status, COUNT(*) as total
-                    FROM parent_portal_messages
+                    FROM communications
+                    WHERE type = 'internal'
                     GROUP BY status
                     ORDER BY total DESC";
             $stmt = $this->db->query($sql);
@@ -64,14 +65,14 @@ class CommunicationReportManager extends BaseAPI
     {
         // Count announcements and their read status
         try {
-            $sql = "SELECT a.id, a.title, COUNT(n.id) as total_recipients,
-                           SUM(CASE WHEN n.status = 'read' THEN 1 ELSE 0 END) as read_count,
+            $sql = "SELECT a.id, a.title, COUNT(av.id) as total_recipients,
+                           COUNT(DISTINCT av.viewer_id) as read_count,
                            ROUND(
-                               SUM(CASE WHEN n.status = 'read' THEN 1 ELSE 0 END) / NULLIF(COUNT(n.id), 0) * 100,
+                               COUNT(DISTINCT av.viewer_id) / NULLIF(COUNT(av.id), 0) * 100,
                                2
                            ) AS read_rate
-                    FROM announcements a
-                    LEFT JOIN notifications n ON n.announcement_id = a.id
+                    FROM announcements_bulletin a
+                    LEFT JOIN announcement_views av ON av.announcement_id = a.id
                     GROUP BY a.id, a.title
                     ORDER BY total_recipients DESC
                     LIMIT 100";
