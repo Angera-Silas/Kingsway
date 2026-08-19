@@ -35,7 +35,11 @@ $passNumber = $passNumber ?? '—';
     <main class="staff-pass-back-body">
         <div class="staff-pass-qr-panel">
             <?php if ($qrCode !== ''): ?>
-                <img src="<?= staffPassEscape($qrCode) ?>" class="staff-pass-qr" alt="Signed security-pass QR credential">
+                <img
+                    src="<?= staffPassEscape($qrCode) ?>"
+                    class="staff-pass-qr"
+                    alt="Signed security-pass QR credential"
+                >
             <?php else: ?>
                 <div class="staff-pass-qr-placeholder">QR unavailable</div>
             <?php endif; ?>
