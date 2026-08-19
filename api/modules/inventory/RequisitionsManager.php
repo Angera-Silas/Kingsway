@@ -2,6 +2,7 @@
 namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -236,6 +237,10 @@ class RequisitionsManager extends BaseAPI
         try {
             $this->db->beginTransaction();
 
+            $fetch = $this->db->prepare("SELECT id, requisition_number, requested_by FROM requisitions WHERE id = ?");
+            $fetch->execute([$id]);
+            $requisition = $fetch->fetch(PDO::FETCH_ASSOC);
+
             $sql = "UPDATE requisitions SET status = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$status, $id]);
@@ -247,6 +252,8 @@ class RequisitionsManager extends BaseAPI
 
             $this->db->commit();
             $this->logAction('update', $id, "Updated requisition #{$id} status to {$status}" . ($remarks ? ": $remarks" : ""));
+
+            $this->notifyRequisitionStatus($requisition, $status, (int) $userId, $remarks);
 
             return formatResponse(true, ['requisition_id' => $id, 'status' => $status]);
 
@@ -295,6 +302,37 @@ class RequisitionsManager extends BaseAPI
                 $this->db->rollBack();
             }
             return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Notify the requisition requester of an approved/rejected/fulfilled outcome.
+     */
+    private function notifyRequisitionStatus(?array $requisition, string $status, int $actorUserId, $remarks): void
+    {
+        if (empty($requisition) || empty($requisition['requested_by']) || !in_array($status, ['approved', 'rejected', 'fulfilled'], true)) {
+            return;
+        }
+        try {
+            $service = new NotificationService($this->db);
+            $requester = (int) $requisition['requested_by'];
+            $actor = $service->userName($actorUserId) ?: 'the approver';
+            $label = 'requisition ' . ($requisition['requisition_number'] ?? ('#' . (int) $requisition['id']));
+
+            if ($status === 'approved') {
+                $title = 'Requisition approved';
+                $message = NotificationService::approvedText($label, $actor);
+            } elseif ($status === 'fulfilled') {
+                $title = 'Requisition fulfilled';
+                $message = 'Your ' . $label . ' has been fulfilled.';
+            } else {
+                $title = 'Requisition declined';
+                $message = NotificationService::deniedText($label, $actor, (string) ($remarks ?? ''));
+            }
+
+            $service->push([$requester], 'requisition', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[RequisitionsManager] Notification push failed: ' . $e->getMessage());
         }
     }
 

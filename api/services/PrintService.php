@@ -9,6 +9,7 @@ use Dompdf\Options;
 use RuntimeException;
 use InvalidArgumentException;
 use Throwable;
+use PDO;
 
 /**
  * PrintService
@@ -45,6 +46,7 @@ final class PrintService
     private string $idCardSharedCssPath;
     private string $idCardA4CssPath;
     private string $idCardCr80CssPath;
+    private string $printTemplatesPath;
     private string $outputPath;
 
     /** @var array<string, mixed> */
@@ -96,6 +98,12 @@ final class PrintService
             rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR
             . 'report_cards'
+            . DIRECTORY_SEPARATOR;
+
+        $this->printTemplatesPath =
+            rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR
+            . 'print'
             . DIRECTORY_SEPARATOR;
 
         $this->idCardTemplatesPath =
@@ -2454,6 +2462,1049 @@ final class PrintService
     {
         return is_string($value) ? $value : '';
     }
+    /**
+     * Generate an academic year calendar PDF — term-by-term table layout.
+     *
+     * Uses the standard report pipeline: report_header + body + report_footer.
+     *
+     * Accepted $data keys (all optional):
+     *   academicYear|academic_year — year_code or id (defaults to active year)
+     */
+    public function printAcademicCalendar(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'academic_calendar_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $bodyTemplatePath = $this->printTemplatesPath
+            . 'academic_calendar/academic_calendar_term_table.php';
+        if (!is_file($bodyTemplatePath)) {
+            throw new RuntimeException(
+                "Academic calendar body template not found: {$bodyTemplatePath}"
+            );
+        }
+
+        $calendarVars = $this->buildAcademicCalendarVars($data);
+
+        // Build variables for header/footer (report_header.php expects these)
+        $variables = $this->buildTemplateVariables($config);
+        $variables['title']    = $calendarVars['documentTitle'] ?? 'Academic Calendar';
+        $variables['subtitle'] = $calendarVars['documentSubtitle'] ?? '';
+        $variables['filters']  = $calendarVars['filters'] ?? [];
+
+        // Render the three parts
+        $header = $this->renderServerPartial('report_header.php', $variables);
+        $footer = $this->renderServerPartial('report_footer.php', $variables);
+
+        // Body uses calendar-specific variables
+        $bodyHtml = $this->renderPhpTemplate($bodyTemplatePath, $calendarVars);
+
+        $html = $this->buildReportDocument(
+            $calendarVars['documentTitle'] ?? 'Academic Calendar',
+            $header,
+            $bodyHtml,
+            $footer,
+            $config['paperSize'],
+            $config['orientation']
+        );
+
+        return $this->generatePDF($html, [
+            'orientation' => $config['orientation'],
+            'paperSize'   => $config['paperSize'],
+            'filename'    => $config['filename'],
+            'showPageNumbers' => true,
+        ]);
+    }
+
+    /**
+     * Query DB and build the term-by-term variable set for the calendar PDF.
+     */
+    private function buildAcademicCalendarVars(array $data = []): array
+    {
+        $db = $this->getDb();
+
+        /* ── Resolve academic year ─────────────────────────────────── */
+        $yearInput = $data['academicYear']
+            ?? $data['academic_year']
+            ?? null;
+
+        if ($yearInput !== null) {
+            $stmt = $db->prepare(
+                "SELECT id, year_code FROM academic_years
+                 WHERE year_code = ? OR id = ? LIMIT 1"
+            );
+            $stmt->execute([$yearInput, $yearInput]);
+        } else {
+            $stmt = $db->query(
+                "SELECT id, year_code FROM academic_years
+                 WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+            );
+        }
+        $yearRow = $stmt->fetch(PDO::FETCH_ASSOC);
+        $yearId   = (int) ($yearRow['id'] ?? 0);
+        $yearCode = $yearRow['year_code'] ?? date('Y');
+        $yearLabel = explode('/', $yearCode)[0] ?? $yearCode;
+
+        if ($yearId <= 0) {
+            return $this->emptyCalendarVars($yearLabel);
+        }
+
+        /* ── Fetch terms ───────────────────────────────────────────── */
+        $termStmt = $db->prepare(
+            "SELECT ayt.id, t.code AS term_code, t.name AS term_name,
+                    ayt.opening_date, ayt.half_term_start, ayt.half_term_end,
+                    ayt.closing_date, ayt.status
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+             ORDER BY ayt.opening_date"
+        );
+        $termStmt->execute([$yearId]);
+        $termRows = $termStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($termRows)) {
+            return $this->emptyCalendarVars($yearLabel);
+        }
+
+        /* ── Determine year date range from terms ──────────────────── */
+        $firstOpening = $termRows[0]['opening_date'] ?? date('Y-01-01');
+        $lastClosing  = end($termRows)['closing_date'] ?? date('Y-12-31');
+        // Extend range by 1 month on each side to catch public holidays
+        $rangeStart = date('Y-m-01', strtotime($firstOpening . ' -1 month'));
+        $rangeEnd   = date('Y-m-t',  strtotime($lastClosing  . ' +1 month'));
+
+        /* ── Fetch all school_events in range ──────────────────────── */
+        $evtStmt = $db->prepare(
+            "SELECT id, title, type, DATE(start_at) AS start_date,
+                    DATE(end_at) AS end_date, location, status,
+                    TIME(start_at) AS start_time, TIME(end_at) AS end_time
+             FROM school_events
+             WHERE status NOT IN ('cancelled')
+               AND DATE(start_at) <= ?
+               AND COALESCE(DATE(end_at), DATE(start_at)) >= ?
+             ORDER BY start_at"
+        );
+        $evtStmt->execute([$rangeEnd, $rangeStart]);
+        $allEvents = $evtStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        /* ── Deduplicate events ──────────────────────────────────────
+         * Same title → collapse into single row with date range.
+         * Skip test/dummy entries. */
+        $deduped = [];
+        foreach ($allEvents as $evt) {
+            $title = trim($evt['title'] ?? '');
+            if ($title === '' || str_starts_with($title, '__')) {
+                continue;
+            }
+            $key = mb_strtolower($title);
+            if (!isset($deduped[$key])) {
+                $deduped[$key] = [
+                    'title'      => $title,
+                    'type'       => $evt['type'],
+                    'start_date' => $evt['start_date'],
+                    'end_date'   => $evt['end_date'] ?? $evt['start_date'],
+                    'location'   => $evt['location'] ?? '',
+                    'start_time' => $evt['start_time'] ?? '00:00:00',
+                    'end_time'   => $evt['end_time'] ?? '23:59:00',
+                ];
+            } else {
+                if ($evt['start_date'] < $deduped[$key]['start_date']) {
+                    $deduped[$key]['start_date'] = $evt['start_date'];
+                    $deduped[$key]['start_time'] = $evt['start_time'] ?? '00:00:00';
+                }
+                $end = $evt['end_date'] ?? $evt['start_date'];
+                if ($end > $deduped[$key]['end_date']) {
+                    $deduped[$key]['end_date'] = $end;
+                    $deduped[$key]['end_time'] = $evt['end_time'] ?? '23:59:00';
+                }
+                if (empty($deduped[$key]['location']) && !empty($evt['location'])) {
+                    $deduped[$key]['location'] = $evt['location'];
+                }
+            }
+        }
+
+        /* ── Classify each deduplicated event into a term or gap ──── */
+        $termEvents  = [];  // term_index => [...]
+        $gapEvents   = [];  // public holidays / breaks between terms
+        $publicHols  = [];
+
+        // Build term boundaries
+        $boundaries = [];
+        foreach ($termRows as $i => $tr) {
+            $boundaries[$i] = [
+                'start' => $tr['opening_date'],
+                'end'   => $tr['closing_date'],
+            ];
+            $termEvents[$i] = [];
+        }
+
+        foreach ($deduped as $evt) {
+            $type  = $evt['type'];
+            $start = $evt['start_date'];
+            $end   = $evt['end_date'];
+
+            // Public holidays go to the special section
+            if ($type === 'public_holiday') {
+                $publicHols[] = [
+                    'date' => $start,
+                    'name' => $evt['title'],
+                ];
+                continue;
+            }
+
+            // Find which term this event falls into
+            $placed = false;
+            foreach ($boundaries as $i => $b) {
+                // Event overlaps this term?
+                if ($start <= $b['end'] && $end >= $b['start']) {
+                    $termEvents[$i][] = $this->formatCalendarEvent($evt, $b);
+                    $placed = true;
+                    break;
+                }
+            }
+
+            // Falls between terms → gap event (holidays, etc.)
+            if (!$placed) {
+                $gapEvents[] = $evt;
+            }
+        }
+
+        /* ── Build term output blocks ──────────────────────────────── */
+        $termLabels = ['TERM I', 'TERM II', 'TERM III'];
+        $monthNames = [
+            1=>'January',2=>'February',3=>'March',4=>'April',
+            5=>'May',6=>'June',7=>'July',8=>'August',
+            9=>'September',10=>'October',11=>'November',12=>'December'
+        ];
+
+        $terms = [];
+        foreach ($termRows as $i => $tr) {
+            $opDate = $tr['opening_date'];
+            $clDate = $tr['closing_date'];
+            $htStart = $tr['half_term_start'];
+            $htEnd   = $tr['half_term_end'];
+
+            $opMonth = (int) date('n', strtotime($opDate));
+            $clMonth = (int) date('n', strtotime($clDate));
+            $dateLabel = ($monthNames[$opMonth] ?? '')
+                . ' – '
+                . ($monthNames[$clMonth] ?? '');
+
+            $rows = [];
+
+            // Opening day
+            $rows[] = [
+                'date'    => $opDate,
+                'activity'=> 'Opening of Term ' . ($i + 1) . ' — All Learners',
+                'bold'    => true,
+                'rowType' => 'opening',
+            ];
+
+            // Half-term break if present
+            if ($htStart && $htEnd) {
+                $htStartMonth = (int) date('n', strtotime($htStart));
+                $htEndMonth   = (int) date('n', strtotime($htEnd));
+                $htLabel = $this->calDateShort($htStart) . ' – ' . $this->calDateShort($htEnd);
+                $rows[] = [
+                    'date'    => $htLabel,
+                    'activity'=> 'Half-Term Break',
+                    'bold'    => true,
+                    'rowType' => 'halfterm',
+                ];
+            } elseif ($htStart && !$htEnd) {
+                $rows[] = [
+                    'date'    => $htStart,
+                    'activity'=> 'Half-Term Break',
+                    'bold'    => true,
+                    'rowType' => 'halfterm',
+                ];
+            }
+
+            // Events for this term
+            foreach ($termEvents[$i] as $ev) {
+                $rows[] = $ev;
+            }
+
+            // Closing day
+            $rows[] = [
+                'date'    => $clDate,
+                'activity'=> 'Closing of Term ' . ($i + 1),
+                'bold'    => true,
+                'rowType' => 'closing',
+            ];
+
+            $terms[] = [
+                'title'    => $termLabels[$i] ?? 'TERM ' . ($i + 1),
+                'subtitle' => $tr['term_name'] ?? '',
+                'dateLabel'=> $dateLabel,
+                'rows'     => $rows,
+            ];
+        }
+
+        /* ── Gap events (holidays between terms) ───────────────────── */
+        if (!empty($gapEvents)) {
+            $gapRows = [];
+            foreach ($gapEvents as $ge) {
+                $start = $ge['start_date'];
+                $end   = $ge['end_date'];
+                $dateStr = ($start === $end)
+                    ? $this->calDateShort($start)
+                    : $this->calDateShort($start) . ' – ' . $this->calDateShort($end);
+
+                $rowType = 'holiday';
+                if (in_array($ge['type'], ['exam'], true)) {
+                    $rowType = 'exam';
+                }
+
+                $gapRows[] = [
+                    'date'    => $dateStr,
+                    'activity'=> $ge['title'],
+                    'bold'    => true,
+                    'rowType' => $rowType,
+                    'note'    => '',
+                ];
+            }
+
+            // Append as a "SCHOOL HOLIDAYS & BREAKS" term block
+            $terms[] = [
+                'title'    => 'SCHOOL HOLIDAYS & BREAKS',
+                'subtitle' => 'Periods between terms',
+                'dateLabel'=> '',
+                'rows'     => $gapRows,
+            ];
+        }
+
+        $sConfig = $this->loadSchoolDbConfig();
+
+        return [
+            'schoolName'       => $sConfig['name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
+            'schoolAddress'    => $sConfig['address'] ?? '',
+            'schoolPhone'      => $sConfig['phone'] ?? '',
+            'schoolMotto'      => $sConfig['motto'] ?? 'In God We Soar',
+            'schoolLogo'       => $sConfig['logo'] ?? '',
+            'academicYearLabel'=> $yearCode,
+            'terms'            => $terms,
+            'publicHolidays'   => $publicHols,
+            'generatedAt'      => date('d M Y \a\t g:i A'),
+            // Header metadata
+            'documentTitle'    => $yearCode . ' ACADEMIC CALENDAR',
+            'documentSubtitle' => 'PLAYGROUP – GRADE 9',
+            'filters'          => [
+                'Academic Year' => $yearCode,
+                'Coverage'      => 'All Learners (Playgroup – Grade 9)',
+            ],
+        ];
+    }
+
+    /**
+     * Format a single calendar event into a template row.
+     */
+    private function formatCalendarEvent(array $evt, array $termBounds): array
+    {
+        $start = $evt['start_date'];
+        $end   = $evt['end_date'];
+        $type  = $evt['type'];
+
+        // Date display
+        if ($start === $end) {
+            $dateStr = $start;
+        } else {
+            $sameMonth = date('Y-m', strtotime($start)) === date('Y-m', strtotime($end));
+            $dateStr = $sameMonth
+                ? $this->calDateShort($start) . ' – ' . date('j', strtotime($end)) . ' ' . date('M', strtotime($end))
+                : $this->calDateShort($start) . ' – ' . $this->calDateShort($end);
+        }
+
+        // Row type for CSS
+        $rowType = '';
+        if ($type === 'school_holiday') {
+            $rowType = 'holiday';
+        } elseif ($type === 'exam') {
+            $rowType = 'exam';
+        } elseif ($type === 'half_day') {
+            $rowType = 'halfterm';
+        }
+
+        // Time range
+        $timeRange = $this->formatTimeRange(
+            $evt['start_time'] ?? '00:00:00',
+            $evt['end_time'] ?? '23:59:00'
+        );
+
+        // Venue
+        $venue = $evt['location'] ?? '';
+
+        return [
+            'date'      => $dateStr,
+            'activity'  => $evt['title'],
+            'bold'      => false,
+            'rowType'   => $rowType,
+            'note'      => '',
+            'venue'     => $venue,
+            'timeRange' => $timeRange,
+        ];
+    }
+
+    /**
+     * Format a time range like "8:00 AM – 5:00 PM".
+     * Skips all-day entries (00:00 – 23:59).
+     */
+    private function formatTimeRange(string $start, string $end): string
+    {
+        $start = trim($start);
+        $end   = trim($end);
+        if ($start === '' && $end === '') return '';
+        if ($start === '00:00:00' && in_array($end, ['23:59:00', '00:00:00'], true)) {
+            return '';
+        }
+        $s = date('g:i A', strtotime($start ?: '00:00:00'));
+        $e = date('g:i A', strtotime($end ?: '23:59:00'));
+        return $s . ' – ' . $e;
+    }
+
+    private function emptyCalendarVars(string $yearLabel): array
+    {
+        return [
+            'schoolName'       => 'KINGSWAY PREPARATORY SCHOOL',
+            'schoolAddress'    => '',
+            'schoolPhone'      => '',
+            'schoolMotto'      => 'In God We Soar',
+            'schoolLogo'       => '',
+            'academicYearLabel'=> $yearLabel,
+            'terms'            => [],
+            'publicHolidays'   => [],
+            'generatedAt'      => date('d M Y \a\t g:i A'),
+            'documentTitle'    => $yearLabel . ' ACADEMIC CALENDAR',
+            'documentSubtitle' => 'PLAYGROUP – GRADE 9',
+            'filters'          => [],
+        ];
+    }
+
+    private function calDateShort(string $dateStr): string
+    {
+        $d = \DateTime::createFromFormat('Y-m-d', $dateStr);
+        return $d ? $d->format('j M') : $dateStr;
+    }
+
+    /**
+     * Generate a fee structure PDF (single student type).
+     */
+    public function printFeeStructure(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'fee_structure_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'fee_structure/fee_structure_single.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Fee structure template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a fee structure comparison PDF (landscape, all student types).
+     */
+    public function printFeeStructureComparison(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'fee_structure_comparison_' . date('Ymd_His'),
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'fee_structure/fee_structure_comparison.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Fee structure comparison template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a fee structure PDF (portrait).
+     * Supports scope (all/ecd/lower_primary/upper_primary/primary/jss/class_<id>)
+     * combined with studentType (both/day/boarder).
+     */
+    public function printSimpleFeeStructure(array $data, array $config = []): string
+    {
+        $scope = strtolower($data['scope'] ?? $data['template'] ?? 'all');
+        $studentType = strtolower($data['studentType'] ?? $data['student_type'] ?? 'both');
+
+        if ($scope === 'all' && $studentType === 'both') {
+            $templateFile = 'fee_structure_simple.php';
+            $templateKey = 'simple';
+        } elseif ($scope === 'all' && $studentType === 'day') {
+            $templateFile = 'day_only_fee_table.php';
+            $templateKey = 'day_only';
+        } elseif ($scope === 'all' && $studentType === 'boarder') {
+            $templateFile = 'boarding_only_fee_table.php';
+            $templateKey = 'boarding_only';
+        } elseif (strpos($scope, 'class_') === 0) {
+            $templateFile = 'per_class_fees_table.php';
+            $templateKey = 'per_class';
+        } else {
+            $templateFile = 'per_student_type_fee_table.php';
+            $templateKey = 'per_student_type';
+        }
+
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'fee_structure_' . $templateKey . '_' . str_replace('/', '_', $scope) . '_' . $studentType . '_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'fee_structure/' . $templateFile;
+        if (!is_file($templatePath)) {
+            // Keep compatibility with installations that store server-only
+            // print templates under the explicit `server` directory.
+            $serverTemplatePath = $this->printTemplatesPath . 'server/fee_structure/' . $templateFile;
+            if (is_file($serverTemplatePath)) {
+                $templatePath = $serverTemplatePath;
+            } else {
+                throw new RuntimeException("Fee structure template not found: {$templatePath}");
+            }
+        }
+
+        $academicYear = $data['academicYear'] ?? $data['academic_year'] ?? date('Y');
+        $variables = $this->buildFeeStructureVars($academicYear, $data);
+        $variables['scope'] = $scope;
+        $variables['studentType'] = $studentType;
+        $variables['gradeFilter'] = $scope;
+        if (strpos($scope, 'class_') === 0) {
+            $variables['gradeId'] = (int) substr($scope, 6);
+        } elseif ($scope === 'class' && !empty($data['classId'])) {
+            $variables['gradeId'] = (int) $data['classId'];
+        }
+        $variables = array_merge($this->buildTemplateVariables($config), $variables, $config);
+
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Query DB for per-grade, per-term, per-student-type amounts and build
+     * the template variable arrays. Handles smart aggregation (grouping
+     * consecutive grades with identical amounts) and level-based section splits.
+     */
+    private function buildFeeStructureVars(string $academicYear, array $data = []): array
+    {
+        $db = $this->getDb();
+
+        $yearStmt = $db->prepare(
+            "SELECT id, year_code FROM academic_years WHERE year_code = ? OR id = ? LIMIT 1"
+        );
+        $yearStmt->execute([$academicYear, $academicYear]);
+        $yearRow = $yearStmt->fetch(PDO::FETCH_ASSOC);
+        $yearId   = (int) ($yearRow['id'] ?? 0);
+        $yearCode = $yearRow['year_code'] ?? $academicYear;
+        $yearLabel = explode('/', $yearCode)[0] ?? $yearCode;
+
+        if ($yearId <= 0) {
+            return $this->emptyFeeStructureVars($yearLabel);
+        }
+
+        $sql = "
+            SELECT c.id AS class_id, c.name AS class_name, c.id AS sort_order, c.level_id,
+                   sl.name AS level_name,
+                   t.code AS term_code,
+                   st.code AS st_code, st.name AS st_name,
+                   ayfs.amount
+            FROM academic_year_fee_schedules ayfs
+            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
+            JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN school_levels sl ON sl.id = c.level_id
+            JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
+            JOIN terms t ON t.id = ayt.term_id
+            JOIN student_types st ON st.id = ayfs.student_type_id
+            WHERE ayfs.academic_year_id = ? AND ayfs.status = 'active' AND st.status = 'active'
+            ORDER BY c.id, t.code, st.id
+        ";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$yearId]);
+        $all = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($all)) {
+            return $this->emptyFeeStructureVars($yearLabel);
+        }
+
+        $pivot = [];
+        $classMeta = [];
+        foreach ($all as $r) {
+            $cid  = (int) $r['class_id'];
+            $st   = $r['st_code'];
+            $tNum = (int) ltrim($r['term_code'], 'Tt');
+            $pivot[$st][$cid][$tNum] = (float) $r['amount'];
+            $classMeta[$cid] = [
+                'name'      => $r['class_name'],
+                'sort'      => (int) $r['sort_order'],
+                'level_id'  => (int) $r['level_id'],
+                'level_name'=> $r['level_name'] ?? '',
+            ];
+        }
+
+        uasort($classMeta, fn($a, $b) => $a['sort'] <=> $b['sort']);
+        $classIds = array_keys($classMeta);
+
+        $scope = strtolower($data['scope'] ?? 'all');
+        $scopeClassId = (int) ($data['classId'] ?? 0);
+        if ($scope === 'class' && $scopeClassId > 0) {
+            $classIds = array_filter($classIds, fn($cid) => $cid === $scopeClassId);
+            $classIds = array_values($classIds);
+        } elseif (in_array($scope, ['ecd', 'lower_primary', 'upper_primary', 'primary', 'jss'], true)) {
+            $classIds = array_filter($classIds, function ($cid) use ($scope, $classMeta) {
+                $lvl = $classMeta[$cid]['level_id'] ?? 0;
+                $name = strtolower($classMeta[$cid]['name'] ?? '');
+                switch ($scope) {
+                    case 'ecd':
+                        return $lvl === 5;
+                    case 'lower_primary':
+                        return $lvl === 2 && preg_match('/(pp[12]|play|pre|pp[12]|grade\s*[123])\b/i', $classMeta[$cid]['name'] ?? '');
+                    case 'upper_primary':
+                        return $lvl === 2 && preg_match('/grade\s*[456]/i', $classMeta[$cid]['name'] ?? '');
+                    case 'primary':
+                        return in_array($lvl, [2, 5], true);
+                    case 'jss':
+                        return in_array($lvl, [3, 4], true);
+                }
+                return true;
+            });
+            $classIds = array_values($classIds);
+        }
+
+        $smartGroup = function (array $classIds, string $stCode) use ($pivot, $classMeta): array {
+            $entries = [];
+            foreach ($classIds as $cid) {
+                $entries[] = ['id' => $cid, 'amt' => $pivot[$stCode][$cid] ?? []];
+            }
+            $rows = [];
+            $i = 0;
+            $n = count($entries);
+            while ($i < $n) {
+                $first = $entries[$i];
+                $j = $i + 1;
+                while ($j < $n && ($entries[$j]['amt'] === $first['amt'])) {
+                    $j++;
+                }
+                if ($j - $i > 1) {
+                    $fromName = $classMeta[$first['id']]['name'] ?? '';
+                    $toName   = $classMeta[$entries[$j - 1]['id']]['name'] ?? '';
+                    $label    = $fromName . ' – ' . $toName;
+                } else {
+                    $label = $classMeta[$first['id']]['name'] ?? '';
+                }
+                $a = $first['amt'];
+                $rows[] = [
+                    'label' => $label,
+                    'term1' => $a[1] ?? 0,
+                    'term2' => $a[2] ?? 0,
+                    'term3' => $a[3] ?? 0,
+                    'total' => array_sum($a),
+                ];
+                $i = $j;
+            }
+            return $rows;
+        };
+
+        $dayRows     = $smartGroup($classIds, 'DAY');
+        $boarderRows = $smartGroup($classIds, 'BOARD');
+
+        $primaryDay     = [];
+        $primaryBoarder = [];
+        $juniorDay      = [];
+        $juniorBoarder  = [];
+        foreach ($dayRows as $r) {
+            $cid = $this->resolveClassIdFromLabel($r['label'], $classMeta);
+            $lvl = $classMeta[$cid]['level_id'] ?? 0;
+            if (in_array($lvl, [3, 4], true)) {
+                $juniorDay[] = $r;
+            } else {
+                $primaryDay[] = $r;
+            }
+        }
+        foreach ($boarderRows as $r) {
+            $cid = $this->resolveClassIdFromLabel($r['label'], $classMeta);
+            $lvl = $classMeta[$cid]['level_id'] ?? 0;
+            if (in_array($lvl, [3, 4], true)) {
+                $juniorBoarder[] = $r;
+            } else {
+                $primaryBoarder[] = $r;
+            }
+        }
+
+        $sections = [];
+        if ($primaryDay || $primaryBoarder) {
+            $sections[] = [
+                'title'       => 'PRIMARY SCHOOL',
+                'variant'     => 'primary',
+                'dayRows'     => $primaryDay,
+                'boarderRows' => $primaryBoarder,
+                'firstCol'    => 'GRADE',
+            ];
+        }
+        if ($juniorDay || $juniorBoarder) {
+            $juniorRows = array_map(fn($r, $type) => [
+                'category' => $r['label'] . ' – ' . strtoupper($type),
+                'term1' => $r['term1'], 'term2' => $r['term2'],
+                'term3' => $r['term3'], 'total' => $r['total'],
+            ], array_merge($juniorDay, $juniorBoarder),
+                array_merge(
+                    array_fill(0, count($juniorDay), 'day scholars'),
+                    array_fill(0, count($juniorBoarder), 'boarders')
+                )
+            );
+            $sections[] = [
+                'title'    => 'JUNIOR SCHOOL',
+                'variant'  => 'junior',
+                'rows'     => $juniorRows,
+                'firstCol' => 'CATEGORY',
+            ];
+        }
+
+        $sConfig = $this->loadSchoolDbConfig();
+
+        $grades = [];
+        foreach ($dayRows as $i => $dr) {
+            $br = $boarderRows[$i] ?? null;
+            $cid = $this->resolveClassIdFromLabel($dr['label'], $classMeta);
+            $meta = $cid !== null ? ($classMeta[$cid] ?? []) : [];
+            $grades[] = [
+                'id'         => $cid,
+                'name'       => $dr['label'],
+                'section'    => $meta['level_id'] ?? 0,
+                'level_name' => $meta['level_name'] ?? '',
+                'day'        => ['term1' => $dr['term1'], 'term2' => $dr['term2'], 'term3' => $dr['term3'], 'total' => $dr['total']],
+                'boarder'    => $br ? ['term1' => $br['term1'], 'term2' => $br['term2'], 'term3' => $br['term3'], 'total' => $br['total']] : null,
+            ];
+        }
+
+        return [
+            'schoolName'      => $sConfig['name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
+            'schoolAddress'   => $sConfig['address'] ?? '',
+            'schoolPhone'     => $sConfig['phone'] ?? '',
+            'schoolMotto'     => $sConfig['motto'] ?? 'In God We Soar',
+            'schoolLogo'      => $sConfig['logo'] ?? '',
+            'yearLabel'       => $yearLabel,
+            'documentTitle'   => $yearLabel . ' SCHOOL FEE STRUCTURE',
+            'documentSubtitle'=> 'PRIMARY & JUNIOR SCHOOL',
+            'sections'        => $sections,
+            'grades'          => $grades,
+            'otherCharges'    => $data['otherCharges'] ?? [],
+            'paymentMpesa'    => $data['paymentMpesa'] ?? ($sConfig['mpesa'] ?? []),
+            'paymentBank'     => $data['paymentBank']  ?? ($sConfig['bank']  ?? []),
+            'importantNotes'  => $data['importantNotes'] ?? [
+                'Cash payment is not accepted.',
+                'Fee slip must be presented at school and acknowledged by receipt.',
+                'Fees once paid are non-refundable.',
+            ],
+            'generatedAt'     => date('d M Y H:i'),
+        ];
+    }
+
+    private function resolveClassIdFromLabel(string $label, array $classMeta): ?int
+    {
+        $dash = strpos($label, ' – ');
+        $baseName = $dash !== false ? substr($label, 0, $dash) : $label;
+        foreach ($classMeta as $cid => $m) {
+            if ($m['name'] === $baseName) return $cid;
+        }
+        return null;
+    }
+
+    private function emptyFeeStructureVars(string $yearLabel): array
+    {
+        $sConfig = $this->loadSchoolDbConfig();
+        return [
+            'schoolName'       => $sConfig['name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
+            'schoolAddress'    => $sConfig['address'] ?? '',
+            'schoolPhone'      => $sConfig['phone'] ?? '',
+            'schoolMotto'      => $sConfig['motto'] ?? 'In God We Soar',
+            'schoolLogo'       => $sConfig['logo'] ?? '',
+            'yearLabel'        => $yearLabel,
+            'documentTitle'    => $yearLabel . ' SCHOOL FEE STRUCTURE',
+            'documentSubtitle' => '',
+            'sections'         => [],
+            'grades'           => [],
+            'otherCharges'     => [],
+            'paymentMpesa'     => [],
+            'paymentBank'      => [],
+            'importantNotes'   => [],
+        ];
+    }
+
+    private function loadSchoolDbConfig(): array
+    {
+        $db = $this->getDb();
+        try {
+            $stmt = $db->query(
+                "SELECT config_key, config_value FROM system_config WHERE config_key IN ('school_name','school_address','school_phone','school_motto','school_logo','mpesa_paybill','mpesa_account','bank_name','bank_account_name','bank_account_no')"
+            );
+            $cfg = [];
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $cfg[$row['config_key']] = $row['config_value'];
+            }
+            return [
+                'name'    => $cfg['school_name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
+                'address' => $cfg['school_address'] ?? '',
+                'phone'   => $cfg['school_phone'] ?? '',
+                'motto'   => $cfg['school_motto'] ?? 'In God We Soar',
+                'logo'    => $cfg['school_logo'] ?? '',
+                'mpesa'   => ['paybill' => $cfg['mpesa_paybill'] ?? '', 'account' => $cfg['mpesa_account'] ?? ''],
+                'bank'    => ['bank' => $cfg['bank_name'] ?? '', 'account_name' => $cfg['bank_account_name'] ?? '', 'account_no' => $cfg['bank_account_no'] ?? ''],
+            ];
+        } catch (\Exception $e) {
+            return [
+                'name' => 'KINGSWAY PREPARATORY SCHOOL', 'address' => '', 'phone' => '',
+                'motto' => 'In God We Soar', 'logo' => '',
+                'mpesa' => [], 'bank' => [],
+            ];
+        }
+    }
+
+    /**
+     * Get a PDO connection (reuses the app's DB config).
+     */
+    private function getDb(): \PDO
+    {
+        static $pdo = null;
+        if ($pdo !== null) return $pdo;
+        $configPath = dirname(__DIR__, 2) . '/config/.env';
+        $env = [];
+        if (is_file($configPath)) {
+            foreach (file($configPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+                if ($line[0] === '#' || strpos($line, '=') === false) continue;
+                [$k, $v] = explode('=', $line, 2);
+                $env[trim($k)] = trim($v);
+            }
+        }
+        $host = $env['DB_HOST'] ?? '127.0.0.1';
+        $port = $env['DB_PORT'] ?? '3306';
+        $name = $env['DB_NAME'] ?? 'KingsWayAcademy';
+        $user = $env['DB_USER'] ?? 'root';
+        $pass = $env['DB_PASS'] ?? '';
+        $pdo = new \PDO("mysql:host={$host};port={$port};dbname={$name}", $user, $pass, [
+            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+            \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+        ]);
+        return $pdo;
+    }
+
+    /**
+     * Generate a KRA P9 tax deduction card PDF.
+     */
+    public function printP9Form(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'p9_form_' . date('Ymd_His'),
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'p9_form/p9_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("P9 form template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a staff payslip PDF.
+     */
+    public function printPayslip(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'payslip_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'payslip/payslip_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Payslip template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a student fee statement PDF.
+     */
+    public function printFeeStatement(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'fee_statement_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'fee_statement/fee_statement_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Fee statement template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a receipt PDF using the dedicated receipt template.
+     */
+    public function printReceiptTemplate(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'receipt_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'receipt/receipt_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Receipt template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate an invoice PDF using the dedicated invoice template.
+     */
+    public function printInvoice(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'invoice_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'invoice/invoice_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Invoice template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a personal timetable PDF.
+     */
+    public function printPersonalTimetable(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'timetable_' . date('Ymd_His'),
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'timetable/personal_timetable_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Personal timetable template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'portrait',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
+    /**
+     * Generate a master timetable PDF (landscape).
+     */
+    public function printMasterTimetable(array $data, array $config = []): string
+    {
+        $config = array_merge($this->defaultReportConfig(), [
+            'filename' => 'master_timetable_' . date('Ymd_His'),
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+        ], $config);
+
+        $templatePath = $this->printTemplatesPath . 'timetable/master_timetable_template.php';
+        if (!is_file($templatePath)) {
+            throw new RuntimeException("Master timetable template not found: {$templatePath}");
+        }
+
+        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $html = $this->renderPhpTemplate($templatePath, $variables);
+
+        return $this->generatePDF($html, [
+            'orientation' => 'landscape',
+            'paperSize' => 'A4',
+            'filename' => $config['filename'],
+            'showPageNumbers' => false,
+        ]);
+    }
+
     /**
      * Canonical generated-file writer used by printable/export generators.
      */

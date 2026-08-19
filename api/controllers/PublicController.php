@@ -4,6 +4,8 @@ namespace App\API\Controllers;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\website\WebsiteManager;
+use App\Database\Database;
+use App\API\Services\payments\UniformCatalogService;
 
 /**
  * PublicController - Unauthenticated write endpoints for the public website
@@ -108,6 +110,7 @@ class PublicController extends BaseAPI
             'grade_applying_for'   => $grade,
             'previous_school'      => trim($data['child_prev_school'] ?? ''),
             'application_source'   => 'online',
+            'target_term_token'    => $startTerm,
             'parent_name'          => $parentName,
             'parent_national_id'   => trim($data['parent_id'] ?? ''),
             'parent_phone'         => $phone,
@@ -143,5 +146,37 @@ class PublicController extends BaseAPI
             return $this->errorResponse('Please enter a valid email address.', 422);
         }
         return $this->manager->createSubscriber($email, trim($data['name'] ?? ''));
+    }
+
+    /** GET /api/public/uniform-catalog OR /api/public/uniform-catalog/{id} */
+    public function getUniformCatalog($id = null, $data = [], $segments = [])
+    {
+        $pdo = Database::getInstance()->getConnection();
+        $svc = new UniformCatalogService($pdo);
+
+        // Single product — includes all images and sizes
+        if ($id !== null && is_numeric($id)) {
+            $product = $svc->get((int) $id);
+            if (empty($product)) {
+                return $this->errorResponse('Product not found.', 404);
+            }
+            // Fetch all images for this product
+            $imgSt = $pdo->prepare('SELECT id, url, alt_text, is_primary FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, id');
+            $imgSt->execute([(int) $id]);
+            $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Fetch all available sizes for this product
+            $szSt = $pdo->prepare(
+                'SELECT us.id AS size_id, us.size, us.size_label, us.size_type, us.unit_price, us.quantity_available - us.quantity_reserved AS available ' .
+                'FROM uniform_sizes us WHERE us.item_id = ? AND us.quantity_available > us.quantity_reserved ORDER BY us.unit_price, us.size'
+            );
+            $szSt->execute([$product['item_id']]);
+            $product['sizes'] = $szSt->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->successResponse(['product' => $product], 'Product details');
+        }
+
+        // Full catalogue listing
+        return $this->successResponse(['products' => $svc->list($data)], 'Uniform catalogue');
     }
 }

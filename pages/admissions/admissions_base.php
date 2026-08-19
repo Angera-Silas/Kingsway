@@ -216,9 +216,10 @@ if (!isset($appBase)) {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                            <select name="academic_year" id="academicYearSelect" class="form-select" required>
+                            <select id="academicYearSelect" class="form-select" required disabled>
                                 <option value="">Select Year</option>
                             </select>
+                            <input type="hidden" name="academic_year" id="academicYearInput">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Application Source</label>
@@ -238,11 +239,10 @@ if (!isset($appBase)) {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Target Term</label>
-                            <select name="target_term_id" id="targetTermSelect" class="form-select">
-                                <option value="">Auto / Current Term</option>
-                                <option value="1">Term 1</option>
-                                <option value="3">Term 3</option>
+                            <select id="targetTermSelect" class="form-select" disabled>
+                                <option value="">Select an open intake</option>
                             </select>
+                            <input type="hidden" name="target_term_id" id="targetTermInput">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Previous School</label>

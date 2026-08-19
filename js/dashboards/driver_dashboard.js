@@ -1,7 +1,3 @@
-/**
- * Driver Dashboard Controller
- * Uses the existing TransportAPI and DriverManager assignment chain.
- */
 (() => {
     const unwrap = (response) => {
         let value = response;
@@ -16,7 +12,7 @@
         return value;
     };
 
-    const weekdayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const weekdayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
     const controller = DashboardBaseController.create({
         controllerName: 'DriverDashboardController',
@@ -26,78 +22,81 @@
         scopeId: 'driverDashboardScope',
         lastUpdatedId: 'driverDashboardLastUpdated',
 
-        async apiMethod() {
-            const [routeResponse, vehicleResponse] = await Promise.all([
-                window.API.transport.getMyRoute(),
-                window.API.transport.getMyVehicle()
-            ]);
+        async apiMethod({ period } = {}) {
+            try {
+                const [routeResponse, vehicleResponse] = await Promise.all([
+                    window.API.transport.getMyRoute(),
+                    window.API.transport.getMyVehicle()
+                ]);
 
-            const route = unwrap(routeResponse) || null;
-            const vehicle = unwrap(vehicleResponse) || null;
-            let manifest = [];
+                const route = unwrap(routeResponse) || null;
+                const vehicle = unwrap(vehicleResponse) || null;
+                let manifest = [];
 
-            if (route?.id) {
-                const manifestResponse = await window.API.transport.getRouteManifest(Number(route.id));
-                const manifestValue = unwrap(manifestResponse);
-                manifest = Array.isArray(manifestValue)
-                    ? manifestValue
-                    : Array.isArray(manifestValue?.manifest)
-                        ? manifestValue.manifest
-                        : [];
-            }
-
-            const schedules = Array.isArray(route?.schedules) ? route.schedules : [];
-            const incidents = Array.isArray(route?.recent_incidents) ? route.recent_incidents : [];
-            const dayTotals = weekdayLabels.reduce((totals, day) => {
-                totals[day] = 0;
-                return totals;
-            }, {});
-
-            schedules.forEach((row) => {
-                if (!row.date) {
-                    return;
+                if (route?.id) {
+                    const manifestResponse = await window.API.transport.getRouteManifest(Number(route.id));
+                    const manifestValue = unwrap(manifestResponse);
+                    manifest = Array.isArray(manifestValue)
+                        ? manifestValue
+                        : Array.isArray(manifestValue?.manifest)
+                            ? manifestValue.manifest
+                            : [];
                 }
-                const date = new Date(`${row.date}T00:00:00`);
-                if (!Number.isNaN(date.getTime())) {
-                    dayTotals[weekdayLabels[date.getDay()]] += 1;
-                }
-            });
 
-            const stopTotals = manifest.reduce((totals, row) => {
-                const stop = row.pickup_stop || row.stop_name || 'Unassigned';
-                totals[stop] = (totals[stop] || 0) + 1;
-                return totals;
-            }, {});
+                const schedules = Array.isArray(route?.schedules) ? route.schedules : [];
+                const incidents = Array.isArray(route?.recent_incidents) ? route.recent_incidents : [];
 
-            return {
-                meta: { scope_label: route?.name || route?.route_name || 'Transport assignment' },
-                cards: {
-                    vehicle_registration: vehicle?.registration_number || route?.registration_number || '—',
-                    vehicle_status: vehicle?.status || route?.vehicle_status || 'No vehicle assigned',
-                    route_name: route?.name || route?.route_name || '—',
-                    route_code: route?.code || route?.route_code || 'No active route',
-                    passengers: Number(route?.passenger_count || manifest.length || 0),
-                    recent_incidents: incidents.length
-                },
-                charts: {
-                    passengers_by_stop: {
-                        labels: Object.keys(stopTotals),
-                        data: Object.values(stopTotals)
-                    },
-                    weekly_trips: {
-                        labels: weekdayLabels.slice(1).concat(weekdayLabels[0]),
-                        data: weekdayLabels.slice(1).concat(weekdayLabels[0]).map((day) => dayTotals[day])
+                const dayTotals = {};
+                weekdayLabels.forEach(day => { dayTotals[day] = 0; });
+                schedules.forEach((row) => {
+                    if (!row.date) return;
+                    const date = new Date(`${row.date}T00:00:00`);
+                    if (!Number.isNaN(date.getTime())) {
+                        const dayName = weekdayLabels[(date.getDay() + 6) % 7];
+                        dayTotals[dayName] += 1;
                     }
-                },
-                tables: {
-                    schedule: schedules.map((row) => ({
-                        ...row,
+                });
+
+                const stopTotals = manifest.reduce((totals, row) => {
+                    const stop = row.pickup_stop || row.stop_name || 'Unassigned';
+                    totals[stop] = (totals[stop] || 0) + 1;
+                    return totals;
+                }, {});
+
+                return {
+                    meta: { scope_label: route?.name || route?.route_name || 'Transport assignment' },
+                    cards: {
+                        vehicle_registration: vehicle?.registration_number || route?.registration_number || '—',
+                        vehicle_status: vehicle?.status || route?.vehicle_status || 'No vehicle assigned',
                         route_name: route?.name || route?.route_name || '—',
-                        registration_number: vehicle?.registration_number || route?.registration_number || '—'
-                    })),
-                    manifest
-                }
-            };
+                        route_code: route?.code || route?.route_code || 'No active route',
+                        passengers: Number(route?.passenger_count || manifest.length || 0),
+                        recent_incidents: incidents.length
+                    },
+                    charts: {
+                        passengers_by_stop: { labels: Object.keys(stopTotals), data: Object.values(stopTotals) },
+                        weekly_trips: { labels: weekdayLabels, data: weekdayLabels.map(day => dayTotals[day]) }
+                    },
+                    tables: {
+                        schedule: schedules.map(row => ({
+                            ...row,
+                            route_name: route?.name || route?.route_name || '—',
+                            status: row.status || 'upcoming'
+                        })),
+                        manifest: manifest.map(row => ({
+                            ...row,
+                            status: row.status || 'active'
+                        }))
+                    }
+                };
+            } catch (e) {
+                return {
+                    meta: { scope_label: 'Transport' },
+                    cards: { vehicle_registration: '—', vehicle_status: 'No vehicle assigned', route_name: '—', route_code: 'No active route', passengers: 0, recent_incidents: 0 },
+                    charts: { passengers_by_stop: { labels: [], data: [] }, weekly_trips: { labels: weekdayLabels, data: weekdayLabels.map(() => 0) } },
+                    tables: { schedule: [], manifest: [] }
+                };
+            }
         },
 
         cards: [
@@ -112,25 +111,19 @@
         ],
         tableDefinitions: [
             {
-                bodyId: 'drvScheduleBody',
-                path: 'tables.schedule',
-                emptyText: 'No upcoming trips assigned.',
-                columns: [
+                bodyId: 'drvScheduleBody', path: 'tables.schedule', emptyText: 'No upcoming trips assigned.', columns: [
                     { value: (row) => row.date || 'Recurring', format: 'date' },
                     { key: 'pickup_time', format: 'time' },
                     { key: 'route_name' },
-                    { key: 'registration_number' }
+                    { key: 'status', render: (v, r, c) => c.badge(v, { upcoming: 'info', in_progress: 'warning', completed: 'success', cancelled: 'danger' }) }
                 ]
             },
             {
-                bodyId: 'drvManifestBody',
-                path: 'tables.manifest',
-                emptyText: 'No active passengers assigned.',
-                columns: [
-                    { value: (row) => row.admission_no || row.student_admission_no || '—' },
+                bodyId: 'drvManifestBody', path: 'tables.manifest', emptyText: 'No active passengers assigned.', columns: [
                     { value: (row) => row.student_name || [row.first_name, row.last_name].filter(Boolean).join(' ') || '—' },
                     { value: (row) => row.pickup_stop || row.pickup_stop_name || row.stop_name || '—' },
-                    { value: (row) => row.dropoff_stop || row.dropoff_stop_name || row.stop_name || '—' }
+                    { value: (row) => row.dropoff_stop || row.dropoff_stop_name || row.stop_name || '—' },
+                    { key: 'status', render: (v, r, c) => c.badge(v, { active: 'success', absent: 'danger', pending: 'warning' }) }
                 ]
             }
         ]

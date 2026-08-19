@@ -213,8 +213,7 @@ class CommunicationsAPI extends BaseAPI
             $recipients = [$recipients];
         }
 
-        // Send using the SMS gateway directly
-        $gateway = new \App\API\Services\sms\SMSGateway();
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
         $sent = 0;
         $failed = [];
         $sent_ids = [];
@@ -222,50 +221,15 @@ class CommunicationsAPI extends BaseAPI
 
         foreach ($recipients as $phone) {
             try {
-                if ($type === 'whatsapp') {
-                    $result = $gateway->sendWhatsApp($phone, $message);
-                } else {
-                    $result = $gateway->send($phone, $message);
-                }
-
-                // Handle both boolean and array responses
-                $success = false;
-                if (is_bool($result)) {
-                    $success = $result === true;
-                } else if (is_array($result) && isset($result['status']) && $result['status'] === 'success') {
-                    $success = true;
-                }
-
-                if ($success) {
+                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type === 'whatsapp' ? 'whatsapp' : 'sms', substr($message, 0, 100), $message, [
+                    'purpose' => 'transactional',
+                    'sender_id' => $this->user_id ?: 1,
+                ]);
+                if (($queued['recipient_count'] ?? 0) > 0) {
                     $sent++;
-
-                    // Store in communications table with sent status
-                    $comm = $this->manager->createCommunication([
-                        'type' => 'sms',
-                        'subject' => substr($message, 0, 100),
-                        'body' => $message,
-                        'recipients' => [$phone],
-                        'status' => 'sent'
-                    ]);
-
-                    if ($comm && isset($comm['id'])) {
-                        $sent_ids[] = $comm['id'];
-                    }
+                    $sent_ids[] = $queued['communication_id'];
                 } else {
                     $failed[] = $phone;
-
-                    // Store in communications table with failed status
-                    $comm = $this->manager->createCommunication([
-                        'type' => 'sms',
-                        'subject' => substr($message, 0, 100),
-                        'body' => $message,
-                        'recipients' => [$phone],
-                        'status' => 'failed'
-                    ]);
-
-                    if ($comm && isset($comm['id'])) {
-                        $failed_ids[] = $comm['id'];
-                    }
                 }
             } catch (\Exception $e) {
                 $failed[] = $phone;
@@ -300,65 +264,12 @@ class CommunicationsAPI extends BaseAPI
         if (!$comm) {
             return ['status' => 'error', 'message' => 'Communication not found'];
         }
-
-        $type = $comm['type'] ?? 'sms';
-        $message = $comm['content'] ?? $comm['body'] ?? $comm['subject'] ?? '';
-        $recipients = [];
-        $recipientRows = $this->manager->listRecipients((int)$commId);
-        foreach ($recipientRows as $r) {
-            $recipients[] = $r['recipient_id'];
-        }
-
-        // Re-send via the appropriate gateway
-        $gateway = new \App\API\Services\sms\SMSGateway();
-        $sent = 0;
-        $failed = [];
-
-        foreach ($recipients as $phone) {
-            try {
-                if ($type === 'whatsapp') {
-                    $result = $gateway->sendWhatsApp($phone, $message);
-                } else {
-                    $result = $gateway->send($phone, $message);
-                }
-
-                $success = false;
-                if (is_bool($result)) {
-                    $success = $result;
-                } elseif (is_array($result) && ($result['status'] ?? '') === 'success') {
-                    $success = true;
-                }
-
-                if ($success) {
-                    $sent++;
-                } else {
-                    $failed[] = $phone;
-                }
-            } catch (\Exception $e) {
-                $failed[] = $phone;
-                error_log('SMS Resend Error: ' . $e->getMessage());
-            }
-        }
-
-        // Update the communication status
-        $newStatus = $sent > 0 ? 'sent' : 'failed';
-        $this->manager->updateCommunication((int)$commId, ['status' => $newStatus]);
-
-        // Update individual recipient delivery status
-        if ($sent > 0) {
-            foreach ($recipientRows as $r) {
-                $this->manager->updateDeliveryStatus($r['id'], 'sent', date('Y-m-d H:i:s'));
-            }
-        }
-
-        return [
-            'status' => $sent > 0 ? 'success' : 'error',
-            'message' => $sent > 0 ? "Resent to $sent recipient(s)" : 'Resend failed',
-            'sent_count' => $sent,
-            'failed_count' => count($failed),
-            'failed' => $failed,
-            'communication_id' => (int)$commId,
-        ];
+        $this->db->prepare("UPDATE communication_recipient_endpoints e JOIN communication_recipients r ON r.id = e.communication_recipient_id SET e.status = 'retry', e.next_attempt_at = NULL, e.last_error = NULL, r.status = 'retry', r.error_message = NULL WHERE r.communication_id = ? AND e.status IN ('failed','retry')")
+            ->execute([(int) $commId]);
+        $this->db->prepare("UPDATE communications SET status = 'queued', next_attempt_at = NULL, last_error = NULL, processed_at = NULL WHERE id = ?")
+            ->execute([(int) $commId]);
+        $result = (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $commId);
+        return ['status' => $result === 'sent' ? 'success' : ($result === 'failed' ? 'error' : 'queued'), 'message' => 'Communication resend processed through the outbox.', 'communication_id' => (int) $commId, 'dispatch_result' => $result];
     }
 
     /**
@@ -402,42 +313,7 @@ class CommunicationsAPI extends BaseAPI
             $recipients = [$recipients];
         }
 
-        // Send email
-        $result = $this->manager->sendEmailToRecipients(
-            $recipients,
-            $subject,
-            $body,
-            $attachments,
-            $signature,
-            $footer,
-            $schoolDetails
-        );
-
-        // Store in communications table
-        if ($result['status'] === 'success') {
-            $sent_ids = [];
-            foreach ($recipients as $email => $name) {
-                if (is_int($email)) {
-                    $email = $name;
-                }
-
-                $comm = $this->manager->createCommunication([
-                    'type' => 'email',
-                    'subject' => $subject,
-                    'body' => $body,
-                    'recipients' => [$email],
-                    'status' => 'sent'
-                ]);
-
-                if ($comm && isset($comm['id'])) {
-                    $sent_ids[] = $comm['id'];
-                }
-            }
-
-            $result['communication_ids'] = $sent_ids;
-        }
-
-        return $result;
+        return $this->sendEmail($recipients, $subject, $body, $attachments, $signature, $footer, $schoolDetails);
     }
 
     /**
@@ -464,90 +340,55 @@ class CommunicationsAPI extends BaseAPI
         $balance = $data['balance'] ?? 0;
         $studentName = $data['student_name'] ?? 'Student';
 
-        // Validate required fields
-        if (empty($phone) || empty($message)) {
+        if (empty($phone)) {
             return [
                 'status' => 'error',
-                'message' => 'Phone number and message are required',
+                'message' => 'Phone number is required',
                 'data' => null
             ];
         }
-
-        // Clean phone number (ensure proper format)
         $phone = $this->formatPhoneNumber($phone);
-
-        // Send using the SMS gateway
-        $gateway = new \App\API\Services\sms\SMSGateway();
-
         try {
-            if ($type === 'whatsapp') {
-                $result = $gateway->sendWhatsApp($phone, $message);
-            } else {
-                $result = $gateway->send($phone, $message);
-            }
-
-            // Handle both boolean and array responses
-            $success = false;
-            if (is_bool($result)) {
-                $success = $result === true;
-            } else if (is_array($result) && isset($result['status']) && $result['status'] === 'success') {
-                $success = true;
-            }
-
-            if ($success) {
-                // Store in communications table with sent status
-                $comm = $this->manager->createCommunication([
-                    'type' => $type,
+            $window = (string) ($data['reminder_window'] ?? 'manual');
+            $businessEvent = new \App\API\Services\CommunicationBusinessEventService($this->db);
+            $eventId = $businessEvent->getOrCreate(
+                'fee_reminder',
+                (string) $studentId . ':' . $window . ':' . date('Y-m-d'),
+                date('Y-m-d H:i:s'),
+                $this->user_id ?: 1
+            );
+            if ($studentId) $businessEvent->linkFeeStudent($eventId, (int) $studentId, $window);
+            $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+            $result = $platform->queueForContacts(
+                [['user_id' => null, 'phone' => $phone, 'email' => $data['email'] ?? null]],
+                $type === 'whatsapp' ? 'whatsapp' : 'sms',
+                'fees',
+                [
+                    'parent_name' => $data['parent_name'] ?? 'Parent/Guardian',
+                    'amount_due' => number_format((float) $balance, 2),
+                    'student_name' => $studentName,
+                    'class_name' => $data['class_name'] ?? '',
+                    'due_date' => $data['due_date'] ?? '',
+                ],
+                [
                     'subject' => 'Fee Reminder: ' . $studentName,
-                    'body' => $message,
-                    'recipients' => [$phone],
-                    'status' => 'sent',
-                    'metadata' => json_encode([
-                        'student_id' => $studentId,
-                        'student_name' => $studentName,
-                        'balance' => $balance,
-                        'reminder_type' => 'fee'
-                    ])
-                ]);
-
-                // Log fee reminder activity
-                $this->logFeeReminderActivity($studentId, $phone, $balance, $type, 'sent');
-
-                return [
-                    'status' => 'success',
-                    'message' => ucfirst($type) . ' fee reminder sent successfully to ' . $phone,
-                    'communication_id' => $comm['id'] ?? null,
-                    'data' => [
-                        'phone' => $phone,
-                        'student_id' => $studentId,
-                        'student_name' => $studentName,
-                        'balance' => $balance,
-                        'type' => $type
-                    ]
-                ];
-            } else {
-                // Store failed attempt
-                $this->manager->createCommunication([
-                    'type' => $type,
-                    'subject' => 'Fee Reminder: ' . $studentName,
-                    'body' => $message,
-                    'recipients' => [$phone],
-                    'status' => 'failed'
-                ]);
-
-                // Log failed attempt
-                $this->logFeeReminderActivity($studentId, $phone, $balance, $type, 'failed');
-
-                return [
-                    'status' => 'error',
-                    'message' => 'Failed to send ' . $type . ' reminder. Please try again.',
-                    'data' => null
-                ];
-            }
+                    'purpose' => 'fees',
+                    'sender_id' => $this->user_id ?: 1,
+                    'business_event_id' => $eventId,
+                ]
+            );
+            $businessEvent->markProcessed($eventId);
+            $this->logFeeReminderActivity($studentId, $phone, $balance, $type, $result['status']);
+            return [
+                'status' => $result['status'] === 'failed' ? 'error' : 'success',
+                'message' => ucfirst($type) . ' fee reminder queued for delivery',
+                'communication_id' => $result['communication_id'],
+                'data' => $result,
+            ];
         } catch (\Exception $e) {
             error_log("Fee Reminder Error: " . $e->getMessage());
             error_log('[CommunicationsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' => null];
+            return ['status' => 'error', 'message' => 'Unable to queue fee reminder.', 'data' => null];
         }
     }
 
@@ -749,7 +590,7 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
             return ['status' => 'error', 'message' => 'Template not found', 'sent_count' => 0];
         }
 
-        $gateway = new \App\API\Services\sms\SMSGateway();
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
         $sent = 0;
         $failed = [];
         $sent_ids = [];
@@ -757,22 +598,14 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
 
         foreach ($recipients as $phone) {
             try {
-                $result = ($type === 'whatsapp' && $template && isset($template['media_urls']))
-                    ? $gateway->sendWhatsApp($phone, $rendered, $template['media_urls'])
-                    : ($type === 'whatsapp' ? $gateway->sendWhatsApp($phone, $rendered) : $gateway->send($phone, $rendered));
-
-                if ($result && isset($result['status']) && $result['status'] === 'success') {
+                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type === 'whatsapp' ? 'whatsapp' : 'sms', $template_title, $rendered, [
+                    'purpose' => $title ?: 'transactional',
+                    'sender_id' => $this->user_id ?: 1,
+                    'legacy_template_id' => $template_id,
+                ]);
+                if (($queued['recipient_count'] ?? 0) > 0) {
                     $sent++;
-                    $comm = $this->manager->createCommunication([
-                        'type' => $type,
-                        'subject' => substr($template_title, 0, 100),
-                        'body' => $rendered,
-                        'recipients' => [$phone],
-                        'template_id' => $template_id ?? ($template['id'] ?? null),
-                        'status' => 'sent'
-                    ]);
-                    if ($comm && isset($comm['id']))
-                        $sent_ids[] = $comm['id'];
+                    $sent_ids[] = $queued['communication_id'];
                 } else {
                     $failed[] = $phone;
                 }
@@ -821,43 +654,34 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
             }
         }
 
-        $gateway = new \App\API\Services\sms\SMSGateway();
-        $sent = 0;
-        $failed = [];
-        $sent_ids = [];
-
-        foreach ($recipients as $phone) {
-            try {
-                $result = !empty($documents)
-                    ? $gateway->sendWhatsApp($phone, $message, $documents)
-                    : $gateway->sendWhatsApp($phone, $message);
-
-                if ($result && isset($result['status']) && $result['status'] === 'success') {
-                    $sent++;
-                    $comm = $this->manager->createCommunication([
-                        'type' => 'whatsapp',
-                        'subject' => 'WhatsApp Message',
-                        'body' => $message,
-                        'recipients' => [$phone],
-                        'status' => 'sent'
-                    ]);
-                    if ($comm && isset($comm['id']))
-                        $sent_ids[] = $comm['id'];
-                } else {
-                    $failed[] = $phone;
-                }
-            } catch (\Exception $e) {
-                $failed[] = $phone;
-                error_log("WhatsApp Error: " . $e->getMessage());
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        $queued = $platform->queueRenderedForContacts(
+            array_map(static function ($phone) { return ['phone' => $phone]; }, $recipients),
+            'whatsapp',
+            $template['subject'] ?? 'WhatsApp Message',
+            $message,
+            ['purpose' => $category ?: 'transactional', 'sender_id' => $this->user_id ?: 1]
+        );
+        if (!empty($documents) && !empty($queued['communication_id'])) {
+            foreach ((array) $documents as $document) {
+                $url = is_array($document) ? ($document['url'] ?? $document['public_url'] ?? null) : (string) $document;
+                if (!$url) continue;
+                $name = is_array($document) ? ($document['name'] ?? basename(parse_url($url, PHP_URL_PATH) ?: 'document')) : basename(parse_url($url, PHP_URL_PATH) ?: 'document');
+                $this->db->prepare("INSERT INTO communication_attachments (communication_id, file_name, file_path, mime_type, public_url) VALUES (?, ?, ?, ?, ?)")
+                    ->execute([(int) $queued['communication_id'], $name, $url, is_array($document) ? ($document['mime_type'] ?? null) : null, $url]);
+                $attachmentId = (int) $this->db->lastInsertId();
+                $this->db->prepare("INSERT INTO communication_attachment_channels (attachment_id, channel, provider_media_url, status) VALUES (?, 'whatsapp', ?, 'ready')")
+                    ->execute([$attachmentId, $url]);
             }
         }
         return [
-            'status' => $sent > 0 ? 'success' : 'error',
-            'sent_count' => $sent,
-            'failed_count' => count($failed),
-            'failed' => $failed,
+            'status' => ($queued['recipient_count'] ?? 0) > 0 ? 'success' : 'error',
+            'sent_count' => 0,
+            'queued_count' => $queued['recipient_count'] ?? 0,
+            'failed_count' => ($queued['recipient_count'] ?? 0) > 0 ? 0 : count($recipients),
+            'failed' => ($queued['recipient_count'] ?? 0) > 0 ? [] : $recipients,
             'documents_sent' => !empty($documents),
-            'communication_ids' => $sent_ids
+            'communication_ids' => !empty($queued['communication_id']) ? [$queued['communication_id']] : []
         ];
     }
 
@@ -870,33 +694,19 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
      */
     public function sendSms($recipients, $message, $type = 'sms')
     {
-        // Convert single message to template variables format
-        $variables = ['message' => $message];
-
-        // Send using the SMS gateway directly
-        $gateway = new \App\API\Services\sms\SMSGateway();
+        if (!is_array($recipients)) $recipients = [$recipients];
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
         $sent = 0;
         $failed = [];
 
         foreach ($recipients as $phone) {
             try {
-                if ($type === 'whatsapp') {
-                    $result = $gateway->sendWhatsApp($phone, $message);
-                } else {
-                    $result = $gateway->send($phone, $message);
-                }
-
-                if ($result && isset($result['status']) && $result['status'] === 'success') {
+                $queued = $platform->queueRenderedForContacts([['phone' => $phone]], $type === 'whatsapp' ? 'whatsapp' : 'sms', $message, $message, [
+                    'purpose' => 'transactional',
+                    'sender_id' => $this->user_id ?: 1,
+                ]);
+                if (($queued['recipient_count'] ?? 0) > 0) {
                     $sent++;
-
-                    // Store in communications table
-                    $this->manager->createCommunication([
-                        'type' => $type,
-                        'subject' => $message,
-                        'body' => $message,
-                        'recipients' => [$phone],
-                        'status' => 'sent'
-                    ]);
                 } else {
                     $failed[] = $phone;
                 }
@@ -926,34 +736,41 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
      */
     public function sendEmail($recipients, $subject, $body, $attachments = [], $signature = '', $footer = '', $schoolDetails = [])
     {
-        $result = $this->manager->sendEmailToRecipients(
-            $recipients,
-            $subject,
-            $body,
-            $attachments,
-            $signature,
-            $footer,
-            $schoolDetails
-        );
-
-        // Store in communications table
-        if ($result['status'] === 'success') {
-            foreach ($recipients as $email => $name) {
-                if (is_int($email)) {
-                    $email = $name;
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        if (!is_array($recipients)) $recipients = [$recipients];
+        $queuedIds = [];
+        $failed = [];
+        foreach ($recipients as $email => $name) {
+            if (is_int($email)) { $email = $name; $name = ''; }
+            $email = trim((string) $email);
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) { $failed[] = $email; continue; }
+            $renderedBody = is_array($body) ? $this->manager->formatFormalEmailBody($body) : (string) $body;
+            if ($signature !== '') $renderedBody .= '<p>' . htmlspecialchars($signature, ENT_QUOTES, 'UTF-8') . '</p>';
+            $queued = $platform->queueRenderedForContacts([['email' => $email]], 'email', $subject, $renderedBody, [
+                'purpose' => 'transactional',
+                'sender_id' => $this->user_id ?: 1,
+            ]);
+            if (($queued['recipient_count'] ?? 0) > 0) {
+                $queuedIds[] = (int) $queued['communication_id'];
+                foreach ((array) $attachments as $attachment) {
+                    $path = is_array($attachment) ? ($attachment['file_path'] ?? $attachment['path'] ?? null) : (string) $attachment;
+                    if (!$path) continue;
+                    $name = is_array($attachment) ? ($attachment['file_name'] ?? basename($path)) : basename($path);
+                    $this->db->prepare("INSERT INTO communication_attachments (communication_id, file_name, file_path, public_url) VALUES (?, ?, ?, ?)")
+                        ->execute([(int) $queued['communication_id'], $name, $path, filter_var($path, FILTER_VALIDATE_URL) ? $path : null]);
+                    $attachmentId = (int) $this->db->lastInsertId();
+                    $this->db->prepare("INSERT INTO communication_attachment_channels (attachment_id, channel, status) VALUES (?, 'email', 'ready')")
+                        ->execute([$attachmentId]);
                 }
-
-                $this->manager->createCommunication([
-                    'type' => 'email',
-                    'subject' => $subject,
-                    'body' => $body,
-                    'recipients' => [$email],
-                    'status' => 'sent'
-                ]);
-            }
+            } else $failed[] = $email;
         }
-
-        return $result;
+        return [
+            'status' => $queuedIds ? 'success' : 'error',
+            'message' => $queuedIds ? 'Email queued for delivery' : 'No email was queued',
+            'queued_count' => count($queuedIds),
+            'communication_ids' => $queuedIds,
+            'failed' => $failed,
+        ];
     }    // --- Callback/Inbound Support Methods ---
     /**
      * Update delivery status for a recipient (for delivery report callbacks)
@@ -1208,6 +1025,31 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
     {
         return $this->manager->createCommunication($data);
     }
+
+    public function getAudienceOptions(): array
+    {
+        $fetch = static function (\PDO $db, string $sql): array { $stmt = $db->query($sql); return $stmt->fetchAll(\PDO::FETCH_ASSOC); };
+        return [
+            'parents' => $fetch($this->db, "SELECT DISTINCT pr.id, CONCAT_WS(' ', p.first_name, p.last_name) AS name, p.phone FROM parents pr JOIN persons p ON p.id = pr.person_id WHERE pr.status = 'active' AND p.phone IS NOT NULL ORDER BY name"),
+            'students' => $fetch($this->db, "SELECT s.id, CONCAT_WS(' ', p.first_name, p.last_name) AS name, s.admission_no FROM students s JOIN persons p ON p.id = s.person_id WHERE s.status = 'active' ORDER BY name"),
+            'classes' => $fetch($this->db, "SELECT c.id, c.name, sl.name AS school_level FROM classes c JOIN school_levels sl ON sl.id = c.level_id ORDER BY sl.id, c.name"),
+            'student_types' => $fetch($this->db, "SELECT id, code, name FROM student_types WHERE status = 'active' ORDER BY name"),
+            'school_levels' => $fetch($this->db, "SELECT id, code, name FROM school_levels WHERE status = 'active' ORDER BY name"),
+            'vendors' => $fetch($this->db, "SELECT id, name, phone FROM suppliers WHERE status = 'active' ORDER BY name"),
+            'staff' => $fetch($this->db, "SELECT s.id, CONCAT_WS(' ', p.first_name, p.last_name) AS name, p.phone FROM staff s JOIN persons p ON p.id = s.person_id WHERE s.status = 'active' ORDER BY name"),
+        ];
+    }
+
+    /** Dispatch an immediate outbox record; scheduled records remain queued. */
+    public function dispatchCommunication(int $id): array
+    {
+        $result = (new \App\API\Services\CommunicationOutboxService($this->db))->processOne($id);
+        return $this->getCommunication($id) + ['dispatch_result' => $result];
+    }
+    public function updateDeliveryStatusByProvider($providerMessageId, $status, $deliveredAt = null, $errorMessage = null)
+    {
+        return $this->manager->updateDeliveryStatusByProvider($providerMessageId, $status, $deliveredAt, $errorMessage);
+    }
     public function getCommunication($id)
     {
         return $this->manager->getCommunication($id);
@@ -1302,6 +1144,11 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
     {
         return $this->manager->createTemplate($data);
     }
+
+    public function storeIncomingWhatsappMessage(array $data)
+    {
+        return $this->manager->storeIncomingWhatsappMessage($data);
+    }
     public function getTemplate($id)
     {
         return $this->manager->getTemplate($id);
@@ -1353,47 +1200,21 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
         }
 
         try {
-            $gateway = new \App\API\Services\whatsapp\WhatsAppGateway();
-            $sent = 0;
-            $failed = [];
-            $sent_ids = [];
-
-            foreach ($recipients as $phone) {
-                try {
-                    $result = $gateway->sendTemplate($phone, $templateId, $variables);
-
-                    if (is_array($result) && $result['status'] === 'success') {
-                        $sent++;
-                        $sent_ids[] = [
-                            'phone' => $phone,
-                            'template_id' => $templateId,
-                            'timestamp' => date('Y-m-d H:i:s')
-                        ];
-                    } else {
-                        $failed[] = [
-                            'phone' => $phone,
-                            'error' => $result['message'] ?? 'Unknown error'
-                        ];
-                    }
-                } catch (\Exception $e) {
-                    $failed[] = [
-                        'phone' => $phone,
-                        'error' => 'An internal error occurred.'
-                    ];
-                }
-            }
-
-            $failedCount = count($failed);
-            $sentStatus = $failedCount === 0 ? 'success' : ($sent > 0 ? 'partial' : 'error');
+            $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+            $queued = $platform->queueProviderTemplateForContacts(
+                array_map(static function ($phone) { return ['phone' => $phone]; }, $recipients),
+                (string) $templateId,
+                (array) $variables,
+                ['purpose' => 'transactional', 'sender_id' => $this->user_id ?: 1]
+            );
+            $count = (int) ($queued['recipient_count'] ?? 0);
 
             return [
-                'status' => $sentStatus,
-                'message' => "Sent to $sent recipient(s), failed: " . $failedCount,
+                'status' => $count > 0 ? 'success' : 'error',
+                'message' => $count > 0 ? "Queued to {$count} recipient(s)" : 'No recipients were queued',
                 'data' => [
-                    'sent' => $sent,
-                    'failed' => $failedCount,
-                    'sent_ids' => $sent_ids,
-                    'failed_details' => $failed
+                    'queued' => $count,
+                    'communication_id' => $queued['communication_id'] ?? null,
                 ]
             ];
         } catch (\Exception $e) {
@@ -1456,6 +1277,17 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
             $result = $gateway->createTemplate($templateConfig);
 
             if (is_array($result) && $result['status'] === 'success') {
+                $providerData = $result['data'] ?? [];
+                $providerTemplateId = $providerData['templateId'] ?? $providerData['template_id'] ?? null;
+                if ($providerTemplateId) {
+                    $this->manager->registerProviderTemplate([
+                        'provider_template_id' => $providerTemplateId,
+                        'name' => $name,
+                        'language' => $language,
+                        'status' => $providerData['templateStatus'] ?? 'Pending',
+                        'body' => $components['body']['text'] ?? '',
+                    ]);
+                }
                 return [
                     'status' => 'success',
                     'message' => 'Template created successfully',
@@ -1475,4 +1307,11 @@ return ['status' => 'error', 'message' => 'An internal error occurred.', 'data' 
         }
     }
 
+    /** Normalize boolean and structured provider responses. */
+    private function isDeliverySuccess($result): bool
+    {
+        if ($result === true) return true;
+        if (!is_array($result)) return false;
+        return in_array(strtolower((string) ($result['status'] ?? '')), ['success', 'sent', 'queued', 'accepted'], true);
+    }
 }

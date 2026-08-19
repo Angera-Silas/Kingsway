@@ -2805,7 +2805,7 @@ class AcademicManager extends BaseAPI
                      WHERE a.academic_year_term_id = aclat.academic_year_term_id
                        AND a.assigned_by = aclat.staff_id
                    )",
-                [$termId, $termId]
+                [$termId]
             )->fetchColumn();
 
             $activeTimetables = (int) $this->dbQuery(
@@ -2871,8 +2871,10 @@ class AcademicManager extends BaseAPI
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $events = $this->dbQuery(
-                "SELECT title, DATE(start_at) AS date FROM school_events
-                 WHERE start_at >= CURDATE() ORDER BY start_at LIMIT 5"
+                "SELECT title, MIN(DATE(start_at)) AS start_date, MAX(DATE(end_at)) AS end_date
+                 FROM school_events
+                 WHERE start_at >= CURDATE() AND status != 'cancelled'
+                 GROUP BY title ORDER BY MIN(start_at) LIMIT 5"
             )->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->successResponse([
@@ -3003,8 +3005,10 @@ class AcademicManager extends BaseAPI
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $events = $this->dbQuery(
-                "SELECT title, DATE(start_at) AS date FROM school_events
-                 WHERE start_at >= CURDATE() ORDER BY start_at LIMIT 5"
+                "SELECT title, MIN(DATE(start_at)) AS start_date, MAX(DATE(end_at)) AS end_date
+                 FROM school_events
+                 WHERE start_at >= CURDATE() AND status != 'cancelled'
+                 GROUP BY title ORDER BY MIN(start_at) LIMIT 5"
             )->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->successResponse([

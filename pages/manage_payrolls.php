@@ -1133,3 +1133,4 @@
 
 <script src="js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/payroll_manager.js"></script>
+<script src="<?= $appBase ?>/js/pages/payroll_source_account.js"></script>

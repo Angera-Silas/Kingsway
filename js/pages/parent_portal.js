@@ -19,19 +19,27 @@ const parentPortalController = {
         otpSessionId: null,
         selectedStudentId: null,
         activeDetailTab: 'fees',
+        children: [],
     },
 
     async init() {
         if (window.AuthContext?.ready) await window.AuthContext.ready();
         GradingScale.preload(function () {
-            return apiCall('/parent-portal/grading-scale', 'GET', null, null, { noRedirect: true }).then(function (res) {
+            var familyBase = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
+            return apiCall(familyBase + '/grading-scale', 'GET', null, null, { noRedirect: true, headers: window.FAMILY_STAFF_MODE && window.AuthContext?.getToken ? { Authorization: 'Bearer ' + window.AuthContext.getToken() } : undefined }).then(function (res) {
                 var data = res && res.data !== undefined ? res.data : res;
                 return { scale: data && data.scale ? data.scale : null, rules: data && data.rules ? data.rules : [] };
             });
         });
-        var stored = deobfuscate(sessionStorage.getItem('pp_token'));
+        var stored = window.FAMILY_STAFF_MODE
+            ? (window.AuthContext?.getToken?.() || null)
+            : deobfuscate(sessionStorage.getItem('pp_token'));
         var expires = sessionStorage.getItem('pp_expires');
-        if (stored && expires && new Date(expires) > new Date()) {
+        if (window.FAMILY_STAFF_MODE && stored && window.AuthContext?.isAuthenticated?.()) {
+            this.state.token = stored;
+            this.showView('dashboard');
+            this.loadDashboard();
+        } else if (stored && expires && new Date(expires) > new Date()) {
             this.state.token = stored;
             this.showView('dashboard');
             this.loadDashboard();
@@ -46,12 +54,14 @@ const parentPortalController = {
         document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('active'); });
         var el = document.getElementById('view-' + name);
         if (el) el.classList.add('active');
+        document.body.classList.toggle('portal-authenticated', name === 'dashboard' || name === 'student');
     },
 
     apiFetch(path, method, body) {
         var opts = { noRedirect: true };
         if (this.state.token) opts.headers = { Authorization: 'Bearer ' + this.state.token };
-        return Promise.resolve(apiCall('/parent-portal' + path, method || 'GET', body, null, opts))
+        var base = window.FAMILY_STAFF_MODE ? '/family' : '/parent-portal';
+        return Promise.resolve(apiCall(base + path, method || 'GET', body, null, opts))
             .then(function (data) { return data; });
     },
 
@@ -78,6 +88,15 @@ const parentPortalController = {
         this.on('btnResendOtp', 'click', function () { self.setView('otp-step-2', false); self.setView('otp-step-1', true); });
         this.on('btnLogout', 'click', function () { self.logout(); });
         this.on('btnBackToDashboard', 'click', function () { self.showView('dashboard'); });
+        this.on('btnApplyAdmission', 'click', function () { self.openApplyAdmissionModal(); });
+        this.on('portalMenuToggle', 'click', function () { document.getElementById('portalSidebar')?.classList.toggle('open'); });
+        this.on('childSwitcher', 'change', function () { var child = self.state.children.find(function (c) { return String(c.id) === String(document.getElementById('childSwitcher').value); }); if (child) self.openStudent(child.id, child.first_name + ' ' + child.last_name, child.class_name || ''); });
+        document.querySelectorAll('[data-portal-section]').forEach(function (link) {
+            link.addEventListener('click', function () { self.navigateSection(link.dataset.portalSection); });
+        });
+        document.querySelectorAll('#view-student [data-tab]').forEach(function (link) {
+            link.addEventListener('click', function () { self.activateStudentTab(link.dataset.tab); });
+        });
         document.querySelectorAll('#studentDetailTabs .nav-link').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 document.querySelectorAll('#studentDetailTabs .nav-link').forEach(function (b) { b.classList.remove('active'); });
@@ -169,9 +188,13 @@ const parentPortalController = {
             .then(function (resp) {
                 var d = resp.data || resp;
                 var parent = d.parent || {};
+                var titleEl = document.getElementById('portalPageTitle');
+                if (titleEl) titleEl.textContent = 'Family dashboard';
                 var nameEl = document.getElementById('parentName');
                 if (nameEl) nameEl.textContent = parent.first_name || 'Parent';
-                self.renderChildren(d.children || []);
+                self.state.children = d.children || [];
+                self.renderChildren(self.state.children);
+                self.renderKpis(self.state.children);
                 self.stashGuardianForAdmission(parent);
             })
             .catch(function (err) {
@@ -179,6 +202,53 @@ const parentPortalController = {
                     '<div class="col-12"><div class="alert alert-danger">Failed to load dashboard: ' + self.esc(err.message) + '</div></div>';
             })
             .finally(function () { self.setLoading(false); });
+    },
+
+    renderKpis(children) {
+        var total = children.reduce(function (sum, child) { return sum + parseFloat(child.current_balance || 0); }, 0);
+        var paid = children.filter(function (child) { return parseFloat(child.current_balance || 0) <= 0; }).length;
+        var el = document.getElementById('portalKpis');
+        if (!el) return;
+        el.innerHTML = [
+            ['bi-people-fill','Children linked',children.length,'primary'],
+            ['bi-wallet2','Family fee balance','KES ' + total.toLocaleString(),'warning'],
+            ['bi-check-circle-fill','Accounts cleared',paid + ' of ' + children.length,'success'],
+            ['bi-chat-dots-fill','School connection','Open','info']
+        ].map(function (k) { return '<div class="col-6 col-xl-3"><div class="card portal-kpi"><div class="card-body d-flex align-items-center gap-3"><div class="kpi-icon bg-' + k[3] + '-subtle text-' + k[3] + '"><i class="bi ' + k[0] + '"></i></div><div><div class="small text-muted">' + k[1] + '</div><div class="fw-bold">' + k[2] + '</div></div></div></div></div>'; }).join('');
+    },
+
+    navigateSection(section) {
+        var self = this;
+        document.querySelectorAll('[data-portal-section]').forEach(function (link) { link.classList.toggle('active', link.dataset.portalSection === section); });
+        document.getElementById('portalSidebar')?.classList.remove('open');
+        if (section === 'uniforms') { window.open((this.BASE || '') + '/uniform_catalog.php', '_blank'); return; }
+        if (section === 'settings') { window.location.href = (this.BASE || '') + '/home.php?route=account_settings'; return; }
+        if (section === 'pta') { this.showCommunity(); return; }
+        if (section === 'overview' || section === 'children') { this.showView('dashboard'); document.getElementById('childrenHeading').textContent = section === 'children' ? 'All my children' : 'My children'; return; }
+        var first = this.state.children[0];
+        if (!first) { this.showView('dashboard'); return; }
+        var tab = section === 'fees' ? 'fees' : section === 'attendance' ? 'attendance' : section === 'academics' ? 'performance' : section === 'messages' ? 'messages' : section === 'documents' ? 'portfolio' : 'fees';
+        this.openStudent(first.id, first.first_name + ' ' + first.last_name, first.class_name || '');
+        this.activateStudentTab(tab);
+    },
+
+    activateStudentTab(tab) {
+        this.state.activeDetailTab = tab;
+        document.querySelectorAll('#studentDetailTabs [data-tab], #view-student [data-tab]').forEach(function (button) { button.classList.toggle('active', button.dataset.tab === tab); });
+        this.loadStudentTab(tab);
+    },
+
+    showCommunity() {
+        var self = this;
+        this.showView('dashboard');
+        document.getElementById('portalPageTitle').textContent = 'PTA & parent community';
+        document.getElementById('childrenHeading').textContent = 'Meetings and school community';
+        this.apiFetch('/community', 'GET').then(function (resp) {
+            var d = resp.data || resp;
+            var meetings = d.meetings || [];
+            var representative = d.is_representative ? '<div class="col-12"><div class="alert alert-success"><i class="bi bi-person-hearts me-2"></i>You are registered as a PTA representative: <strong>' + self.esc((d.memberships || []).map(function (m) { return m.role; }).join(', ')) + '</strong></div></div>' : '';
+            document.getElementById('childrenCards').innerHTML = representative + (meetings.length ? meetings.map(function (m) { return '<div class="col-md-6 col-xl-4 mb-3"><div class="card portal-kpi h-100"><div class="card-body"><span class="badge bg-success-subtle text-success mb-2">' + self.esc(m.type || 'parent meeting') + '</span><h5 class="fw-bold">' + self.esc(m.title) + '</h5><p class="small text-muted mb-2"><i class="bi bi-calendar3 me-1"></i>' + self.esc(m.meeting_date) + ' ' + self.esc(m.start_time || '') + '</p><p class="small mb-0">' + self.esc(m.venue || 'Venue to be confirmed') + '</p><p class="small text-muted mt-2 mb-0">' + self.esc(m.description || m.purpose || '') + '</p></div></div></div>'; }).join('') : '<div class="col-12"><div class="alert alert-info">There are no upcoming PTA or parent meetings at the moment. School notices and invitations will appear here.</div></div>');
+        }).catch(function (e) { document.getElementById('childrenCards').innerHTML = '<div class="col-12"><div class="alert alert-danger">Unable to load parent community information: ' + self.esc(e.message) + '</div></div>'; });
     },
 
     renderChildren(children) {
@@ -212,6 +282,9 @@ const parentPortalController = {
         this.state.currentStudentId = studentId;
         this.setText('studentDetailName', studentName);
         this.setText('studentDetailClass', className);
+        var switcher = document.getElementById('childSwitcher');
+        if (switcher && this.state.children.length) switcher.innerHTML = this.state.children.map(function (child) { return '<option value="' + child.id + '">' + parentPortalController.esc(child.first_name + ' ' + child.last_name) + '</option>'; }).join('');
+        if (switcher) switcher.value = String(studentId);
         this.showView('student');
         this.loadBalanceSummary(studentId);
         document.querySelectorAll('#studentDetailTabs .nav-link').forEach(function (b) { b.classList.remove('active'); });
@@ -740,6 +813,7 @@ const parentPortalController = {
     initiateMpesaPayment() {
         var amount = document.getElementById('mpesaAmount').value;
         var phone = document.getElementById('mpesaPhone').value.trim();
+        var provider = document.getElementById('mpesaProvider').value;
         var errEl = document.getElementById('mpesaError');
         var spinner = document.getElementById('mpesaSpinner');
         var self = this;
@@ -750,7 +824,8 @@ const parentPortalController = {
         this.apiFetch('/initiate-mpesa-payment', 'POST', {
             student_id: this.state.selectedStudentId,
             amount: parseFloat(amount),
-            phone: phone
+            phone: phone,
+            provider: provider
         }).then(function (resp) {
             var d = resp.data || resp;
             if (d.checkout_request_id) {
@@ -837,6 +912,89 @@ const parentPortalController = {
                 }));
             }
         } catch (e) { /* sessionStorage may be unavailable; prefill is optional */ }
+    },
+
+    /* ── In-page "Apply for Admission" modal ─────────────────────────────── */
+    openApplyAdmissionModal() {
+        var self = this;
+        this.prefillGuardianFromSession();
+        var modalEl = document.getElementById('applyAdmissionModal');
+        if (!modalEl || !window.bootstrap) return;
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+        var form = document.getElementById('applyAdmissionForm');
+        if (form) {
+            // Remove a previous one-off submit listener before adding a new one.
+            if (form.__applySubmit) form.removeEventListener('submit', form.__applySubmit);
+            form.__applySubmit = function (e) { e.preventDefault(); self.submitApplyAdmission(form); };
+            form.addEventListener('submit', form.__applySubmit);
+        }
+    },
+
+    prefillGuardianFromSession() {
+        var raw = sessionStorage.getItem('kw_admissions_guardian');
+        if (!raw) return;
+        var g;
+        try { g = JSON.parse(raw); } catch (_) { return; }
+        var fields = {
+            ppParentName: g.parent_name,
+            ppParentPhone: g.parent_phone,
+            ppParentEmail: g.parent_email,
+        };
+        Object.keys(fields).forEach(function (id) {
+            if (!fields[id]) return;
+            var el = document.getElementById(id);
+            if (el && !el.value) el.value = fields[id];
+        });
+    },
+
+    submitApplyAdmission(form) {
+        var self = this;
+        var msg = document.getElementById('ppApplyMsg');
+        var btn = document.getElementById('ppApplySubmit');
+        msg.classList.add('d-none');
+        var decl = document.getElementById('ppDeclaration');
+        if (!decl || !decl.checked) {
+            if (decl) decl.focus();
+            msg.textContent = 'Please confirm the declaration before submitting.';
+            msg.className = 'alert alert-warning mt-2 mb-0';
+            return;
+        }
+
+        var fd = new FormData(form);
+        // Attach the resolved academic_year_terms.id for the start term.
+        var termSel = document.getElementById('ppPreferredStart');
+        var termId = termSel && termSel.selectedOptions && termSel.selectedOptions[0]
+            ? termSel.selectedOptions[0].dataset.termId : null;
+        if (termId) fd.append('target_term_id', termId);
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
+        fetch(self.BASE + '/api/public/applications', { method: 'POST', body: fd })
+            .then(function (res) { return res.json(); })
+            .then(function (json) {
+                if (json && json.success) {
+                    msg.textContent = 'Application submitted successfully. Reference: ' + (json.ref || json.application_no || '');
+                    msg.className = 'alert alert-success mt-2 mb-0';
+                    form.reset();
+                    var modal = document.getElementById('applyAdmissionModal');
+                    if (modal) setTimeout(function () {
+                        var inst = bootstrap.Modal.getInstance(modal);
+                        if (inst) inst.hide();
+                    }, 1800);
+                } else {
+                    msg.textContent = json.message || 'Submission failed. Please try again.';
+                    msg.className = 'alert alert-danger mt-2 mb-0';
+                }
+            })
+            .catch(function () {
+                msg.textContent = 'Network error. Please try again or call 0720 113 030.';
+                msg.className = 'alert alert-danger mt-2 mb-0';
+            })
+            .finally(function () {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-send me-1"></i>Submit Application';
+            });
     },
 
     clearAuth() {

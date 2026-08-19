@@ -151,7 +151,7 @@
     renderEvents(data) {
       const el = document.getElementById('home-events');
       if (!el) return;
-      const list = PS.items(data).slice(0, 4);
+      const list = PS.deduplicateEvents(PS.items(data)).slice(0, 4);
       if (!list.length) { el.innerHTML = PS.emptyHTML('No upcoming events scheduled. Check back soon.'); return; }
       const typeColors = {
         Academic: ['#e3f2fd', '#1976d2'],
@@ -159,19 +159,29 @@
         Sports: ['#e8f5e9', '#2e7d32'],
         Meeting: ['#fce4ec', '#c62828'],
       };
+      const toDate = (v) => { const d = new Date(String(v || '').replace(' ','T')); return isNaN(d.getTime()) ? null : d; };
+      const fmtShort = (d) => d ? d.toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
       el.innerHTML = list.map((ev) => {
         const tc = typeColors[ev.type] || ['#f3e5f5', '#7b1fa2'];
+        const dStart = toDate(ev.start_at);
+        const dEnd = toDate(ev.end_at);
+        const sameDay = !dEnd || (dStart && dEnd && dStart.toDateString() === dEnd.toDateString());
+        const dateLabel = sameDay
+          ? fmtShort(dStart)
+          : fmtShort(dStart) + ' – ' + fmtShort(dEnd);
+        const dayText = dStart ? String(dStart.getDate()).padStart(2, '0') : '';
+        const monText = dStart ? dStart.toLocaleString('en-GB', { month: 'short' }) : '';
         return '<a href="' + base + '/event-detail.php?id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none text-dark">' +
           '<div class="event-item" style="cursor:pointer">' +
           '<div class="event-date-box">' +
-          '<div class="day">' + PS.formatDate(ev.start_at, 'd') + '</div>' +
-          '<div class="month">' + PS.formatDate(ev.start_at, 'M') + '</div>' +
+          '<div class="day">' + dayText + '</div>' +
+          '<div class="month">' + monText + '</div>' +
           '</div>' +
           '<div>' +
           '<div class="event-type" style="background:' + tc[0] + ';color:' + tc[1] + '">' + S(ev.type || 'Event') + '</div>' +
           '<div class="event-title">' + S(ev.title) + '</div>' +
           '<div class="event-meta">' +
-          '<span><i class="bi bi-clock text-success"></i>' + PS.formatDate(ev.start_at, 'time') + '</span>' +
+          '<span><i class="bi bi-calendar3 text-success"></i>' + S(dateLabel) + '</span>' +
           (ev.location ? '<span><i class="bi bi-geo-alt text-success"></i>' + S(ev.location) + '</span>' : '') +
           '</div></div></div></a>';
       }).join('');

@@ -242,8 +242,11 @@
         const created = await window.API.communications.createCommunication(data);
         const commId = this.extractId(created);
         await this.uploadAttachments(commId);
+        const dispatched = data.status === "sent" && commId
+          ? await window.API.communications.dispatchCommunication(commId)
+          : created;
         this.composeModal.hide();
-        this.notify(requestedStatus === "draft" ? "Draft saved" : "Email queued successfully", "success");
+        this.notify(requestedStatus === "draft" ? "Draft saved" : (dispatched.status === "failed" ? "Email delivery failed" : "Email sent or queued"), dispatched.status === "failed" ? "error" : "success");
         await this.loadData();
       } catch (e) {
         console.error("Send error:", e);

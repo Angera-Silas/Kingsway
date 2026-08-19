@@ -14,6 +14,17 @@ window.studentsManagementController = window.studentsManagementController || {
   },
   editingId: null,
 
+  escapeHtml: function (value) {
+    const element = document.createElement('div');
+    element.textContent = value == null ? '' : String(value);
+    return element.innerHTML;
+  },
+
+  avatarUrl: function () {
+    return window.KingswayFileLifecycle?.assetUrl?.('students', 'avatar.jpg')
+      || `${window.APP_BASE || ''}/uploads/students/avatar.jpg`;
+  },
+
   init: async function () {
     if (this.initialized) {
       return;
@@ -363,7 +374,7 @@ window.studentsManagementController = window.studentsManagementController || {
     tbody.innerHTML = this.data.students
       .map((s, i) => {
         const contactValue = canViewContact
-          ? s.phone || s.email || "-"
+          ? this.escapeHtml(s.guardian_contact || s.parent_phone || s.guardian_email || s.parent_email || s.phone || s.email || "-")
           : "Restricted";
 
         const actions = [];
@@ -564,8 +575,7 @@ window.studentsManagementController = window.studentsManagementController || {
     if (receiptNo) receiptNo.value = "";
 
     // Reset photo preview
-    document.getElementById("studentPhotoPreview").src =
-      KingswayFileLifecycle.assetUrl('students', 'avatar.jpg');
+    document.getElementById("studentPhotoPreview").src = this.avatarUrl();
   },
 
   populateForm: function (student) {
@@ -848,9 +858,9 @@ window.studentsManagementController = window.studentsManagementController || {
       content.innerHTML = `
         <div class="row mb-3">
           <div class="col-md-2 text-center">
-            <img src="${student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')}"
+            <img src="${student.photo_url || this.avatarUrl()}"
                  class="img-thumbnail rounded-circle" width="100" height="100" style="object-fit:cover;"
-                 onerror="this.src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')">
+                 onerror="this.onerror=null; this.src='${this.avatarUrl()}'">
             <h6 class="mt-2 mb-0">${student.first_name || ""} ${student.middle_name || ""} ${student.last_name || ""}</h6>
             <small class="text-muted">${student.admission_no || ""}</small><br>
             <span class="badge bg-${student.status === "active" ? "success" : student.status === "suspended" ? "danger" : "secondary"} mt-1">

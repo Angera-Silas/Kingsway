@@ -18,8 +18,8 @@
       <button class="btn btn-outline-primary" onclick="admissionInterviewsController.loadInterviews()">
         <i class="bi bi-arrow-clockwise me-1"></i>Refresh
       </button>
-      <button class="btn btn-primary" onclick="admissionInterviewsController.showScheduleModal()">
-        <i class="bi bi-plus-circle me-1"></i> Schedule Interview
+          <button class="btn btn-primary" onclick="admissionInterviewsController.manageSessions()">
+            <i class="bi bi-calendar2-week me-1"></i> Manage Interview Sessions
       </button>
     </div>
   </div>
@@ -122,29 +122,20 @@
             <select id="aiApplicantId" class="form-select">
               <option value="">— Select applicant —</option>
             </select>
-            <small class="text-muted">Only shows applicants with verified documents</small>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Interview Date <span class="text-danger">*</span></label>
-            <input type="date" id="aiInterviewDate" class="form-control">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Time <span class="text-danger">*</span></label>
-            <input type="time" id="aiInterviewTime" class="form-control">
+            <small class="text-muted">Select an applicant awaiting scheduling, or an already scheduled applicant to switch/reschedule.</small>
           </div>
           <div class="col-12">
-            <label class="form-label fw-semibold">Interviewer <span class="text-danger">*</span></label>
-            <select id="aiInterviewerId" class="form-select">
-              <option value="">— Select staff member —</option>
-            </select>
+            <label class="form-label fw-semibold">Interview session <span class="text-danger">*</span></label>
+            <select id="aiSessionId" class="form-select"><option value="">— Select a configured session —</option></select>
+            <small class="text-muted">Sessions are created against an intake window. Date, time, venue and interviewer come from the selected session.</small>
           </div>
           <div class="col-12">
-            <label class="form-label fw-semibold">Location / Room</label>
-            <input type="text" id="aiLocation" class="form-control" placeholder="e.g. Head Teacher's Office">
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Special Requirements</label>
-            <textarea id="aiSpecialRequirements" class="form-control" rows="2" placeholder="Any special arrangements needed..."></textarea>
+            <label class="form-label fw-semibold">Notify parent/guardian</label>
+            <div class="d-flex gap-3 flex-wrap">
+              <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="sms" checked> SMS</label>
+              <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="email"> Email</label>
+              <label><input type="checkbox" class="form-check-input me-1" name="aiNotifyChannel" value="whatsapp"> WhatsApp</label>
+            </div>
           </div>
         </div>
         <div id="aiScheduleError" class="alert alert-danger mt-3 d-none"></div>
@@ -152,12 +143,22 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button type="button" class="btn btn-primary" onclick="admissionInterviewsController.saveSchedule()">
-          <i class="bi bi-calendar-check me-1"></i>Schedule
+          <i class="bi bi-calendar-check me-1"></i>Assign to session
         </button>
       </div>
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="aiSessionsModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header bg-primary text-white"><h5 class="modal-title"><i class="bi bi-calendar2-week me-2"></i>Interview Sessions</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><div id="aiSessionsBody"></div><hr><h6>Create / edit session</h6><div class="row g-2">
+    <input type="hidden" id="aiSessionEditId"><div class="col-md-4"><label class="form-label">Admission window</label><select id="aiSessionWindow" class="form-select"></select></div>
+    <div class="col-md-2"><label class="form-label">Date</label><input type="date" id="aiSessionDate" class="form-control"></div><div class="col-md-2"><label class="form-label">Start</label><input type="time" id="aiSessionStart" class="form-control"></div><div class="col-md-2"><label class="form-label">End</label><input type="time" id="aiSessionEnd" class="form-control"></div><div class="col-md-2"><label class="form-label">Capacity</label><input type="number" id="aiSessionCapacity" class="form-control" min="1" value="20"></div>
+    <div class="col-md-6"><label class="form-label">Teacher interviewer <span class="text-danger">*</span></label><select id="aiSessionInterviewer" class="form-select"></select></div><div class="col-md-6"><label class="form-label">Venue</label><input type="text" id="aiSessionVenue" class="form-control" value="Main Office"></div>
+  </div><div id="aiSessionError" class="alert alert-danger mt-3 d-none"></div></div>
+  <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" onclick="admissionInterviewsController.saveSession()">Save session</button></div>
+</div></div></div>
 
 <!-- RECORD OUTCOME MODAL -->
 <div class="modal fade" id="aiOutcomeModal" tabindex="-1">
@@ -268,7 +269,7 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/admission_interviews.js"></script>
+<?php asset_script($appBase, 'js/pages/admission_interviews.js'); ?>
 <script>
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {

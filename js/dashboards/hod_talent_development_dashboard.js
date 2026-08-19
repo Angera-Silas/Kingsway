@@ -24,11 +24,11 @@
         scopeId: 'talentDashboardScope',
         lastUpdatedId: 'talentDashboardLastUpdated',
 
-        async apiMethod() {
+        async apiMethod({ period } = {}) {
             const [summaryResponse, activitiesResponse, schedulesResponse] = await Promise.all([
-                window.API.activities.getSummary(),
-                window.API.activities.list({ limit: 20 }),
-                window.API.activities.listSchedules({})
+                window.API.activities.getSummary({ period }),
+                window.API.activities.list({ limit: 20, period }),
+                window.API.activities.listSchedules({ period })
             ]);
 
             const stats = unwrap(summaryResponse) || {};

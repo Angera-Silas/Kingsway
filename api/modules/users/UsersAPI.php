@@ -1250,7 +1250,8 @@ class UsersAPI extends BaseAPI
             [
                 'iat' => $issuedAt,
                 'exp' => $expire,
-                'iss' => 'kingsway.ac.ke'
+                'iss' => JWT_ISSUER,
+                'aud' => JWT_AUDIENCE
             ]
         );
 

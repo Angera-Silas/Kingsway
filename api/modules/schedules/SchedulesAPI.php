@@ -1064,8 +1064,14 @@ class SchedulesAPI extends BaseAPI {
 
     public function createEvent($data) {
         try {
-            $required = ['name', 'start_date'];
-            $missing = $this->validateRequired($data, $required);
+            $title = isset($data['name']) && $data['name'] !== '' ? $data['name'] : ($data['title'] ?? null);
+            $missing = [];
+            if ($title === null || $title === '') {
+                $missing[] = 'name';
+            }
+            if (empty($data['start_date'])) {
+                $missing[] = 'start_date';
+            }
             if (!empty($missing)) {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
@@ -1096,7 +1102,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $eventId,
-                $data['name'],
+                $title,
                 $data['description'] ?? null,
                 $startAt,
                 $endAt,

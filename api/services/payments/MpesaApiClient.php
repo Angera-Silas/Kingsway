@@ -84,7 +84,7 @@ class MpesaApiClient
     /**
      * STK Push password: base64(Shortcode . Passkey . Timestamp).
      */
-    public function lipaNaMpesaPassword(string $timestamp = null): string
+    public function lipaNaMpesaPassword(?string $timestamp = null): string
     {
         $ts = $timestamp ?: $this->timestamp();
         return base64_encode($this->shortcode . $this->passkey . $ts);

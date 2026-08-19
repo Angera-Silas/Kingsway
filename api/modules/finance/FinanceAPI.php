@@ -122,6 +122,41 @@ class FinanceAPI extends BaseAPI
         return $this->accountsManager->listBankAccounts();
     }
 
+    public function listFinancialAccounts()
+    {
+        return $this->accountsManager->listFinancialAccounts();
+    }
+
+    public function createFinancialAccount($data, $userId = 0)
+    {
+        return $this->accountsManager->createFinancialAccount($data, (int)$userId);
+    }
+
+    public function financialAccountSetupOptions()
+    {
+        return $this->accountsManager->financialAccountSetupOptions();
+    }
+
+    public function updateFinancialAccount($id, $data, $userId = 0)
+    {
+        return $this->accountsManager->updateFinancialAccount((int)$id, (array)$data, (int)$userId);
+    }
+
+    public function verifyFinancialAccount($id, $userId, $status = 'active')
+    {
+        return $this->accountsManager->verifyFinancialAccount((int)$id, (int)$userId, (string)$status);
+    }
+
+    public function setFinancialAccountPermissions($id, $permissions, $userId)
+    {
+        return $this->accountsManager->setFinancialAccountPermissions((int)$id, (array)$permissions, (int)$userId);
+    }
+
+    public function financialAccountPermissions($id)
+    {
+        return $this->accountsManager->financialAccountPermissions((int)$id);
+    }
+
     /**
      * Bank accounts: create a new account.
      */
@@ -1173,6 +1208,26 @@ class FinanceAPI extends BaseAPI
     public function listFeeTypes()
     {
         return $this->feeManager->listFeeTypes();
+    }
+
+    public function createFeeType($data)
+    {
+        return $this->feeManager->createFeeType($data);
+    }
+
+    public function updateFeeType($id, $data)
+    {
+        return $this->feeManager->updateFeeType($id, $data);
+    }
+
+    public function toggleFeeTypeStatus($id)
+    {
+        return $this->feeManager->toggleFeeTypeStatus($id);
+    }
+
+    public function deactivateFeeStructure($data)
+    {
+        return $this->feeManager->deactivateFeeStructure($data);
     }
 
     public function listStudentTypes()
@@ -3204,6 +3259,11 @@ class FinanceAPI extends BaseAPI
     public function submitFeeStructureBundle($data)
     {
         return $this->feeManager->submitFeeStructureBundle($data);
+    }
+
+    public function submitFeeStructureBundleBatch($data)
+    {
+        return $this->feeManager->submitFeeStructureBundleBatch($data);
     }
 
     /**

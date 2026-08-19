@@ -162,10 +162,15 @@
                                     <option value="">Select recipients...</option>
                                     <option value="all_parents">All Parents</option>
                                     <option value="all_staff">All Staff</option>
-                                    <option value="all_students">All Students</option>
-                                    <option value="specific_class">Specific Class</option>
+                                    <option value="selected_staff">Selected Teachers/Staff</option>
+                                    <option value="selected_students">Parents of Selected Learners</option>
+                                    <option value="selected_class">Parents in Selected Class</option>
+                                    <option value="student_type">Parents of Selected Student Type</option>
+                                    <option value="school_level">Parents in Selected School Level</option>
                                     <option value="contact_group">Contact Group</option>
-                                    <option value="specific_parents">Specific Parents</option>
+                                    <option value="selected_parents">Selected Parents</option>
+                                    <option value="selected_vendors">Selected Vendors</option>
+                                    <option value="all_vendors">All Vendors</option>
                                     <option value="custom_numbers">Custom Numbers</option>
                                 </select>
                             </div>

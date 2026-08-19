@@ -33,6 +33,7 @@
 
 const headteacherDashboardController = {
   runtimeConfig: window.headteacherDashboardConfig || {},
+  period: 'month',
   state: {
     summaryCards: {},
     chartData: {},
@@ -78,6 +79,7 @@ const headteacherDashboardController = {
 
     this.loadDashboardData();
     this.setupEventListeners();
+    this.setupPeriodListeners();
     this.setupAutoRefresh();
 
     console.log("✓ Headteacher Dashboard initialized");
@@ -98,7 +100,7 @@ const headteacherDashboardController = {
       console.log("📡 Fetching dashboard data via API...");
 
       // Use the configured loader (defaults to Headteacher endpoint)
-      const data = await loader();
+      const data = await loader({ period: this.period });
 
       console.log("📦 Received dashboard data:", data);
 
@@ -576,14 +578,19 @@ const headteacherDashboardController = {
       }
     }
 
-    // Upcoming Events (matches PHP id="upcomingEvents")
+    // Upcoming Events (matches PHP id="upcomingEvents") - shared smart widget
     const eventsContainer = document.getElementById("upcomingEvents");
     if (eventsContainer && this.state.tableData.upcoming_events) {
       const events =
         this.state.tableData.upcoming_events.data ||
         this.state.tableData.upcoming_events ||
         [];
-      if (events.length === 0) {
+      if (typeof window.UpcomingEventsWidget?.render === "function") {
+        window.UpcomingEventsWidget.render(eventsContainer, events, {
+          max: 5,
+          emptyText: "No upcoming events",
+        });
+      } else if (events.length === 0) {
         eventsContainer.innerHTML =
           '<li class="list-group-item text-center text-muted py-3">No upcoming events</li>';
       } else {
@@ -658,6 +665,38 @@ const headteacherDashboardController = {
         this.hideErrorState();
         this.loadDashboardData();
       });
+    }
+  },
+
+  setupPeriodListeners: function () {
+    const periodBar = document.getElementById("headteacherDashboardPeriodBar");
+    if (!periodBar) return;
+
+    periodBar.addEventListener("click", (event) => {
+      const btn = event.target.closest(".dash-period-btn");
+      if (!btn) return;
+      const newPeriod = btn.dataset.period;
+      if (newPeriod === this.period) return;
+
+      this.period = newPeriod;
+      periodBar.querySelectorAll(".dash-period-btn").forEach((b) => {
+        b.classList.remove("btn-success");
+        b.classList.add("btn-outline-success");
+      });
+      btn.classList.remove("btn-outline-success");
+      btn.classList.add("btn-success");
+
+      const label = document.getElementById("headteacherDashboardPeriodBarLabel");
+      if (label) label.textContent = btn.textContent;
+
+      this.hideErrorState();
+      this.loadDashboardData();
+    });
+
+    const defaultBtn = periodBar.querySelector(".dash-period-btn.btn-success");
+    if (defaultBtn) {
+      const label = document.getElementById("headteacherDashboardPeriodBarLabel");
+      if (label) label.textContent = defaultBtn.textContent;
     }
   },
 

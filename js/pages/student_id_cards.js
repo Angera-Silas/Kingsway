@@ -989,7 +989,10 @@ const StudentIdCardsController = {
 
         const value = String(path).trim();
         if (/^data:image\//i.test(value)) return value;
-        if (/^https?:\/\//i.test(value) || value.startsWith("//")) return value;
+        if (/^https?:\/\//i.test(value) || value.startsWith("//")) {
+            if (value.startsWith("http://")) return "https://" + value.slice(7);
+            return value;
+        }
         if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return fallback;
 
         const appBase = window.APP_BASE || "";

@@ -272,9 +272,9 @@ class TransportAPI extends BaseAPI
         return $this->assignmentManager->getStudentsByRoute($routeId, $month, $year);
     }
 
-    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId)
+    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId, $financialAccountId = null, $userId = 0)
     {
-        return $this->paymentManager->recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId);
+        return $this->paymentManager->recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId, $financialAccountId, $userId);
     }
     public function updatePaymentStatus($paymentId, $status)
     {

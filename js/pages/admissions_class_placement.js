@@ -95,7 +95,6 @@ const classPlacementController = {
             editPlacementForm: document.getElementById("editPlacementForm"),
             editPlacementApplicationId: document.getElementById("editPlacementApplicationId"),
             editPlacementApplicant: document.getElementById("editPlacementApplicant"),
-            editPlacementClass: document.getElementById("editPlacementClass"),
             editPlacementStream: document.getElementById("editPlacementStream"),
             editPlacementRemarks: document.getElementById("editPlacementRemarks"),
         };
@@ -107,7 +106,6 @@ const classPlacementController = {
             this.classes = result?.classes || [];
 
             this.renderClassesGrid();
-            this.renderCapacityGrid();
             this.updateCapacityCards();
         } catch (error) {
             console.error('Failed to load classes:', error);
@@ -124,11 +122,13 @@ const classPlacementController = {
             // Get applications from placement and payment queues
             if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
                 queues.placement_pending.forEach(app => {
+                    app._placementQueue = 'placement_pending';
                     placementApplications.push(app);
                 });
             }
             if (queues.payment_pending && Array.isArray(queues.payment_pending)) {
                 queues.payment_pending.forEach(app => {
+                    app._placementQueue = 'payment_pending';
                     placementApplications.push(app);
                 });
             }
@@ -143,8 +143,9 @@ const classPlacementController = {
     
     renderClassesGrid: function() {
         const grid = document.getElementById('classesGrid');
+        const classSummaries = this.getClassSummaries();
         
-        if (this.classes.length === 0) {
+        if (classSummaries.length === 0) {
             grid.innerHTML = `
                 <div class="col-12 text-center py-4">
                     <div class="text-muted">
@@ -156,9 +157,9 @@ const classPlacementController = {
             return;
         }
         
-        grid.innerHTML = this.classes.map(cls => {
-            const capacity = cls.capacity || 30;
-            const studentCount = cls.student_count || 0;
+        grid.innerHTML = classSummaries.map(cls => {
+            const capacity = cls.capacity;
+            const studentCount = cls.student_count;
             const percentage = capacity > 0 ? Math.round((studentCount / capacity) * 100) : 0;
             
             let capacityColor = 'bg-success';
@@ -171,8 +172,8 @@ const classPlacementController = {
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start mb-3">
                                 <div>
-                                    <h6 class="mb-1">${cls.name || '—'}</h6>
-                                    <small class="text-muted">ID: ${cls.id}</small>
+                                    <h6 class="mb-1">${this.escapeHtml(cls.name || '—')}</h6>
+                                    <small class="text-muted">${cls.streams.map(stream => `<span class="badge bg-light text-dark me-1">${this.escapeHtml(stream.name)}</span>`).join('')}</small>
                                 </div>
                                 <span class="badge ${capacityColor}">${percentage}%</span>
                             </div>
@@ -196,6 +197,37 @@ const classPlacementController = {
                 </div>
             `;
         }).join('');
+    },
+
+    getClassSummaries: function() {
+        const grouped = new Map();
+        this.classes.forEach(row => {
+            const key = String(row.id);
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    id: row.id,
+                    name: row.name,
+                    capacity: 0,
+                    student_count: 0,
+                    streams: []
+                });
+            }
+            const summary = grouped.get(key);
+            const streamKey = String(row.academic_year_class_stream_id || `${row.id}-${row.stream_id}`);
+            if (!summary.streams.some(stream => stream.key === streamKey)) {
+                summary.streams.push({
+                    key: streamKey,
+                    id: row.stream_id,
+                    name: row.stream_name || 'Unnamed stream',
+                    capacity: Number(row.capacity || 0),
+                    student_count: Number(row.student_count || 0)
+                });
+                summary.capacity += Number(row.capacity || 0);
+                summary.student_count += Number(row.student_count || 0);
+            }
+            return summary;
+        });
+        return [...grouped.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
     },
     
     renderCapacityGrid: function() {
@@ -257,7 +289,7 @@ const classPlacementController = {
         if (this.placements.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="text-center py-4">
+                    <td colspan="8" class="text-center py-4">
                         <div class="text-muted">
                             <i class="bi bi-inbox fs-1 d-block mb-2"></i>
                             No placements found
@@ -278,14 +310,19 @@ const classPlacementController = {
                     <td><strong>${app.application_no || '—'}</strong></td>
                     <td>${app.applicant_name || 'Unknown'}</td>
                     <td>${app.grade_applying_for || '—'}</td>
+                    <td>${app.admission_number || '—'}</td>
                     <td>${assignedClass || '—'}</td>
                     <td>${stream || '—'}</td>
                     <td>${statusBadge}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-info" onclick="classPlacementController.editPlacement(${app.id})" title="Edit">
-                                <i class="bi bi-pencil"></i>
-                            </button>
+                            ${app._placementQueue === 'placement_pending' ? `
+                                <button class="btn btn-outline-info" onclick="classPlacementController.editPlacement(${app.id})" title="Assign class stream">
+                                    <i class="bi bi-pencil"></i> Assign stream
+                                </button>
+                            ` : `
+                                <span class="text-muted small">Placement completed — awaiting payment</span>
+                            `}
                         </div>
                     </td>
                 </tr>
@@ -294,6 +331,7 @@ const classPlacementController = {
     },
     
     extractAssignedClass: function(app) {
+        if (app.assigned_class_name) return app.assigned_class_name;
         if (app.data_json) {
             try {
                 const data = JSON.parse(app.data_json);
@@ -306,6 +344,7 @@ const classPlacementController = {
     },
     
     extractStream: function(app) {
+        if (app.assigned_stream_name) return app.assigned_stream_name;
         if (app.data_json) {
             try {
                 const data = JSON.parse(app.data_json);
@@ -327,9 +366,10 @@ const classPlacementController = {
     },
     
     updateCapacityCards: function() {
-        const totalClasses = this.classes.length;
-        const totalStudents = this.classes.reduce((sum, cls) => sum + (cls.student_count || 0), 0);
-        const totalCapacity = this.classes.reduce((sum, cls) => sum + (cls.capacity || 0), 0);
+        const classSummaries = this.getClassSummaries();
+        const totalClasses = classSummaries.length;
+        const totalStudents = classSummaries.reduce((sum, cls) => sum + cls.student_count, 0);
+        const totalCapacity = classSummaries.reduce((sum, cls) => sum + cls.capacity, 0);
         const avgCapacity = totalCapacity > 0 ? Math.round((totalStudents / totalCapacity) * 100) : 0;
         const pendingPlacement = this.placements.filter(app => app.status === 'placement_offered').length;
         
@@ -538,29 +578,45 @@ const classPlacementController = {
         document.getElementById('editPlacementApplicationId').value = applicationId;
         document.getElementById('editPlacementApplicant').value = application.applicant_name || 'Unknown';
         
-        // Populate class dropdown
-        const classSelect = document.getElementById('editPlacementClass');
-        classSelect.innerHTML = '<option value="">Select Class</option>';
-        this.classes.forEach(cls => {
-            const option = document.createElement('option');
-            option.value = cls.id;
-            option.textContent = cls.name;
-            classSelect.appendChild(option);
-        });
-        
-        // Set current class if available
-        const assignedClass = this.extractAssignedClass(application);
-        if (assignedClass && assignedClass !== '—') {
-            for (let i = 0; i < classSelect.options.length; i++) {
-                if (classSelect.options[i].text === assignedClass) {
-                    classSelect.selectedIndex = i;
-                    break;
-                }
-            }
-        }
+        const currentStreamId = this.extractStreamId(application);
+        this.populatePlacementStreams(currentStreamId);
         
         const modal = new bootstrap.Modal(document.getElementById('editPlacementModal'));
         modal.show();
+    },
+
+    populatePlacementStreams: function(selectedStreamId = '') {
+        const streamSelect = document.getElementById('editPlacementStream');
+        if (!streamSelect) return;
+
+        const streams = this.classes.filter(cls => cls.academic_year_class_stream_id && cls.stream_id);
+        streamSelect.innerHTML = '<option value="">Select placement stream</option>';
+        const seen = new Set();
+        streams.forEach(cls => {
+            const placementId = String(cls.academic_year_class_stream_id);
+            if (seen.has(placementId)) return;
+            seen.add(placementId);
+            const option = document.createElement('option');
+            option.value = placementId;
+            option.dataset.classId = String(cls.id);
+            option.dataset.streamId = String(cls.stream_id);
+            option.textContent = `${cls.name || 'Class'} ${cls.stream_name || ''}`.trim();
+            streamSelect.appendChild(option);
+        });
+        if (selectedStreamId) {
+            const option = [...streamSelect.options].find(item => item.dataset.streamId === String(selectedStreamId));
+            if (option) streamSelect.value = option.value;
+        }
+    },
+
+    extractStreamId: function(app) {
+        if (!app || !app.data_json) return '';
+        try {
+            const data = typeof app.data_json === 'string' ? JSON.parse(app.data_json) : app.data_json;
+            return data.assigned_stream_id || data.stream_id || '';
+        } catch (e) {
+            return '';
+        }
     },
     
     updatePlacement: function() {
@@ -569,18 +625,27 @@ const classPlacementController = {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Updating...';
         
+        const streamSelect = document.getElementById('editPlacementStream');
+        const selectedStream = streamSelect.options[streamSelect.selectedIndex];
+        const classId = Number(selectedStream?.dataset.classId || 0);
+        const streamId = Number(selectedStream?.dataset.streamId || 0);
         const placementData = {
-            assigned_class_id: document.getElementById('editPlacementClass').value,
-            stream: document.getElementById('editPlacementStream').value,
+            application_id: Number(applicationId),
+            class_id: classId,
+            stream_id: streamId || null,
             remarks: document.getElementById('editPlacementRemarks').value
         };
+
+        if (!classId || !streamId) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Update Placement';
+            showNotification('error', 'Select a class before completing placement');
+            return;
+        }
         
-        this.apiCall('/admission/generate-placement-offer', 'POST', {
-            application_id: applicationId,
-            ...placementData
-        })
+        this.apiCall('/admission/complete-enrollment', 'POST', placementData)
             .then(response => {
-                showNotification('success', 'Placement updated successfully');
+                showNotification('success', 'Student placed successfully. Fee obligations and school records were updated.');
                 bootstrap.Modal.getInstance(document.getElementById('editPlacementModal')).hide();
                 document.getElementById('editPlacementForm').reset();
                 this.loadPlacements();

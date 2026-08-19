@@ -129,7 +129,7 @@ const YearCalendarController = (() => {
                     <td><strong>${escapeHtml(d.name || d.event || d.title || "--")}</strong>${manual}${evtMarkup}</td>
                     <td><span class="badge bg-${typeColor(d)}">${escapeHtml(typeLabel(d))}</span></td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.openEditDay(${d.calendar_day_id ?? "null"})" title="Mark holiday / edit day / add event"><i class="fas fa-calendar-day"></i></button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="YearCalendarController.openEditDay(${d.calendar_day_id ?? "null"})" title="Mark holiday / edit day"><i class="fas fa-calendar-day"></i></button>
                     </td>
                 </tr>`;
             })
@@ -168,7 +168,6 @@ const YearCalendarController = (() => {
         list.innerHTML = evts.length
             ? evts.map((e) => `<div class="d-flex justify-content-between align-items-center border rounded px-2 py-1 mb-1">
                 <div><strong>${escapeHtml(e.title)}</strong> <small class="text-muted">${escapeHtml(e.type || '')}${e.location ? ' \u2022 ' + escapeHtml(e.location) : ''}${rangeSuffix(e)}</small></div>
-                <button class="btn btn-sm btn-outline-danger ms-2" onclick="YearCalendarController.deleteEvent(${e.id})" title="Delete event"><i class="fas fa-trash"></i></button>
             </div>`).join('')
             : '<p class="text-muted small mb-0">No events on this day yet.</p>';
     }

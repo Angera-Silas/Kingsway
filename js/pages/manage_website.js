@@ -633,6 +633,7 @@ const manageWebsiteController = {
           <td>${this.badgeStatus(q.status)}</td>
           <td class="small text-muted">${this.fmtDate(q.created_at)}</td>
           <td class="text-end">
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="wsReplyInquiry(${q.id})" ${q.email ? '' : 'disabled'} title="Reply by email"><i class="bi bi-reply"></i></button>
             <select class="form-select form-select-sm" style="width:100px;display:inline-block" onchange="wsUpdateInquiryStatus(${q.id},this.value)">
               ${['new','read','replied'].map(s=>`<option value="${s}" ${q.status===s?'selected':''}>${s}</option>`).join('')}
             </select>
@@ -644,6 +645,13 @@ const manageWebsiteController = {
   async wsUpdateInquiryStatus(id, status) {
     try { await this.API('PUT',`website/inquiries/${id}`,{status}); this.notify('Status updated'); }
     catch(e) { this.notify(e.message,'danger'); }
+  },
+
+  async wsReplyInquiry(id) {
+    const reply = window.prompt('Reply to this inquiry:');
+    if (!reply || !reply.trim()) return;
+    try { await this.API('PUT', `website/inquiries/${id}`, { reply: reply.trim() }); this.notify('Reply queued for email delivery'); this.loadInquiries(); }
+    catch(e) { this.notify(e.message, 'danger'); }
   },
 
   /* ════════════════════════════════════════════════════════════════════════════
@@ -986,6 +994,7 @@ window.wsCloseJob         = function(id, title) { return manageWebsiteController
 window.wsLoadApplications = function() { return manageWebsiteController.loadApplications(); };
 window.wsUpdateAppStatus  = function(id, status) { return manageWebsiteController.wsUpdateAppStatus(id, status); };
 window.wsUpdateInquiryStatus = function(id, status) { return manageWebsiteController.wsUpdateInquiryStatus(id, status); };
+window.wsReplyInquiry = function(id) { return manageWebsiteController.wsReplyInquiry(id); };
 window.wsSaveContent      = function(key, value) { return manageWebsiteController.wsSaveContent(key, value); };
 window.wsAddCategory      = function() { return manageWebsiteController.wsAddCategory(); };
 window.wsDeleteCategory   = function(id, name) { return manageWebsiteController.wsDeleteCategory(id, name); };

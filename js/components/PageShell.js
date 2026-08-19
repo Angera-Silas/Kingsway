@@ -184,7 +184,12 @@ const PageShell = (() => {
             return;
         }
 
-        const templateUrl = (window.APP_BASE || '') + templateDir + match.file;
+        // Role templates are injected HTML rather than normal document
+        // navigations. Give each fetch a fresh URL so a service-worker or
+        // browser cache cannot restore an older table after the template has
+        // changed.
+        const templateUrl = (window.APP_BASE || '') + templateDir + match.file +
+            '?v=' + Date.now();
 
         fetch(templateUrl)
             .then(function (response) {

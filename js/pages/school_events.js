@@ -163,31 +163,62 @@
                 '            <label for="eventTitle" class="form-label">Event Title <span class="text-danger">*</span></label>',
                 '            <input type="text" class="form-control" id="eventTitle" placeholder="e.g., Sports Day" required>',
                 '          </div>',
-                '          <div class="mb-3">',
-                '            <label for="eventType" class="form-label">Event Type</label>',
-                '            <select class="form-select" id="eventType">',
-                '              <option value="holiday">Holiday</option>',
-                '              <option value="exam">Exam</option>',
-                '              <option value="meeting">Meeting</option>',
-                '              <option value="activity">Activity</option>',
-                '              <option value="sports">Sports</option>',
-                '              <option value="other" selected>Other</option>',
-                '            </select>',
-                '          </div>',
-                '          <div class="row">',
-                '            <div class="col-md-6 mb-3">',
-                '              <label for="eventStartDate" class="form-label">Start Date <span class="text-danger">*</span></label>',
-                '              <input type="date" class="form-control" id="eventStartDate" required>',
-                '            </div>',
-                '            <div class="col-md-6 mb-3">',
-                '              <label for="eventEndDate" class="form-label">End Date</label>',
-                '              <input type="date" class="form-control" id="eventEndDate">',
-                '            </div>',
-                '          </div>',
-                '          <div class="mb-3">',
-                '            <label for="eventDescription" class="form-label">Description</label>',
-                '            <textarea class="form-control" id="eventDescription" rows="3" placeholder="Event details..."></textarea>',
-                '          </div>',
+'          <div class="mb-3">',
+'            <label for="eventType" class="form-label">Event Type</label>',
+'            <select class="form-select" id="eventType">',
+'              <option value="holiday">Holiday</option>',
+'              <option value="school_holiday">School Holiday</option>',
+'              <option value="public_holiday">Public Holiday</option>',
+'              <option value="half_day">Half Day</option>',
+'              <option value="special_event">Special Event</option>',
+'              <option value="opening">Term Opening</option>',
+'              <option value="closing">Term Closing</option>',
+'              <option value="exam">Exam</option>',
+'              <option value="meeting">Meeting</option>',
+'              <option value="activity">Activity</option>',
+'              <option value="sports">Sports</option>',
+'              <option value="cultural">Cultural</option>',
+'              <option value="general" selected>General</option>',
+'              <option value="other">Other</option>',
+'            </select>',
+'          </div>',
+'          <div class="row">',
+'            <div class="col-md-6 mb-3">',
+'              <label for="eventStartDate" class="form-label">Start Date <span class="text-danger">*</span></label>',
+'              <input type="date" class="form-control" id="eventStartDate" required>',
+'            </div>',
+'            <div class="col-md-6 mb-3">',
+'              <label for="eventStartTime" class="form-label">Start Time</label>',
+'              <input type="time" class="form-control" id="eventStartTime">',
+'            </div>',
+'          </div>',
+'          <div class="row">',
+'            <div class="col-md-6 mb-3">',
+'              <label for="eventEndDate" class="form-label">End Date</label>',
+'              <input type="date" class="form-control" id="eventEndDate">',
+'            </div>',
+'            <div class="col-md-6 mb-3">',
+'              <label for="eventEndTime" class="form-label">End Time</label>',
+'              <input type="time" class="form-control" id="eventEndTime">',
+'            </div>',
+'          </div>',
+'          <div class="mb-3">',
+'            <label for="eventLocation" class="form-label">Location / Venue</label>',
+'            <input type="text" class="form-control" id="eventLocation" placeholder="e.g., School Hall, Playground">',
+'          </div>',
+'          <div class="mb-3">',
+'            <label for="eventStatus" class="form-label">Status</label>',
+'            <select class="form-select" id="eventStatus">',
+'              <option value="upcoming" selected>Upcoming</option>',
+'              <option value="ongoing">Ongoing</option>',
+'              <option value="past">Past</option>',
+'              <option value="cancelled">Cancelled</option>',
+'            </select>',
+'          </div>',
+'          <div class="mb-3">',
+'            <label for="eventDescription" class="form-label">Description</label>',
+'            <textarea class="form-control" id="eventDescription" rows="3" placeholder="Event details..."></textarea>',
+'          </div>',
                 '        </form>',
                 '      </div>',
                 '      <div class="modal-footer">',
@@ -222,6 +253,12 @@
 
                 var deleteBtn = e.target.closest("[data-delete-event]");
                 if (deleteBtn) { self.deleteEvent(deleteBtn.dataset.deleteEvent); }
+
+                var editBtn = e.target.closest("[data-edit-event]");
+                if (editBtn) {
+                    var ev = self.data.find(function (x) { return String(x.id) === String(editBtn.dataset.editEvent); });
+                    if (ev) self.openEditModal(ev);
+                }
 
                 var prevMonth = e.target.closest("#calPrev");
                 if (prevMonth) {
@@ -344,7 +381,7 @@
             var tbody = table.querySelector("tbody") || table;
 
             if (!this.filtered.length) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>No events found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>No events found.</td></tr>';
                 return;
             }
 
@@ -367,15 +404,24 @@
                     : statusNorm === "cancelled" ? "danger"
                     : "success";
                 var venue = ev.location || ev.venue || "—";
+                var termLabel = ev.term_name ? (ev.term_name + (ev.week_number ? " · Wk " + ev.week_number : "")) : "—";
+                var isMerged = Array.isArray(ev.ids) && ev.ids.length > 1;
+                var hasId = ev.id != null || (Array.isArray(ev.ids) && ev.ids.length > 0);
 
                 return '<tr>' +
                     '<td class="fw-semibold">' + esc(title) + '</td>' +
                     '<td><span class="badge bg-' + color + '">' + esc(type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ')) + '</span></td>' +
+                    '<td>' + esc(termLabel) + '</td>' +
                     '<td>' + esc(formatDateRange(ev)) + '</td>' +
                     '<td>' + esc(formatTimeRange(ev)) + '</td>' +
                     '<td>' + esc(venue) + '</td>' +
                     '<td><span class="badge bg-' + statusColor + '">' + esc(String(status).charAt(0).toUpperCase() + String(status).slice(1)) + '</span></td>' +
-                    '<td><button class="btn btn-sm btn-outline-danger" data-delete-event="' + esc(String(ev.id || "")) + '" title="Delete"><i class="bi bi-trash"></i></button></td>' +
+                    '<td>' +
+                    (hasId
+                        ? (isMerged ? '' : '<button class="btn btn-sm btn-outline-primary me-1" data-edit-event="' + esc(String(ev.id || "")) + '" title="Edit"><i class="bi bi-pencil"></i></button>') +
+                          '<button class="btn btn-sm btn-outline-danger" data-delete-event="' + esc(String(ev.id || "")) + '" title="Delete"><i class="bi bi-trash"></i></button>'
+                        : '<span class="text-muted small">—</span>') +
+                    '</td>' +
                     '</tr>';
             }).join("");
         },
@@ -474,19 +520,55 @@
             }
         },
 
+        openEditModal: function (ev) {
+            var form = document.getElementById("addEventForm");
+            if (form) form.reset();
+            document.getElementById("eventId").value = ev.id || "";
+            document.getElementById("eventTitle").value = ev.title || ev.name || ev.event_name || "";
+            document.getElementById("eventType").value = (ev.type || ev.event_type || "general").toLowerCase();
+            document.getElementById("eventStartDate").value = parseDate(ev) || "";
+            document.getElementById("eventEndDate").value = ev.end_date || "";
+            document.getElementById("eventStartTime").value = ev.start_time || (ev.start_at ? String(ev.start_at).substring(11, 16) : "") || "";
+            document.getElementById("eventEndTime").value = ev.end_time || (ev.end_at ? String(ev.end_at).substring(11, 16) : "") || "";
+            document.getElementById("eventLocation").value = ev.location || ev.venue || "";
+            document.getElementById("eventDescription").value = ev.description || "";
+            var statusEl = document.getElementById("eventStatus");
+            if (statusEl) {
+                var st = String(ev.status || "upcoming").toLowerCase();
+                if (st === "completed") st = "past";
+                statusEl.value = st;
+            }
+            var label = document.getElementById("addEventModalLabel");
+            if (label) label.textContent = "Edit School Event";
+
+            var modal = document.getElementById("addEventModal");
+            if (modal) {
+                var bsModal = new bootstrap.Modal(modal);
+                bsModal.show();
+            }
+        },
+
         saveEvent: async function () {
             var title = (document.getElementById("eventTitle")?.value || "").trim();
-            var type = document.getElementById("eventType")?.value || "other";
+            var type = document.getElementById("eventType")?.value || "general";
             var startDate = document.getElementById("eventStartDate")?.value || "";
             var endDate = document.getElementById("eventEndDate")?.value || "";
+            var startTime = document.getElementById("eventStartTime")?.value || "";
+            var endTime = document.getElementById("eventEndTime")?.value || "";
+            var location = (document.getElementById("eventLocation")?.value || "").trim();
+            var status = document.getElementById("eventStatus")?.value || "upcoming";
             var description = (document.getElementById("eventDescription")?.value || "").trim();
             var id = document.getElementById("eventId")?.value || "";
 
             if (!title) { showToast("Event title is required", "warning"); return; }
             if (!startDate) { showToast("Start date is required", "warning"); return; }
+            if (endDate && endDate < startDate) { showToast("End date cannot be before the start date", "warning"); return; }
 
-            var payload = { title: title, type: type, start_date: startDate, description: description };
+            var payload = { name: title, type: type, start_date: startDate, status: status, description: description };
+            if (startTime) payload.start_time = startTime;
             if (endDate) payload.end_date = endDate;
+            if (endTime) payload.end_time = endTime;
+            if (location) payload.location = location;
 
             try {
                 if (id) {
@@ -509,10 +591,16 @@
 
         deleteEvent: async function (id) {
             if (!id) return;
-            if (!(await window.confirmAction('Confirm Deletion', "Delete this event? This will also clear the linked calendar day if applicable.", { confirmText: 'Delete', danger: true }))) return;
+            var ev = this.data.find(function (e) { return String(e.id) === String(id); });
+            var ids = (ev && Array.isArray(ev.ids) && ev.ids.length) ? ev.ids : [id];
+            if (!(await window.confirmAction('Confirm Deletion', ids.length > 1
+                ? "Delete this event and its " + (ids.length - 1) + " linked date segments (e.g. the whole holiday period)? This will also clear the linked calendar days."
+                : "Delete this event? This will also clear the linked calendar day if applicable.", { confirmText: 'Delete', danger: true }))) return;
             try {
-                await window.API.schedules.deleteEvent(id);
-                showToast("Event deleted", "success");
+                for (var i = 0; i < ids.length; i++) {
+                    await window.API.schedules.deleteEvent(ids[i]);
+                }
+                showToast(ids.length > 1 ? ids.length + " event segments deleted" : "Event deleted", "success");
                 await this.loadData();
             } catch (err) {
                 console.error("school_events: deleteEvent error", err);

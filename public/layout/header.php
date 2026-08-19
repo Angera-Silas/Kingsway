@@ -103,6 +103,8 @@ $activePage = $activePage ?? 'home';
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">More</a>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="<?= $appBase ?>/downloads.php"><i class="bi bi-download me-2 text-success"></i>Downloads</a></li>
+            
+            <li><a class="dropdown-item" href="<?= $appBase ?>/uniform_catalog.php"><i class="bi bi-bag-heart me-2 text-success"></i>Uniform Store</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/contact.php"><i class="bi bi-envelope me-2 text-success"></i>Contact Us</a></li>
             <li><a class="dropdown-item" href="<?= $appBase ?>/parent_portal.php"><i class="bi bi-people me-2 text-success"></i>Parent Portal</a></li>
           </ul>
@@ -178,6 +180,10 @@ $activePage = $activePage ?? 'home';
         <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
         <h5>Two-Factor Verification</h5>
         <p id="tfaMethodDesc">Enter the verification code from your authenticator app.</p>
+        <div id="tfaMethodPicker" class="mb-3 d-none">
+          <label for="tfaMethodSelect" class="form-label small fw-semibold text-muted">Verification method</label>
+          <select id="tfaMethodSelect" class="form-select"></select>
+        </div>
       </div>
       <div class="p-4">
         <div id="tfaError" class="alert alert-danger d-none py-2 small mb-3">
@@ -186,6 +192,7 @@ $activePage = $activePage ?? 'home';
         <div class="mb-3">
           <label class="form-label small fw-semibold text-muted" id="tfaCodeLabel">Authentication Code</label>
           <input type="text" id="tfaCode" class="form-control text-center fw-bold" placeholder="000000" inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="font-size:1.5rem;letter-spacing:8px;font-family:monospace">
+          <button type="button" id="tfaPasskeyBtn" class="btn btn-outline-primary w-100 d-none"><i class="bi bi-person-badge me-2"></i>Continue with passkey</button>
         </div>
         <div id="tfaResend" class="text-center small text-muted d-none mb-3">
           <span id="tfaResendTimer">Resend code in <span id="tfaCountdown">60</span>s</span>

@@ -14,9 +14,10 @@ use function App\API\Includes\formatResponse;
 /**
  * Student Admission Workflow Handler
  * 
- * 7-STAGE WORKFLOW:
- * 1. Application Submission → 2. Document Verification → 3. Interview Scheduling
- * → 4. Interview Assessment → 5. Placement Offer → 6. Fee Payment → 7. Enrollment
+ * CANONICAL WORKFLOW:
+ * Application Applied → Application Received → Reviewed and Approved
+ * → Interview for Grade 4-9 → Student Admission Number → Class/Stream Placement
+ * → Fees/Transport/Uniform Payments → ID Generation → Final Enrollment
  * 
  * Database Objects Used:
  * - Tables: admission_applications, admission_documents
@@ -50,7 +51,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $dob = trim($data['date_of_birth'] ?? $data['child_dob'] ?? '');
             $gender = trim($data['gender'] ?? $data['child_gender'] ?? '');
             $gradeRaw = trim($data['grade_applying_for'] ?? $data['grade'] ?? '');
-            $academicYear = $data['academic_year'] ?? (int) date('Y', strtotime('+6 months'));
+            $academicYear = $data['academic_year'] ?? null;
 
             if ($applicantName === '' || $dob === '' || $gender === '' || $gradeRaw === '') {
                 throw new Exception('Missing required applicant details.');
@@ -58,8 +59,12 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $applicationSource = $this->policy->resolveApplicationSource($data);
             $admissionCategory = $this->policy->resolveAdmissionCategory($data);
-            $targetTermId = $this->policy->resolveTargetTermId($data);
             $normalizedGrade = $this->policy->normalizeGrade((string) $gradeRaw);
+            $targetTermId = $this->resolveTargetTermId($data);
+            $intake = $this->requireOpenAdmissionWindow($targetTermId, $normalizedGrade, $admissionCategory);
+            $targetTermId = (int) $intake['academic_year_term_id'];
+            $academicYear = (int) substr((string) $intake['year_code'], -4);
+            $admissionCategory = $intake['default_admission_category'] ?: $admissionCategory;
             $requiresInterview = $this->policy->requiresInterview($normalizedGrade) ? 1 : 0;
             $interviewReason = $this->policy->describeInterviewPolicy($normalizedGrade);
 
@@ -105,6 +110,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'application_source' => $applicationSource,
                 'admission_category' => $admissionCategory,
                 'target_term_id' => $targetTermId,
+                'admission_window_id' => (int) $intake['id'],
+                'academic_year' => $intake['year_code'],
                 'requires_interview' => $requiresInterview,
                 'interview_policy_reason' => $interviewReason,
                 'prev_school' => $data['previous_school'] ?? $data['child_prev_school'] ?? null,
@@ -137,6 +144,23 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $instance_id = $this->startWorkflow('admission_application', $application_id, $workflow_data, $initiatorId);
 
+            // This method is the submit boundary for every channel. Once the
+            // application is successfully saved, it is received by the
+            // school. Online and physical submissions differ only by
+            // application_source. Application Applied is reserved for an
+            // unfinished draft before this method is called.
+            $this->advance(
+                (int) $application_id,
+                'application_received',
+                'application_submitted',
+                [
+                    'documents_uploaded' => !empty($files),
+                    'documents_uploaded_at' => !empty($files) ? date('Y-m-d H:i:s') : null
+                ],
+                'Application successfully submitted — received for review'
+            );
+            $initialStage = 'application_received';
+
             $this->db->commit();
 
             return formatResponse(true, [
@@ -144,8 +168,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'application_no' => $app_no,
                 'ref' => $app_no,
                 'workflow_instance_id' => $instance_id,
-                'current_stage' => 'application_received',
-                'next_stage' => 'application_review',
+                'current_stage' => $initialStage,
+                'next_stage' => $initialStage === 'application_received' ? 'application_review' : 'application_received',
                 'policy' => [
                     'requires_interview' => (bool) $requiresInterview,
                     'interview_reason' => $interviewReason,
@@ -295,6 +319,121 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve the target academic_year_terms.id for an application.
+     *
+     * Order of precedence:
+     *   1. explicit target_term_id / intake_term_id;
+     *   2. a human-readable token ("Term 1 2027") from preferred_start /
+     *      target_term_token;
+     *   3. an open admission window matching the application's academic_year;
+     *   4. the current (then upcoming) open term as a last-resort default.
+     *
+     * This is the single place that guarantees a newly submitted application
+     * always has a target term, so it can advance past review.
+     */
+    private function resolveTargetTermId(array $data): ?int
+    {
+        // 1. Explicit id.
+        $termId = $data['target_term_id'] ?? $data['intake_term_id'] ?? null;
+        if ($termId !== null && $termId !== '' && (int) $termId > 0) {
+            $exists = $this->scalar("SELECT id FROM academic_year_terms WHERE id = ?", [(int) $termId]);
+            if ($exists) {
+                return (int) $exists;
+            }
+        }
+
+        // 2. Human token, e.g. "Term 1 2027" / "Term 1 2026/2027".
+        $token = trim((string) ($data['target_term_token'] ?? $data['preferred_start'] ?? ''));
+        if ($token !== '') {
+            $resolved = $this->scalar(
+                "SELECT ayt.id
+                 FROM academic_year_terms ayt
+                 JOIN terms t ON t.id = ayt.term_id
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 WHERE CONCAT(t.name, ' ', ay.year_code) = ?
+                    OR CONCAT(t.name, ' ', ay.year_name) = ?
+                    OR CONCAT(t.name, ' ', t.code) = ?
+                 LIMIT 1",
+                [$token, $token, $token]
+            );
+            if ($resolved) {
+                return (int) $resolved;
+            }
+        }
+
+        // 3. Open window matching the application's academic_year.
+        $academicYear = trim((string) ($data['academic_year'] ?? ''));
+        if ($academicYear !== '') {
+            $resolved = $this->scalar(
+                "SELECT ayt.id
+                 FROM academic_year_terms ayt
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 JOIN admission_windows aw ON aw.academic_year_term_id = ayt.id
+                    AND aw.status = 'open' AND aw.accepts_new_applications = 1
+                    AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                    AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+                 WHERE ay.year_code LIKE CONCAT('%', ?, '%')
+                 ORDER BY FIELD(ayt.status, 'current', 'upcoming'), ayt.opening_date ASC
+                 LIMIT 1",
+                [$academicYear]
+            );
+            if ($resolved) {
+                return (int) $resolved;
+            }
+        }
+
+        // 4. Last-resort current/upcoming open term.
+        $resolved = $this->scalar(
+            "SELECT ayt.id
+             FROM academic_year_terms ayt
+             JOIN admission_windows aw ON aw.academic_year_term_id = ayt.id
+                AND aw.status = 'open' AND aw.accepts_new_applications = 1
+                AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+             WHERE ayt.status IN ('current', 'upcoming')
+             ORDER BY FIELD(ayt.status, 'current', 'upcoming'), ayt.opening_date ASC
+             LIMIT 1"
+        );
+        return $resolved ? (int) $resolved : null;
+    }
+
+    /**
+     * Every channel must submit against an administrator-opened intake. This
+     * prevents a stale/manual term or academic year from entering the ledger.
+     */
+    private function requireOpenAdmissionWindow(?int $termId, string $grade, string $category): array
+    {
+        if (!$termId) {
+            throw new Exception('No open admission intake is currently accepting applications.');
+        }
+        $stmt = $this->db->prepare(
+            "SELECT aw.id, aw.academic_year_term_id, aw.eligible_grades,
+                    aw.default_admission_category, ay.year_code
+             FROM admission_windows aw
+             JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+             JOIN academic_years ay ON ay.id = aw.academic_year_id
+             WHERE aw.academic_year_term_id = ?
+               AND ayt.academic_year_id = aw.academic_year_id
+               AND aw.status = 'open' AND aw.accepts_new_applications = 1
+               AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+               AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+             ORDER BY aw.id DESC LIMIT 1"
+        );
+        $stmt->execute([$termId]);
+        $window = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$window) {
+            throw new Exception('The selected admission intake is not open.');
+        }
+        $allowed = json_decode((string) ($window['eligible_grades'] ?? ''), true);
+        if (is_array($allowed) && $allowed && !in_array($grade, array_map(function ($value) {
+            return $this->policy->normalizeGrade((string) $value);
+        }, $allowed), true)) {
+            throw new Exception('The selected grade is not offered in this admission intake.');
+        }
+        return $window;
     }
 
     private function storeSubmittedDocuments(int $applicationId, string $grade, array $files): void
@@ -451,14 +590,14 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // mandatory document has now been uploaded. We never reset the stage
             // backward on an upload — that was the old bug that made "Start Intake"
             // reopen Upload Documents even after documents already existed.
-            $advanceEligibleStages = ['application_received', 'application_review', 'documents_upload'];
+            $advanceEligibleStages = ['application_applied'];
             if ($all_uploaded && in_array($currentStage, $advanceEligibleStages, true)) {
                 $this->advance(
                     $application_id,
-                    'documents_verification',
+                    'application_received',
                     'all_documents_uploaded',
                     ['documents_uploaded' => true, 'documents_uploaded_at' => date('Y-m-d H:i:s')],
-                    'All mandatory documents uploaded'
+                    'Application documents uploaded — application received for review'
                 );
             }
 
@@ -579,7 +718,7 @@ return formatResponse(false, null, 'An internal error occurred.');
      * =======================================================================
      * Role: Registrar
      * Schedule interview with applicant/parent
-     * NOTE: Only for Grade2-6 students. ECD, PP1, PP2, Grade1, and Grade7 skip this stage.
+     * NOTE: Only Grade 4-9 applicants use this stage. Playgroup, PP1, PP2 and Grades 1-3 skip it.
      */
     public function scheduleInterview($application_id, $interview_date, $interview_time, $venue = 'Main Office') {
         try {
@@ -653,13 +792,112 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
+    /** Assign an applicant to an existing intake interview session. */
+    public function scheduleInterviewSession(int $applicationId, int $sessionId): array
+    {
+        try {
+            $this->db->beginTransaction();
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'interview_scheduling') {
+                throw new Exception('Invalid workflow state for interview scheduling');
+            }
+            $appStmt = $this->db->prepare('SELECT applicant_name, grade_applying_for, target_term_id FROM admission_applications WHERE id = ? FOR UPDATE');
+            $appStmt->execute([$applicationId]);
+            $application = $appStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$application || !$this->requiresAssessment($application['grade_applying_for'])) {
+                throw new Exception('This applicant is not eligible for an interview.');
+            }
+            $sessionStmt = $this->db->prepare(
+                "SELECT s.*, aw.academic_year_term_id, aw.application_open_at, aw.application_close_at,
+                        DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
+                 FROM admission_interview_sessions s
+                 JOIN admission_windows aw ON aw.id = s.admission_window_id
+                 LEFT JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 WHERE s.id = ? FOR UPDATE"
+            );
+            $sessionStmt->execute([$sessionId]);
+            $session = $sessionStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$session || !in_array($session['status'], ['scheduled', 'full'], true)) {
+                throw new Exception('Interview session is not available.');
+            }
+            if (empty($session['interviewer_id'])) {
+                throw new Exception('This interview session has no teacher interviewer. Edit the session before assigning applicants.');
+            }
+            $teacherStmt = $this->db->prepare("SELECT id FROM staff WHERE id=? AND staff_type_id=1 AND status='active' LIMIT 1");
+            $teacherStmt->execute([(int) $session['interviewer_id']]);
+            if (!$teacherStmt->fetchColumn()) throw new Exception('This interview session interviewer is not an active teacher.');
+            if ((int) ($application['target_term_id'] ?? 0) !== (int) ($session['academic_year_term_id'] ?? 0)) {
+                throw new Exception('Interview session does not belong to the applicant admission intake.');
+            }
+            if ($session['application_open_at'] && $session['session_date'] < substr($session['application_open_at'], 0, 10)) {
+                throw new Exception('Interview session is before the intake opening date.');
+            }
+            if ($session['valid_until'] && $session['session_date'] > $session['valid_until']) {
+                throw new Exception('Interview session is outside the permitted intake period.');
+            }
+            $countStmt = $this->db->prepare("SELECT COUNT(*) FROM admission_interviews WHERE session_id = ? AND status <> 'cancelled'");
+            $countStmt->execute([$sessionId]);
+            $assigned = (int) $countStmt->fetchColumn();
+            if ($assigned >= (int) $session['capacity']) {
+                throw new Exception('Interview session is full.');
+            }
+            $existing = $this->db->prepare("SELECT id FROM admission_interviews WHERE application_id = ? AND status IN ('scheduled','completed','rescheduled') LIMIT 1");
+            $existing->execute([$applicationId]);
+            if ($existing->fetchColumn()) throw new Exception('Applicant already has an interview assignment.');
+            $insert = $this->db->prepare("INSERT INTO admission_interviews (application_id, session_id, scheduled_date, scheduled_time, venue, status) VALUES (?, ?, ?, ?, ?, 'scheduled')");
+            $insert->execute([$applicationId, $sessionId, $session['session_date'], $session['start_time'], $session['venue']]);
+            $assigned++;
+            $this->db->prepare("UPDATE admission_interview_sessions SET status = CASE WHEN ? >= capacity THEN 'full' ELSE 'scheduled' END WHERE id = ?")->execute([$assigned, $sessionId]);
+            $insertId = (int) $this->db->lastInsertId();
+            $this->advance($applicationId, 'interview_results', 'interview_session_assigned', [
+                'interview_scheduled' => true,
+                'interview_session_id' => $sessionId,
+                'interview_date' => $session['session_date'],
+                'interview_time' => $session['start_time'],
+                'interview_venue' => $session['venue'],
+            ], 'Applicant assigned to interview session');
+            $this->db->commit();
+            $session['session_id'] = $sessionId;
+            // Dispatch after commit so an external message can never be sent
+            // for an application whose workflow transaction later rolls back.
+            $this->sendInterviewNotifications($insertId, $session, 'assigned');
+            return formatResponse(true, ['session_id' => $sessionId, 'date' => $session['session_date'], 'time' => $session['start_time'], 'venue' => $session['venue']], 'Applicant assigned to interview session');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $this->logError('interview_session_assignment_failed', $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage());
+            return formatResponse(false, null, $e->getMessage());
+        }
+    }
+
+    /** Queue parent SMS + email and create the teacher's in-system notice. */
+    public function notifyInterviewAssignment(int $interviewId, int $sessionId, string $eventSuffix = 'rescheduled'): array
+    {
+        $stmt = $this->db->prepare("SELECT ai.id,ai.session_id,ai.scheduled_date,ai.scheduled_time,ai.venue,ai.interviewer_id,
+                aa.applicant_name,aa.application_no,p.id AS parent_id,pp.phone AS parent_phone,pp.email AS parent_email
+            FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
+            JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id
+            WHERE ai.id=? AND ai.session_id=? LIMIT 1");
+        $stmt->execute([$interviewId, $sessionId]);
+        $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$assignment) return formatResponse(false, null, 'Interview assignment not found');
+        $this->sendInterviewNotifications($interviewId, [
+            'session_id' => $sessionId,
+            'session_date' => $assignment['scheduled_date'],
+            'start_time' => $assignment['scheduled_time'],
+            'venue' => $assignment['venue'],
+            'interviewer_id' => $assignment['interviewer_id'],
+        ], $eventSuffix, $assignment);
+        return formatResponse(true, null, 'Interview notifications queued');
+    }
+
     /**
      * =======================================================================
      * STAGE 4: INTERVIEW ASSESSMENT
      * =======================================================================
      * Role: Head Teacher
      * Conduct and record interview assessment
-     * NOTE: Only for Grade2-6 students. ECD, PP1, PP2, Grade1, and Grade7 skip this stage.
+     * NOTE: Only Grade 4-9 applicants use this stage. Playgroup, PP1, PP2 and Grades 1-3 skip it.
      */
     public function recordInterviewResults($application_id, $assessment_data) {
         try {
@@ -680,11 +918,18 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception("Grade $grade does not require interview assessment (auto-qualified)");
             }
 
-            // Store assessment results
+            $decision = strtolower(trim((string) ($assessment_data['decision'] ?? '')));
+            if (!in_array($decision, ['pass', 'fail'], true)) {
+                throw new Exception('An interview decision of pass or fail is required');
+            }
+
+            // Store assessment results. The score is evidence; the authorized
+            // interviewer makes the actual decision.
             $sql = "UPDATE workflow_instances 
                     SET data_json = JSON_SET(
                         COALESCE(data_json, '{}'),
                         '$.assessment_score', :score,
+                        '$.interview_decision', :decision,
                         '$.assessment_notes', :notes,
                         '$.assessed_by', :assessor,
                         '$.assessment_date', NOW()
@@ -694,24 +939,28 @@ return formatResponse(false, null, 'An internal error occurred.');
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'score' => $assessment_data['score'],
+                'decision' => $decision,
                 'notes' => $assessment_data['notes'] ?? '',
                 'assessor' => $this->user_id,
                 'instance_id' => $instance['id']
             ]);
 
-            // Determine if qualified (e.g., score >= 70)
-            if ($assessment_data['score'] >= 70) {
-                // Passed → admission decision stage
+            if ($decision === 'pass') {
+                // Passed → student admission-number creation. The interview
+                // is the approval gate for Grade 4-9; a separate legacy
+                // admission-decision stage is no longer part of the active
+                // CBC intake workflow.
                 $this->advance(
                     $application_id,
-                    'admission_decision',
+                    'student_admission_number',
                     'assessment_passed',
                     [
                         'interview_passed' => true,
+                        'interview_decision' => $decision,
                         'interview_score' => $assessment_data['score'],
                         'interview_notes' => $assessment_data['notes'] ?? ''
                     ],
-                    'Interview passed — proceeding to admission decision'
+                    'Interview passed by authorized reviewer — proceeding to student admission-number creation'
                 );
             } else {
                 // Failed → rejected stage (audit-logged). status stays visible to all.
@@ -721,6 +970,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                     'assessment_failed',
                     [
                         'interview_passed' => false,
+                        'interview_decision' => $decision,
                         'interview_score' => $assessment_data['score'],
                         'rejection_reason' => 'Did not meet interview requirements'
                     ],
@@ -730,8 +980,8 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $this->db->commit();
 
-            return formatResponse(true, null, $assessment_data['score'] >= 70 ?
-                'Assessment passed. Ready for placement offer.' :
+            return formatResponse(true, null, $decision === 'pass' ?
+                'Interview marked passed. Student admission-number creation can proceed.' :
                 'Assessment not passed. Application cancelled.');
 
         } catch (Exception $e) {
@@ -754,7 +1004,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $this->db->beginTransaction();
 
             $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-            if (!$instance || !in_array(($instance['current_stage'] ?? ''), ['admission_decision', 'fees_payment'], true)) {
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'fees_payment') {
                 throw new Exception("Invalid workflow state for placement offer");
             }
 
@@ -804,13 +1054,19 @@ return formatResponse(false, null, 'An internal error occurred.');
             $this->db->beginTransaction();
 
             $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-            if (!$instance || $instance['current_stage'] !== 'fee_payment') {
+            $currentStage = (string) ($instance['current_stage'] ?? '');
+            if (!$instance || !in_array($currentStage, ['class_placement', 'fees_payment'], true)) {
                 throw new Exception("Invalid workflow state for fee payment");
             }
 
             $amount = isset($payment_data['amount']) ? (float) $payment_data['amount'] : 0.0;
             if ($amount <= 0) {
                 throw new Exception("Payment amount must be greater than zero");
+            }
+
+            $registrationFee = $this->getRegistrationFeeForApplication((int) $application_id);
+            if ($amount < $registrationFee) {
+                throw new Exception('The payment must include the required registration fee of KES ' . number_format($registrationFee, 0));
             }
 
             $payment = $this->paymentService->recordApplicationPayment((int) $application_id, $payment_data, (int) $this->user_id);
@@ -823,19 +1079,6 @@ return formatResponse(false, null, 'An internal error occurred.');
             // Update application status
             $this->updateApplicationStatus($application_id, 'fees_pending');
 
-            // Any payment recorded allows advancement to enrollment
-            // The school determines minimum payment requirements outside this workflow
-            if ($amount > 0) {
-                // Advance to student ID generation (proc maps stage → status 'fees_paid')
-                $this->advance(
-                    $application_id,
-                    'student_id_generation',
-                    'payment_received',
-                    ['payment_status' => 'paid', 'last_payment_recorded_at' => date('Y-m-d H:i:s'), 'last_admission_payment_id' => $payment['payment_id'] ?? null],
-                    'Admission fee payment recorded'
-                );
-            }
-
             $this->db->commit();
 
             return formatResponse(true, [
@@ -843,14 +1086,204 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'amount_paid' => $amount,
                 'receipt_no' => $payment['receipt_no'],
                 'reference_no' => $payment['reference_no'],
-                'can_enroll' => $amount > 0
-            ], 'Payment recorded successfully');
+                'can_enroll' => false,
+                'stage' => $currentStage,
+                'verification_status' => 'pending_verification'
+            ], 'Payment submitted for verification');
 
         } catch (Exception $e) {
             $this->db->rollBack();
             $this->logError('fee_payment_failed', $e->getMessage());
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    private function getRegistrationFeeForApplication(int $applicationId): float
+    {
+        $stmt = $this->db->prepare("SELECT aa.parent_id, aa.enrolled_student_id FROM admission_applications aa WHERE aa.id = :id LIMIT 1");
+        $stmt->execute(['id' => $applicationId]);
+        $application = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $parentId = (int) ($application['parent_id'] ?? 0);
+        $studentId = (int) ($application['enrolled_student_id'] ?? 0);
+        if (!$parentId) return 2000.0;
+
+        $existing = $this->db->prepare("SELECT COUNT(*) FROM student_parents WHERE parent_id = :parent_id AND student_id <> :student_id");
+        $existing->execute(['parent_id' => $parentId, 'student_id' => $studentId]);
+
+        return ((int) $existing->fetchColumn() > 0) ? 1000.0 : 2000.0;
+    }
+
+    public function sendPaymentInstructions(int $applicationId): array
+    {
+        $this->sendPlacementPaymentNotification($applicationId, '', 0, 0, 'admission-payment-instructions');
+        return formatResponse(true, ['application_id' => $applicationId], 'Payment instructions queued for SMS and email');
+    }
+
+    /** Advance an electronically confirmed payment after the ledger is safe. */
+    public function advanceAfterConfirmedPayment(int $applicationId): bool
+    {
+        $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+        if (!$instance || ($instance['current_stage'] ?? '') !== 'fees_payment') {
+            return false;
+        }
+
+        $registrationFee = $this->getRegistrationFeeForApplication($applicationId);
+        $totalPaid = $this->paymentService->getTotalRecorded($applicationId);
+        if ($totalPaid < $registrationFee) {
+            return false;
+        }
+
+        $this->advance(
+            $applicationId,
+            'student_id_generation',
+            'payment_received',
+            [
+                'payment_status' => 'paid',
+                'last_payment_recorded_at' => date('Y-m-d H:i:s'),
+                'payment_total_recorded' => $totalPaid,
+            ],
+            'Electronic payment confirmed; admission payment requirement met'
+        );
+        return true;
+    }
+
+    /** Confirm a bank/M-Pesa record after staff have matched it to the statement/reconciliation feed. */
+    public function confirmManualPayment(int $applicationId, int $paymentId, array $data = []): array
+    {
+        try {
+            $this->db->beginTransaction();
+
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            $currentStage = (string) ($instance['current_stage'] ?? '');
+            if (!$instance || !in_array($currentStage, ['class_placement', 'fees_payment'], true)) {
+                throw new Exception('The application is not awaiting payment verification');
+            }
+
+            $stmt = $this->db->prepare(
+                "SELECT * FROM admission_payments
+                 WHERE id = :payment_id AND application_id = :application_id
+                   AND status = 'pending_verification'
+                 LIMIT 1"
+            );
+            $stmt->execute(['payment_id' => $paymentId, 'application_id' => $applicationId]);
+            $payment = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$payment) {
+                throw new Exception('This payment is already verified, posted, voided, or does not belong to this application');
+            }
+
+            $method = (string) ($payment['payment_method'] ?? '');
+            if (!in_array($method, ['bank_transfer', 'mpesa'], true)) {
+                throw new Exception('Only bank and M-Pesa payments can be verified here');
+            }
+
+            $source = trim((string) ($data['verification_source'] ?? ($method === 'mpesa' ? 'mpesa_reconciliation' : 'kcb_statement')));
+            $notes = trim((string) ($data['verification_notes'] ?? $data['notes'] ?? ''));
+            $update = $this->db->prepare(
+                "UPDATE admission_payments
+                 SET status = 'recorded', verification_source = :source,
+                     verified_by = :verified_by, verified_at = NOW(),
+                     verification_notes = :verification_notes, updated_at = NOW()
+                 WHERE id = :id AND status = 'pending_verification'"
+            );
+            $update->execute([
+                'source' => $source !== '' ? $source : 'staff_reconciliation',
+                'verified_by' => (int) $this->user_id,
+                'verification_notes' => $notes !== '' ? $notes : 'Matched to the official payment reconciliation record',
+                'id' => $paymentId,
+            ]);
+            if ($update->rowCount() !== 1) {
+                throw new Exception('Payment verification could not be completed; refresh and try again');
+            }
+
+            $appStmt = $this->db->prepare("SELECT enrolled_student_id, parent_id, application_no FROM admission_applications WHERE id = :id LIMIT 1");
+            $appStmt->execute(['id' => $applicationId]);
+            $application = $appStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $studentId = (int) ($application['enrolled_student_id'] ?? 0);
+            $posted = 0;
+            if ($studentId > 0) {
+                $posted = $this->paymentService->postApplicationPaymentsToStudent(
+                    $applicationId,
+                    $studentId,
+                    (int) ($application['parent_id'] ?? 0) ?: null,
+                    (int) $this->user_id,
+                    (string) ($application['application_no'] ?? '')
+                );
+            }
+
+            $instanceData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
+            $instanceData['payment_verification_status'] = 'confirmed';
+            $instanceData['last_payment_verified_at'] = date('Y-m-d H:i:s');
+            $instanceData['last_verified_payment_id'] = $paymentId;
+            $this->saveWorkflowInstanceData((int) $instance['id'], $instanceData);
+
+            $advanced = false;
+            if ($currentStage === 'fees_payment' && $this->paymentService->getTotalRecorded($applicationId) >= $this->getRegistrationFeeForApplication($applicationId)) {
+                $advanced = $this->advanceAfterConfirmedPayment($applicationId);
+            }
+
+            $this->db->commit();
+            return formatResponse(true, [
+                'application_id' => $applicationId,
+                'payment_id' => $paymentId,
+                'status' => 'recorded',
+                'posted_to_ledger' => $posted,
+                'advanced_to_id_generation' => $advanced,
+            ], $advanced ? 'Payment verified and application advanced to ID generation' : 'Payment verified successfully');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $this->logError('manual_payment_verification_failed', $e->getMessage());
+            error_log('[StudentAdmissionWorkflow] ' . $e->getMessage());
+            return formatResponse(false, null, 'Payment verification failed');
+        }
+    }
+
+    private function sendPlacementPaymentNotification(int $applicationId, string $admissionNumber, int $classId, int $streamId, string $eventPrefix = 'admission-payment-request'): void
+    {
+        $stmt = $this->db->prepare("SELECT aa.applicant_name, aa.parent_id, aa.application_no, s0.admission_no AS student_admission_no, pp.phone AS parent_phone, pp.email AS parent_email, c.name AS class_name, s.name AS stream_name
+            FROM admission_applications aa
+            JOIN parents p ON p.id = aa.parent_id
+            JOIN persons pp ON pp.id = p.person_id
+            LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
+            LEFT JOIN classes c ON c.id = :class_id
+            LEFT JOIN streams s ON s.id = :stream_id
+            WHERE aa.id = :application_id LIMIT 1");
+        $stmt->execute(['application_id' => $applicationId, 'class_id' => $classId, 'stream_id' => $streamId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || (empty($row['parent_phone']) && empty($row['parent_email']))) return;
+
+        $registrationFee = $this->getRegistrationFeeForApplication($applicationId);
+        $accountReference = $admissionNumber ?: ($row['student_admission_no'] ?: $row['application_no']);
+        $body = sprintf(
+            'Kingsway Admissions: Payment is requested for %s. Use application/admission reference %s as the account number. Registration fee due: KES %s. You may pay by M-Pesa or bank transfer; cash is not accepted. Please retain the M-Pesa message or bank receipt.',
+            $row['applicant_name'] ?: 'your child',
+            $accountReference,
+            number_format($registrationFee, 0)
+        );
+
+        $business = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        foreach (['sms', 'email'] as $channel) {
+            $key = $eventPrefix . ':' . $applicationId . ':' . $channel;
+            $check = $this->db->prepare("SELECT id FROM communication_business_events WHERE event_code='admission_payment_request' AND event_key=? LIMIT 1");
+            $check->execute([$key]);
+            if ($check->fetchColumn()) continue;
+            $eventId = $business->getOrCreate('admission_payment_request', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
+            $queued = $platform->queueRenderedForContacts(
+                [['user_id' => null, 'phone' => $row['parent_phone'] ?? null, 'email' => $row['parent_email'] ?? null]],
+                $channel,
+                'Admission placement and payment instructions',
+                $body,
+                ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]
+            );
+            $business->markProcessed($eventId);
+            if (!empty($queued['communication_id'])) {
+                try {
+                    (new \App\API\Services\CommunicationOutboxService($this->db))->processOne((int) $queued['communication_id']);
+                } catch (\Throwable $dispatchError) {
+                    error_log('[AdmissionPaymentNotification] dispatch deferred: ' . $dispatchError->getMessage());
+                }
+            }
         }
     }
 
@@ -940,19 +1373,19 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('No active workflow instance found');
             }
             $stage = $instance['current_stage'] ?? '';
-            if (!in_array($stage, ['interview_results', 'admission_decision', 'class_space_check'], true)) {
+            if ($stage !== 'interview_results') {
                 throw new Exception("Application cannot be admitted from stage '{$stage}'");
             }
 
             $this->advance(
                 $applicationId,
-                'provisional_student_creation',
+                'student_admission_number',
                 'student_admitted',
                 ['admission_approved' => true, 'admitted_at' => date('Y-m-d H:i:s')],
                 'Student admitted — proceed to provisional student creation'
             );
 
-            return formatResponse(true, ['next_stage' => 'provisional_student_creation'], 'Student admitted.');
+            return formatResponse(true, ['next_stage' => 'student_admission_number'], 'Student admitted.');
         } catch (Exception $e) {
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
@@ -966,20 +1399,12 @@ return formatResponse(false, null, 'An internal error occurred.');
      * Role: Registrar
      * Builds the real students row for the admitted application. Dedup-guarded:
      * if a students row already exists for this application it is returned
-     * instead of creating a duplicate. Advances to fees_payment.
+     * instead of creating a duplicate. Advances to class_placement.
      */
-    public function createProvisionalStudent(int $applicationId): array
+    public function createStudentAdmissionNumber(int $applicationId): array
     {
         try {
             $this->db->beginTransaction();
-
-            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
-            if (!$instance) {
-                throw new Exception('No active workflow instance found');
-            }
-            if (($instance['current_stage'] ?? '') !== 'provisional_student_creation') {
-                throw new Exception('Application is not at the provisional student creation stage');
-            }
 
             $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1");
             $stmt->execute(['id' => $applicationId]);
@@ -988,13 +1413,25 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('Admission application not found');
             }
 
+            // Idempotency must be checked before the workflow-stage gate. A
+            // second click happens after the first request has already moved
+            // the application to class placement, and should return the
+            // existing student instead of producing a misleading 400 error.
             if (!empty($application['enrolled_student_id'])) {
                 $this->db->commit();
                 return formatResponse(true, [
                     'student_id' => (int) $application['enrolled_student_id'],
                     'admission_number' => $application['admission_no'] ?? null,
                     'reused' => true
-                ], 'Student already created for this application.');
+                ], 'Student admission number already exists for this application.');
+            }
+
+            $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
+            if (!$instance) {
+                throw new Exception('No active workflow instance found');
+            }
+            if (($instance['current_stage'] ?? '') !== 'student_admission_number') {
+                throw new Exception('Application is not at the student admission-number stage');
             }
 
             $studentTypeId = $this->resolveDefaultStudentTypeId();
@@ -1017,33 +1454,20 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('Student creation via proc returned no ID');
             }
 
-            $postedPaymentCount = 0;
-            if ($this->paymentService->hasPositivePayment((int) $applicationId)) {
-                try {
-                    $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
-                        (int) $applicationId, (int) $studentId,
-                        !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
-                        (int) ($this->user_id ?? 1), (string) ($application['application_no'] ?? '')
-                    );
-                } catch (\Exception $e) {
-                    error_log('[admission] postApplicationPaymentsToStudent failed: ' . $e->getMessage());
-                }
-            }
-
             $this->db->commit();
 
             $this->advance(
                 $applicationId,
-                'fees_payment',
-                'provisional_student_created',
-                ['student_id' => $studentId, 'admission_number' => $admissionNo],
-                'Provisional student created — awaiting fee payment'
+                'class_placement',
+                'student_admission_number_created',
+                ['student_id' => $studentId, 'admission_number' => $admissionNo, 'student_admission_number_created' => true],
+                'Student record created with admission number — awaiting class placement'
             );
 
             return formatResponse(true, [
                 'student_id' => $studentId,
                 'admission_number' => $admissionNo
-            ], 'Provisional student created successfully.');
+            ], 'Student admission number created successfully.');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -1051,6 +1475,12 @@ return formatResponse(false, null, 'An internal error occurred.');
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return formatResponse(false, null, 'An internal error occurred.');
         }
+    }
+
+    /** Backward-compatible API alias; the active workflow uses the canonical name. */
+    public function createProvisionalStudent(int $applicationId): array
+    {
+        return $this->createStudentAdmissionNumber($applicationId);
     }
 
     /**
@@ -1102,13 +1532,13 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $this->advance(
                 $applicationId,
-                'final_approval',
+                'final_enrollment',
                 'student_id_card_generated',
                 ['student_id_card_generated' => true, 'student_id_card_id' => $cardId],
                 'Student ID card generated — awaiting final approval'
             );
 
-            return formatResponse(true, ['card_id' => $cardId, 'next_stage' => 'final_approval'], 'Student ID card generated.');
+            return formatResponse(true, ['card_id' => $cardId, 'next_stage' => 'final_enrollment'], 'Student ID card generated.');
         } catch (Exception $e) {
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
@@ -1127,19 +1557,19 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         try {
             $instance = $this->getWorkflowInstanceByReference('admission_application', $applicationId);
-            if (!$instance || ($instance['current_stage'] ?? '') !== 'final_approval') {
+            if (!$instance || ($instance['current_stage'] ?? '') !== 'final_enrollment') {
                 throw new Exception('Application is not at the final approval stage');
             }
 
             $this->advance(
                 $applicationId,
-                'enrollment',
+                'enrolled',
                 'final_approval_granted',
-                ['final_approval_done' => true, 'final_approval_at' => date('Y-m-d H:i:s')],
-                'Final approval granted'
+                ['final_enrollment_done' => true, 'final_enrollment_at' => date('Y-m-d H:i:s')],
+                'Final enrollment completed'
             );
 
-            return formatResponse(true, ['next_stage' => 'enrollment'], 'Final approval granted.');
+            return formatResponse(true, ['next_stage' => 'enrolled'], 'Final enrollment completed.');
         } catch (Exception $e) {
             error_log('[StudentAdmissionWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
@@ -1153,12 +1583,12 @@ return formatResponse(false, null, 'An internal error occurred.');
      * Role: Registrar
      * Complete student enrollment and create student record
      */
-    public function completeEnrollment($application_id) {
+    public function completeEnrollment($application_id, array $placement = []) {
         try {
             $this->db->beginTransaction();
 
             $instance = $this->getWorkflowInstanceByReference('admission_application', $application_id);
-            if (!$instance || $instance['current_stage'] !== 'enrollment') {
+            if (!$instance || !in_array($instance['current_stage'] ?? '', ['class_placement', 'final_enrollment'], true)) {
                 throw new Exception("Invalid workflow state for enrollment");
             }
 
@@ -1173,9 +1603,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             if (($application['status'] ?? '') === 'enrolled') {
                 throw new Exception('Application is already enrolled');
             }
-            if (!$this->paymentService->hasPositivePayment((int) $application_id)) {
-                throw new Exception('A positive admission payment is required before enrollment');
-            }
+            // Placement is intentionally before payment. The student must
+            // first exist with an admission number so the class/stream,
+            // learning areas, billing and boarding records can be linked.
 
             // The provisional student was created at step 8 (createProvisionalStudent).
             // Reuse it rather than inserting a second student row.
@@ -1185,7 +1615,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             $instance_data = json_decode($instance['data_json'], true) ?: [];
-            $class_id = $instance_data['assigned_class_id'] ?? null;
+            $class_id = !empty($placement['class_id'])
+                ? (int) $placement['class_id']
+                : ($instance_data['assigned_class_id'] ?? null);
             $academic_year_id = (int) $this->getCurrentAcademicYearId();
             if (!$academic_year_id) {
                 throw new Exception('No active academic year found for enrollment');
@@ -1196,14 +1628,11 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             // Determine stream: prefer assigned, else the provisional student's stream.
-            $stream_id = $instance_data['assigned_stream_id'] ?? null;
-            if (!$stream_id) {
-                $streamStmt = $this->db->prepare("SELECT id FROM streams ORDER BY id ASC LIMIT 1");
-                $streamStmt->execute();
-                $stream_id = $streamStmt->fetchColumn() ?: null;
-            }
+            $stream_id = !empty($placement['stream_id'])
+                ? (int) $placement['stream_id']
+                : ($instance_data['assigned_stream_id'] ?? null);
             if (!$stream_id || !$class_id) {
-                throw new Exception('No class/stream is configured for the selected placement');
+                throw new Exception('Select a configured class stream before completing placement');
             }
 
             $aycsId = null;
@@ -1217,14 +1646,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $aycsId = $aycsStmt->fetchColumn() ?: null;
 
             if (!$aycsId) {
-                $insertAycs = $this->db->prepare("
-                    INSERT INTO academic_year_class_streams (id, academic_year_class_id, stream_id, status)
-                    SELECT COALESCE(MAX(id), 0) + 1, ayc.id, :stream_id, 'active'
-                    FROM academic_year_class_streams
-                    CROSS JOIN (SELECT ayc2.id FROM academic_year_classes ayc2 WHERE ayc2.academic_year_id = :year_id AND ayc2.class_id = :class_id LIMIT 1) ayc
-                ");
-                $insertAycs->execute(['stream_id' => $stream_id, 'year_id' => $academic_year_id, 'class_id' => $class_id]);
-                $aycsId = (int) $this->db->lastInsertId();
+                throw new Exception('The selected stream is not configured for this class and academic year');
             }
 
             $enrollment_date = date('Y-m-d');
@@ -1244,13 +1666,19 @@ return formatResponse(false, null, 'An internal error occurred.');
             $enrollment_id = $out['enrollment_id'] ?? null;
             $fee_obligations_created = (int) ($out['obligations_generated'] ?? 0);
 
-            $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
-                (int) $application_id,
-                (int) $student_id,
-                !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
-                (int) $this->user_id,
-                (string) ($application['application_no'] ?? '')
-            );
+            // The placement procedure has now generated the student's fee
+            // obligations. Allocate every verified pre-placement payment
+            // only at this point; posting earlier would leave it unallocated.
+            $postedPaymentCount = 0;
+            if ($this->paymentService->hasPositivePayment((int) $application_id)) {
+                $postedPaymentCount = $this->paymentService->postApplicationPaymentsToStudent(
+                    (int) $application_id,
+                    (int) $student_id,
+                    !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                    (int) ($this->user_id ?? 1),
+                    (string) ($application['application_no'] ?? '')
+                );
+            }
 
             $instance_data['student_id'] = (int) $student_id;
             $instance_data['enrollment_id'] = $enrollment_id;
@@ -1262,22 +1690,42 @@ return formatResponse(false, null, 'An internal error occurred.');
             $instance_data['attendance_register_added'] = !empty($class_id);
             $this->saveWorkflowInstanceData((int) $instance['id'], $instance_data);
 
-            // Advance to the terminal 'enrolled' stage (final approval already done).
+            $nextStage = ($instance['current_stage'] ?? '') === 'class_placement'
+                ? 'fees_payment'
+                : 'enrolled';
+            if (($instance['current_stage'] ?? '') === 'class_placement'
+                && $this->paymentService->getTotalRecorded((int) $application_id) >= $this->getRegistrationFeeForApplication((int) $application_id)) {
+                $nextStage = 'student_id_generation';
+            }
+
             $this->advance(
                 (int) $application_id,
-                'enrolled',
-                'enrollment_completed',
+                $nextStage,
+                $nextStage === 'fees_payment'
+                    ? 'class_placement_completed'
+                    : ($nextStage === 'student_id_generation' ? 'payment_received' : 'enrollment_completed'),
                 $instance_data,
-                'Enrollment completed'
+                $nextStage === 'fees_payment'
+                    ? 'Class/stream placement completed — awaiting payment'
+                    : ($nextStage === 'student_id_generation'
+                        ? 'Class/stream placement completed — verified payment already received'
+                        : 'Enrollment completed')
             );
 
             $this->db->commit();
+
+            try {
+                $this->sendPlacementPaymentNotification((int) $application_id, (string) ($out['admission_no'] ?? ''), (int) $class_id, (int) $stream_id);
+            } catch (\Throwable $notificationError) {
+                error_log('[AdmissionPaymentNotification] ' . $notificationError->getMessage());
+            }
 
             return formatResponse(true, [
                 'student_id' => $student_id,
                 'enrollment_id' => $enrollment_id ?? null,
                 'fee_obligations_created' => $fee_obligations_created ?? 0,
-                'student_number' => $application['admission_no'] ?? null
+                'student_number' => $application['admission_no'] ?? null,
+                'next_stage' => $nextStage
             ], 'Enrollment completed successfully');
 
         } catch (Exception $e) {
@@ -1762,6 +2210,70 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
 
         return 'guardian';
+    }
+
+    private function sendInterviewNotifications(int $interviewId, array $session, string $eventSuffix, ?array $assignment = null): void
+    {
+        if ($assignment === null) {
+            $stmt = $this->db->prepare("SELECT ai.id,ai.interviewer_id,aa.applicant_name,aa.application_no,
+                    pp.phone AS parent_phone,pp.email AS parent_email
+                FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
+                JOIN parents p ON p.id=aa.parent_id LEFT JOIN persons pp ON pp.id=p.person_id WHERE ai.id=? LIMIT 1");
+            $stmt->execute([$interviewId]);
+            $assignment = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+        if (!$assignment) return;
+
+        $body = 'KingsWay Admissions: ' . ($assignment['applicant_name'] ?? 'Applicant') . ' (' . ($assignment['application_no'] ?? '') . ') interview is scheduled on ' . $session['session_date'] . ' at ' . substr((string) $session['start_time'], 0, 5) . ' at ' . ($session['venue'] ?? 'Main Office') . '.';
+        $business = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+
+        // Parent/guardian receives both channels. Each channel has its own
+        // idempotency key so one failed/missing endpoint does not suppress the other.
+        foreach (['sms', 'email'] as $channel) {
+            $key = 'admission-interview:' . $interviewId . ':' . ($session['session_id'] ?? 0) . ':' . $channel . ':' . $eventSuffix;
+            $check = $this->db->prepare("SELECT id FROM communication_business_events WHERE event_code='admission_interview_notification' AND event_key=? LIMIT 1");
+            $check->execute([$key]);
+            if ($check->fetchColumn()) continue;
+            $eventId = $business->getOrCreate('admission_interview_notification', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
+            $queued = $platform->queueRenderedForContacts(
+                [['user_id' => null, 'phone' => $assignment['parent_phone'] ?? null, 'email' => $assignment['parent_email'] ?? null]],
+                $channel,
+                'Admission interview schedule',
+                $body,
+                ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]
+            );
+            $business->markProcessed($eventId);
+            if (!empty($queued['communication_id'])) {
+                try {
+                    $dispatch = new \App\API\Services\CommunicationOutboxService($this->db);
+                    $dispatch->processOne((int) $queued['communication_id']);
+                } catch (\Throwable $dispatchError) {
+                    // The durable outbox record remains queued for the worker.
+                    error_log('[AdmissionInterviewNotification] immediate dispatch deferred: ' . $dispatchError->getMessage());
+                }
+            }
+        }
+
+        // Teacher notification is internal. The UI exposes the teacher phone for
+        // the school's follow-up call; no unsolicited teacher SMS is sent here.
+        $teacherId = (int) ($session['interviewer_id'] ?? $assignment['interviewer_id'] ?? 0);
+        if ($teacherId > 0) {
+            $title = 'Admission interview assignment';
+            $message = 'You are assigned to interview ' . ($assignment['applicant_name'] ?? 'an applicant') . ' (' . ($assignment['application_no'] ?? '') . ') on ' . $session['session_date'] . ' at ' . substr((string) $session['start_time'], 0, 5) . ' at ' . ($session['venue'] ?? 'Main Office') . '. Follow-up calls may be made to your registered phone.';
+            $check = $this->db->prepare("SELECT n.id FROM notifications n JOIN users u ON u.id=n.user_id JOIN staff s ON s.id=? WHERE s.id=? AND n.type='admission_interview' AND n.reference_id=? AND n.title=? LIMIT 1");
+            $check->execute([$teacherId, $teacherId, $interviewId, $title]);
+            if (!$check->fetchColumn()) {
+                (new \App\API\Services\NotificationService($this->db))->push(
+                    'staff:' . $teacherId,
+                    'admission_interview',
+                    $title,
+                    $message,
+                    'high',
+                    ['reference_type' => 'admission_interview', 'reference_id' => $interviewId, 'action_url' => '/home.php?route=admission_interviews']
+                );
+            }
+        }
     }
 
     private function sendInterviewSMS($application_id, $date, $time, $venue) {

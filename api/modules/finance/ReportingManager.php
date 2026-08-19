@@ -91,7 +91,7 @@ class ReportingManager extends FileLifecycleBase
                 WHERE p.status = 'confirmed' 
                   AND ay.year_code = ?"
             );
-            $stmt->execute([$academicYear, $academicYear]);
+            $stmt->execute([$academicYear]);
             $actualCollected = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // TODAY's collections
@@ -223,7 +223,7 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
                 FROM mpesa_transactions mt
-                LEFT JOIN payments p ON mt.mpesa_code = p.reference
+                LEFT JOIN payments p ON mt.mpesa_code COLLATE utf8mb4_unicode_ci = p.reference COLLATE utf8mb4_unicode_ci
                 WHERE p.reference IS NULL 
                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'matched'))
                   AND mt.transaction_date BETWEEN ? AND ?

@@ -173,6 +173,19 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->getSummary());
     }
 
+    /** Internal worker endpoint for systemd/cron when CLI PHP lacks pdo_mysql. */
+    public function postProcessOutbox($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('COMMUNICATION_WORKER_SECRET') ? (string) COMMUNICATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        $limit = max(1, min(100, (int) ($data['limit'] ?? 25)));
+        $result = (new \App\API\Services\CommunicationOutboxService($this->getDb()->getConnection()))->processPending($limit);
+        return $this->success($result, 'Communication outbox processed');
+    }
+
     // --- SMS Callback Endpoints ---
     /**
      * Endpoint for SMS Delivery Reports Callback
@@ -180,15 +193,38 @@ class CommunicationsController extends BaseController
      */
     public function postSmsDeliveryReport($id = null, $data = [], $segments = [])
     {
+        if (!$this->validProviderCallback($data)) {
+            return $this->badRequest('Invalid provider callback signature');
+        }
         // Log the incoming data
         error_log('SMS Delivery Report: ' . json_encode($data));
         // Update delivery status in DB if message_id/status present
-        if (isset($data['message_id'], $data['status'])) {
-            $deliveredAt = $data['delivered_at'] ?? null;
-            $errorMessage = $data['error_message'] ?? null;
-            $this->api->updateDeliveryStatus($data['message_id'], $data['status'], $deliveredAt, $errorMessage);
+        $providerMessageId = $data['message_id'] ?? $data['messageId'] ?? $data['id'] ?? null;
+        $providerStatus = $data['status'] ?? $data['delivery_status'] ?? $data['statusCode'] ?? null;
+        if ($providerMessageId && $providerStatus !== null) {
+            $deliveredAt = $data['delivered_at'] ?? $data['date'] ?? null;
+            $errorMessage = $data['error_message'] ?? $data['failureReason'] ?? $data['failure_reason'] ?? null;
+            $this->api->updateDeliveryStatusByProvider($providerMessageId, $providerStatus, $deliveredAt, $errorMessage);
         }
         return $this->success(null, 'Delivery report received');
+    }
+
+    public function postWhatsappDeliveryReport($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validProviderCallback($data)) {
+            return $this->badRequest('Invalid provider callback signature');
+        }
+        $providerMessageId = $data['message_id'] ?? $data['messageId'] ?? $data['id'] ?? null;
+        if ($providerMessageId && isset($data['status'])) {
+            $this->api->updateDeliveryStatusByProvider(
+                $providerMessageId,
+                $data['status'],
+                $data['delivered_at'] ?? null,
+                $data['error_message'] ?? $data['failureReason'] ?? null
+            );
+        }
+        error_log('WhatsApp Delivery Report: ' . json_encode($data));
+        return $this->success(null, 'WhatsApp delivery report received');
     }
 
     /**
@@ -197,12 +233,15 @@ class CommunicationsController extends BaseController
      */
     public function postSmsOptOutCallback($id = null, $data = [], $segments = [])
     {
+        if (!$this->validProviderCallback($data)) {
+            return $this->badRequest('Invalid provider callback signature');
+        }
         // Log the incoming data
         error_log('SMS Opt-Out Callback: ' . json_encode($data));
         // Update opt-out list in DB if phone/channel present
-        if (isset($data['phone'])) {
-            $channel = $data['channel'] ?? 'sms';
-            $this->api->markOptOut($data['phone'], $channel);
+        $phone = $data['phone'] ?? $data['phoneNumber'] ?? $data['from'] ?? null;
+        if ($phone) {
+            $this->api->markOptOut($phone, $data['channel'] ?? 'sms');
         }
         return $this->success(null, 'Opt-out received');
     }
@@ -213,13 +252,18 @@ class CommunicationsController extends BaseController
      */
     public function postSmsSubscriptionCallback($id = null, $data = [], $segments = [])
     {
+        if (!$this->validProviderCallback($data)) {
+            return $this->badRequest('Invalid provider callback signature');
+        }
         // Log the incoming data
         error_log('SMS Subscription Callback: ' . json_encode($data));
         // Store incoming message in DB if phone/message present
-        if (isset($data['phone'], $data['message'])) {
+        $phone = $data['phone'] ?? $data['phoneNumber'] ?? $data['from'] ?? null;
+        $message = $data['message'] ?? $data['text'] ?? $data['body'] ?? null;
+        if ($phone && $message !== null) {
             $msgData = [
-                'sender' => $data['phone'],
-                'message' => $data['message'],
+                'sender' => $phone,
+                'message' => $message,
                 'channel' => $data['channel'] ?? 'sms',
                 'received_at' => $data['received_at'] ?? date('Y-m-d H:i:s'),
                 'raw_data' => $data
@@ -227,6 +271,18 @@ class CommunicationsController extends BaseController
             $this->api->storeIncomingMessage($msgData);
         }
         return $this->success(null, 'Incoming message received');
+    }
+
+    /** Africa's Talking WhatsApp inbound callback. */
+    public function postWhatsappIncoming($id = null, $data = [], $segments = [])
+    {
+        if (!$this->validProviderCallback($data)) return $this->badRequest('Invalid provider callback signature');
+        try {
+            return $this->success($this->api->storeIncomingWhatsappMessage($data), 'WhatsApp message received');
+        } catch (\Throwable $e) {
+            error_log('[WhatsApp inbound] ' . $e->getMessage());
+            return $this->badRequest('Unable to process WhatsApp message');
+        }
     }
 
 
@@ -467,6 +523,26 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->postSendWhatsapp());
     }
 
+    public function postSendWhatsappTemplate($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postSendWhatsappTemplate());
+    }
+
+    public function postCreateWhatsappTemplate($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postCreateWhatsappTemplate());
+    }
+
+    public function getAudienceOptions($id = null, $data = [], $segments = [])
+    {
+        $roles = $this->getUserRoleIds();
+        $full = !empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]));
+        $teacher = !empty(array_intersect($roles, [7, 8, 9])) && !$full;
+        return $this->success(array_merge($this->api->getAudienceOptions(), [
+            'allowed_audiences' => $teacher ? ['selected_students', 'selected_class', 'selected_parents'] : ['all_parents', 'selected_parents', 'selected_students', 'selected_class', 'student_type', 'school_level', 'all_staff', 'selected_staff', 'selected_vendors', 'all_vendors', 'contact_group', 'custom_numbers'],
+        ]));
+    }
+
     /**
      * Send SMS directly with message
      * POST /communications/send-sms
@@ -527,7 +603,20 @@ class CommunicationsController extends BaseController
     }
     public function postCommunication($id = null, $data = [], $segments = [])
     {
+        $audience = strtolower((string) ($data['recipient_type'] ?? ''));
+        $roles = $this->getUserRoleIds();
+        $fullAudienceRoles = [2, 3, 4, 5, 6, 10, 63];
+        $teacherRoles = [7, 8, 9];
+        if (array_intersect($roles, $teacherRoles) && !array_intersect($roles, $fullAudienceRoles) && !in_array($audience, ['selected_students', 'selected_class', 'selected_parents'], true)) return $this->forbidden('Your role may message only assigned learner and parent audiences.');
+        if (in_array($audience, ['selected_vendors', 'all_vendors'], true) && !array_intersect($roles, [2, 3, 4, 10])) return $this->forbidden('Vendor messaging is restricted to finance and school management roles.');
         return $this->handleResponse($this->api->createCommunication($data));
+    }
+    public function postDispatchCommunication($id = null, $data = [], $segments = [])
+    {
+        if ($id === null || (int) $id < 1) {
+            return $this->badRequest('Communication ID required');
+        }
+        return $this->handleResponse($this->api->dispatchCommunication((int) $id));
     }
     public function putCommunication($id = null, $data = [], $segments = [])
     {
@@ -542,6 +631,21 @@ class CommunicationsController extends BaseController
             return $this->badRequest('ID required');
         }
         return $this->handleResponse($this->api->deleteCommunication($id));
+    }
+
+    private function validProviderCallback(array $data): bool
+    {
+        $atToken = defined('AFRICASTALKING_WEBHOOK_TOKEN') ? (string) AFRICASTALKING_WEBHOOK_TOKEN : '';
+        if ($atToken !== '') {
+            $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_TOKEN'] ?? ($_GET['token'] ?? ($data['token'] ?? ''));
+            return is_string($provided) && hash_equals($atToken, $provided);
+        }
+        $secret = defined('COMMUNICATION_WEBHOOK_SECRET') ? (string) COMMUNICATION_WEBHOOK_SECRET : '';
+        if ($secret === '') {
+            return strtolower((string) ($_ENV['APP_ENV'] ?? 'development')) !== 'production';
+        }
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WEBHOOK_SECRET'] ?? ($data['webhook_secret'] ?? '');
+        return is_string($provided) && hash_equals($secret, $provided);
     }
 
     /**

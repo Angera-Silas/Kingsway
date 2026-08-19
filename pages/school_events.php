@@ -21,7 +21,7 @@
                 </div>
                 <div class="d-flex gap-2">
                     <button class="btn btn-outline-secondary" onclick="SchoolEventsController.syncNow()"><i class="bi bi-arrow-repeat me-1"></i> Sync Calendar</button>
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
+                    <button class="btn btn-primary" id="addEventBtn" onclick="SchoolEventsController.openAddModal()">
                         <i class="bi bi-plus-lg me-1"></i> New Event
                     </button>
                 </div>
@@ -94,6 +94,7 @@
                         <tr>
                             <th scope="col">Event Name</th>
                             <th scope="col">Type</th>
+                            <th scope="col">Term / Week</th>
                             <th scope="col">Date</th>
                             <th scope="col">Time</th>
                             <th scope="col">Venue</th>

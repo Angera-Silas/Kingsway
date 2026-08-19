@@ -33,6 +33,7 @@ class DisbursementManager
 
     /** @var MpesaPaymentService */
     private $mpesaPayment;
+    private $financialAccounts;
 
     public function __construct()
     {
@@ -40,12 +41,13 @@ class DisbursementManager
         $this->mpesaB2C = new MpesaB2CService();
         $this->kcbTransfer = new KcbFundsTransferService();
         $this->mpesaPayment = new MpesaPaymentService();
+        $this->financialAccounts = new FinancialAccountService($this->db);
     }
 
     /**
      * Process payroll disbursement — called once a payroll is approved.
      */
-    public function processPayrollDisbursement($payrollId, $approvedBy)
+    public function processPayrollDisbursement($payrollId, $approvedBy, array $data = [])
     {
         try {
             $payroll = $this->db->prepare(
@@ -57,6 +59,8 @@ class DisbursementManager
             if (!$payrollRow) {
                 throw new Exception("Payroll not found or not approved");
             }
+            $sourceAccountId = (int) ($data['source_financial_account_id'] ?? $payrollRow['source_financial_account_id'] ?? 0);
+            if ($sourceAccountId <= 0) throw new Exception('A payroll source financial account must be selected.');
             if ($payrollRow['status'] === 'processing') {
                 throw new Exception("Payroll disbursement already in progress");
             }
@@ -74,6 +78,11 @@ class DisbursementManager
             );
             $staffPayments->execute([$payrollRow['month'], $payrollRow['year']]);
             $staffPayments = $staffPayments->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($staffPayments as &$staffPayment) {
+                $staffPayment['_source_financial_account_id'] = $sourceAccountId;
+                $staffPayment['_source_actor_user_id'] = (int)$approvedBy;
+            }
+            unset($staffPayment);
 
             if (empty($staffPayments)) {
                 throw new Exception("No pending payments found for this payroll");
@@ -190,6 +199,7 @@ class DisbursementManager
      */
     private function disburseMpesa($payment, $payrollId = null)
     {
+        $source = $this->financialAccounts->requireFor((int) ($payment['_source_financial_account_id'] ?? 0), 'payroll', 'mpesa_b2c', true, (int)($payment['_source_actor_user_id'] ?? 0));
         $phone = $this->formatPhoneNumber((string) ($payment['phone_number'] ?? ''));
         if (!$phone) {
             throw new Exception("Invalid phone number for staff {$payment['staff_id']}");
@@ -206,9 +216,12 @@ class DisbursementManager
             'payroll_id' => $payrollId,
             'payslip_id' => $payment['id'],
             'disbursement_type' => 'salary',
+            'payment_purpose' => 'payroll',
+            'source_financial_account_id' => (int) $source['id'],
+            'idempotency_reference' => 'PAYROLL-' . (int) $payrollId . '-STAFF-' . (int) $payment['id'],
         ]);
 
-        $status = $result['status'] === 'success' ? 'processing' : 'failed';
+        $status = in_array($result['status'] ?? '', ['success', 'pending'], true) ? 'processing' : 'failed';
         $this->db->prepare(
             "UPDATE payslips
              SET payment_status = ?, payment_reference = ?, paid_at = IF(? = 'processing', NOW(), paid_at),
@@ -230,9 +243,34 @@ class DisbursementManager
      */
     private function disburseBank($payment, $payrollId = null)
     {
+        $source = $this->financialAccounts->requireFor((int) ($payment['_source_financial_account_id'] ?? 0), 'payroll', 'buni_transfer', true, (int)($payment['_source_actor_user_id'] ?? 0));
         if (empty($payment['bank_account_number']) || empty($payment['bank_name'])) {
             throw new Exception("Missing bank details for staff {$payment['staff_id']}");
         }
+
+        // Persist the correlation row before calling Buni. The provider may
+        // complete asynchronously, so its callback must always find a local
+        // disbursement by request/reference.
+        $insert = $this->db->prepare(
+            "INSERT INTO disbursement_transactions
+                (disbursement_type, payment_purpose, payroll_id, payslip_id, source_financial_account_id, idempotency_reference, recipient_id,
+                 recipient_name, amount, account_number, bank_name, channel,
+                 status, created_at)
+             VALUES (?, 'payroll', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'kcb_bank', 'pending', NOW())"
+        );
+        $insert->execute([
+            'salary',
+            $payrollId,
+            $payment['id'],
+            (int) $source['id'],
+            'PAYROLL-' . (int) $payrollId . '-STAFF-' . (int) $payment['id'],
+            $payment['staff_id'],
+            trim(($payment['first_name'] ?? '') . ' ' . ($payment['last_name'] ?? '')),
+            (float) $payment['net_salary'],
+            $payment['bank_account_number'],
+            $payment['bank_name'],
+        ]);
+        $disbursementId = (int) $this->db->lastInsertId();
 
         $result = $this->kcbTransfer->transferFunds([
             'account_number' => $payment['bank_account_number'],
@@ -244,9 +282,28 @@ class DisbursementManager
             'payroll_id' => $payrollId,
             'payslip_id' => $payment['id'],
             'disbursement_type' => 'salary',
+            'payment_purpose' => 'payroll',
+            'debit_account_number' => $source['account_identifier'],
+            'source_financial_account_id' => (int) $source['id'],
+            'idempotency_reference' => 'PAYROLL-' . (int) $payrollId . '-STAFF-' . (int) $payment['id'],
         ]);
 
-        $status = $result['status'] === 'success' ? 'processing' : 'failed';
+        $status = in_array($result['status'] ?? '', ['success', 'pending'], true) ? 'processing' : 'failed';
+        $this->db->prepare(
+            "UPDATE disbursement_transactions
+             SET request_id = ?, transaction_ref = ?, status = ?,
+                 result_description = ?, callback_data = ?,
+                 failed_at = IF(? = 'failed', NOW(), failed_at)
+             WHERE id = ?"
+        )->execute([
+            $result['request_id'] ?? null,
+            $result['transaction_ref'] ?? null,
+            $status === 'processing' ? 'pending' : 'failed',
+            $result['message'] ?? null,
+            json_encode($result),
+            $status,
+            $disbursementId,
+        ]);
         $this->db->prepare(
             "UPDATE payslips
              SET payment_status = ?, payment_reference = ?, paid_at = IF(? = 'processing', NOW(), paid_at),

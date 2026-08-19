@@ -105,7 +105,8 @@
         <div class="border-top pt-3 mt-3">
             <label class="form-label fw-semibold">Meetings &amp; Events on this day</label>
             <div id="dayEventsList" class="mb-2"></div>
-            <div class="row g-2">
+            <p class="text-muted small mb-0"><i class="bi bi-info-circle me-1"></i>Events are created and managed from the <strong>School Events</strong> page.</p>
+            <div class="row g-2 d-none">
                 <div class="col-12"><input type="text" class="form-control" id="eventTitle" maxlength="150" placeholder="Event / meeting title (e.g. Sports Day, AGM, Prayer Day, Exams)"></div>
                 <div class="col-6"><select class="form-select" id="eventType">
                     <option value="Academic">Academic</option>

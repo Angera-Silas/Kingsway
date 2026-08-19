@@ -25,7 +25,7 @@ class MeetingsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->manager = new StaffMeetingManager($this->db);
+        $this->manager = new StaffMeetingManager($this->db->getConnection());
     }
 
     private function guard(): ?array
@@ -42,7 +42,7 @@ class MeetingsController extends BaseController
         if (!$userId) {
             return null;
         }
-        $stmt = $this->db->prepare(
+        $stmt = $this->db->getConnection()->prepare(
             "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1"
         );
         $stmt->execute([(int) $userId]);

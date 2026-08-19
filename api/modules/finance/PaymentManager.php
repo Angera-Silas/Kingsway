@@ -4,6 +4,8 @@ namespace App\API\Modules\finance;
 
 use App\Database\Database;
 use PDO;
+use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\payments\FinancialAccountService;
 use Exception;
 use function App\API\Includes\formatResponse;
 
@@ -108,6 +110,16 @@ class PaymentManager
             if (!$paymentId) {
                 return formatResponse(false, null, 'Payment was processed but ID could not be retrieved');
             }
+
+            // Every operational fee payment must identify the receiving ledger
+            // account before it is visible as confirmed financial activity.
+            $purpose = strtolower((string)($data['payment_purpose'] ?? 'fees'));
+            if (!in_array($purpose, ['fees', 'transport', 'uniforms'], true)) $purpose = 'fees';
+            $method = strtolower((string)$data['payment_method']);
+            $channel = in_array($method, ['mpesa', 'mpesa_daraja'], true) ? 'mpesa_c2b' : ($method === 'cash' ? 'cash' : 'bank_transfer');
+            $source = (new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id'] ?? 0), $purpose, $channel, false, (int)($data['received_by'] ?? 0));
+            $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=? WHERE id=?')->execute([(int)$source['id'], $purpose, (int)$paymentId]);
+            (new FinancialPostingCoordinator($this->db))->postIncoming('payment', (int)$paymentId, (int)$source['id'], $purpose, (string)$data['amount'], (int)($data['received_by'] ?? 0), $data['reference_no'] ?? null);
 
             // If M-Pesa payment, record M-Pesa transaction details
             if ($data['payment_method'] === 'mpesa' && !empty($data['mpesa_data'])) {
@@ -747,15 +759,22 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $this->db->beginTransaction();
 
-            // Call stored procedure sp_record_cash_payment
-            // Live signature: (p_student_id, p_amount, p_payment_method, p_payment_date)
-            $stmt = $this->db->prepare("CALL sp_record_cash_payment(?, ?, ?, ?)");
+            $source = (new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id'] ?? 0), 'fees', 'cash');
+            $stmt = $this->db->prepare("CALL sp_record_cash_payment_v2(?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $data['student_id'],
                 $data['amount'],
                 $data['payment_method'] ?? 'cash',
-                $data['payment_date'] ?? date('Y-m-d H:i:s')
+                $data['payment_date'] ?? date('Y-m-d H:i:s'),
+                (int)$source['id'],
+                (int)$data['received_by'],
+                $data['reference'] ?? ('CASH-' . date('YmdHis') . '-' . bin2hex(random_bytes(3))),
+                'fees'
             ]);
+            $created = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $stmt->closeCursor();
+            if (empty($created['payment_id'])) throw new Exception('Cash payment was not created.');
+            (new FinancialPostingCoordinator($this->db))->postIncoming('payment',(int)$created['payment_id'],(int)$source['id'],'fees',(string)$data['amount'],(int)$data['received_by'],$data['reference'] ?? null);
 
             $this->db->commit();
 

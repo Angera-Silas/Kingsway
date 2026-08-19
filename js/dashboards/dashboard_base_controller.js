@@ -12,6 +12,7 @@ const DashboardBaseController = {
             initializationPromise: null,
             eventsBound: false,
             charts: {},
+            period: definition.defaultPeriod || 'month',
             state: {
                 data: null,
                 loading: false,
@@ -97,6 +98,40 @@ const DashboardBaseController = {
                         event.preventDefault();
                         this.navigate(routeElement.dataset.route);
                     });
+
+                this.setupPeriodListeners();
+            },
+
+            setupPeriodListeners() {
+                const periodBar = document.getElementById(this.rootId + 'PeriodBar');
+                if (!periodBar) return;
+
+                periodBar.addEventListener('click', (event) => {
+                    const btn = event.target.closest('.dash-period-btn');
+                    if (!btn) return;
+                    const newPeriod = btn.dataset.period;
+                    if (newPeriod === this.period) return;
+
+                    this.period = newPeriod;
+                    periodBar.querySelectorAll('.dash-period-btn').forEach(b => {
+                        b.classList.remove('btn-success');
+                        b.classList.add('btn-outline-success');
+                    });
+                    btn.classList.remove('btn-outline-success');
+                    btn.classList.add('btn-success');
+
+                    const label = document.getElementById(this.rootId + 'PeriodBarLabel');
+                    if (label) label.textContent = btn.textContent;
+
+                    this.destroyCharts();
+                    void this.loadDashboard({ force: true });
+                });
+
+                const defaultBtn = periodBar.querySelector('.dash-period-btn.btn-success');
+                if (defaultBtn) {
+                    const label = document.getElementById(this.rootId + 'PeriodBarLabel');
+                    if (label) label.textContent = defaultBtn.textContent;
+                }
             },
 
             async loadDashboard(options = {}) {
@@ -112,7 +147,7 @@ const DashboardBaseController = {
                 this.setRefreshBusy(true);
 
                 try {
-                    const response = await this.apiMethod();
+                    const response = await this.apiMethod({ period: this.period });
                     const data = this.normalizeResponse(response);
 
                     if (!data || typeof data !== 'object' || Array.isArray(data)) {

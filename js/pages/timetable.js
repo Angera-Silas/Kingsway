@@ -268,48 +268,58 @@ const TimetableController = {
     const className = classSelect?.options[classSelect.selectedIndex]?.text || 'All Classes';
     const viewType = this.state.viewType || 'weekly';
 
-    const filters = {
-      'Class': className,
-      'View Type': viewType
-    };
-
-    // Convert timetable to printable format
-    const timetableRows = this.state.timetable.map(item => ({
-      day: item.day || '—',
+    const slots = this.state.timetable.map(item => ({
+      day: item.day || 'Monday',
       time: `${item.start_time || ''} - ${item.end_time || ''}`,
+      start: item.start_time || '',
+      end: item.end_time || '',
       subject: item.subject_name || item.subject || '—',
-      teacher: item.teacher_name || item.teacher || '—',
-      room: item.room || item.classroom || '—'
+      teacher: item.teacher_name || item.teacher || '',
+      room: item.room || item.classroom || '',
+      color: item.color || '#0f5b3b',
     }));
 
-    const columns = [
-      { key: 'day', label: 'Day' },
-      { key: 'time', label: 'Time' },
-      { key: 'subject', label: 'Subject' },
-      { key: 'teacher', label: 'Teacher' },
-      { key: 'room', label: 'Room' }
-    ];
-
-    window.PrintManager.printTable({
-      title: 'Class Timetable',
-      subtitle: `${className} - ${viewType} View`,
-      columns: columns,
-      rows: timetableRows,
-      summary: {
-        'Class': className,
-        'View Type': viewType,
-        'Total Periods': timetableRows.length,
-        'Generated Date': new Date().toLocaleDateString()
-      },
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'TT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-      signatureSection: [
-        { label: 'Head Teacher' },
-        { label: 'Principal' }
-      ]
+    const subjectColors = {};
+    const legend = [];
+    slots.forEach(s => {
+      if (s.subject && !subjectColors[s.subject]) {
+        subjectColors[s.subject] = s.color;
+        legend.push({ subject: s.subject, color: s.color });
+      }
     });
+
+    if (window.PrintManager?.printTimetable) {
+      window.PrintManager.printTimetable({
+        className: className,
+        teacherName: '',
+        period: viewType,
+        slots: slots,
+        breaks: [
+          { label: 'Break', time: '10:00 - 10:15' },
+          { label: 'Lunch', time: '12:00 - 13:00' },
+        ],
+        legend: legend,
+        filename: `timetable_${className.replace(/\s+/g, '_')}_${Date.now()}`,
+      });
+    } else {
+      const timetableRows = slots.map(s => ({
+        day: s.day, time: s.time, subject: s.subject, teacher: s.teacher, room: s.room
+      }));
+      window.PrintManager?.printTable?.({
+        title: 'Class Timetable',
+        subtitle: `${className} - ${viewType} View`,
+        columns: [
+          { key: 'day', label: 'Day' },
+          { key: 'time', label: 'Time' },
+          { key: 'subject', label: 'Subject' },
+          { key: 'teacher', label: 'Teacher' },
+          { key: 'room', label: 'Room' }
+        ],
+        rows: timetableRows,
+        orientation: 'landscape',
+        paperSize: 'A4',
+      });
+    }
   },
 
   populateSelect(selector, items, valueKey, labelKey) {

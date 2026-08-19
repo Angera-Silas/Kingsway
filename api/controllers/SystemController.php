@@ -417,7 +417,29 @@ class SystemController extends BaseController
     // GET /api/system/error-logs
     public function getErrorLogs($id = null, $data = [], $segments = [])
     {
-        return $this->getLogs($id, $data, $segments);
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $limit = min((int) ($_GET['limit'] ?? 200), 500);
+        $limit = max(1, $limit);
+
+        $rows = [];
+        $index = 0;
+        foreach (\App\API\Includes\FileLogger::recent('errors', $limit) as $entry) {
+            $index++;
+            $file = (string) ($entry['file'] ?? '');
+            $line = isset($entry['line']) ? (int) $entry['line'] : 0;
+            $rows[] = [
+                'id' => $index,
+                'level' => $entry['level'] ?? 'error',
+                'message' => (string) ($entry['message'] ?? ''),
+                'file' => $file !== '' ? ($file . ($line > 0 ? ':' . $line : '')) : '',
+                'created_at' => $entry['timestamp'] ?? null,
+            ];
+        }
+
+        return $this->success($rows, 'Error logs retrieved');
     }
 
     // GET /api/system/api-metrics

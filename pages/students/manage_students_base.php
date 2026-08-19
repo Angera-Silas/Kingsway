@@ -214,9 +214,9 @@
                             <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')"
+                            <img id="studentPhotoPreview" src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/uploads/students/avatar.jpg"
                                 class="rounded-circle" width="80" height="80"
-                                onerror="this.src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')"
+                                onerror="this.onerror=null; this.src='<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/uploads/students/avatar.jpg'"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
                         </div>
                     </div>
@@ -608,5 +608,5 @@ $admissionNumber = generateAdmissionNumber();
 </div>
 
 <!-- Link Controller Script -->
-<script src="js/pages/manage_students.js?v=20260702"></script>
+<script src="js/pages/manage_students.js?v=<?= htmlspecialchars(asset_version('js/pages/manage_students.js'), ENT_QUOTES, 'UTF-8') ?>"></script>
 <script src="js/pages/student_schedule_extension.js?v=20260702"></script>

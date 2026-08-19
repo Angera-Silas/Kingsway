@@ -50,34 +50,38 @@ class FeeStructureAdminController {
     if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureAdminController();
     window.adminController = controller;
+    controller.normalizeLegacyLayout();
     controller.setupEventListeners();
-    controller.loadDropdowns();
-    controller.loadFeeStructures();
+    await controller.loadDropdowns();
+    await controller.loadFeeStructures();
+    await controller.loadPendingApprovals();
     controller.initializeCharts();
+  }
+
+  normalizeLegacyLayout() {
+    // Older cached role templates may still contain the aggregate line-item
+    // table. Remove it before any data is rendered so the admin page always
+    // uses the canonical grade matrix.
+    const legacyTable = document.getElementById('feeStructuresTable');
+    const matrix = document.getElementById('adminActiveFeeMatrix');
+    if (!legacyTable || matrix) return;
+
+    const shell = legacyTable.closest('.fee-table-shell') || legacyTable.parentElement;
+    if (!shell) return;
+    const card = document.createElement('div');
+    card.className = 'console-card mb-4';
+    card.innerHTML = '<div class="card-header d-flex align-items-center justify-content-between"><div><h5 class="mb-1">Active Fee Structure</h5><small class="text-muted">The approved Day and Full Boarder amounts exactly as configured by grade and term.</small></div><span class="badge rounded-pill text-bg-success">Active</span></div><div class="card-body" id="adminActiveFeeMatrix"><div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading active fee matrix…</div></div>';
+    shell.replaceWith(card);
+    document.getElementById('paginationControls')?.closest('.pagination-footer')?.remove();
   }
 
   /**
    * Setup event listeners
    */
   setupEventListeners() {
-    document
-      .getElementById("academicYearFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("schoolLevelFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("studentTypeFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("termFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("statusFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document.getElementById("searchFeeStructure")?.addEventListener(
-      "input",
-      this.debounce(() => this.applyFilters(), 500),
+    document.getElementById("adminMatrixAcademicYearFilter")?.addEventListener(
+      "change",
+      () => this.loadCanonicalMatrix(),
     );
 
     window.exportFeeStructures = () => this.exportFeeStructures();
@@ -114,22 +118,26 @@ class FeeStructureAdminController {
         API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
 
-      this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];
-      this.levels = Array.isArray(levelsResponse) ? levelsResponse : [];
-      this.studentTypes = Array.isArray(studentTypesResponse)
-        ? studentTypesResponse
-        : [];
-      this.feeTypes = Array.isArray(feeTypesResponse) ? feeTypesResponse : [];
-      this.terms = Array.isArray(termsResponse) ? termsResponse : [];
-      this.classes = Array.isArray(classesResponse) ? classesResponse : [];
+      const unwrapList = (response, keys = []) => {
+        if (Array.isArray(response)) return response;
+        for (const key of [...keys, 'items', 'results', 'records']) {
+          if (Array.isArray(response?.[key])) return response[key];
+          if (Array.isArray(response?.data?.[key])) return response.data[key];
+        }
+        if (Array.isArray(response?.data)) return response.data;
+        return [];
+      };
+      this.academicYears = unwrapList(yearsResponse, ['years', 'academic_years', 'academicYears', 'year_list']);
+      this.levels = unwrapList(levelsResponse, ['levels', 'school_levels']);
+      this.studentTypes = unwrapList(studentTypesResponse, ['student_types', 'types']);
+      this.feeTypes = unwrapList(feeTypesResponse, ['fee_types', 'types']);
+      this.terms = unwrapList(termsResponse, ['terms']);
+      this.classes = unwrapList(classesResponse, ['classes']);
 
       this.buildTermMaps();
 
       this.populateAcademicYearSelect("duplicateTargetYear");
-      this.populateAcademicYearSelect("academicYearFilter", true);
-      this.populateLevelFilterFromList();
-      this.populateStudentTypeFilterFromList();
-      this.populateTermFilterFromList();
+      this.populateAcademicYearSelect("adminMatrixAcademicYearFilter");
     } catch (error) {
       console.error("Failed to load dropdown data:", error);
     }
@@ -189,6 +197,11 @@ class FeeStructureAdminController {
 
     if (selected) {
       select.value = selected;
+    } else if (elementId === "adminMatrixAcademicYearFilter") {
+      const current = this.academicYears.find(year => year.is_current || year.status === 'current') || this.academicYears[0];
+      if (current) {
+        select.value = this.parseAcademicYear(current.year_code || current.year_name || current.year || current.id);
+      }
     }
   }
 
@@ -271,13 +284,6 @@ class FeeStructureAdminController {
     const filters = {
       page: page,
       limit: this.itemsPerPage,
-      academic_year: document.getElementById("academicYearFilter")?.value || "",
-      term_id: document.getElementById("termFilter")?.value || "",
-      level_id: document.getElementById("schoolLevelFilter")?.value || "",
-      student_type_id:
-        document.getElementById("studentTypeFilter")?.value || "",
-      status: document.getElementById("statusFilter")?.value || "",
-      search: document.getElementById("searchFeeStructure")?.value || "",
     };
 
     Object.keys(filters).forEach((key) => {
@@ -307,9 +313,30 @@ class FeeStructureAdminController {
       this.updateStatistics(this.currentAggregated);
       this.renderPagination(pagination);
       this.updateCharts(this.currentAggregated);
+      await this.loadCanonicalMatrix();
     } catch (error) {
       console.error("Failed to load fee structures:", error);
       this.showError("Failed to load fee structures. Please try again.");
+    }
+  }
+
+  async loadCanonicalMatrix() {
+    const body = document.getElementById('adminActiveFeeMatrix');
+    if (!body || !window.FeeStructureMatrix) return;
+
+    const selectedYear = document.getElementById('adminMatrixAcademicYearFilter')?.value ||
+      this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
+    if (!selectedYear) {
+      body.innerHTML = '<div class="alert alert-warning mb-0">No academic year is available for the fee matrix.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading active fee matrix…</div>';
+
+    try {
+      const model = await window.FeeStructureMatrix.load(selectedYear);
+      window.FeeStructureMatrix.render(body, model);
+    } catch (error) {
+      body.innerHTML = `<div class="alert alert-danger mb-0">${this._esc(error.message || 'Failed to load active fee matrix')}</div>`;
     }
   }
 
@@ -700,16 +727,19 @@ class FeeStructureAdminController {
       return;
     }
 
-    const items = this.getFeeItemsForGroup(group);
-    const details = {
-      ...group,
-      fee_items: items,
-      total_amount: group.total_amount,
-      expected_revenue: group.total_expected_revenue,
-    };
-
-    this.displayStructureDetails(details, true);
     this.viewingGroup = group;
+    const modal = document.getElementById('viewFeeStructureModal');
+    const body = document.getElementById('viewModalBody');
+    if (modal && body && window.FeeStructureMatrix) {
+      modal.querySelector('.modal-title').textContent = 'Fee Structure Matrix';
+      body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm"></div> Loading…</div>';
+      this.showModal(modal.id);
+      window.FeeStructureMatrix.load(group.academic_year, [group.student_type_id]).then(model => {
+        window.FeeStructureMatrix.render(body, model);
+      }).catch(e => { body.innerHTML = `<div class="alert alert-danger">${this._esc(e.message || 'Failed to load matrix')}</div>`; });
+    } else {
+      this.showError('Fee structure matrix is not available');
+    }
   }
 
   getFeeItemsForGroup(group) {
@@ -1583,7 +1613,7 @@ class FeeStructureAdminController {
   }
 
   showDuplicateModal() {
-    const filterYear = document.getElementById("academicYearFilter")?.value;
+    const filterYear = document.getElementById("adminMatrixAcademicYearFilter")?.value;
     if (filterYear) {
       this.duplicateSourceYear = filterYear;
     }
@@ -1595,13 +1625,9 @@ class FeeStructureAdminController {
   }
 
   clearFilters() {
-    document.getElementById("academicYearFilter").value = "";
-    document.getElementById("schoolLevelFilter").value = "";
-    document.getElementById("studentTypeFilter").value = "";
-    document.getElementById("termFilter").value = "";
-    document.getElementById("statusFilter").value = "";
-    document.getElementById("searchFeeStructure").value = "";
-    this.loadFeeStructures(1);
+    const year = document.getElementById("adminMatrixAcademicYearFilter");
+    if (year) year.value = this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
+    this.loadCanonicalMatrix();
   }
 
   formatCurrency(amount) {
@@ -1681,31 +1707,54 @@ class FeeStructureAdminController {
 
   async loadPendingApprovals() {
     const tbody = document.getElementById('pendingApprovalsBody');
-    const badge = document.getElementById('pendingApprovalsBadge');
+    const badge = document.getElementById('pendingApprovalBadge');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></td></tr>';
     try {
-      const resp = await window.API.apiCall('/finance/fees-bundle-list?status=submitted', 'GET');
-      const bundles = resp?.data?.bundles || resp?.data || [];
-      if (badge) badge.textContent = bundles.length;
-      if (!bundles.length) {
+      let resp = await window.API.apiCall('/finance/fees-bundle-list?status=submitted&limit=200', 'GET');
+      let bundles = resp?.data?.bundles || resp?.bundles || resp?.data || [];
+      if (!Array.isArray(bundles) || !bundles.length) {
+        resp = await window.API.apiCall('/finance/fees-bundle-list?limit=200', 'GET');
+        const allBundles = resp?.data?.bundles || resp?.bundles || resp?.data || [];
+        bundles = Array.isArray(allBundles)
+          ? allBundles.filter(bundle => String(bundle.status || '').toLowerCase() === 'submitted')
+          : [];
+      }
+      const grouped = Object.values(bundles.reduce((groups, bundle) => {
+        const key = String(bundle.academic_year || bundle.academic_year_id || '');
+        if (!groups[key]) groups[key] = { key, academic_year: bundle.academic_year, ids: [], terms: new Set(), types: new Set(), classes: 0, submitted_by_name: bundle.submitted_by_name, status: bundle.status || 'submitted' };
+        const group = groups[key];
+        group.ids.push(Number(bundle.id));
+        group.terms.add(bundle.term_name || `Term ${bundle.term_id}`);
+        group.types.add(bundle.student_type_name || bundle.student_type_id);
+        group.classes = Math.max(group.classes, Number(bundle.class_count || 0));
+        return groups;
+      }, {})).map(group => ({ ...group, terms: [...group.terms], types: [...group.types] }));
+      this.pendingApprovalBundles = grouped;
+      if (badge) badge.textContent = `${grouped.length} pending`;
+      if (!grouped.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No bundles pending approval</td></tr>';
         return;
       }
-      tbody.innerHTML = bundles.map(b => `
+      tbody.innerHTML = grouped.map(b => `
         <tr>
-          <td>${b.level_name || b.level_id}</td>
           <td>${b.academic_year}</td>
-          <td>${b.term_name || b.term_id}</td>
-          <td>${b.student_type_name || b.student_type_id}</td>
-          <td class="text-end fw-bold">KES ${Number(b.total_amount || 0).toLocaleString()}</td>
+          <td>${this._esc(b.terms.join(', '))}</td>
+          <td>${this._esc(b.types.join(', '))}</td>
+          <td>${b.classes ? `${b.classes} classes` : 'All configured classes'}</td>
           <td>${b.submitted_by_name || '—'}</td>
-          <td>${b.submitted_at ? b.submitted_at.substring(0,10) : '—'}</td>
+          <td><span class="badge text-bg-warning">${b.status || 'submitted'}</span></td>
           <td>
-            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle(${b.id})">
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.viewBundleMatrix('${this._esc(b.key)}')">
+              <i class="bi bi-eye"></i> View matrix
+            </button>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.reviewBundle('${this._esc(b.key)}')">
+              <i class="bi bi-search"></i> Review
+            </button>
+            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle('${this._esc(b.key)}')">
               <i class="bi bi-check-lg"></i> Approve
             </button>
-            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle(${b.id})">
+            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle('${this._esc(b.key)}')">
               <i class="bi bi-x-lg"></i> Reject
             </button>
           </td>
@@ -1715,15 +1764,48 @@ class FeeStructureAdminController {
     }
   }
 
+  async viewBundleMatrix(id) {
+    const bundle = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(id));
+    const body = document.getElementById('adminFeeMatrixBody');
+    if (!bundle || !body || !window.FeeStructureMatrix) return;
+    document.getElementById('adminFeeMatrixMeta').textContent = `${bundle.academic_year || ''} · ${bundle.terms.join(', ')} · ${bundle.types.join(', ')}`;
+    body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm"></div> Loading…</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('adminFeeMatrixModal')).show();
+    try {
+      const model = await window.FeeStructureMatrix.load(bundle.academic_year);
+      window.FeeStructureMatrix.render(body, model);
+    } catch (e) {
+      body.innerHTML = `<div class="alert alert-danger">${this._esc(e.message || 'Failed to load matrix')}</div>`;
+    }
+  }
+
+  async reviewBundle(approvalId) {
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
+    const notes = await window.promptAction('Review feedback', 'Enter review feedback or observations:');
+    if (notes === null || notes === undefined || !String(notes).trim()) return;
+    try {
+      for (const id of group.ids) await window.API.apiCall(`/finance/fees-bundle-review/${id}`, 'POST', { action: 'approve', notes: String(notes).trim() });
+      await window.infoDialog('Notice', 'Review recorded. The structure remains pending final approval.');
+      this.loadPendingApprovals();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Review failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
   async approveBundle(approvalId) {
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
     if (!(await window.confirmAction('Confirm', 'Approve this fee structure bundle? This will immediately generate fee obligations for all affected students.'))) return;
     const notes = await window.promptAction('Input', 'Approval notes (optional):') || '';
     try {
-      const resp = await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
-        action: 'approve', notes
-      });
-      const d = resp?.data || {};
-      await window.infoDialog('Notice', `Bundle approved successfully.\nStudents billed: ${d.students_processed || 0}\nObligations created: ${d.obligations_created || 0}`);
+      let students = 0, obligations = 0;
+      for (const id of group.ids) {
+        const resp = await window.API.apiCall(`/finance/fees-bundle-approve/${id}`, 'POST', { action: 'approve', notes });
+        const d = resp?.data || {};
+        students += Number(d.students_processed || 0); obligations += Number(d.obligations_created || 0);
+      }
+      await window.infoDialog('Notice', `Fee structure approved successfully.\nStudents billed: ${students}\nObligations created: ${obligations}`);
       this.loadPendingApprovals();
       if (typeof this.loadFeeStructures === 'function') this.loadFeeStructures();
     } catch (e) {
@@ -1732,12 +1814,12 @@ class FeeStructureAdminController {
   }
 
   async rejectBundle(approvalId) {
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
     const reason = await window.promptAction('Input', 'Rejection reason (required):');
     if (!reason) return;
     try {
-      await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
-        action: 'reject', notes: reason
-      });
+      for (const id of group.ids) await window.API.apiCall(`/finance/fees-bundle-approve/${id}`, 'POST', { action: 'reject', notes: reason });
       await window.infoDialog('Notice', 'Bundle rejected. Accountant can revise and resubmit.');
       this.loadPendingApprovals();
     } catch (e) {

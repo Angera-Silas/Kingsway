@@ -144,13 +144,20 @@ class WebsiteManager extends BaseAPI
     {
         try {
             $rows = $this->db->query(
-                "SELECT ayt.id, t.name, ay.year_code AS year, ayt.opening_date AS start_date,
-                        ayt.closing_date AS end_date, t.code AS term_number, ayt.status
-                 FROM academic_year_terms ayt
+                "SELECT aw.id AS admission_window_id, ayt.id, ayt.id AS target_term_id,
+                        t.name, ay.year_code AS year, ay.year_name,
+                        ay.id AS academic_year_id, ayt.opening_date AS start_date,
+                        ayt.closing_date AS end_date, t.code AS term_number, ayt.status,
+                        aw.application_open_at, aw.application_close_at,
+                        aw.eligible_grades, aw.default_admission_category
+                 FROM admission_windows aw
+                 JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
                  JOIN terms t ON t.id = ayt.term_id
                  JOIN academic_years ay ON ay.id = ayt.academic_year_id
-                 WHERE ayt.status IN ('current','upcoming')
-                 ORDER BY FIELD(ayt.status,'upcoming','current'), ayt.opening_date ASC"
+                 WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+                   AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                   AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+                 ORDER BY aw.application_open_at ASC, ayt.opening_date ASC"
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)], 'Open terms retrieved');
         } catch (Exception $e) {
@@ -313,18 +320,48 @@ class WebsiteManager extends BaseAPI
     {
         try {
             if ($id) {
-                $stmt = $this->db->prepare("SELECT * FROM school_events WHERE id=?");
+                $stmt = $this->db->prepare("SELECT title FROM school_events WHERE id=?");
                 $stmt->execute([$id]);
                 $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-                return $row
-                    ? $this->successResponse($row)
+                if (!$row) return $this->errorResponse('Event not found', 404);
+
+                $stmt2 = $this->db->prepare(
+                    "SELECT MIN(id) AS id, title,
+                            SUBSTRING_INDEX(GROUP_CONCAT(description ORDER BY id SEPARATOR '|||'), '|||', 1) AS description,
+                            MIN(start_at) AS start_at, MAX(end_at) AS end_at,
+                            SUBSTRING_INDEX(GROUP_CONCAT(type ORDER BY id SEPARATOR '|||'), '|||', 1) AS type,
+                            SUBSTRING_INDEX(GROUP_CONCAT(location ORDER BY id SEPARATOR '|||'), '|||', 1) AS location,
+                            SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY id SEPARATOR '|||'), '|||', 1) AS status
+                     FROM school_events WHERE title = ?"
+                );
+                $stmt2->execute([$row['title']]);
+                $event = $stmt2->fetch(\PDO::FETCH_ASSOC);
+                return $event
+                    ? $this->successResponse($event)
                     : $this->errorResponse('Event not found', 404);
             }
 
             $showAll = ($data['upcoming'] ?? '1') === '0';
             $sql = $showAll
-                ? "SELECT * FROM school_events ORDER BY start_at DESC LIMIT 100"
-                : "SELECT * FROM school_events WHERE start_at >= CURDATE() AND status != 'cancelled' ORDER BY start_at DESC LIMIT 100";
+                ? "SELECT MIN(id) AS id, title,
+                          SUBSTRING_INDEX(GROUP_CONCAT(description ORDER BY id SEPARATOR '|||'), '|||', 1) AS description,
+                          MIN(start_at) AS start_at, MAX(end_at) AS end_at,
+                          SUBSTRING_INDEX(GROUP_CONCAT(type ORDER BY id SEPARATOR '|||'), '|||', 1) AS type,
+                          SUBSTRING_INDEX(GROUP_CONCAT(location ORDER BY id SEPARATOR '|||'), '|||', 1) AS location,
+                          SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY id SEPARATOR '|||'), '|||', 1) AS status
+                   FROM school_events
+                   GROUP BY title
+                   ORDER BY MIN(start_at) DESC LIMIT 100"
+                : "SELECT MIN(id) AS id, title,
+                          SUBSTRING_INDEX(GROUP_CONCAT(description ORDER BY id SEPARATOR '|||'), '|||', 1) AS description,
+                          MIN(start_at) AS start_at, MAX(end_at) AS end_at,
+                          SUBSTRING_INDEX(GROUP_CONCAT(type ORDER BY id SEPARATOR '|||'), '|||', 1) AS type,
+                          SUBSTRING_INDEX(GROUP_CONCAT(location ORDER BY id SEPARATOR '|||'), '|||', 1) AS location,
+                          SUBSTRING_INDEX(GROUP_CONCAT(status ORDER BY id SEPARATOR '|||'), '|||', 1) AS status
+                   FROM school_events
+                   WHERE start_at >= CURDATE() AND status != 'cancelled'
+                   GROUP BY title
+                   ORDER BY MIN(start_at) ASC LIMIT 100";
             $rows = $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
@@ -905,6 +942,65 @@ class WebsiteManager extends BaseAPI
             error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /** Queue a tracked email reply to a public contact inquiry. */
+    public function replyInquiry(int $id, string $reply, ?int $senderId = null)
+    {
+        $stmt = $this->db->prepare("SELECT id, full_name, email, subject FROM contact_inquiries WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $inquiry = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$inquiry) return $this->errorResponse('Inquiry not found.', 404);
+        if (trim($reply) === '') return $this->errorResponse('Reply body is required.', 422);
+        if (empty($inquiry['email'])) return $this->errorResponse('Inquiry has no reply email address.', 422);
+
+        $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $eventId = $eventService->getOrCreate(
+            'public_inquiry_reply',
+            $id . ':' . hash('sha256', $reply),
+            date('Y-m-d H:i:s'),
+            $senderId
+        );
+
+        $threadStmt = $this->db->prepare(
+            "SELECT t.id FROM communication_threads t
+             JOIN communication_thread_inquiries ti ON ti.thread_id = t.id
+             WHERE ti.inquiry_id = ? LIMIT 1"
+        );
+        $threadStmt->execute([$id]);
+        $threadId = (int) ($threadStmt->fetchColumn() ?: 0);
+        if (!$threadId) {
+            $this->db->prepare("INSERT INTO communication_threads (thread_type, subject, created_by) VALUES ('public_inquiry', ?, ?)")
+                ->execute([$inquiry['subject'], $senderId]);
+            $threadId = (int) $this->db->lastInsertId();
+            $this->db->prepare("INSERT INTO communication_thread_inquiries (thread_id, inquiry_id) VALUES (?, ?)")
+                ->execute([$threadId, $id]);
+        }
+        $this->db->prepare(
+            "INSERT INTO communication_thread_messages (thread_id, sender_user_id, direction, subject, body) VALUES (?, ?, 'outbound', ?, ?)"
+        )->execute([$threadId, $senderId, $inquiry['subject'], $reply]);
+
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        $queued = $platform->queueForContacts(
+            [['user_id' => null, 'email' => $inquiry['email']]],
+            'email',
+            'inquiry_reply',
+            [
+                'inquirer_name' => $inquiry['full_name'],
+                'inquiry_subject' => $inquiry['subject'] ?: 'your inquiry',
+                'reply_body' => $reply,
+            ],
+            [
+                'sender_id' => $senderId ?: 1,
+                'thread_id' => $threadId,
+                'business_event_id' => $eventId,
+                'purpose' => 'inquiry_reply',
+            ]
+        );
+        $this->db->prepare("UPDATE contact_inquiries SET status = 'replied', updated_at = NOW() WHERE id = ?")->execute([$id]);
+        $eventService->linkInquiry($eventId, $id);
+        $eventService->markProcessed($eventId);
+        return $this->successResponse($queued, 'Reply queued for delivery.');
     }
 
     // ───────────────────────── NEWS CATEGORIES ─────────────────────────

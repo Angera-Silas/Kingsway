@@ -336,6 +336,210 @@ return formatResponse(false, null, 'An internal error occurred.');
     }
 
     /**
+     * Generate academic year calendar PDF.
+     * POST /api/print/academic-calendar
+     */
+    public function postAcademicCalendar($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printAcademicCalendar($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Academic calendar PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate fee structure PDF.
+     * POST /api/print/fee-structure
+     */
+    public function postFeeStructure($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $comparison = !empty($data['comparison']);
+            $pdfPath = $comparison
+                ? $this->prints()->printFeeStructureComparison($data)
+                : $this->prints()->printFeeStructure($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Fee structure PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate simple-mode fee structure PDF (per-grade × per-term).
+     * POST /api/print/fee-structure-simple
+     */
+    public function postFeeStructureSimple($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printSimpleFeeStructure($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Simple fee structure PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] postFeeStructureSimple: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate P9 tax form PDF.
+     * POST /api/print/p9-form
+     */
+    public function postP9Form($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printP9Form($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'P9 form PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate payslip PDF.
+     * POST /api/print/payslip
+     */
+    public function postPayslip($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printPayslip($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Payslip PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate student fee statement PDF.
+     * POST /api/print/fee-statement
+     */
+    public function postFeeStatement($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printFeeStatement($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Fee statement PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate receipt PDF using dedicated receipt template.
+     * POST /api/print/receipt-template
+     */
+    public function postReceiptTemplate($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printReceiptTemplate($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Receipt PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate invoice PDF.
+     * POST /api/print/invoice
+     */
+    public function postInvoice($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printInvoice($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Invoice PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate personal timetable PDF.
+     * POST /api/print/timetable
+     */
+    public function postTimetable($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $master = !empty($data['master']);
+            $pdfPath = $master
+                ? $this->prints()->printMasterTimetable($data)
+                : $this->prints()->printPersonalTimetable($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Timetable PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
      * Generate PDF from arbitrary HTML content.
      *
      * POST /api/print/html

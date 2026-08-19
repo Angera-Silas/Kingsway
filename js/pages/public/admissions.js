@@ -29,7 +29,11 @@
         const statMap = PS.keyToMap(settings, 'setting_key', 'setting_value');
 
         this.renderQuickBar(termList, statMap);
-        this.renderGradeOptions(PS.items(grades));
+        const configuredGrades = termList.flatMap((term) => {
+          try { return JSON.parse(term.eligible_grades || '[]'); } catch (_) { return []; }
+        });
+        const allowedGrades = [...new Set(configuredGrades)];
+        this.renderGradeOptions(allowedGrades.length ? allowedGrades : PS.items(grades));
         this.renderTermOptions(termList);
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[admissions] render failed:', err);
@@ -41,7 +45,7 @@
       const lead = terms[0];
       set('ad-intake', lead
         ? lead.name + ' ' + lead.year + ' intake now open'
-        : 'Term ' + (new Date().getFullYear() + 1) + ' intake opening soon');
+        : 'No admission intake is currently open');
       set('ad-response', m.admissions_response || 'Within 24 working hours');
       set('ad-age-range', m.admissions_age_range || '4 – 15 years (PP1 – Grade 9)');
       set('ad-enquiries', m.school_phone_main || m.school_phone || '0720 113 030');
@@ -64,14 +68,18 @@
       if (!terms.length) {
         select.innerHTML = '<option value="">Select term</option>' +
           '<option value="" disabled>No intake terms open right now</option>';
+        select.disabled = true;
         return;
       }
       select.innerHTML = '<option value="">Select term</option>' +
         terms.map((t) => {
           const token = t.name + ' ' + t.year;
           const label = token + ' (' + (t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : '') + ')';
-          return '<option value="' + S(token) + '">' + S(label) + '</option>';
+          // Carry the real academic_year_terms.id so the server can resolve the
+          // application's target term even without re-deriving it from the label.
+          return '<option value="' + S(token) + '" data-term-id="' + S(t.id) + '">' + S(label) + '</option>';
         }).join('');
+      select.disabled = false;
     },
   };
 

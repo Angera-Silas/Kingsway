@@ -1,7 +1,7 @@
 <?php
 /* Website Management — partial page served inside home.php app shell.
    Tabs shown/hidden by JS based on AuthContext permissions. */
-$appBase = rtrim(str_replace('\\','/',dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))),'/');
+$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
 if ($appBase === '.') $appBase = '';
 ?>
 

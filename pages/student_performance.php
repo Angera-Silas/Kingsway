@@ -12,7 +12,7 @@
 
 // Ensure $appBase is available for script loading
 if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.' || $appBase === '/') {
         $appBase = '';
     }

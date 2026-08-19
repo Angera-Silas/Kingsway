@@ -149,7 +149,16 @@ class CalendarSyncService
              WHERE status IN ('scheduled','upcoming','in_progress') AND exam_date < CURDATE()"
         );
 
-        return ['events' => $events, 'exams' => $exams];
+        // Remove mirror rows whose linked calendar day no longer exists
+        // (left behind when the day grid was regenerated) so they don't
+        // accumulate with every calendar rebuild.
+        $orphans = (int) $this->db->exec(
+            "DELETE ev FROM school_events ev
+             LEFT JOIN academic_year_calendar_days d ON d.id = ev.calendar_day_id
+             WHERE ev.calendar_day_id IS NOT NULL AND d.id IS NULL"
+        );
+
+        return ['events' => $events, 'exams' => $exams, 'orphans_pruned' => $orphans];
     }
 
     /**
@@ -278,11 +287,18 @@ class CalendarSyncService
     /**
      * Unified event list for the events pages: calendar-derived events plus
      * free-form school_events, all with status computed from their dates.
+     *
+     * $sync controls whether a full year reconciliation runs first. Writable
+     * pages (events CRUD) pass true so linked days/mirrors stay in sync; the
+     * read-only calendar view passes false because it never mutates anything
+     * and the per-day reconciliation is expensive (hundreds of queries).
      */
-    public function getUnifiedEvents(): array
+    public function getUnifiedEvents(bool $sync = true): array
     {
         $this->normalizeStatuses();
-        $this->syncAcademicYear(null);
+        if ($sync) {
+            $this->syncAcademicYear(null);
+        }
 
         $rows = [];
         $stmt = $this->db->query(
@@ -352,10 +368,14 @@ class CalendarSyncService
                 if (!empty($row['end_time'])) {
                     $grouped[$idx]['end_time'] = $row['end_time'];
                 }
+                if ($row['id'] !== null) {
+                    $grouped[$idx]['ids'][] = (int) $row['id'];
+                }
                 $grouped[$idx]['_date'] = $row['date'];
             } else {
                 $row['_key'] = $key;
                 $row['_date'] = $row['date'];
+                $row['ids'] = $row['id'] !== null ? [(int) $row['id']] : [];
                 $grouped[] = $row;
                 $count++;
             }
@@ -364,6 +384,38 @@ class CalendarSyncService
             unset($g['_key'], $g['_date']);
         }
         unset($g);
+
+        // Merge non-contiguous runs of the SAME logical event (e.g. the
+        // December holiday split around national exams / gazetted public
+        // holidays) into a single row spanning the full start -> end range.
+        // Same-named holidays falling in DIFFERENT terms (e.g. the two
+        // half-term breaks) stay separate because their term differs.
+        $merged = [];
+        foreach ($grouped as $row) {
+            $key = ($row['title'] ?? '') . '|' . ($row['type'] ?? '') . '|' . ($row['day_type'] ?? '') . '|' . ($row['term_id'] ?? '');
+            if (isset($merged[$key])) {
+                $m = &$merged[$key];
+                if ($row['start_date'] < $m['start_date']) {
+                    $m['start_date'] = $row['start_date'];
+                    $m['date'] = $row['start_date'];
+                    $m['event_date'] = $row['start_date'];
+                    $m['start_time'] = $row['start_time'];
+                }
+                if ($row['end_date'] > $m['end_date']) {
+                    $m['end_date'] = $row['end_date'];
+                    $m['end_time'] = $row['end_time'];
+                }
+                foreach ($row['ids'] as $rid) {
+                    if (!in_array($rid, $m['ids'], true)) {
+                        $m['ids'][] = $rid;
+                    }
+                }
+                unset($m);
+            } else {
+                $merged[$key] = $row;
+            }
+        }
+        $grouped = array_values($merged);
 
         return $grouped;
     }

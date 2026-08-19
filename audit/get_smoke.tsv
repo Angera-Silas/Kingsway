@@ -1,0 +1,554 @@
+200	/api/academic	Success
+200	/api/academic/assessment-tools	OK
+200	/api/academic/assessment-types	OK
+200	/api/academic/assessments-list	OK
+200	/api/academic/calendar/days/1	OK
+200	/api/academic/calendar/get/1	Success
+200	/api/academic/calendar/list	Success
+200	/api/academic/class-capacity	Success
+400	/api/academic/class-students?class_id=X	class_id is required
+200	/api/academic/classes/get/1	Success
+200	/api/academic/classes/list	Success
+400	/api/academic/competency-ratings?class_id=&term_id=&student_id=	term_id is required
+400	/api/academic/competency/dashboard	Missing required student_id
+404	/api/academic/conduct-grades	Staff account not found
+404	/api/academic/conduct-grades?class=self&term=	Staff account not found
+200	/api/academic/context	Success
+200	/api/academic/core-competencies	OK
+200	/api/academic/core-competencies-list	OK
+200	/api/academic/core-values	OK
+200	/api/academic/core-values-list	OK
+200	/api/academic/curriculum	OK
+200	/api/academic/curriculum-tree?learning_area_id=X&strand_id=X	OK
+400	/api/academic/custom	Invalid action
+500	/api/academic/deputy-academic-summary	An internal error occurred.
+200	/api/academic/deputy-discipline-summary	OK
+200	/api/academic/exam-schedule	Success
+200	/api/academic/exam-schedule/1	Success
+404	/api/academic/exam-schedules	Method 'getExamSchedules' not found on controller 'academic'
+400	/api/academic/formative-assessment-marks?assessment_id=X	assessment_id is required
+200	/api/academic/formative-assessments	OK
+200	/api/academic/formative-summary?class_id=&subject_id=&term_id=&strand_id=&sub_strand_id=&group_by=	No filters selected — specify class_id and term_id
+200	/api/academic/grading-results	Success
+404	/api/academic/intern-classes	Staff account not found
+404	/api/academic/intern-subjects	Staff account not found
+200	/api/academic/learning-areas	Success
+200	/api/academic/learning-areas/coverage/1	Learning area coverage retrieved
+400	/api/academic/learning-areas/get/1	Learning area not found
+200	/api/academic/learning-areas/list	Success
+200	/api/academic/learning-outcomes?sub_strand_id=X&strand_id=X&learning_area_id=X	OK
+200	/api/academic/lesson-observations/list	Success
+200	/api/academic/lesson-plans/approval	Success
+200	/api/academic/lesson-plans/by-class	OK
+400	/api/academic/lesson-plans/get/1	Lesson plan not found
+200	/api/academic/lesson-plans/list	Success
+200	/api/academic/levels-list	Success
+404	/api/academic/my-classes	Staff account not found
+404	/api/academic/my-schemes	Staff account not found
+404	/api/academic/my-subjects	Staff account not found
+404	/api/academic/my-syllabus	Staff account not found
+200	/api/academic/my-teaching-today	OK
+200	/api/academic/national-exams?exam_type=KPSEA_G6&exam_year=2024	OK
+200	/api/academic/pending-moderation?class_id=X&subject_id=X	OK
+200	/api/academic/performance-overview	Success
+404	/api/academic/portfolio/all/1	Student not found
+200	/api/academic/portfolio/get/1	OK
+200	/api/academic/portfolio/list	OK
+404	/api/academic/report-card-data/1?term_id=	Student not found
+400	/api/academic/report-cards	student_id is required
+404	/api/academic/report-cards/download/1	Student not found
+200	/api/academic/reports	OK
+400	/api/academic/reports?report_type=&year_id=&term_id=&class_id=&subject_id=	Unknown report type
+200	/api/academic/results	OK
+200	/api/academic/results-analysis	Success
+200	/api/academic/results?year_id=&term_id=&subject_id=&class_id=	OK
+400	/api/academic/schedules/get/1	Class schedule not found
+200	/api/academic/schedules/list	Success
+404	/api/academic/scheme-of-work/get/1	Scheme of work not found
+404	/api/academic/staff-timeline/1	Staff not found
+200	/api/academic/strands?learning_area_id=X	OK
+200	/api/academic/streams/get/1	Success
+200	/api/academic/streams/list	Success
+400	/api/academic/student-assessment-history?student_id=X&term_id=&subject_id=	student_id is required
+400	/api/academic/student-growth-trend?student_id=X&learning_area_id=Y	student_id is required
+400	/api/academic/student-results	student_id is required
+404	/api/academic/student-timeline/1	Student not found
+200	/api/academic/sub-strands?strand_id=X	OK
+404	/api/academic/subject-schemes	Staff account not found
+200	/api/academic/subject-teachers	Success
+200	/api/academic/subjects-list	Success
+200	/api/academic/subjects/teachers	Success
+200	/api/academic/supervision-roster	Success
+400	/api/academic/supervision-roster/1	Supervision roster entry not found
+200	/api/academic/syllabus	OK
+200	/api/academic/teachers/classes	Success
+200	/api/academic/teachers/list	Success
+200	/api/academic/teachers/schedule	Success
+200	/api/academic/teachers/subjects	Success
+200	/api/academic/term-transition/context	Term transition context retrieved
+200	/api/academic/terms	Success
+200	/api/academic/terms/list	Success
+200	/api/academic/timetable-stats?term_id=	OK
+400	/api/academic/topics/get/1	Unit topic not found
+200	/api/academic/topics/list	Success
+200	/api/academic/transfer-requests	OK
+400	/api/academic/workflow/status	workflow_type and instance_id are required
+200	/api/academic/year-calendar	OK
+200	/api/academic/year-history	OK
+200	/api/academic/year-rollover-status	OK
+200	/api/academic/years/current	Success
+200	/api/academic/years/get/1	Success
+200	/api/academic/years/list	Success
+403	/api/academics/kpis	Director access only
+403	/api/academics/performance-matrix	Director access only
+200	/api/activities	Success
+200	/api/activities/1	Success
+200	/api/activities/categories/get/1	Success
+200	/api/activities/categories/list	Success
+200	/api/activities/categories/statistics	Success
+200	/api/activities/list	Activities retrieved
+400	/api/activities/participants/get/1	Participant record not found
+200	/api/activities/participants/list	Success
+400	/api/activities/participants/participation-stats	Activity ID is required
+400	/api/activities/participants/student-history	Student ID is required
+400	/api/activities/resources/by-activity	Activity ID is required
+400	/api/activities/resources/check-availability	Resource type, start date, and end date are required
+404	/api/activities/resources/get/1	Resource not found
+200	/api/activities/resources/list	Success
+200	/api/activities/resources/statistics	Success
+400	/api/activities/schedules/by-activity	Activity ID is required
+404	/api/activities/schedules/get/1	Schedule not found
+401	/api/activities/schedules/list	This authenticated session is no longer active
+401	/api/activities/schedules/venue-availability	This authenticated session is no longer active
+401	/api/activities/schedules/weekly-timetable	This authenticated session is no longer active
+401	/api/activities/sports/fixtures	This authenticated session is no longer active
+401	/api/activities/sports/fixtures/1	This authenticated session is no longer active
+401	/api/activities/sports/standings	This authenticated session is no longer active
+401	/api/activities/sports/team-members?team_id=1	This authenticated session is no longer active
+401	/api/activities/sports/teams	This authenticated session is no longer active
+401	/api/activities/sports/teams/1	This authenticated session is no longer active
+401	/api/activities/statistics/get	This authenticated session is no longer active
+401	/api/activities/stats	This authenticated session is no longer active
+401	/api/activities/upcoming/list	This authenticated session is no longer active
+401	/api/admission/application/1	This authenticated session is no longer active
+401	/api/admission/check-class-space/1	This authenticated session is no longer active
+401	/api/admission/notifications	This authenticated session is no longer active
+401	/api/admission/open-terms	This authenticated session is no longer active
+401	/api/admission/placement-classes	This authenticated session is no longer active
+401	/api/admission/placement-tests	This authenticated session is no longer active
+401	/api/admission/queues	This authenticated session is no longer active
+401	/api/admission/stats	This authenticated session is no longer active
+401	/api/admission/windows	This authenticated session is no longer active
+401	/api/admissions/pending	This authenticated session is no longer active
+401	/api/alerts	This authenticated session is no longer active
+401	/api/attendance/academic-summary	This authenticated session is no longer active
+401	/api/attendance/boarding-summary	This authenticated session is no longer active
+401	/api/attendance/calendar	This authenticated session is no longer active
+401	/api/attendance/classes	This authenticated session is no longer active
+401	/api/attendance/daily-register	This authenticated session is no longer active
+401	/api/attendance/dormitories	This authenticated session is no longer active
+401	/api/attendance/dormitory-students	This authenticated session is no longer active
+401	/api/attendance/duty-types	This authenticated session is no longer active
+401	/api/attendance/is-school-day	This authenticated session is no longer active
+401	/api/attendance/permission-types	This authenticated session is no longer active
+401	/api/attendance/permissions	This authenticated session is no longer active
+401	/api/attendance/register-context	This authenticated session is no longer active
+401	/api/attendance/register-context?date=2026-04-26&stream_id=3&session_id=1	This authenticated session is no longer active
+401	/api/attendance/session-attendance	This authenticated session is no longer active
+401	/api/attendance/sessions	This authenticated session is no longer active
+401	/api/attendance/staff-register-context	This authenticated session is no longer active
+401	/api/attendance/staff-register-context?date=X&department_id=Y	This authenticated session is no longer active
+401	/api/attendance/staff-report	This authenticated session is no longer active
+401	/api/attendance/staff-today	This authenticated session is no longer active
+401	/api/attendance/student-history-by-year/1	This authenticated session is no longer active
+401	/api/attendance/student-percentage/1	This authenticated session is no longer active
+401	/api/attendance/students-by-class/1	This authenticated session is no longer active
+401	/api/attendance/today	This authenticated session is no longer active
+401	/api/attendance/today-attendance	This authenticated session is no longer active
+401	/api/attendance/trends	This authenticated session is no longer active
+404	/api/auth/session	Method 'getSession' not found on controller 'auth'
+401	/api/boarding	This authenticated session is no longer active
+401	/api/boarding/activity	This authenticated session is no longer active
+401	/api/boarding/dormitories	This authenticated session is no longer active
+401	/api/boarding/exeats	This authenticated session is no longer active
+401	/api/boarding/occupancy	This authenticated session is no longer active
+401	/api/boarding/roll-call	This authenticated session is no longer active
+401	/api/boarding/stats	This authenticated session is no longer active
+401	/api/boarding/students	This authenticated session is no longer active
+401	/api/chapel/services	This authenticated session is no longer active
+401	/api/chapel/services?limit=N&upcoming=1	This authenticated session is no longer active
+401	/api/counseling/index	This authenticated session is no longer active
+401	/api/counseling/session	This authenticated session is no longer active
+401	/api/counseling/session/1	This authenticated session is no longer active
+401	/api/counseling/sessions?limit=N&sort=recent	This authenticated session is no longer active
+401	/api/counseling/stats	This authenticated session is no longer active
+401	/api/counseling/summary	This authenticated session is no longer active
+401	/api/dashboard/academic-kpis-table	This authenticated session is no longer active
+401	/api/dashboard/accountant/financial	This authenticated session is no longer active
+401	/api/dashboard/accountant/payments	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/assessments	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/attendance	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/full	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/lesson-plans	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/my-class	This authenticated session is no longer active
+401	/api/dashboard/class-teacher/students	This authenticated session is no longer active
+401	/api/dashboard/config	This authenticated session is no longer active
+401	/api/dashboard/deputy-academic/full	This authenticated session is no longer active
+401	/api/dashboard/deputy-discipline/full	This authenticated session is no longer active
+401	/api/dashboard/director/announcements	This authenticated session is no longer active
+401	/api/dashboard/director/attendance	This authenticated session is no longer active
+401	/api/dashboard/director/enrollment	This authenticated session is no longer active
+401	/api/dashboard/director/finance	This authenticated session is no longer active
+401	/api/dashboard/director/payroll-summary	This authenticated session is no longer active
+401	/api/dashboard/director/risks	This authenticated session is no longer active
+401	/api/dashboard/director/staff	This authenticated session is no longer active
+401	/api/dashboard/director/summary	This authenticated session is no longer active
+401	/api/dashboard/director/system-status	This authenticated session is no longer active
+401	/api/dashboard/fees-by-class-term	This authenticated session is no longer active
+401	/api/dashboard/headteacher/admissions	This authenticated session is no longer active
+401	/api/dashboard/headteacher/assessments	This authenticated session is no longer active
+401	/api/dashboard/headteacher/attendance-today	This authenticated session is no longer active
+401	/api/dashboard/headteacher/communications	This authenticated session is no longer active
+401	/api/dashboard/headteacher/discipline	This authenticated session is no longer active
+401	/api/dashboard/headteacher/discipline-cases	This authenticated session is no longer active
+401	/api/dashboard/headteacher/full	This authenticated session is no longer active
+401	/api/dashboard/headteacher/overview	This authenticated session is no longer active
+401	/api/dashboard/headteacher/pending-admissions	This authenticated session is no longer active
+401	/api/dashboard/headteacher/performance	This authenticated session is no longer active
+401	/api/dashboard/headteacher/schedules	This authenticated session is no longer active
+401	/api/dashboard/intern-teacher/classes	This authenticated session is no longer active
+401	/api/dashboard/intern-teacher/full	This authenticated session is no longer active
+401	/api/dashboard/intern-teacher/observations	This authenticated session is no longer active
+401	/api/dashboard/route?role_id=X	This authenticated session is no longer active
+401	/api/dashboard/school-admin/admissions	This authenticated session is no longer active
+401	/api/dashboard/school-admin/announcements	This authenticated session is no longer active
+401	/api/dashboard/school-admin/attendance	This authenticated session is no longer active
+401	/api/dashboard/school-admin/attendance-trend	This authenticated session is no longer active
+401	/api/dashboard/school-admin/class-distribution	This authenticated session is no longer active
+401	/api/dashboard/school-admin/full	This authenticated session is no longer active
+401	/api/dashboard/school-admin/pending-items	This authenticated session is no longer active
+401	/api/dashboard/school-admin/staff	This authenticated session is no longer active
+401	/api/dashboard/school-admin/staff-directory	This authenticated session is no longer active
+401	/api/dashboard/school-admin/students	This authenticated session is no longer active
+401	/api/dashboard/school-admin/system-status	This authenticated session is no longer active
+401	/api/dashboard/school-admin/timetables	This authenticated session is no longer active
+401	/api/dashboard/sidebars	This authenticated session is no longer active
+401	/api/dashboard/staff-deployment	This authenticated session is no longer active
+401	/api/dashboard/student-distribution	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/assessments-due	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/classes	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/exam-schedule	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/exams	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/full	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/graded	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/lesson-plans	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/pending-assessments	This authenticated session is no longer active
+401	/api/dashboard/subject-teacher/sections	This authenticated session is no longer active
+401	/api/dashboard/system-admin/active-sessions	This authenticated session is no longer active
+401	/api/dashboard/system-admin/api-load	This authenticated session is no longer active
+401	/api/dashboard/system-admin/auth-events	This authenticated session is no longer active
+401	/api/dashboard/system-admin/health-errors	This authenticated session is no longer active
+401	/api/dashboard/system-admin/health-warnings	This authenticated session is no longer active
+401	/api/dashboard/system-admin/uptime	This authenticated session is no longer active
+401	/api/dashboard/teacher/my-attendance-today	This authenticated session is no longer active
+401	/api/dashboard/teacher/my-class	This authenticated session is no longer active
+401	/api/events	This authenticated session is no longer active
+401	/api/finance	This authenticated session is no longer active
+401	/api/finance/1	This authenticated session is no longer active
+401	/api/finance/allowance-templates	This authenticated session is no longer active
+401	/api/finance/allowance-templates/1	This authenticated session is no longer active
+401	/api/finance/allowance-templates/1/applicable-staff	This authenticated session is no longer active
+401	/api/finance/bulk-payroll-preview?month=X&year=Y	This authenticated session is no longer active
+401	/api/finance/class-billing-report/1	This authenticated session is no longer active
+401	/api/finance/department-budgets/proposals	This authenticated session is no longer active
+401	/api/finance/department-budgets/summary	This authenticated session is no longer active
+401	/api/finance/detailed-payslip?payroll_id=X	This authenticated session is no longer active
+401	/api/finance/fee-invoices/get?student_id=X	This authenticated session is no longer active
+401	/api/finance/fee-structures/1	This authenticated session is no longer active
+401	/api/finance/fee-structures/list	This authenticated session is no longer active
+401	/api/finance/fee-types-list	This authenticated session is no longer active
+401	/api/finance/fees-bundle-grid	This authenticated session is no longer active
+401	/api/finance/fees-bundle-list	This authenticated session is no longer active
+401	/api/finance/fees/annual-summary	This authenticated session is no longer active
+401	/api/finance/fees/pending-reviews	This authenticated session is no longer active
+401	/api/finance/fees/term-breakdown	This authenticated session is no longer active
+401	/api/finance/payroll-list	This authenticated session is no longer active
+401	/api/finance/payroll-stats?month=X&year=Y	This authenticated session is no longer active
+401	/api/finance/payrolls	This authenticated session is no longer active
+401	/api/finance/payrolls/1/get	This authenticated session is no longer active
+401	/api/finance/payrolls/1/staff-payments	This authenticated session is no longer active
+401	/api/finance/payrolls/1/status	This authenticated session is no longer active
+401	/api/finance/payrolls/history	This authenticated session is no longer active
+401	/api/finance/payrolls/list	This authenticated session is no longer active
+401	/api/finance/payrolls/staff-payments/get	This authenticated session is no longer active
+401	/api/finance/payrolls/summary	This authenticated session is no longer active
+401	/api/finance/reconciliation/unreconciled	This authenticated session is no longer active
+401	/api/finance/reports	This authenticated session is no longer active
+401	/api/finance/reports/compare-yearly-collections	This authenticated session is no longer active
+401	/api/finance/staff-for-payroll	This authenticated session is no longer active
+401	/api/finance/staff-payroll-details?staff_id=X	This authenticated session is no longer active
+401	/api/finance/student-types-list	This authenticated session is no longer active
+401	/api/finance/students-billing-history/1	This authenticated session is no longer active
+401	/api/finance/students/balance/1	This authenticated session is no longer active
+401	/api/finance/students/fee-statement/1	This authenticated session is no longer active
+401	/api/finance/students/payment-history	This authenticated session is no longer active
+401	/api/finance/students/payment-status	This authenticated session is no longer active
+401	/api/finance/supplier-payables	This authenticated session is no longer active
+401	/api/finance/unmatched-payments	This authenticated session is no longer active
+401	/api/health/records	This authenticated session is no longer active
+401	/api/health/records/1	This authenticated session is no longer active
+401	/api/health/sick-bay	This authenticated session is no longer active
+401	/api/health/summary	This authenticated session is no longer active
+401	/api/health/vaccinations	This authenticated session is no longer active
+401	/api/health/vaccinations/1	This authenticated session is no longer active
+401	/api/import/log/1	This authenticated session is no longer active
+401	/api/import/logs	This authenticated session is no longer active
+401	/api/import/template	This authenticated session is no longer active
+401	/api/import/types	This authenticated session is no longer active
+401	/api/inventory	This authenticated session is no longer active
+401	/api/inventory/1	This authenticated session is no longer active
+401	/api/inventory/categories/1/get	This authenticated session is no longer active
+401	/api/inventory/categories/list	This authenticated session is no longer active
+401	/api/inventory/dashboard	This authenticated session is no longer active
+401	/api/inventory/items/1/history	This authenticated session is no longer active
+401	/api/inventory/items/1/with-stock	This authenticated session is no longer active
+401	/api/inventory/items/list	This authenticated session is no longer active
+401	/api/inventory/items/low-stock	This authenticated session is no longer active
+401	/api/inventory/items/stock-valuation	This authenticated session is no longer active
+401	/api/inventory/locations/1/get	This authenticated session is no longer active
+401	/api/inventory/locations/list	This authenticated session is no longer active
+401	/api/inventory/movements/list	This authenticated session is no longer active
+401	/api/inventory/movements/summary	This authenticated session is no longer active
+401	/api/inventory/purchase-orders/1/get	This authenticated session is no longer active
+401	/api/inventory/purchase-orders/list	This authenticated session is no longer active
+401	/api/inventory/requisitions/1/get	This authenticated session is no longer active
+401	/api/inventory/requisitions/list	This authenticated session is no longer active
+401	/api/inventory/suppliers/1/get	This authenticated session is no longer active
+401	/api/inventory/suppliers/list	This authenticated session is no longer active
+401	/api/inventory/uniform-low-stock	This authenticated session is no longer active
+401	/api/inventory/uniform-sales-list	This authenticated session is no longer active
+401	/api/inventory/uniform-sales-report	This authenticated session is no longer active
+401	/api/inventory/uniform-sales-student-invoice/1	This authenticated session is no longer active
+401	/api/inventory/uniform-sales-summary	This authenticated session is no longer active
+401	/api/inventory/uniforms	This authenticated session is no longer active
+401	/api/inventory/uniforms/1/sizes	This authenticated session is no longer active
+401	/api/inventory/uniforms/dashboard	This authenticated session is no longer active
+401	/api/inventory/uniforms/payments/summary	This authenticated session is no longer active
+401	/api/inventory/uniforms/sales/1	This authenticated session is no longer active
+401	/api/inventory/uniforms/students/1/profile	This authenticated session is no longer active
+401	/api/inventory/workflow/1/get	This authenticated session is no longer active
+401	/api/library/books	This authenticated session is no longer active
+401	/api/library/books/1	This authenticated session is no longer active
+401	/api/library/categories	This authenticated session is no longer active
+401	/api/library/fines	This authenticated session is no longer active
+401	/api/library/issues	This authenticated session is no longer active
+401	/api/library/overdue	This authenticated session is no longer active
+401	/api/library/summary	This authenticated session is no longer active
+401	/api/meetings/meetings-get	This authenticated session is no longer active
+401	/api/meetings/meetings-get/1	This authenticated session is no longer active
+401	/api/meetings/staff-list	This authenticated session is no longer active
+401	/api/notifications	This authenticated session is no longer active
+401	/api/parent-portal/dashboard	Invalid or expired session token
+401	/api/parent-portal/fee-balance/1	Invalid or expired session token
+401	/api/parent-portal/grading-scale	Invalid or expired session token
+401	/api/parent-portal/messages/1	Invalid or expired session token
+401	/api/parent-portal/mpesa-status/1	Invalid or expired session token
+401	/api/parent-portal/portfolio/1	Invalid or expired session token
+401	/api/parent-portal/student-attendance/1	Invalid or expired session token
+401	/api/parent-portal/student-fees/1	Invalid or expired session token
+401	/api/parent-portal/student-payment-history/1	Invalid or expired session token
+401	/api/parent-portal/student-performance/1	Invalid or expired session token
+401	/api/parent-portal/student-report-card/1	Invalid or expired session token
+401	/api/parent-portal/student-statement/1	Invalid or expired session token
+401	/api/payments/collection-trends	This authenticated session is no longer active
+401	/api/payments/collections	This authenticated session is no longer active
+401	/api/payments/lookup-by-phone?phone=07XXXXXXXX	This authenticated session is no longer active
+401	/api/payments/mpesa-reconcile-history?mpesa_id=ID	This authenticated session is no longer active
+401	/api/payments/revenue-sources	This authenticated session is no longer active
+401	/api/payments/stats	This authenticated session is no longer active
+401	/api/payments/trends	This authenticated session is no longer active
+401	/api/payments/unmatched-mpesa	This authenticated session is no longer active
+401	/api/schedules	This authenticated session is no longer active
+401	/api/schedules/1	This authenticated session is no longer active
+401	/api/schedules/activity/get	This authenticated session is no longer active
+401	/api/schedules/events/get	This authenticated session is no longer active
+401	/api/schedules/exam/get	This authenticated session is no longer active
+401	/api/schedules/holidays-get	This authenticated session is no longer active
+401	/api/schedules/rooms/get	This authenticated session is no longer active
+401	/api/schedules/route/get	This authenticated session is no longer active
+401	/api/schedules/timetable/check-conflicts	This authenticated session is no longer active
+401	/api/schedules/timetable/get	This authenticated session is no longer active
+401	/api/schedules/timetable/time-slots	This authenticated session is no longer active
+401	/api/schedules/weekly	This authenticated session is no longer active
+401	/api/settings/permissions	This authenticated session is no longer active
+401	/api/settings/roles	This authenticated session is no longer active
+401	/api/staff	This authenticated session is no longer active
+401	/api/staff/1	This authenticated session is no longer active
+401	/api/staff/academic-kpi-summary/1	This authenticated session is no longer active
+401	/api/staff/appointments	This authenticated session is no longer active
+401	/api/staff/assignments/current	This authenticated session is no longer active
+401	/api/staff/assignments/get	This authenticated session is no longer active
+401	/api/staff/attendance/get	This authenticated session is no longer active
+401	/api/staff/children-calculate-deductions?staff_id=X&month=Y&year=Z	This authenticated session is no longer active
+401	/api/staff/children-fee-config	This authenticated session is no longer active
+401	/api/staff/children-list?staff_id=X	This authenticated session is no longer active
+401	/api/staff/contracts/get/1	This authenticated session is no longer active
+401	/api/staff/contracts/list	This authenticated session is no longer active
+401	/api/staff/departments/get	This authenticated session is no longer active
+401	/api/staff/key-contacts	This authenticated session is no longer active
+401	/api/staff/leaves/list	This authenticated session is no longer active
+401	/api/staff/lifecycle	This authenticated session is no longer active
+401	/api/staff/my-schedule	This authenticated session is no longer active
+401	/api/staff/offboarding	This authenticated session is no longer active
+401	/api/staff/onboarding	This authenticated session is no longer active
+401	/api/staff/onboarding-pending	This authenticated session is no longer active
+401	/api/staff/onboarding-templates	This authenticated session is no longer active
+401	/api/staff/onboarding/1	This authenticated session is no longer active
+401	/api/staff/payroll/allowances	This authenticated session is no longer active
+401	/api/staff/payroll/deductions	This authenticated session is no longer active
+401	/api/staff/payroll/detailed-payslip?staff_id=&month=&year=	This authenticated session is no longer active
+401	/api/staff/payroll/download-p9	This authenticated session is no longer active
+401	/api/staff/payroll/download-payslip	This authenticated session is no longer active
+401	/api/staff/payroll/export-history	This authenticated session is no longer active
+401	/api/staff/payroll/history	This authenticated session is no longer active
+401	/api/staff/payroll/list	This authenticated session is no longer active
+401	/api/staff/payroll/loan-details	This authenticated session is no longer active
+401	/api/staff/payroll/payslip	This authenticated session is no longer active
+401	/api/staff/payroll/summary	This authenticated session is no longer active
+401	/api/staff/performance/academic-kpi-summary	This authenticated session is no longer active
+401	/api/staff/performance/generate-report	This authenticated session is no longer active
+401	/api/staff/performance/review-history	This authenticated session is no longer active
+401	/api/staff/profile/get	This authenticated session is no longer active
+401	/api/staff/promotions	This authenticated session is no longer active
+401	/api/staff/schedule/get	This authenticated session is no longer active
+401	/api/staff/staff	This authenticated session is no longer active
+401	/api/staff/staff/1	This authenticated session is no longer active
+401	/api/staff/stats	This authenticated session is no longer active
+401	/api/staff/upcoming-retirements	This authenticated session is no longer active
+401	/api/staff/workload/get	This authenticated session is no longer active
+401	/api/students	This authenticated session is no longer active
+401	/api/students/123/attendance	This authenticated session is no longer active
+401	/api/students/123/fees	This authenticated session is no longer active
+401	/api/students/academic-year-all	This authenticated session is no longer active
+401	/api/students/academic-year-current	This authenticated session is no longer active
+401	/api/students/academic-year-current-term	This authenticated session is no longer active
+401	/api/students/academic-year-get/1	This authenticated session is no longer active
+401	/api/students/academic-year-terms	This authenticated session is no longer active
+401	/api/students/alumni-get	This authenticated session is no longer active
+401	/api/students/attendance-get/1	This authenticated session is no longer active
+401	/api/students/boarding-meta	This authenticated session is no longer active
+401	/api/students/boarding-student/1	This authenticated session is no longer active
+401	/api/students/boarding-students	This authenticated session is no longer active
+401	/api/students/boarding-summary	This authenticated session is no longer active
+401	/api/students/by-class-get/1	This authenticated session is no longer active
+401	/api/students/by-stream-get/1	This authenticated session is no longer active
+401	/api/students/catering-boarding-meta	This authenticated session is no longer active
+401	/api/students/catering-boarding-student/1	This authenticated session is no longer active
+401	/api/students/catering-boarding-students	This authenticated session is no longer active
+401	/api/students/catering-boarding-summary	This authenticated session is no longer active
+401	/api/students/catering-food-requisition	This authenticated session is no longer active
+401	/api/students/context-list?context=academic	This authenticated session is no longer active
+401	/api/students/context-meta?context=boarding	This authenticated session is no longer active
+401	/api/students/context-profile/1?context=welfare	This authenticated session is no longer active
+401	/api/students/counseling-case/1	This authenticated session is no longer active
+401	/api/students/counseling-cases	This authenticated session is no longer active
+401	/api/students/counseling-meta	This authenticated session is no longer active
+401	/api/students/discipline-case/1	This authenticated session is no longer active
+401	/api/students/discipline-cases	This authenticated session is no longer active
+401	/api/students/discipline-get	This authenticated session is no longer active
+401	/api/students/discipline-meta	This authenticated session is no longer active
+401	/api/students/enrollment-current	This authenticated session is no longer active
+401	/api/students/enrollment-history/1	This authenticated session is no longer active
+401	/api/students/family-group/1	This authenticated session is no longer active
+401	/api/students/family-groups-meta-v2	This authenticated session is no longer active
+401	/api/students/family-groups-v2	This authenticated session is no longer active
+401	/api/students/fees-get/1	This authenticated session is no longer active
+401	/api/students/health-meta	This authenticated session is no longer active
+401	/api/students/health-record/1	This authenticated session is no longer active
+401	/api/students/health-records	This authenticated session is no longer active
+401	/api/students/id-card-details/1	This authenticated session is no longer active
+401	/api/students/id-card-get/1	This authenticated session is no longer active
+401	/api/students/id-card-history/1	This authenticated session is no longer active
+401	/api/students/id-card-meta	This authenticated session is no longer active
+401	/api/students/id-card-statistics-get	This authenticated session is no longer active
+401	/api/students/id-card/verify/1	This authenticated session is no longer active
+401	/api/students/id-cards	This authenticated session is no longer active
+401	/api/students/medical/get/1	This authenticated session is no longer active
+401	/api/students/my-children	This authenticated session is no longer active
+401	/api/students/my-profile	This authenticated session is no longer active
+401	/api/students/parents/available-students	This authenticated session is no longer active
+401	/api/students/parents/children	This authenticated session is no longer active
+401	/api/students/parents/get/1	This authenticated session is no longer active
+401	/api/students/parents/list	This authenticated session is no longer active
+401	/api/students/performance-full/1	This authenticated session is no longer active
+401	/api/students/performance-get/1	This authenticated session is no longer active
+401	/api/students/performance-meta	This authenticated session is no longer active
+401	/api/students/performance-overview	This authenticated session is no longer active
+401	/api/students/profile-get/1	This authenticated session is no longer active
+401	/api/students/promotion-candidates-v2	This authenticated session is no longer active
+401	/api/students/promotion-meta-v2	This authenticated session is no longer active
+401	/api/students/promotion/batches	This authenticated session is no longer active
+401	/api/students/promotion/history/1	This authenticated session is no longer active
+401	/api/students/qr-info-get/1	This authenticated session is no longer active
+401	/api/students/roster-get/1?stream_id=1&year_id=1	This authenticated session is no longer active
+401	/api/students/special-needs	This authenticated session is no longer active
+401	/api/students/special-needs-ieps/1	This authenticated session is no longer active
+401	/api/students/special-needs-meta	This authenticated session is no longer active
+401	/api/students/statistics-get	This authenticated session is no longer active
+401	/api/students/transfer/history/1	This authenticated session is no longer active
+401	/api/students/transfer/workflow-status	This authenticated session is no longer active
+401	/api/students/transport-meta	This authenticated session is no longer active
+401	/api/students/transport-passenger/1	This authenticated session is no longer active
+401	/api/students/transport-passengers	This authenticated session is no longer active
+401	/api/students/transport-summary	This authenticated session is no longer active
+401	/api/students/welfare-case/1	This authenticated session is no longer active
+401	/api/students/welfare-cases	This authenticated session is no longer active
+401	/api/students/welfare-meta	This authenticated session is no longer active
+401	/api/students/without-parents	This authenticated session is no longer active
+401	/api/system/dashboards	This authenticated session is no longer active
+401	/api/system/dashboards/1	This authenticated session is no longer active
+401	/api/system/menus	This authenticated session is no longer active
+401	/api/system/menus/1	This authenticated session is no longer active
+401	/api/system/policies	This authenticated session is no longer active
+401	/api/system/policies/1	This authenticated session is no longer active
+401	/api/system/roles/1/dashboards	This authenticated session is no longer active
+401	/api/system/roles/1/menus	This authenticated session is no longer active
+401	/api/system/roles/1/routes	This authenticated session is no longer active
+401	/api/system/routes	This authenticated session is no longer active
+401	/api/system/routes/1	This authenticated session is no longer active
+401	/api/system/routes/1/permissions	This authenticated session is no longer active
+401	/api/system/users/1/menus	This authenticated session is no longer active
+401	/api/system/users/1/routes	This authenticated session is no longer active
+401	/api/system/users/1/sidebar	This authenticated session is no longer active
+401	/api/systemconfig/dashboards	This authenticated session is no longer active
+401	/api/systemconfig/index	This authenticated session is no longer active
+401	/api/systemconfig/menus	This authenticated session is no longer active
+401	/api/systemconfig/policies	This authenticated session is no longer active
+401	/api/systemconfig/role-menus/1	This authenticated session is no longer active
+401	/api/systemconfig/role-routes/1	This authenticated session is no longer active
+401	/api/systemconfig/routes	This authenticated session is no longer active
+401	/api/systemconfig/routes-permissions/1	This authenticated session is no longer active
+401	/api/systemconfig/user-sidebar/1	This authenticated session is no longer active
+401	/api/transport/drivers/get	This authenticated session is no longer active
+401	/api/transport/my-route	This authenticated session is no longer active
+401	/api/transport/my-vehicle	This authenticated session is no longer active
+401	/api/transport/routes/get	This authenticated session is no longer active
+401	/api/transport/vehicles/get	This authenticated session is no longer active
+401	/api/users/1	This authenticated session is no longer active
+401	/api/users/1/permissions/by-entity	This authenticated session is no longer active
+401	/api/users/1/permissions/denied	This authenticated session is no longer active
+401	/api/users/1/permissions/direct	This authenticated session is no longer active
+401	/api/users/1/permissions/effective	This authenticated session is no longer active
+401	/api/users/1/permissions/summary	This authenticated session is no longer active
+401	/api/users/1/role/extra	This authenticated session is no longer active
+401	/api/users/1/role/main	This authenticated session is no longer active
+401	/api/users/1/roles/detailed	This authenticated session is no longer active
+401	/api/users/all	This authenticated session is no longer active
+401	/api/users/permissions/get	This authenticated session is no longer active
+401	/api/users/profile/get	This authenticated session is no longer active
+401	/api/users/roles/get	This authenticated session is no longer active
+401	/api/users/sidebar/items	This authenticated session is no longer active
+401	/api/users/with-multiple-roles	This authenticated session is no longer active
+401	/api/users/with-permission/1	This authenticated session is no longer active
+401	/api/users/with-role/1	This authenticated session is no longer active
+401	/api/users/with-temporary-permissions	This authenticated session is no longer active

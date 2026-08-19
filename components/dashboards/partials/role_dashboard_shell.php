@@ -52,14 +52,6 @@ $escape = static function ($value): string {
         </div>
     </div>
 
-    <div
-        class="dashboard-state alert alert-light border"
-        id="<?= $escape($rootId) ?>State"
-        role="status"
-    >
-        Loading dashboard data...
-    </div>
-
     <?php if ($cards): ?>
         <div class="row g-3 mb-4">
             <?php foreach ($cards as $card): ?>

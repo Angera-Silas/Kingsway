@@ -101,7 +101,14 @@ return formatResponse(false, null, 'An internal error occurred.');
     {
         try {
             // Get student details first to get admission number
-            $stmt = $this->db->prepare("SELECT id, admission_no FROM students WHERE id = ?");
+            $stmt = $this->db->prepare(
+                "SELECT s.id, s.admission_no, sic.qr_token
+                 FROM students s
+                 LEFT JOIN student_id_cards sic ON sic.student_id = s.id
+                    AND sic.status NOT IN ('lost', 'replaced')
+                 WHERE s.id = ?
+                 ORDER BY sic.id DESC LIMIT 1"
+            );
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -109,20 +116,19 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Student not found');
             }
 
+            if (empty($student['qr_token'])) {
+                return formatResponse(false, null, 'Generate or issue the learner ID card before generating its QR code');
+            }
+
             // Check if QR library exists
             if (!class_exists('\Endroid\QrCode\QrCode')) {
                 return formatResponse(false, null, 'QR code library not installed. Run: composer require endroid/qr-code');
             }
 
-            // Create QR data pointing to student portal
+            // The printed QR contains only the opaque server-resolved card
+            // credential. Never embed learner identity or portal URLs.
             $baseUrl = BASE_URL;
-            $qrData = json_encode([
-                'type' => 'student_verification',
-                'student_id' => (int) $student['id'],
-                'admission_no' => $student['admission_no'],
-                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details',
-                'generated' => date('Y-m-d H:i:s')
-            ]);
+            $qrData = (string) $student['qr_token'];
 
             // Generate QR code
             $qrCode = new \Endroid\QrCode\QrCode($qrData);
@@ -152,8 +158,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             
             return formatResponse(true, [
                 'qr_code_path' => $webPath,
-                'qr_data' => json_decode($qrData, true),
-                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details'
+                'qr_data' => $qrData,
+                'portal_url' => null
             ], 'QR code generated successfully');
 
         } catch (Exception $e) {

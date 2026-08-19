@@ -49,7 +49,13 @@ function asset_script(string $appBase, string $path): void
 }
 
 if (!headers_sent()) {
-    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
+    // The authenticated shell contains asset version parameters generated
+    // from file modification times. Always revalidate the HTML so a reload
+    // can receive the latest asset versions without manual cache clearing.
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -238,7 +244,29 @@ foreach ($files as $file) {
 <script>
     (async function () {
         const route = window.REQUESTED_ROUTE;
-        if (!route || route === 'loading') return;
+
+        if (!route || route === 'loading') {
+            try {
+                if (window.AuthContext?.ready) {
+                    await window.AuthContext.ready();
+                } else if (window.KingswayBootstrap?.initialize) {
+                    await window.KingswayBootstrap.initialize();
+                }
+            } catch (e) {
+                console.warn('Auth init failed during loading redirect:', e);
+            }
+            const dashboardInfo = window.AuthContext?.getDashboardInfo?.();
+            if (dashboardInfo && dashboardInfo.key) {
+                window.location.replace(
+                    (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key
+                );
+            } else {
+                window.location.replace(
+                    (window.APP_BASE || '') + '/home.php?route=profile'
+                );
+            }
+            return;
+        }
 
         try {
             // Wait for auth to be fully initialized before checking route access.

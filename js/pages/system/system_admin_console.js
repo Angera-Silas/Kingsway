@@ -677,6 +677,9 @@
     editingId: null,
     modal: null,
     eventsBound: false,
+    liveEnabled: false,
+    liveTimer: null,
+    loadingData: false,
 
     /* ---------- bootstrap ---------- */
 
@@ -726,6 +729,21 @@
         refreshBtn.addEventListener("click", function () { self.loadData(); });
       }
 
+      /* live toggle button */
+      var liveBtn = qs(this.container, "[data-system-live]");
+      if (liveBtn) {
+        liveBtn.addEventListener("click", function () { self.toggleLive(); });
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden && self.liveEnabled) {
+          self.stopLive();
+        } else if (!document.hidden && self.liveEnabled) {
+          self.startLive();
+          self.loadData(true);
+        }
+      });
+      window.addEventListener("pagehide", function () { self.stopLive(); });
+
       /* search input */
       var searchInput = qs(this.container, "[data-system-search]");
       if (searchInput) {
@@ -754,8 +772,10 @@
 
     /* ---------- data loading ---------- */
 
-    loadData: async function () {
-      this.setState("loading");
+    loadData: async function (quiet) {
+      if (quiet && this.loadingData) return;
+      this.loadingData = true;
+      if (!quiet) this.setState("loading");
       try {
         var params = { page: this.currentPage, limit: this.pageSize };
         if (this.search) params.search = this.search;
@@ -772,8 +792,52 @@
         this.render();
       } catch (err) {
         console.error("[SystemAdminConsole] Load failed:", err);
-        this.setState("error", err.message || "Failed to load data");
-        notify(err.message || "Failed to load data", "error");
+        if (!quiet) {
+          this.setState("error", err.message || "Failed to load data");
+          notify(err.message || "Failed to load data", "error");
+        }
+      } finally {
+        this.loadingData = false;
+      }
+    },
+
+    toggleLive: function () {
+      this.liveEnabled = !this.liveEnabled;
+      var liveBtn = qs(this.container, "[data-system-live]");
+      if (liveBtn) {
+        if (this.liveEnabled) {
+          liveBtn.classList.add("btn-success");
+          liveBtn.classList.remove("btn-outline-secondary");
+          liveBtn.innerHTML =
+            '<span class="spinner-grow spinner-grow-sm me-1" aria-hidden="true"></span>Live';
+        } else {
+          liveBtn.classList.remove("btn-success");
+          liveBtn.classList.add("btn-outline-secondary");
+          liveBtn.innerHTML =
+            '<i class="bi bi-broadcast me-1"></i> Live';
+        }
+      }
+      if (this.liveEnabled) {
+        this.startLive();
+        this.loadData(true);
+      } else {
+        this.stopLive();
+      }
+    },
+
+    startLive: function () {
+      var self = this;
+      this.stopLive();
+      this.liveTimer = window.setInterval(function () {
+        if (document.hidden) return;
+        self.loadData(true);
+      }, 5000);
+    },
+
+    stopLive: function () {
+      if (this.liveTimer) {
+        window.clearInterval(this.liveTimer);
+        this.liveTimer = null;
       }
     },
 

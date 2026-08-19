@@ -31,13 +31,16 @@ class MessageService
             'email' => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingsway.ac.ke',
             'principal_name' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr, Bett Junior',
             'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher',
-            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '../../uploads/school_assets/official_school_logo.png'
+            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '',
+            'name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School',
+            'motto' => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'Learning, character and service',
+            'portal_url' => defined('APP_URL') ? APP_URL : '#'
         ];
 
         $schoolDetails = array_merge($defaultDetails, $schoolDetails);
 
         // Load formal template if exists, fallback to bootstrap template
-        $templatePath = __DIR__ . '/../modules/communications/templates/formal_email_template.html';
+        $templatePath = __DIR__ . '/../modules/communications/templates/branded_email_template.html';
         if (!file_exists($templatePath)) {
             $templatePath = __DIR__ . '/../modules/communications/templates/email_bootstrap_template.html';
         }
@@ -47,14 +50,15 @@ class MessageService
         // Build logo section - use Content-ID for MIME attachment
         // This is the standard way to embed images in emails (works best with Gmail)
         $logoSection = '';
-        if (!empty($schoolDetails['logo'])) {
+        {
             $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
             if (!file_exists($logoPath)) {
                 $logoPath = __DIR__ . '/../../images/official_school_logo.png';
             }
             if (file_exists($logoPath)) {
-                // Use cid: reference for MIME attachment (will be added in sendEmail)
-                $logoSection = '<img src="cid:school_logo" alt="Kingsway Preparatory School Logo" style="max-height: 95px; width: auto; display: block; border-radius: 6px; margin: 0; padding: 0; border: 2px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.2);" />';
+                // Use a data URI so the logo is rendered inline without a visible
+                // MIME attachment in the recipient's mailbox.
+                $logoSection = '<img src="data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath)) . '" width="70" alt="Kingsway Preparatory School" style="display:block;max-width:70px;height:auto;border:0;border-radius:8px;" />';
             } else {
                 // Fallback to URL if file not found
                 $logoUrl = htmlspecialchars($schoolDetails['logo']);
@@ -62,6 +66,7 @@ class MessageService
             }
         }
 
+        $profile = $this->emailProfile($subject);
         $replacements = [
             '{{subject}}' => $subject,
             '{{body}}' => $formattedBody,
@@ -75,6 +80,12 @@ class MessageService
             '{{sender_name}}' => htmlspecialchars($schoolDetails['principal_name']),
             '{{sender_title}}' => htmlspecialchars($schoolDetails['principal_title']),
             '{{school_logo}}' => $logoSection
+            ,'{{school_name}}' => htmlspecialchars($schoolDetails['name'])
+            ,'{{school_motto}}' => htmlspecialchars($schoolDetails['motto'])
+            ,'{{school_link}}' => htmlspecialchars($schoolDetails['portal_url'])
+            ,'{{message_type}}' => $profile['label']
+            ,'{{accent}}' => $profile['accent']
+            ,'{{accent_soft}}' => $profile['soft']
         ];
         return strtr($template, $replacements);
     }    /**
@@ -153,6 +164,8 @@ class MessageService
             return $this->renderFormalEmail($subject, $body, $signature, $footer, $media, $schoolDetails);
         }
 
+        return $this->renderFormalEmail($subject, $body, $signature, $footer, $media, $schoolDetails);
+        /* legacy renderer retained below for reference */
         $template = file_get_contents(__DIR__ . '/../modules/communications/templates/email_bootstrap_template.html');
         $replacements = [
             '{{subject}}' => $subject,
@@ -196,15 +209,6 @@ class MessageService
             $mail->Subject = $subject;
             $mail->Body = $htmlBody;
 
-            // Attach logo as embedded image (MIME attachment with Content-ID)
-            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
-            if (!file_exists($logoPath)) {
-                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
-            }
-            if (file_exists($logoPath)) {
-                $mail->addEmbeddedImage($logoPath, 'school_logo', 'official_school_logo.png', 'base64', 'image/png');
-            }
-
             // Attachments
             foreach ($attachments as $filePath) {
                 if (file_exists($filePath)) {
@@ -230,5 +234,15 @@ class MessageService
         foreach ($recipientList as $recipients) {
             $this->sendEmail($recipients, $subject, $htmlBody, $attachments);
         }
+    }
+
+    private function emailProfile($subject)
+    {
+        $text = strtolower((string) $subject);
+        if (strpos($text, 'invoice') !== false || strpos($text, 'payment') !== false || strpos($text, 'fee') !== false) return ['label' => 'Account notice', 'accent' => '#087f5b', 'soft' => '#e5f7ef'];
+        if (strpos($text, 'reminder') !== false || strpos($text, 'due') !== false) return ['label' => 'Reminder', 'accent' => '#a15c00', 'soft' => '#fff4db'];
+        if (strpos($text, 'reply') !== false || strpos($text, 'response') !== false) return ['label' => 'Reply', 'accent' => '#6f42c1', 'soft' => '#f1eafd'];
+        if (strpos($text, 'notification') !== false || strpos($text, 'interview') !== false || strpos($text, 'schedule') !== false) return ['label' => 'Notification', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
+        return ['label' => 'Information', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
     }
 }

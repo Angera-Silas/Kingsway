@@ -673,6 +673,11 @@ document.getElementById('admissionForm')?.addEventListener('submit', async funct
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const fd = new FormData(this);
+  // Attach the resolved academic_year_terms.id for the chosen start term so
+  // the server records the target term directly (avoids relying on the label).
+  const termSel = document.querySelector('[name="preferred_start"]');
+  const termId = termSel?.selectedOptions?.[0]?.dataset?.termId;
+  if (termId) fd.append('target_term_id', termId);
   try {
     const res  = await fetch('<?= $appBase ?>/api/public/applications', { method:'POST', body:fd });
     const json = await res.json();

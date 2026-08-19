@@ -1,0 +1,2590 @@
+EVENT_NAME	STATUS	EVENT_TYPE	EXECUTE_AT	INTERVAL_VALUE	INTERVAL_FIELD	LAST_EXECUTED
+evt_process_academic_summary	ENABLED	RECURRING	NULL	1	MONTH	NULL
+evt_process_attendance_summary	ENABLED	RECURRING	NULL	1	DAY	2026-08-18 02:18:23
+evt_staff_appraisal_reminders	ENABLED	RECURRING	NULL	1	MONTH	NULL
+evt_vehicle_maintenance_alerts	ENABLED	RECURRING	NULL	1	DAY	2026-08-18 02:18:23
+ev_daily_attendance_report	ENABLED	RECURRING	NULL	1	DAY	2026-08-17 07:00:00
+ev_monthly_competency_report_reminder	ENABLED	RECURRING	NULL	1	MONTH	NULL
+ev_quarterly_csl_audit	ENABLED	RECURRING	NULL	1	QUARTER	NULL
+ev_term_end_values_summary	ENABLED	RECURRING	NULL	1	QUARTER	NULL
+ev_weekly_maintenance_notify	ENABLED	RECURRING	NULL	1	WEEK	2026-08-15 07:00:00
+ev_yearly_portfolio_archive_reminder	ENABLED	RECURRING	NULL	1	YEAR	NULL
+TABLE_NAME	INDEX_NAME	NON_UNIQUE	columns_in_index	cardinality
+academic_capacity_config	PRIMARY	0	1	0
+academic_capacity_config	uk_year_config	0	1	0
+academic_capacity_reservations	fk_acr_stream	1	1	0
+academic_capacity_reservations	fk_acr_term	1	1	0
+academic_capacity_reservations	idx_class	1	1	0
+academic_capacity_reservations	idx_status	1	1	0
+academic_capacity_reservations	idx_year	1	1	0
+academic_capacity_reservations	PRIMARY	0	1	0
+academic_capacity_reservations	uk_application	0	1	0
+academic_class_progression	idx_academic_class_progression_effective_from_academic_year_id	1	1	2
+academic_class_progression	idx_academic_class_progression_target_class_id	1	1	11
+academic_class_progression	PRIMARY	0	1	11
+academic_class_progression	uk_progression	0	3	11
+academic_years	PRIMARY	0	1	0
+academic_years	uk_year_code	0	1	0
+academic_year_archives	academic_year_archives_ibfk_1	1	1	0
+academic_year_archives	idx_status	1	1	0
+academic_year_archives	PRIMARY	0	1	0
+academic_year_archives	uk_academic_year	0	1	0
+academic_year_calendar	PRIMARY	0	1	36
+academic_year_calendar	uk_term_week	0	2	36
+academic_year_calendar_days	idx_academic_year_calendar_days_calendar_day_type_id	1	1	10
+academic_year_calendar_days	PRIMARY	0	1	352
+academic_year_calendar_days	uk_calendar_date	0	2	352
+academic_year_classes	idx_academic_year_classes_class_id	1	1	12
+academic_year_classes	PRIMARY	0	1	12
+academic_year_classes	uk_year_class	0	2	12
+academic_year_class_learning_areas	idx_academic_year_class_learning_areas_learning_area_id	1	1	94
+academic_year_class_learning_areas	idx_academic_year_class_learning_areas_strand_id	1	1	2
+academic_year_class_learning_areas	idx_academic_year_class_learning_areas_sub_strand_id	1	1	2
+academic_year_class_learning_areas	PRIMARY	0	1	94
+academic_year_class_learning_areas	uk_year_class_area	0	2	94
+academic_year_class_learning_area_teachers	idx_academic_year_class_learning_area_teachers_academic_y6033	1	1	0
+academic_year_class_learning_area_teachers	idx_academic_year_class_learning_area_teachers_staff_id	1	1	0
+academic_year_class_learning_area_teachers	PRIMARY	0	1	0
+academic_year_class_learning_area_teachers	uk_area_term_staff	0	4	0
+academic_year_class_streams	idx_academic_year_class_streams_class_teacher_id	1	1	2
+academic_year_class_streams	idx_academic_year_class_streams_room_id	1	1	2
+academic_year_class_streams	idx_academic_year_class_streams_stream_id	1	1	4
+academic_year_class_streams	PRIMARY	0	1	18
+academic_year_class_streams	uk_year_class_stream	0	2	18
+academic_year_fee_schedules	idx_academic_year_fee_schedules_academic_year_class_id	1	1	0
+academic_year_fee_schedules	idx_academic_year_fee_schedules_academic_year_term_id	1	1	0
+academic_year_fee_schedules	idx_academic_year_fee_schedules_fee_catalog_id	1	1	0
+academic_year_fee_schedules	idx_academic_year_fee_schedules_student_type_id	1	1	0
+academic_year_fee_schedules	PRIMARY	0	1	0
+academic_year_fee_schedules	uk_year_term_class_type_fee	0	5	0
+academic_year_terms	idx_academic_year_terms_term_id	1	1	3
+academic_year_terms	PRIMARY	0	1	3
+academic_year_terms	uk_year_term	0	2	3
+activities	idx_category	1	1	2
+activities	PRIMARY	0	1	2
+activity_categories	idx_department	1	1	3
+activity_categories	PRIMARY	0	1	3
+activity_categories	uk_name	0	1	3
+activity_participants	idx_activity_participants_staff_id	1	1	0
+activity_participants	idx_activity_participants_student_academic_enrollment_id	1	1	0
+activity_participants	PRIMARY	0	1	0
+activity_participants	uk_activity_student	0	2	0
+activity_resources	activity_id	1	1	2
+activity_resources	idx_activity_resources_name	1	1	5
+activity_resources	PRIMARY	0	1	5
+activity_schedule	activity_schedule_ibfk_1	1	1	0
+activity_schedule	idx_activity_schedule_day_of_week	1	1	0
+activity_schedule	PRIMARY	0	1	0
+activity_staff_participants	activity_staff_participants_ibfk_1	1	1	0
+activity_staff_participants	PRIMARY	0	1	0
+activity_staff_participants	staff_id	1	1	0
+admission_applications	fk_admission_parent	1	1	1
+admission_applications	idx_admission_applications_enrolled_student_id	1	1	1
+admission_applications	idx_admission_applications_target_term_id	1	1	1
+admission_applications	idx_education_level	1	1	1
+admission_applications	idx_interview_id	1	1	1
+admission_applications	idx_placement_id	1	1	1
+admission_applications	idx_status_year	1	2	1
+admission_applications	idx_web_application_id	1	1	1
+admission_applications	PRIMARY	0	1	1
+admission_applications	uk_application_no	0	1	1
+admission_decisions	idx_application_id	1	1	0
+admission_decisions	idx_decision	1	1	0
+admission_decisions	idx_decision_at	1	1	0
+admission_decisions	idx_decision_by	1	1	0
+admission_decisions	PRIMARY	0	1	0
+admission_documents	fk_doc_verifier	1	1	2
+admission_documents	idx_application_doc	1	2	4
+admission_documents	PRIMARY	0	1	4
+admission_interviews	fk_interview_conducted_by	1	1	0
+admission_interviews	idx_application_id	1	1	0
+admission_interviews	idx_interviewer_id	1	1	0
+admission_interviews	idx_scheduled_date	1	1	0
+admission_interviews	idx_status	1	1	0
+admission_interviews	PRIMARY	0	1	0
+admission_placement_tests	fk_placement_test_recorded_by	1	1	0
+admission_placement_tests	idx_application_id	1	1	0
+admission_placement_tests	idx_test_code	1	1	0
+admission_placement_tests	idx_test_date	1	1	0
+admission_placement_tests	PRIMARY	0	1	0
+admission_windows	idx_aw_academic_year_id	1	1	0
+admission_windows	idx_aw_status	1	1	0
+admission_windows	idx_aw_term_id	1	1	0
+admission_windows	PRIMARY	0	1	0
+albums	idx_albums_created_at	1	1	17
+albums	idx_albums_name	1	1	17
+albums	idx_albums_updated_at	1	1	17
+albums	PRIMARY	0	1	17
+announcements_bulletin	idx_announcement_type	1	1	0
+announcements_bulletin	idx_published_at	1	1	0
+announcements_bulletin	idx_status	1	1	0
+announcements_bulletin	PRIMARY	0	1	0
+announcements_bulletin	published_by	1	1	0
+announcement_views	PRIMARY	0	1	0
+announcement_views	uk_announcement_viewer	0	2	0
+announcement_views	viewer_id	1	1	0
+annual_scores	idx_academic_year	1	1	0
+annual_scores	idx_annual_grade	1	1	0
+annual_scores	idx_pathway_classification	1	1	0
+annual_scores	PRIMARY	0	1	0
+annual_scores	uk_student_year	0	2	0
+api_tokens	idx_user_active	1	2	0
+api_tokens	PRIMARY	0	1	0
+api_tokens	uk_token	0	1	0
+arrears_settlement_plans	idx_approved_by	1	1	0
+arrears_settlement_plans	idx_arrears	1	1	0
+arrears_settlement_plans	idx_created_by	1	1	0
+arrears_settlement_plans	idx_status	1	1	0
+arrears_settlement_plans	idx_student	1	1	0
+arrears_settlement_plans	PRIMARY	0	1	0
+assessments	idx_assessments_academic_year_calendar_day_id	1	1	0
+assessments	idx_assessments_assessment_type_id	1	1	0
+assessments	idx_assessments_coverage_id	1	1	0
+assessments	idx_assessments_strand_id	1	1	0
+assessments	idx_assessments_sub_strand_id	1	1	0
+assessments	idx_aycs	1	1	0
+assessments	idx_ayt	1	1	0
+assessments	idx_la	1	1	0
+assessments	PRIMARY	0	1	0
+assessment_benchmarks	fk_ab_created_by	1	1	0
+assessment_benchmarks	fk_ab_grade_level	1	1	0
+assessment_benchmarks	fk_ab_subject	1	1	0
+assessment_benchmarks	idx_benchmark_year_grade	1	2	0
+assessment_benchmarks	PRIMARY	0	1	0
+assessment_benchmarks	uk_benchmark	0	4	0
+assessment_history	idx_assessment_history	1	1	0
+assessment_history	idx_assessment_history_assessment_result_id	1	1	0
+assessment_history	idx_student_history	1	2	0
+assessment_history	PRIMARY	0	1	0
+assessment_results	idx_assessment_results_responder_id	1	1	0
+assessment_results	idx_enr	1	1	0
+assessment_results	PRIMARY	0	1	0
+assessment_results	uk_assessment_student	0	2	0
+assessment_rubrics	idx_tool	1	1	336
+assessment_rubrics	PRIMARY	0	1	672
+assessment_tools	fk_at_created_by	1	1	4
+assessment_tools	idx_assessment_type	1	1	6
+assessment_tools	idx_grade	1	1	12
+assessment_tools	idx_learning_area	1	1	18
+assessment_tools	PRIMARY	0	1	169
+assessment_tools	uk_tool_code	0	1	169
+assessment_types	PRIMARY	0	1	16
+assessment_types	uk_name	0	1	16
+assessment_type_classifications	PRIMARY	0	1	3
+assessment_type_classifications	uk_code	0	1	3
+asset_categories	PRIMARY	0	1	10
+asset_categories	uq_asset_category_code	0	1	10
+asset_disposals	idx_disposal_asset	1	1	0
+asset_disposals	PRIMARY	0	1	0
+assignments	idx_asgn_class	1	1	0
+assignments	idx_asgn_coverage	1	1	0
+assignments	idx_asgn_due	1	1	0
+assignments	idx_asgn_la	1	1	0
+assignments	idx_asgn_status	1	1	0
+assignments	idx_asgn_strand	1	1	0
+assignments	idx_asgn_subject	1	1	0
+assignments	idx_asgn_sub_strand	1	1	0
+assignments	idx_asgn_teacher	1	1	0
+assignments	idx_assignments_academic_year_id	1	1	0
+assignments	idx_assignments_term_id	1	1	0
+assignments	PRIMARY	0	1	0
+assignment_submissions	idx_sub_assignment	1	1	0
+assignment_submissions	idx_sub_status	1	1	0
+assignment_submissions	idx_sub_student	1	1	0
+assignment_submissions	PRIMARY	0	1	0
+assignment_submissions	uq_submission	0	2	0
+attendance_sessions	PRIMARY	0	1	11
+attendance_sessions	uk_session_code	0	1	11
+bank_accounts	PRIMARY	0	1	0
+bank_accounts	ux_account_no	0	1	0
+bank_transactions	idx_bank_matched_mpesa	1	1	0
+bank_transactions	idx_bank_ref	1	2	0
+bank_transactions	idx_bank_sender_name	1	1	0
+bank_transactions	idx_bank_sender_phone	1	1	0
+bank_transactions	idx_bank_transactions_reconciled	1	1	0
+bank_transactions	idx_student_date	1	2	0
+bank_transactions	PRIMARY	0	1	0
+bank_transactions	uk_transaction_ref	0	1	0
+blocked_devices	idx_user_agent_pattern	1	1	0
+blocked_devices	PRIMARY	0	1	0
+blocked_ips	idx_expires_at	1	1	0
+blocked_ips	PRIMARY	0	1	0
+blocked_ips	uk_blocked_ip	0	1	0
+boarding_attendance	boarding_attendance_ibfk_4	1	1	0
+boarding_attendance	boarding_attendance_ibfk_5	1	1	0
+boarding_attendance	idx_dormitory_date	1	2	0
+boarding_attendance	idx_session	1	1	0
+boarding_attendance	idx_status	1	1	0
+boarding_attendance	PRIMARY	0	1	0
+boarding_attendance	unique_boarding_attendance	0	3	0
+budgets	idx_budget_status	1	1	2
+budgets	idx_budget_year	1	1	2
+budgets	PRIMARY	0	1	19
+budget_amendments	idx_amendment_budget	1	1	0
+budget_amendments	idx_budget_amendments_line_item_id	1	1	0
+budget_amendments	PRIMARY	0	1	0
+budget_line_items	idx_bli_budget	1	1	0
+budget_line_items	idx_bli_category	1	1	0
+budget_line_items	PRIMARY	0	1	0
+calendar_day_types	PRIMARY	0	1	8
+calendar_day_types	uk_day_type_code	0	1	8
+careers_benefits	idx_careers_benefits_is_active	1	1	2
+careers_benefits	PRIMARY	0	1	6
+cash_reconciliation_sessions	idx_cash_reconciliation_sessions_cashier_id	1	1	0
+cash_reconciliation_sessions	idx_cash_recon_date	1	1	0
+cash_reconciliation_sessions	PRIMARY	0	1	0
+cash_reconciliation_sessions	uq_cash_recon_date	0	2	0
+catering_meal_statuses	idx_meal_date	1	1	0
+catering_meal_statuses	idx_meal_type	1	1	0
+catering_meal_statuses	idx_status	1	1	0
+catering_meal_statuses	PRIMARY	0	1	0
+catering_meal_statuses	uk_student_meal_date	0	3	0
+classes	idx_classes_level_id	1	1	12
+classes	PRIMARY	0	1	12
+classes	uk_class_code	0	1	12
+classes	uk_class_name	0	1	12
+class_promotion_queue	class_promotion_queue_ibfk_3	1	1	0
+class_promotion_queue	class_promotion_queue_ibfk_4	1	1	0
+class_promotion_queue	idx_approval_status	1	1	0
+class_promotion_queue	idx_class_id	1	1	0
+class_promotion_queue	PRIMARY	0	1	0
+class_promotion_queue	uk_batch_class_stream	0	3	0
+communications	idx_communications_academic_year_id	1	1	2
+communications	idx_communications_academic_year_term_id	1	1	2
+communications	idx_communications_outbox	1	3	8
+communications	idx_communications_template_id	1	1	2
+communications	idx_comm_business_event	1	1	2
+communications	idx_comm_template_channel	1	1	2
+communications	idx_comm_thread	1	1	2
+communications	idx_sender	1	1	2
+communications	idx_sent	1	1	127
+communications	PRIMARY	0	1	127
+communication_attachments	communication_id	1	1	0
+communication_attachments	idx_comm_attachment_type	1	1	0
+communication_attachments	PRIMARY	0	1	0
+communication_attachment_channels	PRIMARY	0	1	0
+communication_attachment_channels	uq_comm_attachment_channel	0	2	0
+communication_audit_events	fk_comm_audit_template_channel	1	1	2
+communication_audit_events	fk_comm_audit_thread	1	1	2
+communication_audit_events	idx_comm_audit_communication	1	2	10
+communication_audit_events	idx_comm_audit_endpoint	1	2	2
+communication_audit_events	idx_comm_audit_provider	1	1	2
+communication_audit_events	PRIMARY	0	1	10
+communication_business_events	idx_comm_business_event_status	1	2	0
+communication_business_events	PRIMARY	0	1	0
+communication_business_events	uq_comm_business_event	0	2	0
+communication_consents	idx_comm_consent_lookup	1	4	0
+communication_consents	PRIMARY	0	1	0
+communication_delivery_attempts	idx_comm_attempt_provider	1	1	0
+communication_delivery_attempts	PRIMARY	0	1	0
+communication_delivery_attempts	uq_comm_attempt_number	0	2	0
+communication_event_exam_workflows	PRIMARY	0	2	0
+communication_event_fee_students	PRIMARY	0	2	0
+communication_event_inquiries	PRIMARY	0	2	0
+communication_event_messages	fk_comm_event_message_source	1	1	0
+communication_event_messages	PRIMARY	0	2	0
+communication_event_school_events	fk_comm_event_school_source	1	1	0
+communication_event_school_events	PRIMARY	0	2	0
+communication_groups	created_by	1	1	0
+communication_groups	idx_type	1	1	0
+communication_groups	PRIMARY	0	1	0
+communication_preferences	idx_comm_preference_lookup	1	3	0
+communication_preferences	PRIMARY	0	1	0
+communication_preferences	uq_comm_preference	0	3	0
+communication_recipients	communication_id	1	1	11
+communication_recipients	idx_comm_recipient_delivery	1	1	5
+communication_recipients	PRIMARY	0	1	11
+communication_recipients	recipient_id	1	1	2
+communication_recipient_endpoints	idx_endpoint_provider	1	1	0
+communication_recipient_endpoints	idx_endpoint_queue	1	2	0
+communication_recipient_endpoints	PRIMARY	0	1	0
+communication_recipient_endpoints	uq_comm_recipient_channel	0	2	0
+communication_template_catalog	idx_comm_template_status	1	1	2
+communication_template_catalog	PRIMARY	0	1	14
+communication_template_catalog	uq_comm_template_code	0	1	14
+communication_template_channels	idx_comm_template_provider	1	2	2
+communication_template_channels	PRIMARY	0	1	14
+communication_template_channels	uq_comm_template_channel	0	3	14
+communication_template_values	PRIMARY	0	2	0
+communication_template_variables	PRIMARY	0	1	40
+communication_template_variables	uq_comm_template_variable	0	2	40
+communication_template_versions	idx_comm_template_version_status	1	2	14
+communication_template_versions	PRIMARY	0	1	14
+communication_template_versions	uq_comm_template_version	0	2	14
+communication_threads	idx_comm_thread_status	1	2	0
+communication_threads	PRIMARY	0	1	0
+communication_thread_inquiries	PRIMARY	0	2	0
+communication_thread_inquiries	uq_comm_inquiry_thread	0	1	0
+communication_thread_internal_conversations	PRIMARY	0	2	0
+communication_thread_internal_conversations	uq_comm_internal_thread	0	1	0
+communication_thread_messages	idx_comm_thread_message_order	1	2	0
+communication_thread_messages	PRIMARY	0	1	0
+communication_workflow_instances	idx_comm_workflow_initiator	1	1	2
+communication_workflow_instances	idx_comm_workflow_status	1	1	2
+communication_workflow_instances	PRIMARY	0	1	8
+communication_workflow_instances	uq_comm_workflow	0	2	8
+conduct_tracking	fk_ct_recorded_by	1	1	0
+conduct_tracking	fk_ct_term	1	1	0
+conduct_tracking	idx_rating	1	1	0
+conduct_tracking	idx_student	1	1	0
+conduct_tracking	PRIMARY	0	1	0
+conduct_tracking	uk_conduct	0	3	0
+contact_directory	contact_type	1	1	2
+contact_directory	idx_contact_directory_department_id	1	1	4
+contact_directory	linked_id	1	1	4
+contact_directory	PRIMARY	0	1	4
+contact_inquiries	idx_contact_inquiries_created_at	1	1	0
+contact_inquiries	idx_contact_inquiries_email	1	1	0
+contact_inquiries	idx_contact_inquiries_phone	1	1	0
+contact_inquiries	idx_contact_inquiries_status	1	1	0
+contact_inquiries	idx_contact_inquiries_updated_at	1	1	0
+contact_inquiries	PRIMARY	0	1	0
+conversation_participants	participant_id	1	1	2
+conversation_participants	PRIMARY	0	1	15
+conversation_participants	uk_conversation_participant	0	2	15
+core_competencies	PRIMARY	0	1	8
+core_competencies	uk_code	0	1	8
+core_values	PRIMARY	0	1	7
+core_values	uk_code	0	1	7
+counseling_cases	idx_assigned_to	1	1	0
+counseling_cases	idx_priority	1	1	0
+counseling_cases	idx_staff_id	1	1	0
+counseling_cases	idx_status	1	1	0
+counseling_cases	idx_student_id	1	1	0
+counseling_cases	PRIMARY	0	1	0
+counseling_cases	uk_case_code	0	1	0
+counseling_sessions	idx_case_id	1	1	0
+counseling_sessions	idx_session_date	1	1	0
+counseling_sessions	PRIMARY	0	1	0
+csl_activities	fk_csl_organized_by	1	1	0
+csl_activities	idx_activity_date	1	1	0
+csl_activities	idx_status	1	1	0
+csl_activities	PRIMARY	0	1	0
+daily_meal_allocations	class_id	1	1	0
+daily_meal_allocations	created_by	1	1	0
+daily_meal_allocations	idx_daily_meal_allocations_boarding_house_id	1	1	0
+daily_meal_allocations	idx_date_house	1	2	0
+daily_meal_allocations	PRIMARY	0	1	0
+daily_meal_allocations	uk_meal_allocation	0	3	0
+dashboards	fk_dashboards_route	1	1	17
+dashboards	idx_dashboards_active	1	1	2
+dashboards	idx_dashboards_domain	1	1	4
+dashboards	name	0	1	17
+dashboards	PRIMARY	0	1	17
+deduction_types	idx_category	1	1	12
+deduction_types	PRIMARY	0	1	12
+deduction_types	uk_code	0	1	12
+departments	idx_head	1	1	2
+departments	idx_status	1	1	2
+departments	PRIMARY	0	1	16
+departments	uk_code	0	1	16
+department_attendance_rules	department_id	0	1	0
+department_attendance_rules	PRIMARY	0	1	0
+depreciation_schedule	idx_depr_year	1	1	0
+depreciation_schedule	PRIMARY	0	1	0
+depreciation_schedule	uq_depr_asset_year	0	2	0
+disbursement_transactions	idx_disbursement_conv	1	1	0
+disbursement_transactions	idx_disbursement_originator	1	1	0
+disbursement_transactions	idx_disbursement_payroll	1	1	0
+disbursement_transactions	idx_disbursement_payslip	1	1	0
+disbursement_transactions	idx_disbursement_recipient	1	1	0
+disbursement_transactions	idx_disbursement_refund	1	1	0
+disbursement_transactions	idx_disbursement_request	1	1	0
+disbursement_transactions	idx_disbursement_status	1	1	0
+disbursement_transactions	idx_disbursement_statutory_attempt	1	1	0
+disbursement_transactions	idx_disbursement_txn_ref	1	1	0
+disbursement_transactions	PRIMARY	0	1	0
+discipline_incidents	idx_discipline_incidents_academic_year_term_id	1	1	3
+discipline_incidents	PRIMARY	0	1	3
+discipline_incidents	uk_incident_enr_term_date	0	3	3
+dormitories	code	0	1	6
+dormitories	dormitories_ibfk_1	1	1	2
+dormitories	dormitories_ibfk_2	1	1	2
+dormitories	PRIMARY	0	1	6
+dormitory_assignments	idx_dorm	1	1	0
+dormitory_assignments	idx_dormitory_assignments_academic_year_id	1	1	0
+dormitory_assignments	PRIMARY	0	1	0
+dormitory_assignments	uq_active_assignment	0	2	0
+emergency_contacts	PRIMARY	0	1	0
+emergency_contacts	uk_emergency_person_name	0	2	0
+equipment_maintenance	idx_equipment_status	1	2	0
+equipment_maintenance	idx_next_date	1	1	0
+equipment_maintenance	maintenance_type_id	1	1	0
+equipment_maintenance	PRIMARY	0	1	0
+equipment_maintenance_types	idx_status	1	1	2
+equipment_maintenance_types	PRIMARY	0	1	5
+equipment_maintenance_types	uk_code	0	1	5
+exam_schedules	idx_exam_schedules_academic_year_class_stream_id	1	1	0
+exam_schedules	idx_exam_schedules_academic_year_term_id	1	1	0
+exam_schedules	idx_exam_schedules_created_at	1	1	0
+exam_schedules	idx_exam_schedules_exam_date	1	1	0
+exam_schedules	idx_exam_schedules_invigilator_id	1	1	0
+exam_schedules	idx_exam_schedules_learning_area_id	1	1	0
+exam_schedules	idx_exam_schedules_room_id	1	1	0
+exam_schedules	idx_exam_schedules_status	1	1	0
+exam_schedules	idx_exam_schedules_supervisor_id	1	1	0
+exam_schedules	idx_exam_schedules_updated_at	1	1	0
+exam_schedules	PRIMARY	0	1	0
+expenses	idx_expenses_budget_line_item_id	1	1	0
+expenses	idx_expenses_category_id	1	1	0
+expenses	idx_expenses_department_id	1	1	0
+expenses	idx_expenses_vendor_id	1	1	0
+expenses	idx_expense_date	1	1	0
+expenses	idx_expense_period	1	1	0
+expenses	idx_expense_status	1	1	0
+expenses	PRIMARY	0	1	0
+expense_categories	idx_expense_categories_parent_id	1	1	2
+expense_categories	PRIMARY	0	1	30
+expense_categories	uq_expense_category_code	0	1	30
+external_emails	idx_email_type	1	1	0
+external_emails	idx_external_emails_external_reference_id	1	1	0
+external_emails	idx_external_emails_template_id	1	1	0
+external_emails	idx_recipient_email	1	1	0
+external_emails	idx_status	1	1	0
+external_emails	institution_id	1	1	0
+external_emails	PRIMARY	0	1	0
+external_emails	sent_by	1	1	0
+external_inbound_media	idx_external_inbound_media_message	1	1	0
+external_inbound_media	PRIMARY	0	1	0
+external_inbound_messages	idx_external_inbound_thread	1	1	2
+external_inbound_messages	linked_parent_id	1	1	2
+external_inbound_messages	linked_student_id	1	1	2
+external_inbound_messages	linked_user_id	1	1	2
+external_inbound_messages	PRIMARY	0	1	12
+external_inbound_messages	uq_external_inbound_provider_message	0	2	2
+external_institutions	idx_institution_type	1	1	0
+external_institutions	idx_status	1	1	0
+external_institutions	PRIMARY	0	1	0
+fee_catalog	idx_fee_catalog_fee_type_id	1	1	7
+fee_catalog	idx_fee_catalog_student_type_id	1	1	2
+fee_catalog	PRIMARY	0	1	7
+fee_catalog	uk_fee_catalog_code	0	1	7
+fee_credit_notes	credit_number	0	1	0
+fee_credit_notes	idx_fee_credit_notes_applied_to_term_id	1	1	0
+fee_credit_notes	idx_fee_credit_notes_source_transaction_id	1	1	0
+fee_credit_notes	idx_fee_credit_notes_term_id	1	1	0
+fee_credit_notes	idx_status	1	1	0
+fee_credit_notes	idx_student	1	1	0
+fee_credit_notes	idx_year	1	1	0
+fee_credit_notes	PRIMARY	0	1	0
+fee_discounts_waivers	idx_approved_by	1	1	0
+fee_discounts_waivers	idx_fee_discounts_waivers_term_id	1	1	0
+fee_discounts_waivers	idx_obligation	1	1	0
+fee_discounts_waivers	idx_status	1	1	0
+fee_discounts_waivers	idx_student_year	1	2	0
+fee_discounts_waivers	idx_type	1	1	0
+fee_discounts_waivers	PRIMARY	0	1	0
+fee_reminders	idx_fee_reminders_term_id	1	1	0
+fee_reminders	idx_parent	1	1	0
+fee_reminders	idx_status	1	1	0
+fee_reminders	idx_student_term	1	3	0
+fee_reminders	idx_type	1	1	0
+fee_reminders	PRIMARY	0	1	0
+fee_types	code	0	1	23
+fee_types	idx_category	1	1	11
+fee_types	idx_code	1	1	23
+fee_types	idx_status	1	1	2
+fee_types	PRIMARY	0	1	23
+financial_periods	closed_by	1	1	0
+financial_periods	idx_date_range	1	2	0
+financial_periods	idx_financial_period_status	1	3	0
+financial_periods	idx_status	1	1	0
+financial_periods	PRIMARY	0	1	0
+fixed_assets	idx_asset_category	1	1	0
+fixed_assets	idx_asset_status	1	1	0
+fixed_assets	idx_fixed_assets_expense_id	1	1	0
+fixed_assets	idx_fixed_assets_supplier_id	1	1	0
+fixed_assets	PRIMARY	0	1	0
+fixed_assets	uq_asset_code	0	1	0
+food_consumption_records	idx_consumption_date	1	1	0
+food_consumption_records	inventory_item_id	1	1	0
+food_consumption_records	meal_plan_id	1	1	0
+food_consumption_records	PRIMARY	0	1	0
+food_consumption_records	recorded_by	1	1	0
+formative_scores	idx_fs_assessment	1	1	0
+formative_scores	idx_fs_student	1	1	0
+formative_scores	PRIMARY	0	1	0
+formative_scores	uq_formative_score	0	2	0
+form_permissions	PRIMARY	0	1	0
+form_permissions	uk_code	0	1	0
+forum_posts	author_id	1	1	0
+forum_posts	PRIMARY	0	1	0
+forum_posts	reply_to_id	1	1	0
+forum_posts	thread_id	1	1	0
+forum_threads	created_by	1	1	2
+forum_threads	forum_type	1	1	4
+forum_threads	PRIMARY	0	1	39
+gallery_items	idx_active_order	1	2	6
+gallery_items	PRIMARY	0	1	6
+grade_rules	idx_scale_marks	1	3	8
+grade_rules	PRIMARY	0	1	8
+grade_rules	uk_scale_grade	0	2	8
+grading_comments	PRIMARY	0	1	8
+grading_comments	uk_grade_code	0	1	8
+grading_scales	PRIMARY	0	1	0
+grading_scales	uk_name	0	1	0
+group_members	added_by	1	1	0
+group_members	PRIMARY	0	1	0
+group_members	uk_group_user	0	2	0
+group_members	user_id	1	1	0
+ieps	fk_iep_approved_by	1	1	0
+ieps	fk_iep_created_by	1	1	0
+ieps	idx_status	1	1	0
+ieps	idx_student_year	1	2	0
+ieps	PRIMARY	0	1	0
+internal_conversations	created_by	1	1	4
+internal_conversations	idx_conversation_type	1	1	2
+internal_conversations	idx_last_message	1	1	4
+internal_conversations	internal_conversations_ibfk_2	1	1	4
+internal_conversations	PRIMARY	0	1	26
+internal_messages	idx_conversation	1	1	5
+internal_messages	idx_created	1	1	15
+internal_messages	idx_message_type	1	1	5
+internal_messages	idx_status	1	1	2
+internal_messages	PRIMARY	0	1	15
+internal_messages	sender_id	1	1	7
+inventory_allocations	allocated_by	1	1	0
+inventory_allocations	idx_class	1	1	0
+inventory_allocations	idx_dates	1	2	0
+inventory_allocations	idx_department	1	1	0
+inventory_allocations	idx_item_status	1	2	0
+inventory_allocations	issued_by	1	1	0
+inventory_allocations	PRIMARY	0	1	0
+inventory_allocations	uk_allocation_number	0	1	0
+inventory_categories	idx_parent	1	1	2
+inventory_categories	idx_status	1	1	2
+inventory_categories	PRIMARY	0	1	10
+inventory_categories	uk_code	0	1	10
+inventory_counts	counted_by	1	1	0
+inventory_counts	idx_status_date	1	2	0
+inventory_counts	PRIMARY	0	1	0
+inventory_counts	verified_by	1	1	0
+inventory_count_items	item_id	1	1	0
+inventory_count_items	PRIMARY	0	1	0
+inventory_count_items	uk_count_item	0	2	0
+inventory_departments	department_head_id	1	1	2
+inventory_departments	idx_status	1	1	2
+inventory_departments	PRIMARY	0	1	5
+inventory_departments	uk_code	0	1	5
+inventory_items	idx_category	1	1	24
+inventory_items	idx_inventory_items_location_id	1	1	2
+inventory_items	idx_inventory_items_supplier_id	1	1	2
+inventory_items	idx_status	1	1	2
+inventory_items	PRIMARY	0	1	24
+inventory_items	uk_barcode	0	1	24
+inventory_items	uk_code	0	1	24
+inventory_items	uk_sku	0	1	24
+inventory_locations	idx_inventory_locations_created_at	1	1	2
+inventory_locations	idx_inventory_locations_status	1	1	2
+inventory_locations	idx_inventory_locations_updated_at	1	1	2
+inventory_locations	PRIMARY	0	1	4
+inventory_transactions	batch_id	1	1	0
+inventory_transactions	idx_inventory_transactions_reference_id	1	1	0
+inventory_transactions	idx_item_transaction_date	1	3	0
+inventory_transactions	item_id	1	1	0
+inventory_transactions	PRIMARY	0	1	0
+inventory_transactions	serial_id	1	1	0
+item_batches	idx_item_status	1	2	0
+item_batches	PRIMARY	0	1	0
+item_batches	supplier_id	1	1	0
+item_batches	uk_batch_number	0	1	0
+item_serials	batch_id	1	1	0
+item_serials	idx_item_status	1	2	0
+item_serials	PRIMARY	0	1	0
+item_serials	uk_serial_number	0	1	0
+job_applications	fk_job_id	1	1	0
+job_applications	idx_job_applications_department	1	1	0
+job_applications	idx_job_applications_staff	1	3	0
+job_applications	PRIMARY	0	1	0
+job_applications	uq_job_internal_staff	0	3	0
+job_vacancies	idx_job_vacancies_created_at	1	1	2
+job_vacancies	idx_job_vacancies_department_id	1	1	6
+job_vacancies	idx_job_vacancies_status	1	1	2
+job_vacancies	idx_job_vacancies_updated_at	1	1	2
+job_vacancies	PRIMARY	0	1	6
+kpi_achievements	idx_kpi	1	1	0
+kpi_achievements	idx_staff_year	1	2	0
+kpi_achievements	PRIMARY	0	1	0
+kpi_definitions	idx_category	1	1	0
+kpi_definitions	PRIMARY	0	1	0
+kpi_definitions	uk_code_category	0	2	0
+kpi_targets	idx_kpi	1	1	0
+kpi_targets	idx_staff_year	1	2	0
+kpi_targets	PRIMARY	0	1	0
+leadership_team	idx_order_active	1	2	6
+leadership_team	PRIMARY	0	1	6
+learner_competencies	fk_lc_assessed_by	1	1	0
+learner_competencies	fk_lc_term	1	1	0
+learner_competencies	idx_competency	1	1	0
+learner_competencies	idx_performance_level	1	1	0
+learner_competencies	idx_student_year	1	2	0
+learner_competencies	PRIMARY	0	1	0
+learner_competencies	uk_learner_competency	0	4	0
+learner_csl_participation	idx_activity	1	1	0
+learner_csl_participation	idx_student_year	1	2	0
+learner_csl_participation	PRIMARY	0	1	0
+learner_csl_participation	uk_student_activity	0	3	0
+learner_pci_awareness	fk_lpa_assessed_by	1	1	0
+learner_pci_awareness	fk_lpa_pci	1	1	0
+learner_pci_awareness	fk_lpa_term	1	1	0
+learner_pci_awareness	idx_awareness	1	1	0
+learner_pci_awareness	idx_student_year	1	2	0
+learner_pci_awareness	PRIMARY	0	1	0
+learner_pci_awareness	uk_student_pci	0	4	0
+learner_values_acquisition	fk_lva_recorded_by	1	1	0
+learner_values_acquisition	idx_student_value	1	3	0
+learner_values_acquisition	idx_term	1	1	0
+learner_values_acquisition	idx_value	1	1	0
+learner_values_acquisition	PRIMARY	0	1	0
+learning_areas	idx_status	1	1	2
+learning_areas	PRIMARY	0	1	33
+learning_areas	uk_code_band	0	2	33
+learning_outcomes	idx_lo_strand	1	1	1001
+learning_outcomes	learning_area_id	1	1	66
+learning_outcomes	PRIMARY	0	1	10016
+learning_outcomes	sub_strand_id	1	1	5008
+leave_types	PRIMARY	0	1	8
+leave_types	uk_leave_code	0	1	8
+lesson_deliveries	PRIMARY	0	1	0
+lesson_deliveries	uk_delivery_plan_date	0	2	0
+lesson_observations	fk_lo_stream	1	1	0
+lesson_observations	idx_class	1	1	0
+lesson_observations	idx_date	1	1	0
+lesson_observations	idx_intern	1	1	0
+lesson_observations	idx_lesson_observations_learning_area_id	1	1	0
+lesson_observations	idx_lesson_observations_subject_id	1	1	0
+lesson_observations	idx_observer	1	1	0
+lesson_observations	idx_teacher	1	1	0
+lesson_observations	PRIMARY	0	1	0
+lesson_plans	idx_lesson_plans_academic_year_calendar_day_id	1	1	0
+lesson_plans	idx_lesson_plans_lesson_template_id	1	1	0
+lesson_plans	idx_lesson_plans_teacher_id	1	1	0
+lesson_plans	PRIMARY	0	1	0
+lesson_plans	uk_lesson_context_day_template	0	3	0
+lesson_templates	idx_lesson_templates_strand_id	1	1	0
+lesson_templates	idx_lesson_templates_sub_strand_id	1	1	0
+lesson_templates	PRIMARY	0	1	0
+lesson_templates	uk_lesson_template_area_strand_substrand_title	0	4	0
+lesson_template_learning_outcomes	idx_lesson_template_learning_outcomes_learning_outcome_id	1	1	0
+lesson_template_learning_outcomes	PRIMARY	0	2	0
+library_books	idx_lib_books_category	1	1	0
+library_books	idx_lib_books_isbn	1	1	0
+library_books	idx_lib_books_status	1	1	0
+library_books	PRIMARY	0	1	0
+library_categories	PRIMARY	0	1	12
+library_categories	uq_lib_cat_name	0	1	12
+library_fines	idx_lib_fines_issue	1	1	0
+library_fines	idx_lib_fines_status	1	1	0
+library_fines	PRIMARY	0	1	0
+library_issues	idx_library_issues_borrower_id	1	1	0
+library_issues	idx_lib_issues_book	1	1	0
+library_issues	idx_lib_issues_borrower	1	2	0
+library_issues	idx_lib_issues_due	1	1	0
+library_issues	idx_lib_issues_status	1	1	0
+library_issues	PRIMARY	0	1	0
+meal_plans	created_by	1	1	0
+meal_plans	idx_plan_date	1	1	0
+meal_plans	menu_item_id	1	1	0
+meal_plans	prepared_by	1	1	0
+meal_plans	PRIMARY	0	1	0
+meal_plans	uk_meal_plan	0	3	0
+media_files	idx_media_album	1	1	2
+media_files	idx_media_context	1	2	2
+media_files	idx_media_files_entity_id	1	1	2
+media_files	idx_media_uploader	1	1	2
+media_files	PRIMARY	0	1	4
+menu_items	idx_meal_type	1	1	0
+menu_items	idx_status	1	1	0
+menu_items	PRIMARY	0	1	0
+menu_item_ingredients	inventory_item_id	1	1	0
+menu_item_ingredients	PRIMARY	0	1	0
+menu_item_ingredients	uk_menu_ingredient	0	2	0
+message_read_status	PRIMARY	0	1	5
+message_read_status	recipient_id	1	1	5
+message_read_status	uk_message_recipient	0	2	5
+message_templates	created_by	1	1	2
+message_templates	fk_template_category	1	1	8
+message_templates	idx_category_type	1	2	8
+message_templates	PRIMARY	0	1	34
+migrations	PRIMARY	0	1	72
+migrations	uq_migrations_filename	0	1	72
+mpesa_transactions	idx_checkout_request	1	1	0
+mpesa_transactions	idx_mpesa_bill_ref	1	1	0
+mpesa_transactions	idx_mpesa_code	1	2	0
+mpesa_transactions	idx_mpesa_phone	1	1	0
+mpesa_transactions	idx_mpesa_status	1	1	0
+mpesa_transactions	idx_mpesa_transactions_third_party_trans_id	1	1	0
+mpesa_transactions	idx_student_date	1	2	0
+mpesa_transactions	PRIMARY	0	1	0
+mpesa_transactions	uk_mpesa_code	0	1	0
+national_exam_results	idx_national_exam_results_academic_year_id	1	1	0
+national_exam_results	idx_national_exam_results_learning_area_id	1	1	0
+national_exam_results	idx_natl_student	1	1	0
+national_exam_results	idx_natl_type	1	1	0
+national_exam_results	idx_natl_year	1	1	0
+national_exam_results	PRIMARY	0	1	0
+national_exam_results	uq_natl_exam	0	4	0
+newsletter_subscribers	email	0	1	0
+newsletter_subscribers	PRIMARY	0	1	0
+news_articles	idx_status_created	1	2	9
+news_articles	PRIMARY	0	1	9
+news_articles	slug	0	1	9
+news_categories	PRIMARY	0	1	6
+news_categories	uk_slug	0	1	6
+notifications	idx_notifications_reference	1	2	6
+notifications	PRIMARY	0	1	6
+notifications	uq_notifications_reminder	0	4	6
+notifications	user_id	1	1	6
+number_sequences	PRIMARY	0	2	0
+onboarding_documents	onboarding_id	1	1	0
+onboarding_documents	PRIMARY	0	1	0
+onboarding_documents	staff_id	1	1	0
+onboarding_tasks	fk_task_assignee	1	1	0
+onboarding_tasks	fk_task_department	1	1	0
+onboarding_tasks	idx_onboarding_status	1	2	0
+onboarding_tasks	idx_onboarding_tasks_category	1	2	0
+onboarding_tasks	idx_onboarding_tasks_due_date	1	2	0
+onboarding_tasks	idx_onboarding_tasks_status	1	2	0
+onboarding_tasks	PRIMARY	0	1	0
+onboarding_task_templates	PRIMARY	0	1	36
+onboarding_task_templates	template_code	0	1	36
+outbound_messages	idx_outbound_ready	1	2	0
+outbound_messages	idx_outbound_user	1	1	0
+outbound_messages	PRIMARY	0	1	0
+page_downloads	idx_cat_active	1	3	0
+page_downloads	idx_page_downloads_active_token	1	2	0
+page_downloads	PRIMARY	0	1	0
+page_downloads	uq_page_downloads_public_token	0	1	0
+parents	PRIMARY	0	1	0
+parents	uk_parents_person	0	1	0
+parent_meetings	class_id	1	1	0
+parent_meetings	created_by	1	1	0
+parent_meetings	parent_id	1	1	0
+parent_meetings	PRIMARY	0	1	0
+parent_meetings	student_id	1	1	0
+parent_payment_accounts	idx_parent_payment_account_active	1	3	0
+parent_payment_accounts	PRIMARY	0	1	0
+parent_payment_accounts	uq_parent_payment_account	0	4	0
+parent_pta_memberships	idx_parent_pta_status	1	2	0
+parent_pta_memberships	PRIMARY	0	1	0
+parent_pta_memberships	uq_parent_pta_active_role	0	3	0
+parent_refund_requests	fk_parent_refund_account	1	1	0
+parent_refund_requests	fk_parent_refund_credit	1	1	0
+parent_refund_requests	fk_parent_refund_parent	1	1	0
+parent_refund_requests	idx_parent_refund_status	1	2	0
+parent_refund_requests	PRIMARY	0	1	0
+parent_refund_requests	uq_parent_refund_disbursement	0	1	0
+password_history	idx_created	1	1	0
+password_history	idx_user	1	1	0
+password_history	PRIMARY	0	1	0
+password_resets	idx_email_token	1	2	0
+password_resets	idx_expiry	1	2	0
+password_resets	PRIMARY	0	1	0
+past_papers	fk_papers_academic_year	1	1	0
+past_papers	fk_papers_learning_area	1	1	0
+past_papers	fk_papers_subject	1	1	0
+past_papers	fk_papers_term	1	1	0
+past_papers	fk_papers_uploaded_by	1	1	0
+past_papers	idx_academic_year_id	1	1	0
+past_papers	idx_exam_type	1	1	0
+past_papers	idx_exam_year	1	1	0
+past_papers	idx_exam_year_type	1	2	0
+past_papers	idx_learning_area_id	1	1	0
+past_papers	idx_status	1	1	0
+past_papers	idx_subject_id	1	1	0
+past_papers	idx_term_id	1	1	0
+past_papers	idx_uploaded_at	1	1	0
+past_papers	idx_uploaded_by	1	1	0
+past_papers	PRIMARY	0	1	0
+payments	idx_date	1	1	0
+payments	idx_payments_parent_id	1	1	0
+payments	idx_student	1	1	0
+payments	PRIMARY	0	1	0
+payments	uk_receipt_no	0	1	0
+payment_collection_routes	PRIMARY	0	1	0
+payment_collection_routes	uq_collection_route	0	3	0
+payment_providers	PRIMARY	0	1	3
+payment_providers	uq_payment_provider_code_environment	0	2	3
+payment_provider_accounts	PRIMARY	0	1	0
+payment_provider_accounts	uq_provider_account_role	0	3	0
+payment_provider_attempts	idx_provider_attempt_disbursement	1	1	0
+payment_provider_attempts	idx_provider_attempt_payment	1	1	0
+payment_provider_attempts	idx_provider_attempt_status	1	2	0
+payment_provider_attempts	PRIMARY	0	1	0
+payment_provider_attempts	uq_provider_attempt_idempotency	0	2	0
+payment_provider_attempts	uq_provider_attempt_transaction	0	2	0
+payment_provider_callbacks	idx_provider_callback_status	1	2	0
+payment_provider_callbacks	PRIMARY	0	1	0
+payment_provider_callbacks	uq_provider_callback_event	0	3	0
+payment_provider_callbacks	uq_provider_callback_hash	0	2	0
+payment_reconciliations	idx_reconciled_by	1	1	0
+payment_reconciliations	idx_reconciliation_date	1	1	0
+payment_reconciliations	PRIMARY	0	1	0
+payment_reconciliations	uk_transaction	0	1	0
+payment_routing_references	fk_routing_reference_transport_intent	1	1	0
+payment_routing_references	idx_payment_routing_student	1	3	0
+payment_routing_references	idx_payment_routing_uniform_sale	1	1	0
+payment_routing_references	PRIMARY	0	1	0
+payment_routing_references	uq_payment_routing_reference	0	1	0
+payment_unmatched_cases	fk_unmatched_student	1	1	0
+payment_unmatched_cases	idx_unmatched_status	1	2	0
+payment_unmatched_cases	PRIMARY	0	1	0
+payment_unmatched_cases	uq_unmatched_provider_tx	0	2	0
+payroll_configurations	PRIMARY	0	1	8
+payroll_configurations	uk_key_year	0	2	8
+payroll_runs	idx_payroll_runs_financial_period_id	1	1	0
+payroll_runs	PRIMARY	0	1	0
+payroll_runs	uk_payroll_month_year	0	2	0
+payslips	idx_payslips_staff_period	1	3	2
+payslips	idx_payslips_status	1	2	2
+payslips	idx_period	1	2	2
+payslips	idx_status	1	1	2
+payslips	PRIMARY	0	1	2
+payslips	uk_staff_month_year	0	3	2
+payslip_items	idx_item_code	1	1	0
+payslip_items	idx_item_type	1	1	0
+payslip_items	idx_payslip	1	1	0
+payslip_items	idx_payslip_items_reference_id	1	1	0
+payslip_items	PRIMARY	0	1	0
+pcis	idx_pcis_learning_area_id	1	1	2
+pcis	PRIMARY	0	1	6
+pcis	uk_topic_code	0	1	6
+performance_levels_cbc	PRIMARY	0	1	4
+performance_levels_cbc	uk_level	0	1	4
+performance_ratings	idx_staff_period	1	2	0
+performance_ratings	idx_supervisor	1	1	0
+performance_ratings	PRIMARY	0	1	0
+performance_reviews	PRIMARY	0	1	0
+performance_reviews	uk_perf_staff_period	0	2	0
+performance_review_kpis	idx_performance_kpis_review	1	2	0
+performance_review_kpis	idx_performance_kpis_template	1	1	0
+performance_review_kpis	idx_review_kpi	1	1	0
+performance_review_kpis	PRIMARY	0	1	0
+permissions	code	0	1	4662
+permissions	code_2	0	1	4662
+permissions	idx_code	1	1	4662
+permissions	idx_entity_action	1	2	4662
+permissions	idx_module	1	1	155
+permissions	PRIMARY	0	1	4662
+permission_delegations	idx_from_user	1	1	0
+permission_delegations	idx_permission_delegations_form_permission_id	1	1	0
+permission_delegations	idx_to_user	1	1	0
+permission_delegations	PRIMARY	0	1	0
+persons	idx_persons_email	1	1	39
+persons	idx_persons_phone	1	1	4
+persons	PRIMARY	0	1	39
+person_addresses	idx_person_address_current	1	3	1
+person_addresses	PRIMARY	0	1	1
+person_addresses	uq_person_address_type_start	0	3	1
+person_contact_points	PRIMARY	0	1	1
+person_contact_points	uq_person_contact	0	3	1
+person_marital_statuses	idx_person_marital_current	1	2	1
+person_marital_statuses	PRIMARY	0	1	1
+person_marital_statuses	uq_person_marital_start	0	2	1
+petty_cash_funds	idx_petty_cash_funds_created_at	1	1	0
+petty_cash_funds	idx_petty_cash_funds_custodian_id	1	1	0
+petty_cash_funds	idx_petty_cash_funds_status	1	1	0
+petty_cash_funds	idx_petty_cash_funds_updated_at	1	1	0
+petty_cash_funds	PRIMARY	0	1	0
+petty_cash_reconciliations	idx_pcr_fund	1	1	0
+petty_cash_reconciliations	PRIMARY	0	1	0
+petty_cash_transactions	idx_pct_date	1	1	0
+petty_cash_transactions	idx_pct_fund	1	1	0
+petty_cash_transactions	idx_pct_type	1	1	0
+petty_cash_transactions	idx_petty_cash_transactions_category_id	1	1	0
+petty_cash_transactions	idx_petty_cash_transactions_vendor_id	1	1	0
+petty_cash_transactions	PRIMARY	0	1	0
+placement_offers	idx_placement_offers_academic_year_class_stream_id	1	1	0
+placement_offers	PRIMARY	0	1	0
+placement_offers	uk_placement_application	0	1	0
+portfolios	idx_status	1	1	0
+portfolios	PRIMARY	0	1	0
+portfolios	uk_portfolio	0	2	0
+portfolio_artifacts	idx_artifact_media	1	1	0
+portfolio_artifacts	idx_artifact_portfolio	1	1	0
+portfolio_artifacts	idx_competency	1	1	0
+portfolio_artifacts	idx_portfolio	1	1	0
+portfolio_artifacts	idx_value	1	1	0
+portfolio_artifacts	PRIMARY	0	1	0
+promotion_batches	idx_academic_years	1	2	0
+promotion_batches	idx_batch_type	1	1	0
+promotion_batches	idx_status	1	1	0
+promotion_batches	PRIMARY	0	1	0
+promotion_batches	promotion_batches_ibfk_1	1	1	0
+promotion_rules	idx_promotion_rules_created_at	1	1	8
+promotion_rules	idx_promotion_rules_level_id	1	1	8
+promotion_rules	idx_promotion_rules_updated_at	1	1	8
+promotion_rules	PRIMARY	0	1	16
+purchase_orders	idx_approved_by	1	1	0
+purchase_orders	idx_created_by	1	1	0
+purchase_orders	idx_status	1	1	0
+purchase_orders	idx_supplier	1	1	0
+purchase_orders	PRIMARY	0	1	0
+purchase_orders	uk_order_number	0	1	0
+qr_scan_events	ix_qr_scan_context_time	1	2	0
+qr_scan_events	ix_qr_scan_operator_time	1	2	0
+qr_scan_events	ix_qr_scan_student_time	1	2	0
+qr_scan_events	PRIMARY	0	1	0
+qr_scan_events	uq_qr_scan_client_reference	0	1	0
+record_permissions	idx_record_permissions_record_id	1	1	0
+record_permissions	idx_role_table	1	3	0
+record_permissions	idx_user_table	1	3	0
+record_permissions	PRIMARY	0	1	0
+refresh_tokens	idx_expires_at	1	1	106
+refresh_tokens	idx_revoked	1	1	15
+refresh_tokens	idx_user_id	1	1	15
+refresh_tokens	PRIMARY	0	1	106
+refresh_tokens	token	0	1	106
+requisitions	idx_requisitions_academic_year_id	1	1	0
+requisitions	idx_requisitions_academic_year_term_id	1	1	0
+requisitions	idx_requisitions_department_id	1	1	0
+requisitions	PRIMARY	0	1	0
+requisitions	uk_requisition_number	0	1	0
+requisition_items	item_id	1	1	0
+requisition_items	PRIMARY	0	1	0
+requisition_items	uk_requisition_item	0	2	0
+roles	name	0	1	20
+roles	name_2	0	1	20
+roles	PRIMARY	0	1	20
+roles	uk_role_name	0	1	20
+role_dashboards	idx_dashboard_id	1	1	26
+role_dashboards	PRIMARY	0	1	26
+role_dashboards	unique_role_dashboard	0	2	26
+role_delegations	idx_role_delegations_delegate_role_id	1	1	0
+role_delegations	PRIMARY	0	1	0
+role_delegations	ux_delegation_pair	0	2	0
+role_permissions	idx_permission_id	1	1	14155
+role_permissions	idx_role_id	1	1	52
+role_permissions	PRIMARY	0	1	28310
+role_permissions	unique_role_permission	0	2	28310
+role_routes	fk_role_routes_route	1	1	586
+role_routes	PRIMARY	0	1	3520
+role_routes	uk_role_route	0	2	3520
+role_sidebar_menus	fk_role_sidebar_menu	1	1	130
+role_sidebar_menus	PRIMARY	0	1	130
+role_sidebar_menus	uk_role_sidebar_menu	0	2	130
+role_sidebar_menus	uq_role_menu	0	2	130
+rooms	idx_status	1	1	0
+rooms	idx_type	1	1	0
+rooms	PRIMARY	0	1	0
+rooms	uk_code	0	1	0
+routes_registry	PRIMARY	0	1	373
+routes_registry	uk_route_name	0	1	373
+route_permissions	fk_route_permissions_permission	1	1	391
+route_permissions	PRIMARY	0	1	391
+route_permissions	uk_route_permission_access	0	3	391
+route_schedules	idx_route_day	1	2	0
+route_schedules	idx_route_schedules_driver_id	1	1	0
+route_schedules	idx_route_schedules_vehicle_id	1	1	0
+route_schedules	PRIMARY	0	1	0
+schema_discovery_cache	idx_table_name	1	1	0
+schema_discovery_cache	PRIMARY	0	1	0
+schemes_of_work	idx_schemes_of_work_academic_year_calendar_week_id	1	1	34
+schemes_of_work	idx_schemes_of_work_scheme_template_id	1	1	2252
+schemes_of_work	idx_schemes_of_work_teacher_id	1	1	2
+schemes_of_work	PRIMARY	0	1	2252
+schemes_of_work	uk_scheme_context_week_template	0	3	2252
+scheme_templates	idx_scheme_templates_strand_id	1	1	1054
+scheme_templates	idx_scheme_templates_sub_strand_id	1	1	2109
+scheme_templates	PRIMARY	0	1	2109
+scheme_templates	uk_template_area_strand_substrand_title	0	4	2109
+scheme_template_learning_outcomes	idx_scheme_template_learning_outcomes_learning_outcome_id	1	1	10047
+scheme_template_learning_outcomes	PRIMARY	0	2	10047
+school_configuration	fk_school_config_created_by	1	1	0
+school_configuration	fk_school_config_updated_by	1	1	0
+school_configuration	idx_active	1	1	0
+school_configuration	PRIMARY	0	1	0
+school_content	PRIMARY	0	1	4
+school_content	uk_key	0	1	4
+school_events	idx_event_date	1	2	125
+school_events	PRIMARY	0	1	125
+school_events	uq_school_events_calendar_day	0	1	125
+school_facilities	idx_school_facilities_name	1	1	12
+school_facilities	PRIMARY	0	1	12
+school_history	idx_order	1	1	6
+school_history	PRIMARY	0	1	6
+school_holidays	idx_holiday_dates	1	2	15
+school_holidays	PRIMARY	0	1	15
+school_levels	idx_status	1	1	2
+school_levels	PRIMARY	0	1	4
+school_levels	uk_code	0	1	4
+school_programs	idx_school_programs_name	1	1	7
+school_programs	PRIMARY	0	1	7
+school_settings	PRIMARY	0	1	63
+school_settings	uk_key	0	1	63
+school_transactions	financial_period_id	1	1	0
+school_transactions	idx_student_period_status	1	3	0
+school_transactions	idx_student_source_date	1	3	0
+school_transactions	idx_transaction_date	1	1	0
+school_transactions	PRIMARY	0	1	0
+school_values	idx_school_values_name	1	1	8
+school_values	PRIMARY	0	1	8
+school_week_config	PRIMARY	0	1	2
+school_week_config	uq_year	0	1	2
+sidebar_menu_items	idx_sidebar_domain	1	1	6
+sidebar_menu_items	idx_sidebar_order	1	2	573
+sidebar_menu_items	idx_sidebar_parent	1	1	286
+sidebar_menu_items	idx_sidebar_route	1	1	573
+sidebar_menu_items	PRIMARY	0	1	573
+sidebar_menu_items	uk_sidebar_menu_name	0	1	573
+sports_fixtures	idx_fixture_date	1	1	0
+sports_fixtures	idx_season	1	1	0
+sports_fixtures	idx_status	1	1	0
+sports_fixtures	idx_team_date	1	2	0
+sports_fixtures	PRIMARY	0	1	0
+sports_player_stats	idx_fixture	1	1	0
+sports_player_stats	idx_player	1	1	0
+sports_player_stats	PRIMARY	0	1	0
+sports_player_stats	team_id	1	1	0
+sports_standings	idx_competition	1	1	0
+sports_standings	idx_points	1	1	0
+sports_standings	idx_season	1	1	0
+sports_standings	PRIMARY	0	1	0
+sports_standings	team_id	1	1	0
+sports_teams	captain_id	1	1	0
+sports_teams	category_id	1	1	0
+sports_teams	coach_id	1	1	0
+sports_teams	idx_season	1	1	0
+sports_teams	idx_sport_type	1	1	0
+sports_teams	idx_status	1	1	0
+sports_teams	PRIMARY	0	1	0
+sports_team_members	idx_student	1	1	0
+sports_team_members	idx_team	1	1	0
+sports_team_members	PRIMARY	0	1	0
+staff	idx_staff_staff_category_id	1	1	36
+staff	idx_staff_staff_type_id	1	1	6
+staff	idx_staff_supervisor_id	1	1	2
+staff	PRIMARY	0	1	36
+staff	uk_staff_no	0	1	36
+staff	uk_staff_person	0	1	36
+staff_allowances	idx_allowance_status	1	1	0
+staff_allowances	idx_allowance_type	1	1	0
+staff_allowances	PRIMARY	0	1	0
+staff_allowances	staff_id	1	1	0
+staff_appointments	fk_sa_approved_by	1	1	0
+staff_appointments	fk_sa_created_staff	1	1	0
+staff_appointments	fk_sa_created_user	1	1	0
+staff_appointments	fk_sa_onboarded_by	1	1	0
+staff_appointments	fk_sa_staff_category	1	1	0
+staff_appointments	fk_sa_staff_type	1	1	0
+staff_appointments	fk_sa_supervisor	1	1	0
+staff_appointments	idx_candidate_email	1	1	0
+staff_appointments	idx_department	1	1	0
+staff_appointments	idx_employment_date	1	1	0
+staff_appointments	idx_recruitment	1	1	0
+staff_appointments	idx_status	1	1	0
+staff_appointments	idx_submitted_by	1	1	0
+staff_appointments	PRIMARY	0	1	0
+staff_appointment_approvals	idx_actor	1	1	0
+staff_appointment_approvals	idx_appointment	1	2	0
+staff_appointment_approvals	PRIMARY	0	1	0
+staff_attendance	idx_staff_attendance_academic_year_id	1	1	0
+staff_attendance	idx_staff_attendance_duty_type_id	1	1	0
+staff_attendance	idx_staff_attendance_leave_id	1	1	0
+staff_attendance	idx_staff_date	1	2	0
+staff_attendance	PRIMARY	0	1	0
+staff_attendance	uk_staff_date	0	2	0
+staff_attendance_profiles	PRIMARY	0	1	0
+staff_attendance_profiles	staff_id	0	1	0
+staff_categories	idx_staff_type	1	1	6
+staff_categories	PRIMARY	0	1	19
+staff_children	idx_deduction_enabled	1	1	0
+staff_children	idx_staff	1	1	0
+staff_children	idx_student	1	1	0
+staff_children	PRIMARY	0	1	0
+staff_children	uk_staff_student	0	2	0
+staff_contracts	fk_contract_creator	1	1	0
+staff_contracts	idx_contract_dates	1	2	0
+staff_contracts	idx_contract_staff_active	1	2	0
+staff_contracts	PRIMARY	0	1	0
+staff_deductions	idx_deduction_type	1	1	0
+staff_deductions	idx_related_student	1	1	0
+staff_deductions	idx_staff_deductions_effective	1	2	0
+staff_deductions	idx_status	1	1	0
+staff_deductions	PRIMARY	0	1	0
+staff_deductions	staff_id	1	1	0
+staff_department_assignments	idx_staff_department_assignments_department_id	1	1	0
+staff_department_assignments	PRIMARY	0	1	0
+staff_department_assignments	uk_staff_dept_from	0	3	0
+staff_duty_roster	idx_date	1	1	0
+staff_duty_roster	idx_duty_type	1	1	0
+staff_duty_roster	idx_staff_date	1	2	0
+staff_duty_roster	PRIMARY	0	1	0
+staff_duty_roster	staff_duty_roster_ibfk_3	1	1	0
+staff_duty_roster	staff_duty_roster_ibfk_4	1	1	0
+staff_duty_types	code	0	1	9
+staff_duty_types	PRIMARY	0	1	9
+staff_employment_profiles	idx_staff_employment_department	1	1	0
+staff_employment_profiles	PRIMARY	0	1	0
+staff_employment_profiles	staff_id	0	1	0
+staff_experience	idx_dates	1	2	2
+staff_experience	idx_staff	1	1	12
+staff_experience	PRIMARY	0	1	12
+staff_id_cards	idx_staff_id_cards_staff	1	2	5
+staff_id_cards	PRIMARY	0	1	5
+staff_id_cards	uq_staff_id_cards_number	0	1	5
+staff_import_batches	idx_staff_import_actor	1	1	0
+staff_import_batches	idx_staff_import_status	1	1	0
+staff_import_batches	PRIMARY	0	1	0
+staff_import_rows	idx_staff_import_rows_staff_id	1	1	0
+staff_import_rows	idx_staff_import_rows_user_id	1	1	0
+staff_import_rows	idx_staff_import_row_status	1	2	0
+staff_import_rows	PRIMARY	0	1	0
+staff_import_rows	uk_staff_import_row	0	2	0
+staff_incident_reports	fk_staff_incident_created_by	1	1	0
+staff_incident_reports	fk_staff_incident_resolved_by	1	1	0
+staff_incident_reports	idx_staff_incident_assigned	1	2	0
+staff_incident_reports	idx_staff_incident_department	1	3	0
+staff_incident_reports	idx_staff_incident_staff	1	2	0
+staff_incident_reports	idx_staff_incident_status	1	3	0
+staff_incident_reports	PRIMARY	0	1	0
+staff_incident_reports	uk_staff_incident_reference	0	1	0
+staff_kpi_templates	idx_kpi_category	1	1	0
+staff_kpi_templates	PRIMARY	0	1	0
+staff_leaves	fk_leave_approver	1	1	0
+staff_leaves	fk_leave_relief	1	1	0
+staff_leaves	idx_leave_type	1	1	0
+staff_leaves	idx_staff_dates	1	3	0
+staff_leaves	idx_staff_leaves_dates	1	2	0
+staff_leaves	idx_staff_leaves_staff_type	1	3	0
+staff_leaves	idx_staff_leaves_status_year	1	2	0
+staff_leaves	idx_status	1	1	0
+staff_leaves	PRIMARY	0	1	0
+staff_lifecycle_actions	idx_effective_date	1	1	0
+staff_lifecycle_actions	idx_staff_id	1	1	0
+staff_lifecycle_actions	idx_status	1	1	0
+staff_lifecycle_actions	PRIMARY	0	1	0
+staff_loans	idx_staff	1	1	0
+staff_loans	idx_staff_loans_status	1	3	0
+staff_loans	idx_status	1	1	0
+staff_loans	PRIMARY	0	1	0
+staff_meetings	idx_meeting_class	1	1	0
+staff_meetings	idx_meeting_date	1	1	0
+staff_meetings	idx_meeting_department	1	1	0
+staff_meetings	idx_meeting_organizer	1	1	0
+staff_meetings	idx_meeting_status	1	1	0
+staff_meetings	PRIMARY	0	1	0
+staff_meeting_attendees	idx_attendee_staff	1	1	0
+staff_meeting_attendees	PRIMARY	0	1	0
+staff_meeting_attendees	uq_meeting_staff	0	2	0
+staff_offboarding	fk_so_processed_by	1	1	0
+staff_offboarding	idx_offboarding_type	1	1	0
+staff_offboarding	idx_staff_id	1	1	0
+staff_offboarding	idx_status	1	1	0
+staff_offboarding	PRIMARY	0	1	0
+staff_off_day_patterns	PRIMARY	0	1	0
+staff_off_day_patterns	unique_pattern	0	3	0
+staff_payroll_profiles	PRIMARY	0	1	0
+staff_payroll_profiles	staff_id	0	1	0
+staff_probation_reviews	idx_staff_probation_reviews_reviewer_id	1	1	0
+staff_probation_reviews	onboarding_id	1	1	0
+staff_probation_reviews	PRIMARY	0	1	0
+staff_probation_reviews	staff_id	1	1	0
+staff_promotions	idx_effective_date	1	1	0
+staff_promotions	idx_staff_id	1	1	0
+staff_promotions	idx_status	1	1	0
+staff_promotions	PRIMARY	0	1	0
+staff_qualifications	idx_staff	1	1	12
+staff_qualifications	idx_year	1	1	2
+staff_qualifications	PRIMARY	0	1	12
+staff_salary_advances	advance_number	0	1	0
+staff_salary_advances	idx_staff	1	1	0
+staff_salary_advances	idx_status	1	1	0
+staff_salary_advances	PRIMARY	0	1	0
+staff_shift_assignments	idx_staff	1	1	0
+staff_shift_assignments	idx_year	1	1	0
+staff_shift_assignments	PRIMARY	0	1	0
+staff_types	PRIMARY	0	1	3
+staff_types	uk_name	0	1	3
+statutory_agency_accounts	PRIMARY	0	1	0
+statutory_agency_accounts	uq_statutory_agency_account	0	2	0
+statutory_remittances	idx_due_date	1	1	0
+statutory_remittances	idx_status	1	1	0
+statutory_remittances	PRIMARY	0	1	0
+statutory_remittances	uk_agency_period	0	3	0
+statutory_remittance_attempts	fk_statutory_attempt_agency_account	1	1	0
+statutory_remittance_attempts	fk_statutory_attempt_provider	1	1	0
+statutory_remittance_attempts	fk_statutory_attempt_remittance	1	1	0
+statutory_remittance_attempts	idx_statutory_attempt_status	1	2	0
+statutory_remittance_attempts	PRIMARY	0	1	0
+statutory_remittance_attempts	uq_statutory_attempt_idempotency	0	1	0
+statutory_remittance_items	idx_payslip	1	1	0
+statutory_remittance_items	idx_remittance	1	1	0
+statutory_remittance_items	idx_staff	1	1	0
+statutory_remittance_items	PRIMARY	0	1	0
+storage_locations	idx_parent	1	1	0
+storage_locations	idx_status	1	1	0
+storage_locations	PRIMARY	0	1	0
+storage_locations	uk_code	0	1	0
+strands	idx_strand_grade	1	1	22
+strands	idx_strand_la	1	1	68
+strands	PRIMARY	0	1	482
+strands	uq_strand_grade	0	4	482
+strand_competency	competency_id	1	1	0
+strand_competency	PRIMARY	0	1	0
+strand_competency	uk_strand_comp	0	2	0
+streams	PRIMARY	0	1	4
+streams	uk_stream_code	0	1	4
+streams	uk_stream_name	0	1	4
+students	idx_students_application_id	1	1	0
+students	idx_students_student_type_id	1	1	0
+students	PRIMARY	0	1	0
+students	uk_admission_no	0	1	0
+students	uk_students_person	0	1	0
+student_academic_enrollments	idx_student_academic_enrollments_academic_year_id	1	1	0
+student_academic_enrollments	PRIMARY	0	1	0
+student_academic_enrollments	uk_stream_student	0	2	0
+student_academic_enrollments	uk_student_year	0	2	0
+student_attendance	idx_enr_date	1	2	0
+student_attendance	idx_student_attendance_permission_id	1	1	0
+student_attendance	idx_student_attendance_session_id	1	1	0
+student_attendance	PRIMARY	0	1	0
+student_attendance	uq_attendance_mark	0	4	0
+student_boarding_notes	idx_note_type	1	1	0
+student_boarding_notes	idx_priority	1	1	0
+student_boarding_notes	idx_resolved	1	1	0
+student_boarding_notes	idx_student_id	1	1	0
+student_boarding_notes	idx_visibility	1	1	0
+student_boarding_notes	PRIMARY	0	1	0
+student_clearances	idx_request	1	1	0
+student_clearances	idx_student	1	1	0
+student_clearances	PRIMARY	0	1	0
+student_clearances	uq_request_type	0	2	0
+student_fee_obligations	idx_due_date	1	1	0
+student_fee_obligations	idx_status	1	1	0
+student_fee_obligations	idx_student_fee_obligations_academic_year_fee_schedule_id	1	1	0
+student_fee_obligations	idx_student_fee_obligations_academic_year_id	1	1	0
+student_fee_obligations	idx_student_fee_obligations_academic_year_term_id	1	1	0
+student_fee_obligations	PRIMARY	0	1	0
+student_fee_obligations	uk_student_obligation	0	4	0
+student_fund_transfers	fk_fund_transfer_destination_entitlement	1	1	0
+student_fund_transfers	fk_fund_transfer_parent	1	1	0
+student_fund_transfers	fk_fund_transfer_source_credit	1	1	0
+student_fund_transfers	fk_fund_transfer_source_entitlement	1	1	0
+student_fund_transfers	idx_student_fund_transfer_destination	1	2	0
+student_fund_transfers	idx_student_fund_transfer_source	1	2	0
+student_fund_transfers	idx_student_fund_transfer_status	1	2	0
+student_fund_transfers	PRIMARY	0	1	0
+student_fund_transfer_postings	PRIMARY	0	1	0
+student_fund_transfer_postings	uq_fund_transfer_posting	0	2	0
+student_health_records	idx_emergency_flag	1	1	0
+student_health_records	idx_health_student	1	1	0
+student_health_records	idx_status	1	1	0
+student_health_records	PRIMARY	0	1	0
+student_health_records	uq_student_health	0	1	0
+student_health_reviews	idx_health_record_id	1	1	0
+student_health_reviews	idx_review_date	1	1	0
+student_health_reviews	PRIMARY	0	1	0
+student_health_visits	idx_health_record_id	1	1	0
+student_health_visits	idx_student_id	1	1	0
+student_health_visits	idx_visit_date	1	1	0
+student_health_visits	PRIMARY	0	1	0
+student_id_cards	fk_replaced_card	1	1	0
+student_id_cards	idx_academic_year_id	1	1	0
+student_id_cards	idx_status	1	1	0
+student_id_cards	idx_student_id	1	1	0
+student_id_cards	PRIMARY	0	1	0
+student_id_cards	qr_token	0	1	0
+student_id_cards	uk_card_number	0	1	0
+student_id_card_history	idx_action	1	1	0
+student_id_card_history	idx_card_id	1	1	0
+student_id_card_history	idx_student_id	1	1	0
+student_id_card_history	PRIMARY	0	1	0
+student_meal_profiles	idx_active	1	1	0
+student_meal_profiles	idx_diet_type	1	1	0
+student_meal_profiles	PRIMARY	0	1	0
+student_meal_profiles	uk_student_meal_profile	0	1	0
+student_parents	idx_student_parents_parent_id	1	1	0
+student_parents	PRIMARY	0	2	0
+student_permissions	idx_dates	1	2	0
+student_permissions	idx_status	1	1	0
+student_permissions	idx_student	1	1	0
+student_permissions	PRIMARY	0	1	0
+student_permissions	student_permissions_ibfk_2	1	1	0
+student_permissions	student_permissions_ibfk_3	1	1	0
+student_permissions	student_permissions_ibfk_4	1	1	0
+student_permission_types	code	0	1	10
+student_permission_types	PRIMARY	0	1	10
+student_suspensions	idx_status	1	1	0
+student_suspensions	idx_student_year	1	2	0
+student_suspensions	idx_suspension_date	1	1	0
+student_suspensions	PRIMARY	0	1	0
+student_suspensions	student_suspensions_ibfk_2	1	1	0
+student_transitions	idx_student_transitions_academic_year_id	1	1	0
+student_transitions	idx_student_transitions_from_student_academic_enrollment_id	1	1	0
+student_transitions	idx_student_transitions_student_id	1	1	0
+student_transitions	idx_student_transitions_to_student_academic_enrollment_id	1	1	0
+student_transitions	PRIMARY	0	1	0
+student_transport_assignments	idx_assigned_by	1	1	0
+student_transport_assignments	idx_dropoff_stop_id	1	1	0
+student_transport_assignments	idx_pickup_stop_id	1	1	0
+student_transport_assignments	idx_route_month_year	1	3	0
+student_transport_assignments	idx_student_month_year	1	3	0
+student_transport_assignments	PRIMARY	0	1	0
+student_transport_assignments	stop_id	1	1	0
+student_transport_attendance	idx_attendance_date	1	1	0
+student_transport_attendance	idx_route_id	1	1	0
+student_transport_attendance	idx_status	1	1	0
+student_transport_attendance	idx_student_id	1	1	0
+student_transport_attendance	idx_vehicle_id	1	1	0
+student_transport_attendance	marked_by	1	1	0
+student_transport_attendance	PRIMARY	0	1	0
+student_transport_attendance	unique_attendance	0	3	0
+student_transport_entitlements	ix_route_entitlement	1	2	0
+student_transport_entitlements	ix_student_entitlement_dates	1	3	0
+student_transport_entitlements	PRIMARY	0	1	0
+student_transport_entitlements	uq_student_transport_entitlement	0	3	0
+student_transport_incidents	escalated_to	1	1	0
+student_transport_incidents	idx_escalated	1	1	0
+student_transport_incidents	idx_incident_datetime	1	1	0
+student_transport_incidents	idx_reported_by	1	1	0
+student_transport_incidents	idx_route_id	1	1	0
+student_transport_incidents	idx_student_id	1	1	0
+student_transport_incidents	idx_vehicle_id	1	1	0
+student_transport_incidents	PRIMARY	0	1	0
+student_transport_notes	created_by	1	1	0
+student_transport_notes	idx_note_type	1	1	0
+student_transport_notes	idx_priority	1	1	0
+student_transport_notes	idx_resolved	1	1	0
+student_transport_notes	idx_student_id	1	1	0
+student_transport_notes	idx_visibility	1	1	0
+student_transport_notes	PRIMARY	0	1	0
+student_transport_notes	resolved_by	1	1	0
+student_types	code	0	1	3
+student_types	idx_code	1	1	3
+student_types	idx_status	1	1	3
+student_types	PRIMARY	0	1	3
+student_uniforms	PRIMARY	0	1	0
+student_uniforms	uk_student	0	1	0
+student_vaccinations	idx_vax_date	1	1	0
+student_vaccinations	idx_vax_student	1	1	0
+student_vaccinations	PRIMARY	0	1	0
+student_welfare_cases	case_code	0	1	0
+student_welfare_cases	idx_assigned_to	1	1	0
+student_welfare_cases	idx_next_follow_up_at	1	1	0
+student_welfare_cases	idx_opened_by	1	1	0
+student_welfare_cases	idx_priority	1	1	0
+student_welfare_cases	idx_status	1	1	0
+student_welfare_cases	idx_student_id	1	1	0
+student_welfare_cases	PRIMARY	0	1	0
+student_welfare_cases	related_discipline_case_id	1	1	0
+student_welfare_cases	resolved_by	1	1	0
+student_welfare_notes	idx_follow_up_date	1	1	0
+student_welfare_notes	idx_note_type	1	1	0
+student_welfare_notes	idx_visibility	1	1	0
+student_welfare_notes	idx_welfare_case_id	1	1	0
+student_welfare_notes	PRIMARY	0	1	0
+student_welfare_notes	recorded_by	1	1	0
+subject_time_allocations	idx_class_id	1	1	0
+subject_time_allocations	idx_subject_time_allocations_academic_year_id	1	1	0
+subject_time_allocations	idx_subject_time_allocations_subject_id	1	1	0
+subject_time_allocations	idx_teacher_id	1	1	0
+subject_time_allocations	idx_term_id	1	1	0
+subject_time_allocations	PRIMARY	0	1	0
+subject_time_allocations	uq_class_subject_term	0	3	0
+sub_strands	idx_sub_strand_grade	1	1	22
+sub_strands	idx_sub_strand_strand	1	1	1054
+sub_strands	PRIMARY	0	1	2109
+sub_strands	uq_sub_strand_grade	0	4	2109
+sub_strand_competencies	idx_ss_comp_comp	1	1	0
+sub_strand_competencies	PRIMARY	0	1	0
+sub_strand_competencies	uq_ss_comp	0	2	0
+sub_strand_key_inquiry_questions	idx_ssq_sub	1	1	0
+sub_strand_key_inquiry_questions	PRIMARY	0	1	0
+sub_strand_pci_issues	idx_ss_pci_pci	1	1	0
+sub_strand_pci_issues	PRIMARY	0	1	0
+sub_strand_pci_issues	uq_ss_pci	0	2	0
+sub_strand_rubrics	idx_ss_rubric_sub	1	1	0
+sub_strand_rubrics	PRIMARY	0	1	0
+sub_strand_suggested_experiences	idx_sse_sub	1	1	0
+sub_strand_suggested_experiences	PRIMARY	0	1	0
+sub_strand_values	idx_ssv_sub	1	1	0
+sub_strand_values	PRIMARY	0	1	0
+supervision_rosters	idx_supervision_rosters_room_id	1	1	0
+supervision_rosters	idx_supervision_rosters_staff_id	1	1	0
+supervision_rosters	idx_supervision_rosters_time_slot_id	1	1	0
+supervision_rosters	PRIMARY	0	1	0
+supervision_rosters	uk_supervision_exam_staff_role	0	3	0
+suppliers	idx_status	1	1	0
+suppliers	PRIMARY	0	1	0
+supplier_bank_accounts	idx_supplier_bank_active	1	3	0
+supplier_bank_accounts	PRIMARY	0	1	0
+supplier_bank_accounts	uq_supplier_bank_account	0	3	0
+supplier_mobile_accounts	idx_supplier_mobile_active	1	3	0
+supplier_mobile_accounts	PRIMARY	0	1	0
+supplier_mobile_accounts	uq_supplier_mobile_account	0	3	0
+supplier_payment_requests	fk_supplier_payment_bank	1	1	0
+supplier_payment_requests	fk_supplier_payment_disbursement	1	1	0
+supplier_payment_requests	fk_supplier_payment_supplier	1	1	0
+supplier_payment_requests	idx_supplier_payment_status	1	2	0
+supplier_payment_requests	PRIMARY	0	1	0
+supplier_payment_requests	uq_supplier_payment_reference	0	1	0
+system_access_policies	fk_system_access_policy_created_by	1	1	0
+system_access_policies	fk_system_access_policy_updated_by	1	1	0
+system_access_policies	idx_system_access_policy_state	1	3	0
+system_access_policies	PRIMARY	0	1	0
+system_access_policies	uq_system_access_policy_key	0	1	0
+system_alerts	idx_system_alerts_created_at	1	1	0
+system_alerts	PRIMARY	0	1	0
+system_api_metrics	fk_system_api_metrics_user	1	1	0
+system_api_metrics	idx_system_api_metrics_endpoint	1	3	0
+system_api_metrics	idx_system_api_metrics_time	1	1	0
+system_api_metrics	PRIMARY	0	1	0
+system_background_jobs	fk_system_jobs_created_by	1	1	0
+system_background_jobs	idx_system_jobs_ready	1	2	0
+system_background_jobs	PRIMARY	0	1	0
+system_backups	fk_system_backups_created_by	1	1	0
+system_backups	idx_system_backups_status	1	2	0
+system_backups	PRIMARY	0	1	0
+system_domain_isolation_rules	fk_system_domain_rules_created_by	1	1	0
+system_domain_isolation_rules	fk_system_domain_rules_updated_by	1	1	0
+system_domain_isolation_rules	idx_system_domain_rules_active	1	2	0
+system_domain_isolation_rules	PRIMARY	0	1	0
+system_domain_isolation_rules	uq_system_domain_rule	0	2	0
+system_feature_flags	fk_system_feature_flags_created_by	1	1	0
+system_feature_flags	fk_system_feature_flags_updated_by	1	1	0
+system_feature_flags	idx_system_feature_flags_state	1	2	0
+system_feature_flags	PRIMARY	0	1	0
+system_feature_flags	uq_system_feature_flags_key	0	1	0
+system_ip_rules	fk_system_ip_rules_created_by	1	1	0
+system_ip_rules	fk_system_ip_rules_updated_by	1	1	0
+system_ip_rules	idx_system_ip_rules_active	1	3	0
+system_ip_rules	PRIMARY	0	1	0
+system_ip_rules	uq_system_ip_rule	0	2	0
+system_maintenance_windows	fk_system_maintenance_created_by	1	1	0
+system_maintenance_windows	fk_system_maintenance_updated_by	1	1	0
+system_maintenance_windows	idx_system_maintenance_active	1	3	0
+system_maintenance_windows	PRIMARY	0	1	0
+system_migration_history	fk_system_migration_executed_by	1	1	0
+system_migration_history	PRIMARY	0	1	0
+system_migration_history	uq_system_migration_name	0	1	0
+system_modules	fk_system_modules_created_by	1	1	0
+system_modules	fk_system_modules_updated_by	1	1	0
+system_modules	idx_system_modules_enabled	1	1	0
+system_modules	PRIMARY	0	1	0
+system_modules	uq_system_modules_key	0	1	0
+system_policies	fk_policies_creator	1	1	3
+system_policies	idx_policies_active	1	1	3
+system_policies	idx_policies_effective	1	2	3
+system_policies	idx_policies_priority	1	1	3
+system_policies	idx_policies_type	1	1	3
+system_policies	name	0	1	3
+system_policies	PRIMARY	0	1	3
+system_policy_violations	fk_system_violation_policy	1	1	0
+system_policy_violations	fk_system_violation_resolved_by	1	1	0
+system_policy_violations	idx_system_policy_violations_resource_id	1	1	0
+system_policy_violations	idx_system_violation_status	1	2	0
+system_policy_violations	idx_system_violation_user	1	1	0
+system_policy_violations	PRIMARY	0	1	0
+system_rate_limit_rules	fk_system_rate_limit_created_by	1	1	0
+system_rate_limit_rules	fk_system_rate_limit_updated_by	1	1	0
+system_rate_limit_rules	idx_system_rate_limit_active	1	2	0
+system_rate_limit_rules	PRIMARY	0	1	0
+system_rate_limit_rules	uq_system_rate_limit_key	0	1	0
+system_retention_policies	fk_system_retention_created_by	1	1	0
+system_retention_policies	fk_system_retention_updated_by	1	1	0
+system_retention_policies	idx_system_retention_active	1	2	0
+system_retention_policies	PRIMARY	0	1	0
+system_retention_policies	uq_system_retention_resource	0	1	0
+system_route_access_rules	fk_system_route_access_created_by	1	1	0
+system_route_access_rules	fk_system_route_access_permission	1	1	0
+system_route_access_rules	fk_system_route_access_updated_by	1	1	0
+system_route_access_rules	idx_system_route_access_active	1	2	0
+system_route_access_rules	PRIMARY	0	1	0
+system_route_access_rules	uq_system_route_access_rule	0	4	0
+system_security_incidents	fk_system_incident_assigned_to	1	1	0
+system_security_incidents	fk_system_incident_created_by	1	1	0
+system_security_incidents	fk_system_incident_updated_by	1	1	0
+system_security_incidents	idx_system_incident_status	1	2	0
+system_security_incidents	PRIMARY	0	1	0
+system_time_bound_access	fk_system_time_access_granted_by	1	1	0
+system_time_bound_access	fk_system_time_access_revoked_by	1	1	0
+system_time_bound_access	idx_system_time_access_permission	1	1	0
+system_time_bound_access	idx_system_time_access_role	1	1	0
+system_time_bound_access	idx_system_time_access_user	1	3	0
+system_time_bound_access	PRIMARY	0	1	0
+system_webhooks	fk_system_webhooks_created_by	1	1	0
+system_webhooks	fk_system_webhooks_updated_by	1	1	0
+system_webhooks	idx_system_webhooks_active	1	1	0
+system_webhooks	PRIMARY	0	1	0
+tax_brackets	idx_year_income	1	2	3
+tax_brackets	PRIMARY	0	1	3
+tax_brackets	uk_year_bracket	0	3	3
+tax_withholding_history	idx_kra_pin	1	1	0
+tax_withholding_history	idx_staff_year	1	2	0
+tax_withholding_history	PRIMARY	0	1	0
+teaching_materials	idx_teaching_materials_academic_year_class_stream_id	1	1	0
+teaching_materials	idx_teaching_materials_academic_year_id	1	1	0
+teaching_materials	idx_teaching_materials_academic_year_term_id	1	1	0
+teaching_materials	idx_teaching_materials_created_at	1	1	0
+teaching_materials	idx_teaching_materials_learning_area_id	1	1	0
+teaching_materials	idx_teaching_materials_status	1	1	0
+teaching_materials	idx_teaching_materials_teacher_id	1	1	0
+teaching_materials	idx_teaching_materials_updated_at	1	1	0
+teaching_materials	PRIMARY	0	1	0
+template_categories	PRIMARY	0	1	3
+template_categories	uk_name	0	1	3
+terms	PRIMARY	0	1	3
+terms	uk_term_code	0	1	3
+terms	uk_term_name	0	1	3
+term_consolidations	fk_tc_consolidated_by	1	1	0
+term_consolidations	fk_tc_term	1	1	0
+term_consolidations	idx_academic_year	1	1	0
+term_consolidations	idx_avg_grade	1	1	0
+term_consolidations	idx_class_position	1	1	0
+term_consolidations	idx_term_consolidations_best_subject_id	1	1	0
+term_consolidations	idx_term_consolidations_worst_subject_id	1	1	0
+term_consolidations	PRIMARY	0	1	0
+term_consolidations	uk_student_term	0	2	0
+term_subject_scores	fk_tss_subject	1	1	0
+term_subject_scores	idx_overall_grade	1	1	0
+term_subject_scores	idx_student_term	1	2	0
+term_subject_scores	idx_term_subject	1	2	0
+term_subject_scores	PRIMARY	0	1	0
+term_subject_scores	uk_student_term_subject	0	3	0
+timetable_changes	idx_timetable_changes_created_at	1	1	0
+timetable_changes	idx_timetable_changes_effective_date	1	1	0
+timetable_changes	idx_timetable_changes_new_teacher_id	1	1	0
+timetable_changes	idx_timetable_changes_new_time_slot_id	1	1	0
+timetable_changes	idx_timetable_changes_status	1	1	0
+timetable_changes	idx_timetable_changes_timetable_entry_id	1	1	0
+timetable_changes	PRIMARY	0	1	0
+timetable_conflicts	idx_reported_by	1	1	0
+timetable_conflicts	idx_status	1	1	0
+timetable_conflicts	PRIMARY	0	1	0
+timetable_entries	idx_timetable_entries_academic_year_term_id	1	1	2
+timetable_entries	idx_timetable_entries_learning_area_id	1	1	2
+timetable_entries	idx_timetable_entries_teacher_id	1	1	2
+timetable_entries	idx_timetable_entries_time_slot_id	1	1	2
+timetable_entries	PRIMARY	0	1	6
+timetable_entries	uk_timetable_slot	0	4	6
+timetable_templates	idx_applies_to	1	1	0
+timetable_templates	idx_timetable_templates_class_id	1	1	0
+timetable_templates	PRIMARY	0	1	0
+time_slots	idx_period_time	0	2	13
+time_slots	PRIMARY	0	1	13
+transport_access_overrides	ix_transport_override_lookup	1	5	0
+transport_access_overrides	PRIMARY	0	1	0
+transport_bill_payments	idx_transport_bill_payments_bill_id	1	1	0
+transport_bill_payments	idx_transport_bill_payments_created_at	1	1	0
+transport_bill_payments	idx_transport_bill_payments_payment_date	1	1	0
+transport_bill_payments	idx_transport_bill_payments_transaction_id	1	1	0
+transport_bill_payments	PRIMARY	0	1	0
+transport_entitlement_payments	ix_transport_payment_status	1	1	0
+transport_entitlement_payments	ix_transport_payment_student	1	2	0
+transport_entitlement_payments	PRIMARY	0	1	0
+transport_entitlement_payments	uq_transport_provider_reference	0	2	0
+transport_entitlement_payment_allocations	ix_transport_allocation_entitlement	1	1	0
+transport_entitlement_payment_allocations	PRIMARY	0	1	0
+transport_entitlement_payment_allocations	uq_transport_payment_entitlement	0	2	0
+transport_entitlement_periods	ix_transport_period_dates	1	2	0
+transport_entitlement_periods	ix_transport_period_term	1	1	0
+transport_entitlement_periods	PRIMARY	0	1	0
+transport_entitlement_periods	uq_transport_period	0	4	0
+transport_monthly_bills	idx_billing_month	1	1	0
+transport_monthly_bills	idx_payment_status	1	1	0
+transport_monthly_bills	idx_student	1	1	0
+transport_monthly_bills	idx_subscription	1	1	0
+transport_monthly_bills	idx_transport_monthly_bills_route_id	1	1	0
+transport_monthly_bills	PRIMARY	0	1	0
+transport_monthly_bills	uk_student_month	0	2	0
+transport_payment_intents	fk_transport_intent_entitlement	1	1	0
+transport_payment_intents	fk_transport_intent_student	1	1	0
+transport_payment_intents	idx_transport_payment_intent_provider_request	1	2	0
+transport_payment_intents	idx_transport_payment_intent_status	1	2	0
+transport_payment_intents	PRIMARY	0	1	0
+transport_payment_intents	uq_transport_payment_intent_provider_tx	0	2	0
+transport_payment_intents	uq_transport_payment_intent_reference	0	1	0
+transport_routes	idx_status	1	1	0
+transport_routes	PRIMARY	0	1	0
+transport_routes	uk_code	0	1	0
+transport_schedules	idx_driver_date	1	2	0
+transport_schedules	idx_route_id	1	1	0
+transport_schedules	idx_transport_schedules_term_id	1	1	0
+transport_schedules	idx_vehicle_id	1	1	0
+transport_schedules	PRIMARY	0	1	0
+transport_stops	idx_route	1	1	0
+transport_stops	idx_sequence	1	1	0
+transport_stops	idx_status	1	1	0
+transport_stops	PRIMARY	0	1	0
+transport_vehicles	idx_driver	1	1	0
+transport_vehicles	idx_status	1	1	0
+transport_vehicles	PRIMARY	0	1	0
+transport_vehicles	uk_registration	0	1	0
+transport_vehicle_routes	idx_status	1	1	0
+transport_vehicle_routes	PRIMARY	0	1	0
+transport_vehicle_routes	route_id	1	1	0
+transport_vehicle_routes	uk_vehicle_route_direction	0	3	0
+uniform_catalog_carts	idx_uniform_cart_parent	1	2	0
+uniform_catalog_carts	PRIMARY	0	1	0
+uniform_catalog_cart_items	fk_uniform_cart_item_product	1	1	0
+uniform_catalog_cart_items	fk_uniform_cart_item_size	1	1	0
+uniform_catalog_cart_items	PRIMARY	0	1	0
+uniform_catalog_cart_items	uq_uniform_cart_item	0	3	0
+uniform_catalog_images	idx_uniform_catalog_image_product	1	2	0
+uniform_catalog_images	PRIMARY	0	1	0
+uniform_catalog_orders	fk_uniform_order_cart	1	1	0
+uniform_catalog_orders	fk_uniform_order_student	1	1	0
+uniform_catalog_orders	idx_uniform_order_parent	1	2	0
+uniform_catalog_orders	PRIMARY	0	1	0
+uniform_catalog_orders	uq_uniform_order_reference	0	1	0
+uniform_catalog_order_items	fk_uniform_order_line_product	1	1	0
+uniform_catalog_order_items	fk_uniform_order_line_size	1	1	0
+uniform_catalog_order_items	idx_uniform_order_item_order	1	1	0
+uniform_catalog_order_items	idx_uniform_order_item_sale	1	1	0
+uniform_catalog_order_items	PRIMARY	0	1	0
+uniform_catalog_products	idx_uniform_catalog_status	1	2	0
+uniform_catalog_products	PRIMARY	0	1	0
+uniform_catalog_products	uq_uniform_catalog_item	0	1	0
+uniform_catalog_products	uq_uniform_catalog_slug	0	1	0
+uniform_catalog_wishlists	fk_uniform_wishlist_product	1	1	0
+uniform_catalog_wishlists	PRIMARY	0	1	0
+uniform_catalog_wishlists	uq_uniform_wishlist	0	2	0
+uniform_payment_intents	fk_uniform_intent_sale	1	1	0
+uniform_payment_intents	fk_uniform_intent_student	1	1	0
+uniform_payment_intents	idx_uniform_intent_order	1	2	0
+uniform_payment_intents	idx_uniform_intent_status	1	2	0
+uniform_payment_intents	PRIMARY	0	1	0
+uniform_payment_intents	uq_uniform_intent_provider_tx	0	2	0
+uniform_payment_intents	uq_uniform_intent_reference	0	1	0
+uniform_payment_records	idx_uniform_payment_records_payment_date	1	1	0
+uniform_payment_records	idx_uniform_payment_records_sale_id	1	1	0
+uniform_payment_records	PRIMARY	0	1	0
+uniform_sales	idx_item	1	1	0
+uniform_sales	idx_payment_status	1	1	0
+uniform_sales	idx_sale_date	1	1	0
+uniform_sales	idx_student	1	1	0
+uniform_sales	PRIMARY	0	1	0
+uniform_sizes	idx_item_id	1	1	31
+uniform_sizes	PRIMARY	0	1	94
+uniform_sizes	uk_item_size	0	2	94
+users	PRIMARY	0	1	31
+users	uk_username	0	1	31
+users	uk_users_person	0	1	31
+user_2fa_backup_codes	idx_used	1	1	0
+user_2fa_backup_codes	idx_user_id	1	1	0
+user_2fa_backup_codes	PRIMARY	0	1	0
+user_2fa_otp_sessions	idx_expires	1	1	0
+user_2fa_otp_sessions	idx_user_id	1	1	0
+user_2fa_otp_sessions	idx_verified	1	1	0
+user_2fa_otp_sessions	PRIMARY	0	1	0
+user_invitations	idx_invitation_email	1	1	0
+user_invitations	idx_invitation_user_status	1	2	0
+user_invitations	idx_user_invitations_staff_id	1	1	0
+user_invitations	PRIMARY	0	1	0
+user_invitations	token_hash	0	1	0
+user_passkeys	idx_passkey_user	1	1	0
+user_passkeys	PRIMARY	0	1	0
+user_passkeys	uq_passkey_credential	0	1	0
+user_passkey_challenges	fk_passkey_challenge_user	1	1	0
+user_passkey_challenges	idx_passkey_challenge_expiry	1	1	0
+user_passkey_challenges	PRIMARY	0	1	0
+user_passkey_challenges	uq_passkey_challenge	0	1	0
+user_permissions	fk_userperm_grantedby	1	1	6
+user_permissions	idx_expires	1	1	2
+user_permissions	idx_permission_id	1	1	1776
+user_permissions	idx_type	1	1	2
+user_permissions	idx_user_id	1	1	32
+user_permissions	PRIMARY	0	1	1776
+user_permissions	unique_user_perm	0	2	1776
+user_roles	PRIMARY	0	1	55
+user_roles	role_id	1	1	55
+user_roles	uk_user_role	0	2	55
+user_routes	fk_user_routes_grantor	1	1	0
+user_routes	fk_user_routes_route	1	1	0
+user_routes	PRIMARY	0	1	0
+user_routes	uk_user_route	0	2	0
+user_sessions	idx_user_status	1	2	13
+user_sessions	PRIMARY	0	1	13
+user_sessions	uk_token	0	1	13
+user_two_factor_audit_events	idx_2fa_audit_challenge	1	1	0
+user_two_factor_audit_events	idx_2fa_audit_user_time	1	2	0
+user_two_factor_audit_events	PRIMARY	0	1	0
+user_two_factor_challenges	idx_challenge_user_status	1	3	0
+user_two_factor_challenges	PRIMARY	0	1	0
+user_two_factor_challenges	uq_challenge_hash	0	1	0
+user_two_factor_methods	idx_factor_user_enabled	1	2	0
+user_two_factor_methods	PRIMARY	0	1	0
+user_two_factor_methods	uq_user_factor	0	2	0
+vehicle_maintenance	idx_vehicle_maintenance_date	1	2	0
+vehicle_maintenance	PRIMARY	0	1	0
+vehicle_maintenance	vehicle_id	1	1	0
+widgets	PRIMARY	0	1	0
+widgets	uk_widget_key	0	1	0
+workflow_definitions	PRIMARY	0	1	21
+workflow_definitions	uk_workflow_code	0	1	21
+workflow_history	idx_workflow_history_created_at	1	1	63
+workflow_history	idx_workflow_history_workflow_id	1	1	4
+workflow_history	PRIMARY	0	1	127
+workflow_instances	fk_workflow_starter	1	1	11
+workflow_instances	idx_workflow_instances_reference_id	1	1	69
+workflow_instances	idx_workflow_ref	1	3	69
+workflow_instances	idx_workflow_status	1	2	17
+workflow_instances	PRIMARY	0	1	69
+workflow_notifications	idx_user_notifications	1	2	5
+workflow_notifications	idx_workflow_notify	1	2	15
+workflow_notifications	PRIMARY	0	1	15
+workflow_stages	idx_workflow_sequence	1	2	96
+workflow_stages	PRIMARY	0	1	96
+workflow_stages	uk_workflow_stage	0	2	96
+workflow_stage_history	fk_workflow_processor	1	1	10
+workflow_stage_history	idx_instance_history	1	1	32
+workflow_stage_history	PRIMARY	0	1	32
+workflow_stage_permissions	permission_id	1	1	42
+workflow_stage_permissions	PRIMARY	0	1	84
+workflow_stage_permissions	role_id	1	1	16
+workflow_stage_permissions	uq_stage_perm_role	0	3	84
+TABLE_NAME	CONSTRAINT_NAME	CONSTRAINT_TYPE
+announcements_bulletin	audience_json	CHECK
+annual_scores	insights_summary	CHECK
+annual_scores	strengths	CHECK
+annual_scores	weaknesses	CHECK
+api_tokens	scope	CHECK
+bank_transactions	webhook_data	CHECK
+counseling_cases	chk_counseling_cases_counselee	CHECK
+disbursement_transactions	callback_data	CHECK
+dormitories	facilities	CHECK
+external_emails	attachments	CHECK
+external_institutions	email_addresses	CHECK
+external_institutions	phone_numbers	CHECK
+form_permissions	actions	CHECK
+learning_areas	source_documents	CHECK
+lesson_observations	recommendations	CHECK
+lesson_observations	strengths	CHECK
+lesson_observations	areas_for_improvement	CHECK
+message_templates	variables	CHECK
+mpesa_transactions	raw_callback	CHECK
+mpesa_transactions	webhook_data	CHECK
+onboarding_task_templates	applies_to_type_ids	CHECK
+outbound_messages	payload_json	CHECK
+payment_provider_attempts	request_payload	CHECK
+payment_provider_attempts	response_payload	CHECK
+payment_provider_callbacks	raw_payload	CHECK
+payment_provider_callbacks	request_headers	CHECK
+payment_unmatched_cases	raw_payload	CHECK
+payslips	child_fees_breakdown	CHECK
+payslips	allowances_breakdown	CHECK
+payslips	deductions_breakdown	CHECK
+qr_scan_events	chk_qr_scan_result	CHECK
+school_transactions	details	CHECK
+school_week_config	class_days	CHECK
+school_week_config	boarding_days	CHECK
+staff_appointment_approvals	changes	CHECK
+staff_import_batches	validation_summary	CHECK
+staff_import_rows	row_data	CHECK
+staff_import_rows	validation_errors	CHECK
+statutory_remittance_attempts	response_payload	CHECK
+statutory_remittance_attempts	request_payload	CHECK
+system_policies	rule_expression	CHECK
+system_policies	target_ids	CHECK
+term_consolidations	performance_summary	CHECK
+timetable_templates	template_data	CHECK
+transport_entitlement_payment_allocations	chk_transport_allocation_amount	CHECK
+transport_payment_intents	request_payload	CHECK
+transport_payment_intents	response_payload	CHECK
+uniform_payment_intents	request_payload	CHECK
+uniform_payment_intents	response_payload	CHECK
+user_passkeys	transports	CHECK
+user_two_factor_audit_events	metadata	CHECK
+workflow_definitions	config_json	CHECK
+workflow_instances	data_json	CHECK
+workflow_stages	allowed_transitions	CHECK
+workflow_stages	action_config	CHECK
+workflow_stages	responsible_role_ids	CHECK
+workflow_stage_history	data_json	CHECK
+admission_windows	fk_aw_academic_year	FOREIGN KEY
+admission_windows	fk_aw_academic_year_term	FOREIGN KEY
+communications	fk_comm_business_event	FOREIGN KEY
+communications	fk_comm_template_channel	FOREIGN KEY
+communications	fk_comm_thread	FOREIGN KEY
+communication_attachment_channels	fk_comm_attachment_channel_attachment	FOREIGN KEY
+communication_audit_events	fk_comm_audit_endpoint	FOREIGN KEY
+communication_audit_events	fk_comm_audit_template_channel	FOREIGN KEY
+communication_audit_events	fk_comm_audit_thread	FOREIGN KEY
+communication_audit_events	fk_comm_audit_communication	FOREIGN KEY
+communication_delivery_attempts	fk_comm_attempt_endpoint	FOREIGN KEY
+communication_event_exam_workflows	fk_comm_event_exam_event	FOREIGN KEY
+communication_event_fee_students	fk_comm_event_fee_event	FOREIGN KEY
+communication_event_inquiries	fk_comm_event_inquiry_event	FOREIGN KEY
+communication_event_messages	fk_comm_event_message_source	FOREIGN KEY
+communication_event_messages	fk_comm_event_message_event	FOREIGN KEY
+communication_event_school_events	fk_comm_event_school_event	FOREIGN KEY
+communication_event_school_events	fk_comm_event_school_source	FOREIGN KEY
+communication_recipient_endpoints	fk_endpoint_recipient	FOREIGN KEY
+communication_template_channels	fk_comm_template_channel_version	FOREIGN KEY
+communication_template_values	fk_comm_template_value_communication	FOREIGN KEY
+communication_template_variables	fk_comm_template_variable_channel	FOREIGN KEY
+communication_template_versions	fk_comm_template_version_catalog	FOREIGN KEY
+communication_thread_inquiries	fk_comm_thread_inquiry_thread	FOREIGN KEY
+communication_thread_internal_conversations	fk_comm_thread_internal_conversation	FOREIGN KEY
+communication_thread_internal_conversations	fk_comm_thread_internal_thread	FOREIGN KEY
+communication_thread_messages	fk_comm_thread_message_thread	FOREIGN KEY
+communication_workflow_instances	fk_comm_workflow_communication	FOREIGN KEY
+communication_workflow_instances	fk_comm_workflow_initiator	FOREIGN KEY
+contact_directory	fk_contact_directory_department	FOREIGN KEY
+external_inbound_media	fk_external_inbound_media_message	FOREIGN KEY
+external_inbound_messages	fk_external_inbound_thread	FOREIGN KEY
+job_vacancies	fk_job_vacancies_department	FOREIGN KEY
+parent_meetings	parent_meetings_ibfk_2	FOREIGN KEY
+parent_meetings	parent_meetings_ibfk_3	FOREIGN KEY
+parent_meetings	parent_meetings_ibfk_4	FOREIGN KEY
+parent_meetings	parent_meetings_ibfk_1	FOREIGN KEY
+parent_payment_accounts	fk_parent_payment_account_parent	FOREIGN KEY
+parent_pta_memberships	fk_parent_pta_parent	FOREIGN KEY
+parent_refund_requests	fk_parent_refund_account	FOREIGN KEY
+parent_refund_requests	fk_parent_refund_credit	FOREIGN KEY
+parent_refund_requests	fk_parent_refund_disbursement	FOREIGN KEY
+parent_refund_requests	fk_parent_refund_parent	FOREIGN KEY
+payment_collection_routes	fk_collection_route_provider	FOREIGN KEY
+payment_provider_accounts	fk_provider_accounts_provider	FOREIGN KEY
+payment_provider_attempts	fk_provider_attempt_payment	FOREIGN KEY
+payment_provider_attempts	fk_provider_attempt_provider	FOREIGN KEY
+payment_provider_attempts	fk_provider_attempt_disbursement	FOREIGN KEY
+payment_provider_callbacks	fk_provider_callback_provider	FOREIGN KEY
+payment_routing_references	fk_routing_reference_transport_intent	FOREIGN KEY
+payment_routing_references	fk_routing_reference_student	FOREIGN KEY
+payment_unmatched_cases	fk_unmatched_provider	FOREIGN KEY
+payment_unmatched_cases	fk_unmatched_student	FOREIGN KEY
+person_addresses	fk_person_address_person	FOREIGN KEY
+person_contact_points	fk_person_contact_person	FOREIGN KEY
+person_marital_statuses	fk_person_marital_person	FOREIGN KEY
+petty_cash_transactions	fk_petty_cash_vendor	FOREIGN KEY
+promotion_rules	fk_promotion_rules_level	FOREIGN KEY
+sports_fixtures	sports_fixtures_ibfk_1	FOREIGN KEY
+sports_player_stats	sports_player_stats_ibfk_1	FOREIGN KEY
+sports_player_stats	sports_player_stats_ibfk_2	FOREIGN KEY
+sports_player_stats	sports_player_stats_ibfk_3	FOREIGN KEY
+sports_standings	sports_standings_ibfk_1	FOREIGN KEY
+sports_teams	sports_teams_ibfk_2	FOREIGN KEY
+sports_teams	sports_teams_ibfk_3	FOREIGN KEY
+sports_teams	sports_teams_ibfk_1	FOREIGN KEY
+sports_team_members	sports_team_members_ibfk_2	FOREIGN KEY
+sports_team_members	sports_team_members_ibfk_1	FOREIGN KEY
+statutory_remittance_attempts	fk_statutory_attempt_remittance	FOREIGN KEY
+statutory_remittance_attempts	fk_statutory_attempt_agency_account	FOREIGN KEY
+statutory_remittance_attempts	fk_statutory_attempt_provider	FOREIGN KEY
+statutory_remittance_items	fk_remittance_items_payslip	FOREIGN KEY
+statutory_remittance_items	fk_remittance_items_remittance	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_source_credit	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_destination_entitlement	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_source_entitlement	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_destination_student	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_source_student	FOREIGN KEY
+student_fund_transfers	fk_fund_transfer_parent	FOREIGN KEY
+student_fund_transfer_postings	fk_fund_transfer_posting_transfer	FOREIGN KEY
+supplier_bank_accounts	fk_supplier_bank_supplier	FOREIGN KEY
+supplier_mobile_accounts	fk_supplier_mobile_supplier	FOREIGN KEY
+supplier_payment_requests	fk_supplier_payment_supplier	FOREIGN KEY
+supplier_payment_requests	fk_supplier_payment_bank	FOREIGN KEY
+supplier_payment_requests	fk_supplier_payment_disbursement	FOREIGN KEY
+transport_payment_intents	fk_transport_intent_entitlement	FOREIGN KEY
+transport_payment_intents	fk_transport_intent_student	FOREIGN KEY
+uniform_catalog_carts	fk_uniform_cart_parent	FOREIGN KEY
+uniform_catalog_cart_items	fk_uniform_cart_item_size	FOREIGN KEY
+uniform_catalog_cart_items	fk_uniform_cart_item_cart	FOREIGN KEY
+uniform_catalog_cart_items	fk_uniform_cart_item_product	FOREIGN KEY
+uniform_catalog_images	fk_uniform_catalog_image_product	FOREIGN KEY
+uniform_catalog_orders	fk_uniform_order_student	FOREIGN KEY
+uniform_catalog_orders	fk_uniform_order_cart	FOREIGN KEY
+uniform_catalog_orders	fk_uniform_order_parent	FOREIGN KEY
+uniform_catalog_order_items	fk_uniform_order_line_product	FOREIGN KEY
+uniform_catalog_order_items	fk_uniform_order_line_sale	FOREIGN KEY
+uniform_catalog_order_items	fk_uniform_order_line_size	FOREIGN KEY
+uniform_catalog_order_items	fk_uniform_order_line_order	FOREIGN KEY
+uniform_catalog_products	fk_uniform_catalog_item	FOREIGN KEY
+uniform_catalog_wishlists	fk_uniform_wishlist_parent	FOREIGN KEY
+uniform_catalog_wishlists	fk_uniform_wishlist_product	FOREIGN KEY
+uniform_payment_intents	fk_uniform_intent_sale	FOREIGN KEY
+uniform_payment_intents	fk_uniform_intent_student	FOREIGN KEY
+uniform_payment_intents	fk_uniform_intent_order	FOREIGN KEY
+uniform_payment_records	fk_uniform_payments_sale	FOREIGN KEY
+user_passkeys	fk_passkey_user	FOREIGN KEY
+user_passkey_challenges	fk_passkey_challenge_user	FOREIGN KEY
+user_two_factor_audit_events	fk_2fa_audit_challenge	FOREIGN KEY
+user_two_factor_audit_events	fk_2fa_audit_user	FOREIGN KEY
+user_two_factor_challenges	fk_challenge_user	FOREIGN KEY
+user_two_factor_methods	fk_factor_user	FOREIGN KEY
+academic_capacity_config	PRIMARY	PRIMARY KEY
+academic_capacity_reservations	PRIMARY	PRIMARY KEY
+academic_class_progression	PRIMARY	PRIMARY KEY
+academic_years	PRIMARY	PRIMARY KEY
+academic_year_archives	PRIMARY	PRIMARY KEY
+academic_year_calendar	PRIMARY	PRIMARY KEY
+academic_year_calendar_days	PRIMARY	PRIMARY KEY
+academic_year_classes	PRIMARY	PRIMARY KEY
+academic_year_class_learning_areas	PRIMARY	PRIMARY KEY
+academic_year_class_learning_area_teachers	PRIMARY	PRIMARY KEY
+academic_year_class_streams	PRIMARY	PRIMARY KEY
+academic_year_fee_schedules	PRIMARY	PRIMARY KEY
+academic_year_terms	PRIMARY	PRIMARY KEY
+activities	PRIMARY	PRIMARY KEY
+activity_categories	PRIMARY	PRIMARY KEY
+activity_participants	PRIMARY	PRIMARY KEY
+activity_resources	PRIMARY	PRIMARY KEY
+activity_schedule	PRIMARY	PRIMARY KEY
+activity_staff_participants	PRIMARY	PRIMARY KEY
+admission_applications	PRIMARY	PRIMARY KEY
+admission_decisions	PRIMARY	PRIMARY KEY
+admission_documents	PRIMARY	PRIMARY KEY
+admission_interviews	PRIMARY	PRIMARY KEY
+admission_placement_tests	PRIMARY	PRIMARY KEY
+admission_windows	PRIMARY	PRIMARY KEY
+albums	PRIMARY	PRIMARY KEY
+announcements_bulletin	PRIMARY	PRIMARY KEY
+announcement_views	PRIMARY	PRIMARY KEY
+annual_scores	PRIMARY	PRIMARY KEY
+api_tokens	PRIMARY	PRIMARY KEY
+arrears_settlement_plans	PRIMARY	PRIMARY KEY
+assessments	PRIMARY	PRIMARY KEY
+assessment_benchmarks	PRIMARY	PRIMARY KEY
+assessment_history	PRIMARY	PRIMARY KEY
+assessment_results	PRIMARY	PRIMARY KEY
+assessment_rubrics	PRIMARY	PRIMARY KEY
+assessment_tools	PRIMARY	PRIMARY KEY
+assessment_types	PRIMARY	PRIMARY KEY
+assessment_type_classifications	PRIMARY	PRIMARY KEY
+asset_categories	PRIMARY	PRIMARY KEY
+asset_disposals	PRIMARY	PRIMARY KEY
+assignments	PRIMARY	PRIMARY KEY
+assignment_submissions	PRIMARY	PRIMARY KEY
+attendance_sessions	PRIMARY	PRIMARY KEY
+bank_accounts	PRIMARY	PRIMARY KEY
+bank_transactions	PRIMARY	PRIMARY KEY
+blocked_devices	PRIMARY	PRIMARY KEY
+blocked_ips	PRIMARY	PRIMARY KEY
+boarding_attendance	PRIMARY	PRIMARY KEY
+budgets	PRIMARY	PRIMARY KEY
+budget_amendments	PRIMARY	PRIMARY KEY
+budget_line_items	PRIMARY	PRIMARY KEY
+calendar_day_types	PRIMARY	PRIMARY KEY
+careers_benefits	PRIMARY	PRIMARY KEY
+cash_reconciliation_sessions	PRIMARY	PRIMARY KEY
+catering_meal_statuses	PRIMARY	PRIMARY KEY
+classes	PRIMARY	PRIMARY KEY
+class_promotion_queue	PRIMARY	PRIMARY KEY
+communications	PRIMARY	PRIMARY KEY
+communication_attachments	PRIMARY	PRIMARY KEY
+communication_attachment_channels	PRIMARY	PRIMARY KEY
+communication_audit_events	PRIMARY	PRIMARY KEY
+communication_business_events	PRIMARY	PRIMARY KEY
+communication_consents	PRIMARY	PRIMARY KEY
+communication_delivery_attempts	PRIMARY	PRIMARY KEY
+communication_event_exam_workflows	PRIMARY	PRIMARY KEY
+communication_event_fee_students	PRIMARY	PRIMARY KEY
+communication_event_inquiries	PRIMARY	PRIMARY KEY
+communication_event_messages	PRIMARY	PRIMARY KEY
+communication_event_school_events	PRIMARY	PRIMARY KEY
+communication_groups	PRIMARY	PRIMARY KEY
+communication_preferences	PRIMARY	PRIMARY KEY
+communication_recipients	PRIMARY	PRIMARY KEY
+communication_recipient_endpoints	PRIMARY	PRIMARY KEY
+communication_template_catalog	PRIMARY	PRIMARY KEY
+communication_template_channels	PRIMARY	PRIMARY KEY
+communication_template_values	PRIMARY	PRIMARY KEY
+communication_template_variables	PRIMARY	PRIMARY KEY
+communication_template_versions	PRIMARY	PRIMARY KEY
+communication_threads	PRIMARY	PRIMARY KEY
+communication_thread_inquiries	PRIMARY	PRIMARY KEY
+communication_thread_internal_conversations	PRIMARY	PRIMARY KEY
+communication_thread_messages	PRIMARY	PRIMARY KEY
+communication_workflow_instances	PRIMARY	PRIMARY KEY
+conduct_tracking	PRIMARY	PRIMARY KEY
+contact_directory	PRIMARY	PRIMARY KEY
+contact_inquiries	PRIMARY	PRIMARY KEY
+conversation_participants	PRIMARY	PRIMARY KEY
+core_competencies	PRIMARY	PRIMARY KEY
+core_values	PRIMARY	PRIMARY KEY
+counseling_cases	PRIMARY	PRIMARY KEY
+counseling_sessions	PRIMARY	PRIMARY KEY
+csl_activities	PRIMARY	PRIMARY KEY
+daily_meal_allocations	PRIMARY	PRIMARY KEY
+dashboards	PRIMARY	PRIMARY KEY
+deduction_types	PRIMARY	PRIMARY KEY
+departments	PRIMARY	PRIMARY KEY
+department_attendance_rules	PRIMARY	PRIMARY KEY
+depreciation_schedule	PRIMARY	PRIMARY KEY
+disbursement_transactions	PRIMARY	PRIMARY KEY
+discipline_incidents	PRIMARY	PRIMARY KEY
+dormitories	PRIMARY	PRIMARY KEY
+dormitory_assignments	PRIMARY	PRIMARY KEY
+emergency_contacts	PRIMARY	PRIMARY KEY
+equipment_maintenance	PRIMARY	PRIMARY KEY
+equipment_maintenance_types	PRIMARY	PRIMARY KEY
+exam_schedules	PRIMARY	PRIMARY KEY
+expenses	PRIMARY	PRIMARY KEY
+expense_categories	PRIMARY	PRIMARY KEY
+external_emails	PRIMARY	PRIMARY KEY
+external_inbound_media	PRIMARY	PRIMARY KEY
+external_inbound_messages	PRIMARY	PRIMARY KEY
+external_institutions	PRIMARY	PRIMARY KEY
+fee_catalog	PRIMARY	PRIMARY KEY
+fee_credit_notes	PRIMARY	PRIMARY KEY
+fee_discounts_waivers	PRIMARY	PRIMARY KEY
+fee_reminders	PRIMARY	PRIMARY KEY
+fee_types	PRIMARY	PRIMARY KEY
+financial_periods	PRIMARY	PRIMARY KEY
+fixed_assets	PRIMARY	PRIMARY KEY
+food_consumption_records	PRIMARY	PRIMARY KEY
+formative_scores	PRIMARY	PRIMARY KEY
+form_permissions	PRIMARY	PRIMARY KEY
+forum_posts	PRIMARY	PRIMARY KEY
+forum_threads	PRIMARY	PRIMARY KEY
+gallery_items	PRIMARY	PRIMARY KEY
+grade_rules	PRIMARY	PRIMARY KEY
+grading_comments	PRIMARY	PRIMARY KEY
+grading_scales	PRIMARY	PRIMARY KEY
+group_members	PRIMARY	PRIMARY KEY
+ieps	PRIMARY	PRIMARY KEY
+internal_conversations	PRIMARY	PRIMARY KEY
+internal_messages	PRIMARY	PRIMARY KEY
+inventory_allocations	PRIMARY	PRIMARY KEY
+inventory_categories	PRIMARY	PRIMARY KEY
+inventory_counts	PRIMARY	PRIMARY KEY
+inventory_count_items	PRIMARY	PRIMARY KEY
+inventory_departments	PRIMARY	PRIMARY KEY
+inventory_items	PRIMARY	PRIMARY KEY
+inventory_locations	PRIMARY	PRIMARY KEY
+inventory_transactions	PRIMARY	PRIMARY KEY
+item_batches	PRIMARY	PRIMARY KEY
+item_serials	PRIMARY	PRIMARY KEY
+job_applications	PRIMARY	PRIMARY KEY
+job_vacancies	PRIMARY	PRIMARY KEY
+kpi_achievements	PRIMARY	PRIMARY KEY
+kpi_definitions	PRIMARY	PRIMARY KEY
+kpi_targets	PRIMARY	PRIMARY KEY
+leadership_team	PRIMARY	PRIMARY KEY
+learner_competencies	PRIMARY	PRIMARY KEY
+learner_csl_participation	PRIMARY	PRIMARY KEY
+learner_pci_awareness	PRIMARY	PRIMARY KEY
+learner_values_acquisition	PRIMARY	PRIMARY KEY
+learning_areas	PRIMARY	PRIMARY KEY
+learning_outcomes	PRIMARY	PRIMARY KEY
+leave_types	PRIMARY	PRIMARY KEY
+lesson_deliveries	PRIMARY	PRIMARY KEY
+lesson_observations	PRIMARY	PRIMARY KEY
+lesson_plans	PRIMARY	PRIMARY KEY
+lesson_templates	PRIMARY	PRIMARY KEY
+lesson_template_learning_outcomes	PRIMARY	PRIMARY KEY
+library_books	PRIMARY	PRIMARY KEY
+library_categories	PRIMARY	PRIMARY KEY
+library_fines	PRIMARY	PRIMARY KEY
+library_issues	PRIMARY	PRIMARY KEY
+meal_plans	PRIMARY	PRIMARY KEY
+media_files	PRIMARY	PRIMARY KEY
+menu_items	PRIMARY	PRIMARY KEY
+menu_item_ingredients	PRIMARY	PRIMARY KEY
+message_read_status	PRIMARY	PRIMARY KEY
+message_templates	PRIMARY	PRIMARY KEY
+migrations	PRIMARY	PRIMARY KEY
+mpesa_transactions	PRIMARY	PRIMARY KEY
+national_exam_results	PRIMARY	PRIMARY KEY
+newsletter_subscribers	PRIMARY	PRIMARY KEY
+news_articles	PRIMARY	PRIMARY KEY
+news_categories	PRIMARY	PRIMARY KEY
+notifications	PRIMARY	PRIMARY KEY
+number_sequences	PRIMARY	PRIMARY KEY
+onboarding_documents	PRIMARY	PRIMARY KEY
+onboarding_tasks	PRIMARY	PRIMARY KEY
+onboarding_task_templates	PRIMARY	PRIMARY KEY
+outbound_messages	PRIMARY	PRIMARY KEY
+page_downloads	PRIMARY	PRIMARY KEY
+parents	PRIMARY	PRIMARY KEY
+parent_meetings	PRIMARY	PRIMARY KEY
+parent_payment_accounts	PRIMARY	PRIMARY KEY
+parent_pta_memberships	PRIMARY	PRIMARY KEY
+parent_refund_requests	PRIMARY	PRIMARY KEY
+password_history	PRIMARY	PRIMARY KEY
+password_resets	PRIMARY	PRIMARY KEY
+past_papers	PRIMARY	PRIMARY KEY
+payments	PRIMARY	PRIMARY KEY
+payment_collection_routes	PRIMARY	PRIMARY KEY
+payment_providers	PRIMARY	PRIMARY KEY
+payment_provider_accounts	PRIMARY	PRIMARY KEY
+payment_provider_attempts	PRIMARY	PRIMARY KEY
+payment_provider_callbacks	PRIMARY	PRIMARY KEY
+payment_reconciliations	PRIMARY	PRIMARY KEY
+payment_routing_references	PRIMARY	PRIMARY KEY
+payment_unmatched_cases	PRIMARY	PRIMARY KEY
+payroll_configurations	PRIMARY	PRIMARY KEY
+payroll_runs	PRIMARY	PRIMARY KEY
+payslips	PRIMARY	PRIMARY KEY
+payslip_items	PRIMARY	PRIMARY KEY
+pcis	PRIMARY	PRIMARY KEY
+performance_levels_cbc	PRIMARY	PRIMARY KEY
+performance_ratings	PRIMARY	PRIMARY KEY
+performance_reviews	PRIMARY	PRIMARY KEY
+performance_review_kpis	PRIMARY	PRIMARY KEY
+permissions	PRIMARY	PRIMARY KEY
+permission_delegations	PRIMARY	PRIMARY KEY
+persons	PRIMARY	PRIMARY KEY
+person_addresses	PRIMARY	PRIMARY KEY
+person_contact_points	PRIMARY	PRIMARY KEY
+person_marital_statuses	PRIMARY	PRIMARY KEY
+petty_cash_funds	PRIMARY	PRIMARY KEY
+petty_cash_reconciliations	PRIMARY	PRIMARY KEY
+petty_cash_transactions	PRIMARY	PRIMARY KEY
+placement_offers	PRIMARY	PRIMARY KEY
+portfolios	PRIMARY	PRIMARY KEY
+portfolio_artifacts	PRIMARY	PRIMARY KEY
+promotion_batches	PRIMARY	PRIMARY KEY
+promotion_rules	PRIMARY	PRIMARY KEY
+purchase_orders	PRIMARY	PRIMARY KEY
+qr_scan_events	PRIMARY	PRIMARY KEY
+record_permissions	PRIMARY	PRIMARY KEY
+refresh_tokens	PRIMARY	PRIMARY KEY
+requisitions	PRIMARY	PRIMARY KEY
+requisition_items	PRIMARY	PRIMARY KEY
+roles	PRIMARY	PRIMARY KEY
+role_dashboards	PRIMARY	PRIMARY KEY
+role_delegations	PRIMARY	PRIMARY KEY
+role_permissions	PRIMARY	PRIMARY KEY
+role_routes	PRIMARY	PRIMARY KEY
+role_sidebar_menus	PRIMARY	PRIMARY KEY
+rooms	PRIMARY	PRIMARY KEY
+routes_registry	PRIMARY	PRIMARY KEY
+route_permissions	PRIMARY	PRIMARY KEY
+route_schedules	PRIMARY	PRIMARY KEY
+schema_discovery_cache	PRIMARY	PRIMARY KEY
+schemes_of_work	PRIMARY	PRIMARY KEY
+scheme_templates	PRIMARY	PRIMARY KEY
+scheme_template_learning_outcomes	PRIMARY	PRIMARY KEY
+school_configuration	PRIMARY	PRIMARY KEY
+school_content	PRIMARY	PRIMARY KEY
+school_events	PRIMARY	PRIMARY KEY
+school_facilities	PRIMARY	PRIMARY KEY
+school_history	PRIMARY	PRIMARY KEY
+school_holidays	PRIMARY	PRIMARY KEY
+school_levels	PRIMARY	PRIMARY KEY
+school_programs	PRIMARY	PRIMARY KEY
+school_settings	PRIMARY	PRIMARY KEY
+school_transactions	PRIMARY	PRIMARY KEY
+school_values	PRIMARY	PRIMARY KEY
+school_week_config	PRIMARY	PRIMARY KEY
+sidebar_menu_items	PRIMARY	PRIMARY KEY
+sports_fixtures	PRIMARY	PRIMARY KEY
+sports_player_stats	PRIMARY	PRIMARY KEY
+sports_standings	PRIMARY	PRIMARY KEY
+sports_teams	PRIMARY	PRIMARY KEY
+sports_team_members	PRIMARY	PRIMARY KEY
+staff	PRIMARY	PRIMARY KEY
+staff_allowances	PRIMARY	PRIMARY KEY
+staff_appointments	PRIMARY	PRIMARY KEY
+staff_appointment_approvals	PRIMARY	PRIMARY KEY
+staff_attendance	PRIMARY	PRIMARY KEY
+staff_attendance_profiles	PRIMARY	PRIMARY KEY
+staff_categories	PRIMARY	PRIMARY KEY
+staff_children	PRIMARY	PRIMARY KEY
+staff_contracts	PRIMARY	PRIMARY KEY
+staff_deductions	PRIMARY	PRIMARY KEY
+staff_department_assignments	PRIMARY	PRIMARY KEY
+staff_duty_roster	PRIMARY	PRIMARY KEY
+staff_duty_types	PRIMARY	PRIMARY KEY
+staff_employment_profiles	PRIMARY	PRIMARY KEY
+staff_experience	PRIMARY	PRIMARY KEY
+staff_id_cards	PRIMARY	PRIMARY KEY
+staff_import_batches	PRIMARY	PRIMARY KEY
+staff_import_rows	PRIMARY	PRIMARY KEY
+staff_incident_reports	PRIMARY	PRIMARY KEY
+staff_kpi_templates	PRIMARY	PRIMARY KEY
+staff_leaves	PRIMARY	PRIMARY KEY
+staff_lifecycle_actions	PRIMARY	PRIMARY KEY
+staff_loans	PRIMARY	PRIMARY KEY
+staff_meetings	PRIMARY	PRIMARY KEY
+staff_meeting_attendees	PRIMARY	PRIMARY KEY
+staff_offboarding	PRIMARY	PRIMARY KEY
+staff_off_day_patterns	PRIMARY	PRIMARY KEY
+staff_payroll_profiles	PRIMARY	PRIMARY KEY
+staff_probation_reviews	PRIMARY	PRIMARY KEY
+staff_promotions	PRIMARY	PRIMARY KEY
+staff_qualifications	PRIMARY	PRIMARY KEY
+staff_salary_advances	PRIMARY	PRIMARY KEY
+staff_shift_assignments	PRIMARY	PRIMARY KEY
+staff_types	PRIMARY	PRIMARY KEY
+statutory_agency_accounts	PRIMARY	PRIMARY KEY
+statutory_remittances	PRIMARY	PRIMARY KEY
+statutory_remittance_attempts	PRIMARY	PRIMARY KEY
+statutory_remittance_items	PRIMARY	PRIMARY KEY
+storage_locations	PRIMARY	PRIMARY KEY
+strands	PRIMARY	PRIMARY KEY
+strand_competency	PRIMARY	PRIMARY KEY
+streams	PRIMARY	PRIMARY KEY
+students	PRIMARY	PRIMARY KEY
+student_academic_enrollments	PRIMARY	PRIMARY KEY
+student_attendance	PRIMARY	PRIMARY KEY
+student_boarding_notes	PRIMARY	PRIMARY KEY
+student_clearances	PRIMARY	PRIMARY KEY
+student_fee_obligations	PRIMARY	PRIMARY KEY
+student_fund_transfers	PRIMARY	PRIMARY KEY
+student_fund_transfer_postings	PRIMARY	PRIMARY KEY
+student_health_records	PRIMARY	PRIMARY KEY
+student_health_reviews	PRIMARY	PRIMARY KEY
+student_health_visits	PRIMARY	PRIMARY KEY
+student_id_cards	PRIMARY	PRIMARY KEY
+student_id_card_history	PRIMARY	PRIMARY KEY
+student_meal_profiles	PRIMARY	PRIMARY KEY
+student_parents	PRIMARY	PRIMARY KEY
+student_permissions	PRIMARY	PRIMARY KEY
+student_permission_types	PRIMARY	PRIMARY KEY
+student_suspensions	PRIMARY	PRIMARY KEY
+student_transitions	PRIMARY	PRIMARY KEY
+student_transport_assignments	PRIMARY	PRIMARY KEY
+student_transport_attendance	PRIMARY	PRIMARY KEY
+student_transport_entitlements	PRIMARY	PRIMARY KEY
+student_transport_incidents	PRIMARY	PRIMARY KEY
+student_transport_notes	PRIMARY	PRIMARY KEY
+student_types	PRIMARY	PRIMARY KEY
+student_uniforms	PRIMARY	PRIMARY KEY
+student_vaccinations	PRIMARY	PRIMARY KEY
+student_welfare_cases	PRIMARY	PRIMARY KEY
+student_welfare_notes	PRIMARY	PRIMARY KEY
+subject_time_allocations	PRIMARY	PRIMARY KEY
+sub_strands	PRIMARY	PRIMARY KEY
+sub_strand_competencies	PRIMARY	PRIMARY KEY
+sub_strand_key_inquiry_questions	PRIMARY	PRIMARY KEY
+sub_strand_pci_issues	PRIMARY	PRIMARY KEY
+sub_strand_rubrics	PRIMARY	PRIMARY KEY
+sub_strand_suggested_experiences	PRIMARY	PRIMARY KEY
+sub_strand_values	PRIMARY	PRIMARY KEY
+supervision_rosters	PRIMARY	PRIMARY KEY
+suppliers	PRIMARY	PRIMARY KEY
+supplier_bank_accounts	PRIMARY	PRIMARY KEY
+supplier_mobile_accounts	PRIMARY	PRIMARY KEY
+supplier_payment_requests	PRIMARY	PRIMARY KEY
+system_access_policies	PRIMARY	PRIMARY KEY
+system_alerts	PRIMARY	PRIMARY KEY
+system_api_metrics	PRIMARY	PRIMARY KEY
+system_background_jobs	PRIMARY	PRIMARY KEY
+system_backups	PRIMARY	PRIMARY KEY
+system_domain_isolation_rules	PRIMARY	PRIMARY KEY
+system_feature_flags	PRIMARY	PRIMARY KEY
+system_ip_rules	PRIMARY	PRIMARY KEY
+system_maintenance_windows	PRIMARY	PRIMARY KEY
+system_migration_history	PRIMARY	PRIMARY KEY
+system_modules	PRIMARY	PRIMARY KEY
+system_policies	PRIMARY	PRIMARY KEY
+system_policy_violations	PRIMARY	PRIMARY KEY
+system_rate_limit_rules	PRIMARY	PRIMARY KEY
+system_retention_policies	PRIMARY	PRIMARY KEY
+system_route_access_rules	PRIMARY	PRIMARY KEY
+system_security_incidents	PRIMARY	PRIMARY KEY
+system_time_bound_access	PRIMARY	PRIMARY KEY
+system_webhooks	PRIMARY	PRIMARY KEY
+tax_brackets	PRIMARY	PRIMARY KEY
+tax_withholding_history	PRIMARY	PRIMARY KEY
+teaching_materials	PRIMARY	PRIMARY KEY
+template_categories	PRIMARY	PRIMARY KEY
+terms	PRIMARY	PRIMARY KEY
+term_consolidations	PRIMARY	PRIMARY KEY
+term_subject_scores	PRIMARY	PRIMARY KEY
+timetable_changes	PRIMARY	PRIMARY KEY
+timetable_conflicts	PRIMARY	PRIMARY KEY
+timetable_entries	PRIMARY	PRIMARY KEY
+timetable_templates	PRIMARY	PRIMARY KEY
+time_slots	PRIMARY	PRIMARY KEY
+transport_access_overrides	PRIMARY	PRIMARY KEY
+transport_bill_payments	PRIMARY	PRIMARY KEY
+transport_entitlement_payments	PRIMARY	PRIMARY KEY
+transport_entitlement_payment_allocations	PRIMARY	PRIMARY KEY
+transport_entitlement_periods	PRIMARY	PRIMARY KEY
+transport_monthly_bills	PRIMARY	PRIMARY KEY
+transport_payment_intents	PRIMARY	PRIMARY KEY
+transport_routes	PRIMARY	PRIMARY KEY
+transport_schedules	PRIMARY	PRIMARY KEY
+transport_stops	PRIMARY	PRIMARY KEY
+transport_vehicles	PRIMARY	PRIMARY KEY
+transport_vehicle_routes	PRIMARY	PRIMARY KEY
+uniform_catalog_carts	PRIMARY	PRIMARY KEY
+uniform_catalog_cart_items	PRIMARY	PRIMARY KEY
+uniform_catalog_images	PRIMARY	PRIMARY KEY
+uniform_catalog_orders	PRIMARY	PRIMARY KEY
+uniform_catalog_order_items	PRIMARY	PRIMARY KEY
+uniform_catalog_products	PRIMARY	PRIMARY KEY
+uniform_catalog_wishlists	PRIMARY	PRIMARY KEY
+uniform_payment_intents	PRIMARY	PRIMARY KEY
+uniform_payment_records	PRIMARY	PRIMARY KEY
+uniform_sales	PRIMARY	PRIMARY KEY
+uniform_sizes	PRIMARY	PRIMARY KEY
+users	PRIMARY	PRIMARY KEY
+user_2fa_backup_codes	PRIMARY	PRIMARY KEY
+user_2fa_otp_sessions	PRIMARY	PRIMARY KEY
+user_invitations	PRIMARY	PRIMARY KEY
+user_passkeys	PRIMARY	PRIMARY KEY
+user_passkey_challenges	PRIMARY	PRIMARY KEY
+user_permissions	PRIMARY	PRIMARY KEY
+user_roles	PRIMARY	PRIMARY KEY
+user_routes	PRIMARY	PRIMARY KEY
+user_sessions	PRIMARY	PRIMARY KEY
+user_two_factor_audit_events	PRIMARY	PRIMARY KEY
+user_two_factor_challenges	PRIMARY	PRIMARY KEY
+user_two_factor_methods	PRIMARY	PRIMARY KEY
+vehicle_maintenance	PRIMARY	PRIMARY KEY
+widgets	PRIMARY	PRIMARY KEY
+workflow_definitions	PRIMARY	PRIMARY KEY
+workflow_history	PRIMARY	PRIMARY KEY
+workflow_instances	PRIMARY	PRIMARY KEY
+workflow_notifications	PRIMARY	PRIMARY KEY
+workflow_stages	PRIMARY	PRIMARY KEY
+workflow_stage_history	PRIMARY	PRIMARY KEY
+workflow_stage_permissions	PRIMARY	PRIMARY KEY
+academic_capacity_config	uk_year_config	UNIQUE
+academic_capacity_reservations	uk_application	UNIQUE
+academic_class_progression	uk_progression	UNIQUE
+academic_years	uk_year_code	UNIQUE
+academic_year_archives	uk_academic_year	UNIQUE
+academic_year_calendar	uk_term_week	UNIQUE
+academic_year_calendar_days	uk_calendar_date	UNIQUE
+academic_year_classes	uk_year_class	UNIQUE
+academic_year_class_learning_areas	uk_year_class_area	UNIQUE
+academic_year_class_learning_area_teachers	uk_area_term_staff	UNIQUE
+academic_year_class_streams	uk_year_class_stream	UNIQUE
+academic_year_fee_schedules	uk_year_term_class_type_fee	UNIQUE
+academic_year_terms	uk_year_term	UNIQUE
+activity_categories	uk_name	UNIQUE
+activity_participants	uk_activity_student	UNIQUE
+admission_applications	uk_application_no	UNIQUE
+announcement_views	uk_announcement_viewer	UNIQUE
+annual_scores	uk_student_year	UNIQUE
+api_tokens	uk_token	UNIQUE
+assessment_benchmarks	uk_benchmark	UNIQUE
+assessment_results	uk_assessment_student	UNIQUE
+assessment_tools	uk_tool_code	UNIQUE
+assessment_types	uk_name	UNIQUE
+assessment_type_classifications	uk_code	UNIQUE
+asset_categories	uq_asset_category_code	UNIQUE
+assignment_submissions	uq_submission	UNIQUE
+attendance_sessions	uk_session_code	UNIQUE
+bank_accounts	ux_account_no	UNIQUE
+bank_transactions	uk_transaction_ref	UNIQUE
+blocked_ips	uk_blocked_ip	UNIQUE
+boarding_attendance	unique_boarding_attendance	UNIQUE
+calendar_day_types	uk_day_type_code	UNIQUE
+cash_reconciliation_sessions	uq_cash_recon_date	UNIQUE
+catering_meal_statuses	uk_student_meal_date	UNIQUE
+classes	uk_class_code	UNIQUE
+classes	uk_class_name	UNIQUE
+class_promotion_queue	uk_batch_class_stream	UNIQUE
+communication_attachment_channels	uq_comm_attachment_channel	UNIQUE
+communication_business_events	uq_comm_business_event	UNIQUE
+communication_delivery_attempts	uq_comm_attempt_number	UNIQUE
+communication_preferences	uq_comm_preference	UNIQUE
+communication_recipient_endpoints	uq_comm_recipient_channel	UNIQUE
+communication_template_catalog	uq_comm_template_code	UNIQUE
+communication_template_channels	uq_comm_template_channel	UNIQUE
+communication_template_variables	uq_comm_template_variable	UNIQUE
+communication_template_versions	uq_comm_template_version	UNIQUE
+communication_thread_inquiries	uq_comm_inquiry_thread	UNIQUE
+communication_thread_internal_conversations	uq_comm_internal_thread	UNIQUE
+communication_workflow_instances	uq_comm_workflow	UNIQUE
+conduct_tracking	uk_conduct	UNIQUE
+conversation_participants	uk_conversation_participant	UNIQUE
+core_competencies	uk_code	UNIQUE
+core_values	uk_code	UNIQUE
+counseling_cases	uk_case_code	UNIQUE
+daily_meal_allocations	uk_meal_allocation	UNIQUE
+dashboards	name	UNIQUE
+deduction_types	uk_code	UNIQUE
+departments	uk_code	UNIQUE
+department_attendance_rules	department_id	UNIQUE
+depreciation_schedule	uq_depr_asset_year	UNIQUE
+discipline_incidents	uk_incident_enr_term_date	UNIQUE
+dormitories	code	UNIQUE
+dormitory_assignments	uq_active_assignment	UNIQUE
+emergency_contacts	uk_emergency_person_name	UNIQUE
+equipment_maintenance_types	uk_code	UNIQUE
+expense_categories	uq_expense_category_code	UNIQUE
+external_inbound_messages	uq_external_inbound_provider_message	UNIQUE
+fee_catalog	uk_fee_catalog_code	UNIQUE
+fee_credit_notes	credit_number	UNIQUE
+fee_types	code	UNIQUE
+fixed_assets	uq_asset_code	UNIQUE
+formative_scores	uq_formative_score	UNIQUE
+form_permissions	uk_code	UNIQUE
+grade_rules	uk_scale_grade	UNIQUE
+grading_comments	uk_grade_code	UNIQUE
+grading_scales	uk_name	UNIQUE
+group_members	uk_group_user	UNIQUE
+inventory_allocations	uk_allocation_number	UNIQUE
+inventory_categories	uk_code	UNIQUE
+inventory_count_items	uk_count_item	UNIQUE
+inventory_departments	uk_code	UNIQUE
+inventory_items	uk_code	UNIQUE
+inventory_items	uk_barcode	UNIQUE
+inventory_items	uk_sku	UNIQUE
+item_batches	uk_batch_number	UNIQUE
+item_serials	uk_serial_number	UNIQUE
+job_applications	uq_job_internal_staff	UNIQUE
+kpi_definitions	uk_code_category	UNIQUE
+learner_competencies	uk_learner_competency	UNIQUE
+learner_csl_participation	uk_student_activity	UNIQUE
+learner_pci_awareness	uk_student_pci	UNIQUE
+learning_areas	uk_code_band	UNIQUE
+leave_types	uk_leave_code	UNIQUE
+lesson_deliveries	uk_delivery_plan_date	UNIQUE
+lesson_plans	uk_lesson_context_day_template	UNIQUE
+lesson_templates	uk_lesson_template_area_strand_substrand_title	UNIQUE
+library_categories	uq_lib_cat_name	UNIQUE
+meal_plans	uk_meal_plan	UNIQUE
+menu_item_ingredients	uk_menu_ingredient	UNIQUE
+message_read_status	uk_message_recipient	UNIQUE
+migrations	uq_migrations_filename	UNIQUE
+mpesa_transactions	uk_mpesa_code	UNIQUE
+national_exam_results	uq_natl_exam	UNIQUE
+newsletter_subscribers	email	UNIQUE
+news_articles	slug	UNIQUE
+news_categories	uk_slug	UNIQUE
+notifications	uq_notifications_reminder	UNIQUE
+onboarding_task_templates	template_code	UNIQUE
+page_downloads	uq_page_downloads_public_token	UNIQUE
+parents	uk_parents_person	UNIQUE
+parent_payment_accounts	uq_parent_payment_account	UNIQUE
+parent_pta_memberships	uq_parent_pta_active_role	UNIQUE
+parent_refund_requests	uq_parent_refund_disbursement	UNIQUE
+payments	uk_receipt_no	UNIQUE
+payment_collection_routes	uq_collection_route	UNIQUE
+payment_providers	uq_payment_provider_code_environment	UNIQUE
+payment_provider_accounts	uq_provider_account_role	UNIQUE
+payment_provider_attempts	uq_provider_attempt_idempotency	UNIQUE
+payment_provider_attempts	uq_provider_attempt_transaction	UNIQUE
+payment_provider_callbacks	uq_provider_callback_event	UNIQUE
+payment_provider_callbacks	uq_provider_callback_hash	UNIQUE
+payment_reconciliations	uk_transaction	UNIQUE
+payment_routing_references	uq_payment_routing_reference	UNIQUE
+payment_unmatched_cases	uq_unmatched_provider_tx	UNIQUE
+payroll_configurations	uk_key_year	UNIQUE
+payroll_runs	uk_payroll_month_year	UNIQUE
+payslips	uk_staff_month_year	UNIQUE
+pcis	uk_topic_code	UNIQUE
+performance_levels_cbc	uk_level	UNIQUE
+performance_reviews	uk_perf_staff_period	UNIQUE
+permissions	code	UNIQUE
+permissions	code_2	UNIQUE
+person_addresses	uq_person_address_type_start	UNIQUE
+person_contact_points	uq_person_contact	UNIQUE
+person_marital_statuses	uq_person_marital_start	UNIQUE
+placement_offers	uk_placement_application	UNIQUE
+portfolios	uk_portfolio	UNIQUE
+purchase_orders	uk_order_number	UNIQUE
+qr_scan_events	uq_qr_scan_client_reference	UNIQUE
+refresh_tokens	token	UNIQUE
+requisitions	uk_requisition_number	UNIQUE
+requisition_items	uk_requisition_item	UNIQUE
+roles	name_2	UNIQUE
+roles	uk_role_name	UNIQUE
+roles	name	UNIQUE
+role_dashboards	unique_role_dashboard	UNIQUE
+role_delegations	ux_delegation_pair	UNIQUE
+role_permissions	unique_role_permission	UNIQUE
+role_routes	uk_role_route	UNIQUE
+role_sidebar_menus	uq_role_menu	UNIQUE
+role_sidebar_menus	uk_role_sidebar_menu	UNIQUE
+rooms	uk_code	UNIQUE
+routes_registry	uk_route_name	UNIQUE
+route_permissions	uk_route_permission_access	UNIQUE
+schemes_of_work	uk_scheme_context_week_template	UNIQUE
+scheme_templates	uk_template_area_strand_substrand_title	UNIQUE
+school_content	uk_key	UNIQUE
+school_events	uq_school_events_calendar_day	UNIQUE
+school_levels	uk_code	UNIQUE
+school_settings	uk_key	UNIQUE
+school_week_config	uq_year	UNIQUE
+sidebar_menu_items	uk_sidebar_menu_name	UNIQUE
+staff	uk_staff_person	UNIQUE
+staff	uk_staff_no	UNIQUE
+staff_attendance	uk_staff_date	UNIQUE
+staff_attendance_profiles	staff_id	UNIQUE
+staff_children	uk_staff_student	UNIQUE
+staff_department_assignments	uk_staff_dept_from	UNIQUE
+staff_duty_types	code	UNIQUE
+staff_employment_profiles	staff_id	UNIQUE
+staff_id_cards	uq_staff_id_cards_number	UNIQUE
+staff_import_rows	uk_staff_import_row	UNIQUE
+staff_incident_reports	uk_staff_incident_reference	UNIQUE
+staff_meeting_attendees	uq_meeting_staff	UNIQUE
+staff_off_day_patterns	unique_pattern	UNIQUE
+staff_payroll_profiles	staff_id	UNIQUE
+staff_salary_advances	advance_number	UNIQUE
+staff_types	uk_name	UNIQUE
+statutory_agency_accounts	uq_statutory_agency_account	UNIQUE
+statutory_remittances	uk_agency_period	UNIQUE
+statutory_remittance_attempts	uq_statutory_attempt_idempotency	UNIQUE
+storage_locations	uk_code	UNIQUE
+strands	uq_strand_grade	UNIQUE
+strand_competency	uk_strand_comp	UNIQUE
+streams	uk_stream_name	UNIQUE
+streams	uk_stream_code	UNIQUE
+students	uk_students_person	UNIQUE
+students	uk_admission_no	UNIQUE
+student_academic_enrollments	uk_student_year	UNIQUE
+student_academic_enrollments	uk_stream_student	UNIQUE
+student_attendance	uq_attendance_mark	UNIQUE
+student_clearances	uq_request_type	UNIQUE
+student_fee_obligations	uk_student_obligation	UNIQUE
+student_fund_transfer_postings	uq_fund_transfer_posting	UNIQUE
+student_health_records	uq_student_health	UNIQUE
+student_id_cards	uk_card_number	UNIQUE
+student_id_cards	qr_token	UNIQUE
+student_meal_profiles	uk_student_meal_profile	UNIQUE
+student_permission_types	code	UNIQUE
+student_transport_attendance	unique_attendance	UNIQUE
+student_transport_entitlements	uq_student_transport_entitlement	UNIQUE
+student_types	code	UNIQUE
+student_uniforms	uk_student	UNIQUE
+student_welfare_cases	case_code	UNIQUE
+subject_time_allocations	uq_class_subject_term	UNIQUE
+sub_strands	uq_sub_strand_grade	UNIQUE
+sub_strand_competencies	uq_ss_comp	UNIQUE
+sub_strand_pci_issues	uq_ss_pci	UNIQUE
+supervision_rosters	uk_supervision_exam_staff_role	UNIQUE
+supplier_bank_accounts	uq_supplier_bank_account	UNIQUE
+supplier_mobile_accounts	uq_supplier_mobile_account	UNIQUE
+supplier_payment_requests	uq_supplier_payment_reference	UNIQUE
+system_access_policies	uq_system_access_policy_key	UNIQUE
+system_domain_isolation_rules	uq_system_domain_rule	UNIQUE
+system_feature_flags	uq_system_feature_flags_key	UNIQUE
+system_ip_rules	uq_system_ip_rule	UNIQUE
+system_migration_history	uq_system_migration_name	UNIQUE
+system_modules	uq_system_modules_key	UNIQUE
+system_policies	name	UNIQUE
+system_rate_limit_rules	uq_system_rate_limit_key	UNIQUE
+system_retention_policies	uq_system_retention_resource	UNIQUE
+system_route_access_rules	uq_system_route_access_rule	UNIQUE
+tax_brackets	uk_year_bracket	UNIQUE
+template_categories	uk_name	UNIQUE
+terms	uk_term_code	UNIQUE
+terms	uk_term_name	UNIQUE
+term_consolidations	uk_student_term	UNIQUE
+term_subject_scores	uk_student_term_subject	UNIQUE
+timetable_entries	uk_timetable_slot	UNIQUE
+time_slots	idx_period_time	UNIQUE
+transport_entitlement_payments	uq_transport_provider_reference	UNIQUE
+transport_entitlement_payment_allocations	uq_transport_payment_entitlement	UNIQUE
+transport_entitlement_periods	uq_transport_period	UNIQUE
+transport_monthly_bills	uk_student_month	UNIQUE
+transport_payment_intents	uq_transport_payment_intent_reference	UNIQUE
+transport_payment_intents	uq_transport_payment_intent_provider_tx	UNIQUE
+transport_routes	uk_code	UNIQUE
+transport_vehicles	uk_registration	UNIQUE
+transport_vehicle_routes	uk_vehicle_route_direction	UNIQUE
+uniform_catalog_cart_items	uq_uniform_cart_item	UNIQUE
+uniform_catalog_orders	uq_uniform_order_reference	UNIQUE
+uniform_catalog_products	uq_uniform_catalog_item	UNIQUE
+uniform_catalog_products	uq_uniform_catalog_slug	UNIQUE
+uniform_catalog_wishlists	uq_uniform_wishlist	UNIQUE
+uniform_payment_intents	uq_uniform_intent_provider_tx	UNIQUE
+uniform_payment_intents	uq_uniform_intent_reference	UNIQUE
+uniform_sizes	uk_item_size	UNIQUE
+users	uk_username	UNIQUE
+users	uk_users_person	UNIQUE
+user_invitations	token_hash	UNIQUE
+user_passkeys	uq_passkey_credential	UNIQUE
+user_passkey_challenges	uq_passkey_challenge	UNIQUE
+user_permissions	unique_user_perm	UNIQUE
+user_roles	uk_user_role	UNIQUE
+user_routes	uk_user_route	UNIQUE
+user_sessions	uk_token	UNIQUE
+user_two_factor_challenges	uq_challenge_hash	UNIQUE
+user_two_factor_methods	uq_user_factor	UNIQUE
+widgets	uk_widget_key	UNIQUE
+workflow_definitions	uk_workflow_code	UNIQUE
+workflow_stages	uk_workflow_stage	UNIQUE
+workflow_stage_permissions	uq_stage_perm_role	UNIQUE

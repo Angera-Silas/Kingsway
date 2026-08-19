@@ -3,6 +3,7 @@ namespace App\API\Modules\academic;
 
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\NotificationService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
@@ -870,6 +871,26 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             $this->db->commit();
 
+            try {
+                $data = json_decode($instance['data_json'], true) ?: [];
+                $examName = trim((string) ($data['exam_name'] ?? ''));
+                $title = 'Exam results released';
+                $message = $examName !== ''
+                    ? 'The results for ' . $examName . ' have been released and published.'
+                    : 'Exam results have been released and published.';
+                (new NotificationService($this->db))->push(
+                    'all_staff',
+                    'exam_results',
+                    $title,
+                    $message,
+                    'high',
+                    ['dedup_minutes' => 60]
+                );
+                $this->queueParentResultNotifications((int) $instance_id, $data);
+            } catch (Exception $e) {
+                error_log('[ExaminationWorkflow] Notification push failed: ' . $e->getMessage());
+            }
+
             return formatResponse(true, [
                 'instance_id' => $instance_id,
                 'status' => 'published'
@@ -880,6 +901,71 @@ class ExaminationWorkflow extends WorkflowHandler {
             $this->logError('results_approval_failed', $e->getMessage());
             return formatResponse(false, null, 'Results approval failed: ' . $e->getMessage());
         }
+    }
+
+    /** Queue parent-facing result notices only after publication is committed. */
+    private function queueParentResultNotifications(int $instanceId, array $data): void
+    {
+        $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $eventId = $eventService->getOrCreate('exam_results_published', (string) $instanceId, date('Y-m-d H:i:s'), (int) $this->user_id);
+        $eventService->linkExamWorkflow($eventId, $instanceId);
+        $assessmentIds = array_values(array_filter(array_map('intval', (array) ($data['assessments'] ?? []))));
+        if (!$assessmentIds) return;
+
+        $in = implode(',', $assessmentIds);
+        $studentsStmt = $this->db->query(
+            "SELECT DISTINCT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name
+               FROM assessment_results ar
+               JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+               JOIN students s ON s.id = sae.student_id
+               JOIN persons p ON p.id = s.person_id
+              WHERE ar.assessment_id IN ($in) AND ar.is_submitted = 1 AND ar.is_approved = 1"
+        );
+        $termId = (int) ($data['term_id'] ?? 0);
+        $termStmt = $this->db->prepare("SELECT t.name FROM academic_year_terms ayt JOIN terms t ON t.id = ayt.term_id WHERE ayt.id = ? LIMIT 1");
+        $termStmt->execute([$termId]);
+        $termName = (string) ($termStmt->fetchColumn() ?: 'the current term');
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+
+        foreach ($studentsStmt->fetchAll(PDO::FETCH_ASSOC) as $student) {
+            $scoreStmt = $this->db->prepare(
+                "SELECT la.name, tss.overall_percentage, tss.overall_grade
+                   FROM term_subject_scores tss JOIN learning_areas la ON la.id = tss.subject_id
+                  WHERE tss.student_id = ? AND tss.term_id = ? ORDER BY la.name"
+            );
+            $scoreStmt->execute([(int) $student['id'], $this->resolveTssTermId($termId)]);
+            $lines = [];
+            foreach ($scoreStmt->fetchAll(PDO::FETCH_ASSOC) as $score) {
+                $lines[] = $score['name'] . ': ' . $score['overall_percentage'] . '% ' . ($score['overall_grade'] ?: '');
+            }
+            $variables = [
+                'student_name' => $student['student_name'],
+                'term_name' => $termName,
+                'summative_lines' => implode(', ', $lines),
+                'summative_gpa' => '',
+                'summative_grade' => '',
+                'formative_lines' => implode(', ', $lines),
+                'formative_gpa' => '',
+                'formative_grade' => '',
+                'average_lines' => implode(', ', $lines),
+                'average_gpa' => '',
+                'average_grade' => '',
+                'results_summary' => implode('<br>', $lines),
+            ];
+            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                try {
+                    $platform->queueForStudentParents((int) $student['id'], $channel, 'results', $variables, [
+                        'business_event_id' => $eventId,
+                        'purpose' => 'results',
+                        'sender_id' => $this->user_id ?: 1,
+                        'subject' => 'Exam results: ' . $student['student_name'],
+                    ]);
+                } catch (Exception $e) {
+                    error_log('[ExaminationWorkflow] Parent result queue failed: ' . $e->getMessage());
+                }
+            }
+        }
+        $eventService->markProcessed($eventId);
     }
 
     // ========================================================================

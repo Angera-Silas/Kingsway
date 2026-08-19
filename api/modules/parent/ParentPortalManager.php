@@ -4,7 +4,9 @@ namespace App\API\Modules\parent;
 
 use App\API\Includes\BaseAPI;
 use App\API\Services\OTPDeliveryService;
+use App\API\Services\NotificationService;
 use App\API\Services\payments\MpesaPaymentService;
+use App\API\Services\payments\KcbMpesaExpressService;
 use PDO;
 use Exception;
 
@@ -349,6 +351,18 @@ class ParentPortalManager extends BaseAPI
         }
     }
 
+    /** Parent community: PTA notices, representative meetings and invitations. */
+    public function getCommunity(): array
+    {
+        if (!$this->parentId) return $this->errorResponse('Parent authentication required', 401);
+        $stmt = $this->db->prepare("SELECT id,title,meeting_date,start_time,venue,purpose,description,status,type FROM parent_meetings WHERE (parent_id=? OR parent_id IS NULL AND type IN ('pta','general')) AND status IN ('scheduled','confirmed','postponed') AND meeting_date>=CURDATE() ORDER BY meeting_date,start_time LIMIT 50");
+        $stmt->execute([$this->parentId]);
+        $membership = $this->db->prepare("SELECT role,membership_status,appointed_at FROM parent_pta_memberships WHERE parent_id=? AND membership_status='active' AND (ended_at IS NULL OR ended_at>=CURDATE()) ORDER BY appointed_at DESC");
+        $membership->execute([$this->parentId]);
+        $memberships=$membership->fetchAll(PDO::FETCH_ASSOC);
+        return $this->successResponse(['meetings'=>$stmt->fetchAll(PDO::FETCH_ASSOC),'is_representative'=>!empty($memberships),'memberships'=>$memberships], 'Parent community loaded');
+    }
+
     /**
      * Fee obligations grouped by academic year → term (per-fee-type breakdown).
      *
@@ -682,6 +696,40 @@ class ParentPortalManager extends BaseAPI
             ]);
             $messageId = (int)$this->db->lastInsertId();
 
+            // Link the portal conversation to the canonical communications
+            // audit/thread model. The portal remains the source of truth for
+            // the conversation UI, while the communication platform records
+            // the event and any later email/SMS/WhatsApp alert.
+            $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+            $eventId = $eventService->getOrCreate(
+                'parent_portal_message',
+                (int) $conversation['id'] . ':' . $messageId,
+                date('Y-m-d H:i:s'),
+                (int) $this->user_id
+            );
+            $threadStmt = $this->db->prepare(
+                "SELECT thread_id FROM communication_thread_internal_conversations WHERE conversation_id = ? LIMIT 1"
+            );
+            $threadStmt->execute([(int) $conversation['id']]);
+            $threadId = (int) ($threadStmt->fetchColumn() ?: 0);
+            if (!$threadId) {
+                $this->db->prepare("INSERT INTO communication_threads (thread_type, subject, created_by) VALUES ('parent_portal', ?, ?)")
+                    ->execute([$subject, (int) $this->user_id]);
+                $threadId = (int) $this->db->lastInsertId();
+                $this->db->prepare("INSERT INTO communication_thread_internal_conversations (thread_id, conversation_id) VALUES (?, ?)")
+                    ->execute([$threadId, (int) $conversation['id']]);
+            }
+            $this->db->prepare(
+                "INSERT INTO communication_thread_messages (thread_id, sender_user_id, direction, subject, body) VALUES (?, ?, 'inbound', ?, ?)"
+            )->execute([$threadId, (int) $this->user_id, $subject, $message]);
+            $this->db->prepare(
+                "INSERT INTO communication_event_messages (event_id, internal_message_id) VALUES (?, ?)"
+            )->execute([$eventId, $messageId]);
+            $this->db->prepare(
+                "INSERT INTO communication_audit_events (thread_id, event_type, actor_user_id, rendered_subject, rendered_body) VALUES (?, 'portal_message_received', ?, ?, ?)"
+            )->execute([$threadId, (int) $this->user_id, $subject, $message]);
+            $eventService->markProcessed($eventId);
+
             $this->db->prepare(
                 "UPDATE internal_conversations
                  SET last_message_at = NOW(), last_message_by = ?
@@ -695,6 +743,25 @@ class ParentPortalManager extends BaseAPI
                      SET unread_count = unread_count + 1
                      WHERE conversation_id = ? AND participant_id = ?"
                 )->execute([(int)$conversation['id'], (int)$schoolUser]);
+
+                $nameStmt = $this->db->prepare(
+                    "SELECT CONCAT_WS(' ', p.first_name, p.last_name)
+                       FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?"
+                );
+                $nameStmt->execute([(int) $this->user_id]);
+                $sender = trim((string) $nameStmt->fetchColumn()) ?: 'a parent or guardian';
+                (new NotificationService($this->db))->push(
+                    (int) $schoolUser,
+                    'message',
+                    "New message from {$sender}",
+                    NotificationService::messageText($sender, $message),
+                    'medium',
+                    [
+                        'action_url' => 'home.php?route=communications/messages_inbox&conversation_id=' . (int) $conversation['id'],
+                        'reference_type' => 'conversation',
+                        'reference_id' => (int) $conversation['id'],
+                    ]
+                );
 
                 $this->db->prepare(
                     "INSERT IGNORE INTO message_read_status (message_id, recipient_id)
@@ -861,11 +928,32 @@ class ParentPortalManager extends BaseAPI
                 return $this->errorResponse('Amount exceeds outstanding balance', 400);
             }
 
-            $mpesa = new MpesaPaymentService();
-            $result = $mpesa->initiateSTKPush(
-                $student['admission_no'],
-                $phone,
-                $amount,
+            $provider = strtolower(trim((string) ($data['provider'] ?? 'daraja')));
+            if (!in_array($provider, ['daraja', 'buni'], true)) {
+                return $this->errorResponse('Unsupported payment provider', 400);
+            }
+
+            if ($provider === 'buni') {
+                $result = (new KcbMpesaExpressService())->initiate([
+                    'phone_number' => $phone,
+                    'amount' => $amount,
+                    'invoice_number' => $student['admission_no'],
+                    'description' => 'School fees',
+                    'callback_url' => rtrim((string) (defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : BASE_URL), '/') . '/api/payments/mpesa-stk-callback',
+                ]);
+                if (!empty($result['accepted'])) {
+                    return $this->successResponse([
+                        'provider' => 'buni',
+                        'checkout_request_id' => $result['checkout_request_id'] ?? null,
+                        'merchant_request_id' => $result['merchant_request_id'] ?? null,
+                        'message' => 'KCB Buni M-Pesa prompt sent. Check your phone and enter your PIN.',
+                    ]);
+                }
+                return $this->errorResponse($result['message'] ?? 'Failed to initiate Buni payment', 400);
+            }
+
+            $result = (new MpesaPaymentService())->initiateSTKPush(
+                $student['admission_no'], $phone, $amount,
                 'Parent Portal Payment - ' . $student['admission_no']
             );
 
@@ -874,6 +962,7 @@ class ParentPortalManager extends BaseAPI
                 return $this->successResponse([
                     'checkout_request_id' => $resultData['checkout_request_id'] ?? null,
                     'merchant_request_id'  => $resultData['merchant_request_id'] ?? null,
+                    'provider'             => 'daraja',
                     'message'             => 'M-Pesa STK Push sent. Check your phone and enter PIN.',
                 ]);
             }

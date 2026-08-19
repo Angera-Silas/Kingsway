@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Modules\academic;
 
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -109,6 +110,8 @@ class AcademicCalendarService
             ]);
 
             $this->reapplyManualDays($academicYearId, $manualDays);
+
+            $this->notifyCalendarPublished($academicYearId);
 
             $summary = $this->getCalendar($academicYearId);
 
@@ -279,6 +282,33 @@ class AcademicCalendarService
 
         $pass = !empty($checks) && count(array_filter($checks, fn ($c) => $c['pass'])) === count($checks);
         return ['pass' => $pass, 'reason' => $pass ? null : 'One or more terms lack dates or calendar weeks', 'checks' => $checks];
+    }
+
+    /**
+     * Push a staff-wide notification that the school calendar is out.
+     * De-duplicated so regenerations don't spam.
+     */
+    private function notifyCalendarPublished(int $academicYearId): void
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT name FROM academic_years WHERE id = ?');
+            $stmt->execute([$academicYearId]);
+            $year = $stmt->fetchColumn();
+            $label = $year !== null && $year !== ''
+                ? (string) $year . ' academic calendar'
+                : 'Academic calendar';
+            $service = new NotificationService($this->db);
+            $service->push(
+                'all_staff',
+                'calendar',
+                'Academic calendar released',
+                'The ' . $label . ' is now available.',
+                'high',
+                ['dedup_minutes' => 60]
+            );
+        } catch (Exception $e) {
+            error_log('[AcademicCalendarService] Notification push failed: ' . $e->getMessage());
+        }
     }
 
     private function academicYearExists(int $academicYearId): bool

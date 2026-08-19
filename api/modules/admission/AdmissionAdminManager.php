@@ -45,6 +45,15 @@ class AdmissionAdminManager extends BaseAPI
             'admission_applications_submit',
             'admission_manage',
         ],
+        'edit_application' => [
+            'admission_applications_edit',
+            'admission_applications_edit_own',
+            'admission_manage',
+        ],
+        'manage_windows' => [
+            'admission_applications_edit',
+            'admission_manage',
+        ],
         'review_application' => [
             'admission_manage',
         ],
@@ -110,35 +119,29 @@ class AdmissionAdminManager extends BaseAPI
 
     private const ACTION_STAGE_RULES = [
         'review_application' => ['application_received', 'application_review'],
-        'upload_document' => ['application_review', 'documents_upload', 'documents_verification'],
-        'verify_document' => ['documents_upload', 'documents_verification'],
-        'check_class_space' => ['documents_verification', 'class_space_check'],
-        'schedule_interview' => ['class_space_check', 'interview_scheduling'],
+        'upload_document' => ['application_applied'],
+        'schedule_interview' => ['interview_scheduling'],
         'record_interview' => ['interview_scheduling', 'interview_results'],
-        'placement_offer' => ['admission_decision', 'fees_payment'],
-        'admit_student' => ['interview_results', 'admission_decision', 'class_space_check'],
-        'create_provisional_student' => ['provisional_student_creation'],
-        'record_payment' => ['fees_payment', 'student_id_generation'],
-        'generate_id_card' => ['student_id_generation', 'final_approval'],
-        'final_approval' => ['final_approval', 'enrollment'],
-        'complete_enrollment' => ['enrollment'],
-        'confirm_enrollment' => ['enrolled', 'director_confirmation'],
+        'admit_student' => ['interview_results'],
+        'create_provisional_student' => ['student_admission_number'],
+        'record_payment' => ['class_placement', 'fees_payment', 'student_id_generation'],
+        'generate_id_card' => ['student_id_generation'],
+        'final_approval' => ['final_enrollment'],
+        'complete_enrollment' => ['class_placement', 'final_enrollment'],
+        'confirm_enrollment' => ['enrolled'],
     ];
 
     private const VALID_TRANSITIONS = [
+        'application_applied' => ['application_received', 'rejected'],
         'application_received' => ['application_review', 'rejected'],
-        'application_review' => ['documents_upload', 'rejected'],
-        'documents_upload' => ['documents_verification', 'rejected'],
-        'documents_verification' => ['class_space_check', 'documents_upload', 'rejected'],
-        'class_space_check' => ['interview_scheduling', 'rejected'],
-        'interview_scheduling' => ['interview_results', 'cancelled'],
-        'interview_results' => ['admission_decision', 'rejected'],
-        'admission_decision' => ['provisional_student_creation', 'rejected'],
-        'provisional_student_creation' => ['fees_payment', 'rejected'],
+        'application_review' => ['interview_scheduling', 'student_admission_number', 'rejected'],
+        'interview_scheduling' => ['interview_results', 'rejected'],
+        'interview_results' => ['student_admission_number', 'rejected'],
+        'student_admission_number' => ['class_placement', 'rejected'],
+        'class_placement' => ['fees_payment', 'rejected'],
         'fees_payment' => ['student_id_generation', 'cancelled'],
-        'student_id_generation' => ['final_approval', 'rejected'],
-        'final_approval' => ['enrollment', 'rejected'],
-        'enrollment' => ['enrolled'],
+        'student_id_generation' => ['final_enrollment', 'rejected'],
+        'final_enrollment' => ['enrolled'],
         'rejected' => [],
         'enrolled' => [],
     ];
@@ -262,38 +265,34 @@ class AdmissionAdminManager extends BaseAPI
                 return false;
             };
             $canViewReview = $canViewStage(['application_received', 'application_review']);
-            $canViewDocuments = $canViewStage(['documents_upload', 'documents_verification']);
-            $canViewSpace = $canViewStage(['class_space_check']);
+            $canViewDocuments = $canViewStage(['application_applied']);
+            $canViewSpace = false;
             $canViewInterview = $canViewStage(['interview_scheduling', 'interview_results']);
-            $canViewDecision = $canViewStage(['admission_decision', 'provisional_student_creation']);
-            $canViewPlacement = $canViewStage(['placement_offer']);
-            $canViewPayment = $canViewStage(['fees_payment']);
+            $canViewDecision = $canViewStage(['student_admission_number']);
+            $canViewPlacement = $canViewStage(['class_placement']);
+            $canViewPayment = $canViewStage(['class_placement', 'fees_payment']);
             $canViewId = $canViewStage(['student_id_generation']);
-            $canViewFinalApproval = $canViewStage(['final_approval']);
-            $canViewEnrollment = $canViewStage(['enrollment']);
+            $canViewFinalApproval = $canViewStage(['final_enrollment']);
+            $canViewEnrollment = $canViewStage(['final_enrollment']);
             $canReview = $this->canProcessAdmissionActionForStage('review_application', 'application_review', $ctx)
                 || $this->canProcessAdmissionActionForStage('review_application', 'application_received', $ctx);
-            $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application_review', $ctx)
-                || $this->canProcessAdmissionActionForStage('upload_document', 'documents_upload', $ctx);
-            $canVerifyDocuments = $this->canProcessAdmissionActionForStage('verify_document', 'documents_upload', $ctx)
-                || $this->canProcessAdmissionActionForStage('verify_document', 'documents_verification', $ctx);
-            $canCheckSpace = $this->canProcessAdmissionActionForStage('check_class_space', 'documents_verification', $ctx)
-                || $this->canProcessAdmissionActionForStage('check_class_space', 'class_space_check', $ctx);
-            $canScheduleInterview = $this->canProcessAdmissionActionForStage('schedule_interview', 'class_space_check', $ctx)
-                || $this->canProcessAdmissionActionForStage('schedule_interview', 'interview_scheduling', $ctx);
+            // Documents are submitted with the application. They are never an
+            // admissions-office queue action after Application Applied.
+            $canUploadDocuments = false;
+            $canVerifyDocuments = false;
+            $canCheckSpace = false;
+            $canScheduleInterview = $this->canProcessAdmissionActionForStage('schedule_interview', 'interview_scheduling', $ctx);
             $canRecordInterview = $this->canProcessAdmissionActionForStage('record_interview', 'interview_scheduling', $ctx)
                 || $this->canProcessAdmissionActionForStage('record_interview', 'interview_results', $ctx);
-            $canAdmit = $this->canProcessAdmissionActionForStage('admit_student', 'interview_results', $ctx)
-                || $this->canProcessAdmissionActionForStage('admit_student', 'admission_decision', $ctx)
-                || $this->canProcessAdmissionActionForStage('admit_student', 'class_space_check', $ctx);
-            $canCreateProvisional = $this->canProcessAdmissionActionForStage('create_provisional_student', 'provisional_student_creation', $ctx);
-            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fees_payment', $ctx)
+            $canAdmit = $this->canProcessAdmissionActionForStage('admit_student', 'interview_results', $ctx);
+            $canCreateProvisional = $this->canProcessAdmissionActionForStage('create_provisional_student', 'student_admission_number', $ctx);
+            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'class_placement', $ctx)
+                || $this->canProcessAdmissionActionForStage('record_payment', 'fees_payment', $ctx)
                 || $this->canProcessAdmissionActionForStage('record_payment', 'student_id_generation', $ctx);
-            $canGenerateId = $this->canProcessAdmissionActionForStage('generate_id_card', 'student_id_generation', $ctx)
-                || $this->canProcessAdmissionActionForStage('generate_id_card', 'final_approval', $ctx);
-            $canFinalApproval = $this->canProcessAdmissionActionForStage('final_approval', 'final_approval', $ctx)
-                || $this->canProcessAdmissionActionForStage('final_approval', 'enrollment', $ctx);
-            $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('complete_enrollment', 'enrollment', $ctx);
+            $canGenerateId = $this->canProcessAdmissionActionForStage('generate_id_card', 'student_id_generation', $ctx);
+            $canFinalApproval = $this->canProcessAdmissionActionForStage('final_approval', 'final_enrollment', $ctx);
+            $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('complete_enrollment', 'class_placement', $ctx)
+                || $this->canProcessAdmissionActionForStage('complete_enrollment', 'final_enrollment', $ctx);
 
             $queues = [
                 'review_pending' => [],
@@ -304,13 +303,29 @@ class AdmissionAdminManager extends BaseAPI
                 'placement_pending' => [],
                 'payment_pending' => [],
                 'id_generation_pending' => [],
-                'final_approval_pending' => [],
+                'final_enrollment_pending' => [],
                 'enrollment_pending' => [],
                 'completed' => [],
             ];
 
-            $baseSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+            $baseSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
+                           (SELECT s0.admission_no FROM students s0 WHERE s0.id = aa.enrolled_student_id LIMIT 1) AS admission_number,
+                           (SELECT c2.name
+                              FROM student_academic_enrollments sae2
+                              JOIN academic_year_class_streams aycs2 ON aycs2.id = sae2.academic_year_class_stream_id
+                              JOIN academic_year_classes ayc2 ON ayc2.id = aycs2.academic_year_class_id
+                              JOIN classes c2 ON c2.id = ayc2.class_id
+                             WHERE sae2.student_id = aa.enrolled_student_id
+                               AND sae2.enrollment_status = 'active'
+                             ORDER BY sae2.id DESC LIMIT 1) AS assigned_class_name,
+                           (SELECT s2.name
+                              FROM student_academic_enrollments sae3
+                              JOIN academic_year_class_streams aycs3 ON aycs3.id = sae3.academic_year_class_stream_id
+                              JOIN streams s2 ON s2.id = aycs3.stream_id
+                             WHERE sae3.student_id = aa.enrolled_student_id
+                               AND sae3.enrollment_status = 'active'
+                             ORDER BY sae3.id DESC LIMIT 1) AS assigned_stream_name,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                            wi.current_stage, wi.data_json,
                            aa.workflow_data_json,
@@ -322,14 +337,22 @@ class AdmissionAdminManager extends BaseAPI
                     LEFT JOIN persons pp ON pp.id = p.person_id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
 
-            $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+            $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
-                           wi.current_stage, wi.data_json
+                           wi.current_stage, wi.data_json,
+                           ai.id AS interview_id, ai.session_id AS interview_session_id,
+                           ai.scheduled_date AS interview_date, ai.scheduled_time AS interview_time,
+                           ai.venue AS interview_venue, ai.interviewer_id AS interview_interviewer_id,
+                           ai.status AS interview_status, CONCAT(COALESCE(ipt.first_name,''),' ',COALESCE(ipt.last_name,'')) AS interview_interviewer_name,
+                           ipt.phone AS interview_interviewer_phone
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN persons pp ON pp.id = p.person_id
-                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    LEFT JOIN admission_interviews ai ON ai.application_id = aa.id AND ai.status <> 'cancelled'
+                    LEFT JOIN staff ist ON ist.id=ai.interviewer_id
+                    LEFT JOIN persons ipt ON ipt.id=ist.person_id";
 
             if ($canViewReview || $canReview) {
                 $stmt = $this->db->query(
@@ -342,26 +365,18 @@ class AdmissionAdminManager extends BaseAPI
                 $queues['review_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
             }
 
-            if ($canViewDocuments || $canUploadDocuments || $canVerifyDocuments) {
+            // Application Applied is the intake stage. Documents are already
+            // submitted with the application; this queue is view-only and
+            // must never present an admin upload/verification action.
+            if ($canViewDocuments) {
                 $stmt = $this->db->query(
                     "{$baseSelect}
-                     WHERE wi.current_stage IN ('documents_upload', 'documents_verification')
+                     WHERE wi.current_stage = 'application_applied'
                        AND aa.status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
                 $queues['documents_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
-            }
-
-            if ($canViewSpace || $canCheckSpace) {
-                $stmt = $this->db->query(
-                    "{$baseSelect}
-                     WHERE wi.current_stage = 'class_space_check'
-                       AND aa.status NOT IN ('cancelled', 'enrolled')
-                     {$scopeFilter}
-                     ORDER BY aa.created_at DESC"
-                );
-                $queues['space_check_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
             }
 
             if ($canViewInterview || $canScheduleInterview || $canRecordInterview) {
@@ -394,7 +409,7 @@ class AdmissionAdminManager extends BaseAPI
             if ($canViewDecision || $canAdmit || $canCreateProvisional) {
                 $stmt = $this->db->query(
                     "{$compactSelect}
-                     WHERE wi.current_stage IN ('admission_decision', 'provisional_student_creation')
+                     WHERE wi.current_stage = 'student_admission_number'
                        AND aa.status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
@@ -402,11 +417,14 @@ class AdmissionAdminManager extends BaseAPI
                 $queues['decision_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
             }
 
-            if ($canViewPlacement || $hasAdmissionOversight) {
+            // A successful admission-number creation moves the application
+            // into class_placement. Keep that stage visible in both the
+            // admissions workspace and the dedicated placement page.
+            if ($canViewPlacement || $canCompleteEnrollment) {
                 $stmt = $this->db->query(
-                    "{$compactSelect}
-                     WHERE wi.current_stage = 'placement_offer'
-                       AND aa.status NOT IN ('placement_offered', 'fees_pending', 'enrolled', 'cancelled')
+                    "{$baseSelect}
+                     WHERE wi.current_stage = 'class_placement'
+                       AND aa.status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
@@ -415,17 +433,48 @@ class AdmissionAdminManager extends BaseAPI
 
             if ($canViewPayment || $canRecordPayment) {
                 $stmt = $this->db->query(
-                    "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                    "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
                             aa.status, aa.created_at,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM student_parents sp0
+                                WHERE sp0.parent_id = aa.parent_id
+                                  AND (aa.enrolled_student_id IS NULL OR sp0.student_id <> aa.enrolled_student_id)
+                            ) THEN 1000 ELSE 2000 END AS registration_fee_due,
+                            s0.admission_no AS admission_number,
+                            (SELECT c0.name
+                               FROM student_academic_enrollments sae0
+                               JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
+                               JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
+                               JOIN classes c0 ON c0.id = ayc0.class_id
+                              WHERE sae0.student_id = aa.enrolled_student_id
+                                AND sae0.enrollment_status = 'active'
+                              ORDER BY sae0.id DESC LIMIT 1) AS assigned_class_name,
+                            (SELECT s1.name
+                               FROM student_academic_enrollments sae1
+                               JOIN academic_year_class_streams aycs1 ON aycs1.id = sae1.academic_year_class_stream_id
+                               JOIN streams s1 ON s1.id = aycs1.stream_id
+                              WHERE sae1.student_id = aa.enrolled_student_id
+                                AND sae1.enrollment_status = 'active'
+                              ORDER BY sae1.id DESC LIMIT 1) AS assigned_stream_name,
                             pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                             wi.current_stage, wi.data_json,
                             JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.total_fees')) as total_fees,
-                            JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.assigned_class_id')) as assigned_class_id
+                            JSON_UNQUOTE(JSON_EXTRACT(wi.data_json, '$.assigned_class_id')) as assigned_class_id,
+                            (SELECT ap0.id FROM admission_payments ap0
+                              WHERE ap0.application_id = aa.id AND ap0.status = 'pending_verification'
+                              ORDER BY ap0.id DESC LIMIT 1) AS pending_payment_id,
+                            (SELECT ap1.reference_no FROM admission_payments ap1
+                              WHERE ap1.application_id = aa.id AND ap1.status = 'pending_verification'
+                              ORDER BY ap1.id DESC LIMIT 1) AS pending_payment_reference,
+                            (SELECT ap2.amount FROM admission_payments ap2
+                              WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
+                              ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_amount
                      FROM admission_applications aa
+                     LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
                      LEFT JOIN parents p ON aa.parent_id = p.id
                      LEFT JOIN persons pp ON pp.id = p.person_id
                      LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                     WHERE wi.current_stage = 'fees_payment'
+                     WHERE wi.current_stage IN ('class_placement', 'fees_payment')
                        AND aa.status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
@@ -447,27 +496,16 @@ class AdmissionAdminManager extends BaseAPI
             if ($canViewFinalApproval || $canFinalApproval) {
                 $stmt = $this->db->query(
                     "{$compactSelect}
-                     WHERE wi.current_stage = 'final_approval'
+                     WHERE wi.current_stage = 'final_enrollment'
                        AND aa.status NOT IN ('cancelled', 'enrolled')
                      {$scopeFilter}
                      ORDER BY aa.created_at DESC"
                 );
-                $queues['final_approval_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
-            }
-
-            if ($canViewEnrollment || $canCompleteEnrollment) {
-                $stmt = $this->db->query(
-                    "{$compactSelect}
-                     WHERE wi.current_stage = 'enrollment'
-                       AND aa.status NOT IN ('cancelled', 'enrolled')
-                     {$scopeFilter}
-                     ORDER BY aa.created_at DESC"
-                );
-                $queues['enrollment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
+                $queues['final_enrollment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
             }
 
             $stmt = $this->db->query(
-                "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.grade_applying_for,
                         aa.status, aa.created_at, aa.enrolled_student_id, aa.application_source,
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name, pp.phone as phone_1,
                         wi.current_stage, wi.data_json
@@ -487,15 +525,17 @@ class AdmissionAdminManager extends BaseAPI
                 'space_check_pending' => count($queues['space_check_pending']),
                 'interview_pending' => count($queues['interview_pending']),
                 'decision_pending' => count($queues['decision_pending']),
+                'placement_pending' => count($queues['placement_pending']),
                 'payment_pending' => count($queues['payment_pending']),
                 'id_generation_pending' => count($queues['id_generation_pending']),
-                'final_approval_pending' => count($queues['final_approval_pending']),
+                'final_enrollment_pending' => count($queues['final_enrollment_pending']),
                 'enrollment_pending' => count($queues['enrollment_pending']),
                 'completed' => count($queues['completed']),
                 'total_pending' => count($queues['review_pending']) + count($queues['documents_pending'])
                     + count($queues['space_check_pending']) + count($queues['interview_pending'])
-                    + count($queues['decision_pending']) + count($queues['payment_pending'])
-                    + count($queues['id_generation_pending']) + count($queues['final_approval_pending'])
+                    + count($queues['decision_pending']) + count($queues['placement_pending'])
+                    + count($queues['payment_pending'])
+                    + count($queues['id_generation_pending']) + count($queues['final_enrollment_pending'])
                     + count($queues['enrollment_pending']),
             ];
 
@@ -504,14 +544,15 @@ class AdmissionAdminManager extends BaseAPI
                 'summary' => $summary,
                 'allowed_tabs' => [
                     'review_pending' => $canReview,
-                    'documents_pending' => ($canUploadDocuments || $canVerifyDocuments),
-                    'space_check_pending' => $canCheckSpace,
+                    'documents_pending' => false,
+                    'space_check_pending' => false,
                     'interview_pending' => ($canScheduleInterview || $canRecordInterview),
                     'decision_pending' => ($canAdmit || $canCreateProvisional),
+                    'placement_pending' => $canCompleteEnrollment,
                     'payment_pending' => $canRecordPayment,
                     'id_generation_pending' => $canGenerateId,
-                    'final_approval_pending' => $canFinalApproval,
-                    'enrollment_pending' => $canCompleteEnrollment,
+                    'final_enrollment_pending' => $canFinalApproval,
+                    'enrollment_pending' => false,
                     'completed' => true,
                 ],
                 'timestamp' => date('Y-m-d H:i:s'),
@@ -530,11 +571,28 @@ class AdmissionAdminManager extends BaseAPI
                 "SELECT aa.*,
                         pp.first_name as parent_first_name, pp.last_name as parent_last_name,
                         pp.phone as phone_1, pp.phone as phone_2, pp.email as parent_email,
+                        s0.admission_no as admission_number,
+                        (SELECT c0.name
+                           FROM student_academic_enrollments sae0
+                           JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
+                           JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
+                           JOIN classes c0 ON c0.id = ayc0.class_id
+                          WHERE sae0.student_id = aa.enrolled_student_id
+                            AND sae0.enrollment_status = 'active'
+                          ORDER BY sae0.id DESC LIMIT 1) as assigned_class_name,
+                        (SELECT st0.name
+                           FROM student_academic_enrollments sae1
+                           JOIN academic_year_class_streams aycs1 ON aycs1.id = sae1.academic_year_class_stream_id
+                           JOIN streams st0 ON st0.id = aycs1.stream_id
+                          WHERE sae1.student_id = aa.enrolled_student_id
+                            AND sae1.enrollment_status = 'active'
+                          ORDER BY sae1.id DESC LIMIT 1) as assigned_stream_name,
                         wi.id as workflow_instance_id, wi.current_stage, wi.status as workflow_status, wi.data_json,
                         wi.started_by, wi.started_at
                  FROM admission_applications aa
                  LEFT JOIN parents p ON aa.parent_id = p.id
                  LEFT JOIN persons pp ON pp.id = p.person_id
+                 LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
                  LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                  WHERE aa.id = ?
                  ORDER BY wi.id DESC
@@ -569,7 +627,20 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute([(int) $id]);
             $documents = $this->normalizeAdmissionDocuments($stmt->fetchAll(\PDO::FETCH_ASSOC));
 
+            // Workflow instances may contain an older snapshot from before an
+            // intake window was assigned. The application row and its own
+            // workflow_data_json are authoritative for admissions metadata.
             $workflowData = json_decode($application['data_json'] ?? '{}', true) ?: [];
+            $applicationWorkflowData = json_decode($application['workflow_data_json'] ?? '{}', true) ?: [];
+            $workflowData = array_merge($workflowData, $applicationWorkflowData);
+            if (array_key_exists('academic_year', $application)) {
+                $workflowData['academic_year'] = $application['academic_year'];
+            }
+            if (array_key_exists('target_term_id', $application)) {
+                $workflowData['target_term_id'] = $application['target_term_id'] !== null
+                    ? (int) $application['target_term_id']
+                    : null;
+            }
             $workflowData = $this->syncWorkflowIdentityData($workflowData, $application);
 
             $availableActions = $this->getAvailableActions($application['current_stage'], $application['status'], $ctx);
@@ -597,27 +668,581 @@ class AdmissionAdminManager extends BaseAPI
         }
     }
 
+    // ========================================================================
+    // ADMISSION WINDOWS
+    // ========================================================================
+
+    public function getAdmissionWindows(array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)
+            && !$this->hasAnyAdmissionPermission('view_any', $ctx)) {
+            return $this->errorResponse('Insufficient permission to view admission windows', 403);
+        }
+
+        try {
+            $rows = $this->db->query(
+                "SELECT aw.id, aw.academic_year_id, aw.academic_year_term_id, aw.label,
+                        aw.status, aw.accepts_new_applications, aw.eligible_grades,
+                        aw.default_admission_category, aw.application_open_at,
+                        aw.application_close_at, aw.calendar_event_id, aw.notes, aw.opened_by,
+                        aw.opened_at, aw.closed_at, aw.updated_at,
+                        ay.year_code, ay.year_name,
+                        ayt.opening_date, ayt.closing_date, ayt.status AS term_status,
+                        t.name AS term_name, t.code AS term_number,
+                        CASE WHEN aw.status <> 'open' OR aw.accepts_new_applications = 0 THEN 'closed'
+                             WHEN aw.application_open_at IS NOT NULL AND NOW() < aw.application_open_at THEN 'scheduled'
+                             WHEN aw.application_close_at IS NOT NULL AND NOW() > aw.application_close_at THEN 'closed'
+                             ELSE 'open' END AS effective_status
+                 FROM admission_windows aw
+                 JOIN academic_years ay ON ay.id = aw.academic_year_id
+                 LEFT JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 LEFT JOIN terms t ON t.id = ayt.term_id
+                 ORDER BY ay.start_date DESC, ayt.opening_date ASC, aw.id ASC"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->successResponse(['windows' => $rows ?: []], 'Admission windows retrieved');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    public function saveAdmissionWindow(array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)) {
+            return $this->errorResponse('Insufficient permission to manage admission windows', 403);
+        }
+
+        $yearId = (int) ($data['academic_year_id'] ?? 0);
+        $termId = ($data['academic_year_term_id'] ?? null);
+        $termId = ($termId === '' || $termId === null) ? null : (int) $termId;
+        if ($yearId < 1 || $termId < 1) {
+            return $this->errorResponse('academic_year_id and academic_year_term_id are required', 422);
+        }
+        $termCheck = $this->db->prepare('SELECT id FROM academic_year_terms WHERE id = ? AND academic_year_id = ?');
+        $termCheck->execute([$termId, $yearId]);
+        if (!$termCheck->fetchColumn()) {
+            return $this->errorResponse('The selected term does not belong to the selected academic year', 422);
+        }
+
+        $status = (($data['status'] ?? 'open') === 'closed') ? 'closed' : 'open';
+        $accepts = empty($data['accepts_new_applications']) ? 0 : 1;
+        $label = trim((string) ($data['label'] ?? ''));
+        if ($label === '') {
+            $label = $this->windowLabel($yearId, $termId);
+        }
+        $notes = $data['notes'] ?? null;
+        $eligibleGrades = $data['eligible_grades'] ?? [];
+        if (is_string($eligibleGrades)) {
+            $decoded = json_decode($eligibleGrades, true);
+            $eligibleGrades = is_array($decoded) ? $decoded : preg_split('/\s*,\s*/', $eligibleGrades, -1, PREG_SPLIT_NO_EMPTY);
+        }
+        $gradePolicy = new AdmissionPolicy();
+        $eligibleGrades = array_values(array_unique(array_filter(array_map(function ($grade) use ($gradePolicy) {
+            return $gradePolicy->normalizeGrade((string) $grade);
+        }, (array) $eligibleGrades))));
+        $eligibleGradesJson = $eligibleGrades ? json_encode($eligibleGrades, JSON_UNESCAPED_UNICODE) : null;
+        $category = strtolower(trim((string) ($data['default_admission_category'] ?? '')));
+        if ($category !== '' && !in_array($category, ['standard', 'nursery_term_1', 'nursery_term_3'], true)) {
+            return $this->errorResponse('Invalid default admission category', 422);
+        }
+        $category = $category ?: null;
+        $openAt = $this->normalizeWindowDate($data['application_open_at'] ?? $data['open_at'] ?? null);
+        $closeAt = $this->normalizeWindowDate($data['application_close_at'] ?? $data['close_at'] ?? null);
+        if ($openAt !== null && $closeAt !== null && strtotime($closeAt) <= strtotime($openAt)) {
+            return $this->errorResponse('Application close date must be after the open date', 422);
+        }
+        $userId = $this->ctxUserId($ctx);
+        $now = date('Y-m-d H:i:s');
+        $closedAt = $status === 'closed' ? $now : null;
+        $openedAt = $status === 'open' ? $now : null;
+
+        try {
+            $this->db->beginTransaction();
+            $id = (int) ($data['id'] ?? 0);
+            if ($id > 0) {
+                $stmt = $this->db->prepare(
+                    "UPDATE admission_windows
+                     SET academic_year_id = ?, academic_year_term_id = ?, label = ?,
+                         status = ?, accepts_new_applications = ?, application_open_at = ?,
+                         application_close_at = ?, eligible_grades = ?, default_admission_category = ?, notes = ?,
+                         opened_by = ?, opened_at = ?, closed_at = ?
+                     WHERE id = ?"
+                );
+                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $openAt, $closeAt, $eligibleGradesJson, $category, $notes, $userId, $openedAt, $closedAt, $id]);
+            } else {
+                $stmt = $this->db->prepare(
+                    "INSERT INTO admission_windows
+                        (academic_year_id, academic_year_term_id, label, status,
+                         accepts_new_applications, eligible_grades, default_admission_category,
+                         application_open_at, application_close_at,
+                         notes, opened_by, opened_at, closed_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE
+                        label = VALUES(label),
+                        status = VALUES(status),
+                        accepts_new_applications = VALUES(accepts_new_applications),
+                        eligible_grades = VALUES(eligible_grades),
+                        default_admission_category = VALUES(default_admission_category),
+                        application_open_at = VALUES(application_open_at),
+                        application_close_at = VALUES(application_close_at),
+                        notes = VALUES(notes),
+                        opened_by = VALUES(opened_by),
+                        opened_at = VALUES(opened_at),
+                        closed_at = VALUES(closed_at)"
+                );
+                $stmt->execute([$yearId, $termId, $label, $status, $accepts, $eligibleGradesJson, $category, $openAt, $closeAt, $notes, $userId, $openedAt, $closedAt]);
+            }
+
+            $windowId = $id > 0 ? $id : (int) $this->db->lastInsertId();
+            $this->syncWindowCalendarEvent($windowId, $label, $openAt, $closeAt, $notes);
+            $this->db->commit();
+
+            return $this->successResponse(['id' => $windowId], 'Admission window saved');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    private function normalizeWindowDate($value): ?string
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+        $timestamp = strtotime((string) $value);
+        if ($timestamp === false) {
+            throw new Exception('Invalid admission window date');
+        }
+        return date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function syncWindowCalendarEvent(int $windowId, string $label, ?string $openAt, ?string $closeAt, ?string $notes): void
+    {
+        if ($windowId < 1 || $openAt === null) {
+            return;
+        }
+        $window = $this->db->prepare('SELECT calendar_event_id FROM admission_windows WHERE id = ?');
+        $window->execute([$windowId]);
+        $eventId = (int) $window->fetchColumn();
+        $eventStatus = strtotime($openAt) > time() ? 'upcoming' : (($closeAt !== null && strtotime($closeAt) < time()) ? 'past' : 'ongoing');
+        $title = 'Admissions: ' . $label;
+        $endAt = $closeAt ?: $openAt;
+        if ($eventId > 0) {
+            $stmt = $this->db->prepare("UPDATE school_events SET title = ?, description = ?, start_at = ?, end_at = ?, type = 'admissions', status = ?, source = 'manual', updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$title, $notes, $openAt, $endAt, $eventStatus, $eventId]);
+            return;
+        }
+        $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM school_events')->fetchColumn();
+        $stmt = $this->db->prepare("INSERT INTO school_events (id, title, description, start_at, end_at, type, location, status, source) VALUES (?, ?, ?, ?, ?, 'admissions', 'Admissions Office', ?, 'manual')");
+        $stmt->execute([$eventId, $title, $notes, $openAt, $endAt, $eventStatus]);
+        $this->db->prepare('UPDATE admission_windows SET calendar_event_id = ? WHERE id = ?')->execute([$eventId, $windowId]);
+    }
+
+    public function toggleAdmissionWindow(int $id, array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('manage_windows', $ctx)) {
+            return $this->errorResponse('Insufficient permission to manage admission windows', 403);
+        }
+
+        try {
+            $stmt = $this->db->prepare("SELECT status FROM admission_windows WHERE id = ?");
+            $stmt->execute([$id]);
+            $current = $stmt->fetchColumn();
+            if ($current === false) {
+                return $this->errorResponse('Admission window not found', 404);
+            }
+            $next = (($data['status'] ?? null) === 'open') ? 'open' : (($current === 'open') ? 'closed' : 'open');
+            $openedAt = $next === 'open' ? date('Y-m-d H:i:s') : null;
+            $closedAt = $next === 'closed' ? date('Y-m-d H:i:s') : null;
+            $stmt = $this->db->prepare(
+                "UPDATE admission_windows SET status = ?, opened_at = ?, closed_at = ?, updated_at = NOW() WHERE id = ?"
+            );
+            $stmt->execute([$next, $openedAt, $closedAt, $id]);
+            return $this->successResponse(['id' => $id, 'status' => $next], 'Admission window updated');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    public function getOpenAdmissionTerms(array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('view_any', $ctx)) {
+            return $this->errorResponse('Insufficient permission to view admission terms', 403);
+        }
+
+        try {
+            $rows = $this->db->query(
+                "SELECT aw.id AS admission_window_id, aw.label AS admission_window_label,
+                        aw.eligible_grades, aw.default_admission_category,
+                        aw.application_open_at, aw.application_close_at,
+                        ayt.id AS target_term_id,
+                        ayt.id AS academic_year_term_id,
+                        t.name AS term_name,
+                        t.code AS term_number,
+                        ay.id AS academic_year_id,
+                        ay.year_code, ay.year_name,
+                        ayt.status AS term_status,
+                        ayt.opening_date, ayt.closing_date
+                 FROM admission_windows aw
+                 JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 JOIN academic_years ay ON ay.id = aw.academic_year_id
+                 JOIN terms t ON t.id = ayt.term_id
+                 WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+                   AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+                   AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+                 ORDER BY FIELD(ayt.status, 'current', 'upcoming'), ayt.opening_date ASC"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->successResponse(['terms' => $rows ?: []], 'Open admission terms retrieved');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    public function getInterviewSessions(array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('schedule_interview', $ctx)) {
+            return $this->errorResponse('Insufficient permission to view interview sessions', 403);
+        }
+        try {
+            $where = [];
+            $params = [];
+            if (!empty($data['admission_window_id'])) {
+                $where[] = 's.admission_window_id = ?';
+                $params[] = (int) $data['admission_window_id'];
+            }
+            $sql = "SELECT s.*, aw.label AS window_label, aw.application_open_at, aw.application_close_at,
+                           CONCAT(COALESCE(ip.first_name,''),' ',COALESCE(ip.last_name,'')) AS interviewer_name,
+                           ip.phone AS interviewer_phone,
+                           COUNT(ai.id) AS assigned_count,
+                           GROUP_CONCAT(CONCAT(aa.application_no, ' — ', aa.applicant_name) ORDER BY aa.applicant_name SEPARATOR '||') AS assigned_applicants
+                    FROM admission_interview_sessions s
+                    JOIN admission_windows aw ON aw.id = s.admission_window_id
+                    LEFT JOIN staff iu ON iu.id = s.interviewer_id AND iu.status = 'active' AND iu.staff_type_id = 1
+                    LEFT JOIN persons ip ON ip.id = iu.person_id
+                    LEFT JOIN admission_interviews ai ON ai.session_id = s.id AND ai.status <> 'cancelled'
+                    LEFT JOIN admission_applications aa ON aa.id = ai.application_id
+                    " . ($where ? 'WHERE ' . implode(' AND ', $where) : '') . "
+                    GROUP BY s.id ORDER BY s.session_date, s.start_time, s.id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            return $this->successResponse(['sessions' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 'Interview sessions retrieved');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    public function saveInterviewSession(array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('schedule_interview', $ctx)) {
+            return $this->errorResponse('Insufficient permission to manage interview sessions', 403);
+        }
+        $windowId = (int) ($data['admission_window_id'] ?? 0);
+        $date = trim((string) ($data['session_date'] ?? ''));
+        $start = trim((string) ($data['start_time'] ?? ''));
+        $end = trim((string) ($data['end_time'] ?? ''));
+        $venue = trim((string) ($data['venue'] ?? 'Main Office')) ?: 'Main Office';
+        $capacity = max(1, (int) ($data['capacity'] ?? 20));
+        if ($windowId < 1 || $date === '' || $start === '' || $end === '') {
+            return $this->errorResponse('Admission window, session date, start time, and end time are required', 422);
+        }
+        if (strtotime($end) <= strtotime($start)) {
+            return $this->errorResponse('Session end time must be after start time', 422);
+        }
+        try {
+            $interviewerId = !empty($data['interviewer_id']) ? (int) $data['interviewer_id'] : 0;
+            if ($interviewerId < 1) return $this->errorResponse('Select an active teacher as the interviewer.', 422);
+            $teacherStmt = $this->db->prepare("SELECT id FROM staff WHERE id=? AND staff_type_id=1 AND status='active' LIMIT 1");
+            $teacherStmt->execute([$interviewerId]);
+            if (!$teacherStmt->fetchColumn()) return $this->errorResponse('Interviewer must be an active teacher.', 422);
+            $windowStmt = $this->db->prepare(
+                "SELECT aw.*, COALESCE(DATE(aw.application_open_at), ayt.opening_date) AS valid_from,
+                        DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) AS valid_until
+                 FROM admission_windows aw
+                 LEFT JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+                 WHERE aw.id = ?"
+            );
+            $windowStmt->execute([$windowId]);
+            $window = $windowStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$window) return $this->errorResponse('Admission window not found', 404);
+            if ($window['valid_from'] && $date < $window['valid_from']) {
+                return $this->errorResponse('Interview session cannot be before the intake opens', 422);
+            }
+            if ($window['valid_until'] && $date > $window['valid_until']) {
+                return $this->errorResponse('Interview session must be within the intake period or seven days after closing', 422);
+            }
+            $id = (int) ($data['id'] ?? 0);
+            if ($id > 0) {
+                $oldStmt = $this->db->prepare('SELECT session_date,start_time,end_time,venue,interviewer_id FROM admission_interview_sessions WHERE id=?');
+                $oldStmt->execute([$id]);
+                $old = $oldStmt->fetch(PDO::FETCH_ASSOC);
+                $sessionStatus = $data['status'] ?? 'scheduled';
+                $stmt = $this->db->prepare("UPDATE admission_interview_sessions SET admission_window_id=?, session_date=?, start_time=?, end_time=?, venue=?, interviewer_id=?, capacity=?, status=?, notes=? WHERE id=?");
+                $stmt->execute([$windowId, $date, $start, $end, $venue, $interviewerId ?: null, $capacity, in_array($sessionStatus, ['scheduled','full','completed','cancelled'], true) ? $sessionStatus : 'scheduled', $data['notes'] ?? null, $id]);
+                if ($old && ($old['session_date'] !== $date || $old['start_time'] !== $start || $old['venue'] !== $venue || (int) $old['interviewer_id'] !== $interviewerId)) {
+                    $assignedStmt = $this->db->prepare("SELECT id FROM admission_interviews WHERE session_id=? AND status IN ('scheduled','rescheduled')");
+                    $assignedStmt->execute([$id]);
+                    $updateAssigned = $this->db->prepare("UPDATE admission_interviews SET scheduled_date=?, scheduled_time=?, venue=?, interviewer_id=?, status='rescheduled' WHERE id=?");
+                    $history = $this->db->prepare("INSERT INTO admission_interview_assignment_history (admission_interview_id,from_session_id,to_session_id,action,reason,changed_by) VALUES (?, ?, ?, 'rescheduled', ?, ?)");
+                    foreach ($assignedStmt->fetchAll(PDO::FETCH_COLUMN) as $interviewId) {
+                        $updateAssigned->execute([$date, $start, $venue, $interviewerId ?: null, (int) $interviewId]);
+                        $history->execute([(int) $interviewId, $id, $id, 'Interview session details changed', $this->ctxUserId($ctx)]);
+                        $this->workflow()->notifyInterviewAssignment((int) $interviewId, $id, 'rescheduled-' . date('YmdHis'));
+                    }
+                }
+            } else {
+                $stmt = $this->db->prepare("INSERT INTO admission_interview_sessions (admission_window_id, session_date, start_time, end_time, venue, interviewer_id, capacity, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$windowId, $date, $start, $end, $venue, $interviewerId ?: null, $capacity, $data['notes'] ?? null, $this->ctxUserId($ctx)]);
+                $id = (int) $this->db->lastInsertId();
+            }
+            $eventId = (int) ($this->db->query('SELECT calendar_event_id FROM admission_interview_sessions WHERE id=' . $id)->fetchColumn() ?: 0);
+            $title = 'Admissions Interview: ' . ($window['label'] ?? 'Intake') . ' — ' . $date;
+            if ($eventId) {
+                $this->db->prepare("UPDATE school_events SET title=?, start_at=?, end_at=?, type='admissions_interview', status='upcoming', updated_at=NOW() WHERE id=?")->execute([$title, $date . ' ' . $start, $date . ' ' . $end, $eventId]);
+            } else {
+                $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id),0)+1 FROM school_events')->fetchColumn();
+                $this->db->prepare("INSERT INTO school_events (id,title,description,start_at,end_at,type,location,status,source) VALUES (?,?,?,?,?,'admissions_interview',?,'upcoming','manual')")->execute([$eventId, $title, $data['notes'] ?? null, $date . ' ' . $start, $date . ' ' . $end, $venue]);
+                $this->db->prepare('UPDATE admission_interview_sessions SET calendar_event_id=? WHERE id=?')->execute([$eventId, $id]);
+            }
+            return $this->successResponse(['id' => $id, 'calendar_event_id' => $eventId], 'Interview session saved');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    public function reassignInterviewSession(int $applicationId, int $sessionId, string $reason, array $ctx): array
+    {
+        if ($applicationId < 1 || $sessionId < 1) return $this->errorResponse('Application and interview session are required', 422);
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare("SELECT ai.id, ai.session_id, ai.status, aa.applicant_name, aa.grade_applying_for, aa.target_term_id
+                FROM admission_interviews ai JOIN admission_applications aa ON aa.id=ai.application_id
+                WHERE ai.application_id=? FOR UPDATE");
+            $q->execute([$applicationId]);
+            $current = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$current || !in_array($current['status'], ['scheduled','rescheduled'], true)) throw new Exception('Applicant is not currently scheduled for an interview.');
+            if ((int) $current['session_id'] === $sessionId) throw new Exception('Applicant is already scheduled for this interview session.');
+
+            $q = $this->db->prepare("SELECT s.*, aw.academic_year_term_id, aw.application_open_at, aw.application_close_at,
+                DATE_ADD(COALESCE(DATE(aw.application_close_at), ayt.closing_date), INTERVAL 7 DAY) valid_until
+                FROM admission_interview_sessions s JOIN admission_windows aw ON aw.id=s.admission_window_id
+                LEFT JOIN academic_year_terms ayt ON ayt.id=aw.academic_year_term_id WHERE s.id=? FOR UPDATE");
+            $q->execute([$sessionId]);
+            $session = $q->fetch(PDO::FETCH_ASSOC);
+            if (!$session || !in_array($session['status'], ['scheduled','full'], true)) throw new Exception('The selected interview session is not available.');
+            if ((int) $current['target_term_id'] !== (int) $session['academic_year_term_id']) throw new Exception('Selected session belongs to a different admission intake.');
+            if ($session['application_open_at'] && $session['session_date'] < substr($session['application_open_at'], 0, 10)) throw new Exception('Session is before the intake opening date.');
+            if ($session['valid_until'] && $session['session_date'] > $session['valid_until']) throw new Exception('Session is outside the permitted intake period.');
+            $q = $this->db->prepare("SELECT COUNT(*) FROM admission_interviews WHERE session_id=? AND status <> 'cancelled'");
+            $q->execute([$sessionId]);
+            if ((int) $q->fetchColumn() >= (int) $session['capacity']) throw new Exception('The selected interview session is full.');
+            if (!empty($session['interviewer_id'])) {
+                $teacherStmt = $this->db->prepare("SELECT id FROM staff WHERE id=? AND staff_type_id=1 AND status='active' LIMIT 1");
+                $teacherStmt->execute([(int) $session['interviewer_id']]);
+                if (!$teacherStmt->fetchColumn()) throw new Exception('The selected session interviewer is not an active teacher.');
+            }
+            $this->db->prepare("UPDATE admission_interviews SET session_id=?, scheduled_date=?, scheduled_time=?, venue=?, interviewer_id=?, status='rescheduled' WHERE id=?")
+                ->execute([$sessionId, $session['session_date'], $session['start_time'], $session['venue'], $session['interviewer_id'], $current['id']]);
+            $this->db->prepare("INSERT INTO admission_interview_assignment_history (admission_interview_id,from_session_id,to_session_id,action,reason,changed_by) VALUES (?,?,?,?,?,?)")
+                ->execute([$current['id'], $current['session_id'], $sessionId, 'switched', trim($reason) ?: null, $this->ctxUserId($ctx)]);
+            $this->db->prepare("UPDATE admission_interview_sessions SET status=CASE WHEN (SELECT COUNT(*) FROM admission_interviews WHERE session_id=? AND status <> 'cancelled') >= capacity THEN 'full' ELSE 'scheduled' END WHERE id=?")
+                ->execute([$sessionId, $sessionId]);
+            if (!empty($current['session_id'])) {
+                $this->db->prepare("UPDATE admission_interview_sessions SET status=CASE WHEN (SELECT COUNT(*) FROM admission_interviews WHERE session_id=? AND status <> 'cancelled') >= capacity THEN 'full' ELSE 'scheduled' END WHERE id=?")
+                    ->execute([(int) $current['session_id'], (int) $current['session_id']]);
+            }
+            $this->db->commit();
+            $this->workflow()->notifyInterviewAssignment((int) $current['id'], $sessionId, 'switched');
+            return $this->successResponse(['application_id'=>$applicationId,'session_id'=>$sessionId], 'Applicant moved to the selected interview session.');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->errorResponse($e->getMessage(), 422);
+        }
+    }
+
+    public function notifyInterviewApplicant(array $data, array $ctx): array
+    {
+        if (!$this->hasAnyAdmissionPermission('schedule_interview', $ctx)) return $this->errorResponse('Insufficient permission to send interview notifications', 403);
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        if ($applicationId < 1) return $this->errorResponse('Application is required', 422);
+        try {
+            $stmt = $this->db->prepare("SELECT ai.id,ai.session_id FROM admission_interviews ai WHERE ai.application_id=? AND ai.status IN ('scheduled','rescheduled') LIMIT 1");
+            $stmt->execute([$applicationId]); $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) return $this->errorResponse('Applicant has no active interview assignment', 422);
+            $result = $this->workflow()->notifyInterviewAssignment((int) $row['id'], (int) $row['session_id'], 'assigned');
+            if (($result['status'] ?? '') !== 'success') return $this->errorResponse($result['message'] ?? 'Unable to queue interview notifications', 422);
+            return $this->successResponse(null, $result['message'] ?? 'Interview notifications queued');
+        } catch (Exception $e) { error_log('[AdmissionAdminManager] '.$e->getMessage()); return $this->errorResponse('Unable to queue interview notification.', 422); }
+    }
+
+    // ========================================================================
+    // INLINE APPLICATION EDIT
+    // ========================================================================
+
+    public function updateApplicationFields(int $id, array $data, array $ctx): array
+    {
+        $application = $this->getApplicationScopeRecord($id);
+        if (!$application) {
+            return $this->errorResponse('Application not found', 404);
+        }
+        if (!$this->canViewApplicationRecord($application, $ctx)) {
+            return $this->errorResponse('You do not have access to this admission application', 403);
+        }
+        if (!$this->hasAnyAdmissionPermission('edit_application', $ctx)) {
+            return $this->errorResponse('Insufficient permission to edit this application', 403);
+        }
+
+        // Admissions staff choose a configured intake window, not a raw term
+        // identifier. Resolve the window atomically to its year and target term.
+        $windowId = ($data['admission_window_id'] ?? '') === '' ? null : (int) ($data['admission_window_id'] ?? 0);
+        if ($windowId !== null) {
+            $windowStmt = $this->db->prepare(
+                "SELECT aw.id, aw.academic_year_id, aw.academic_year_term_id, ay.year_code
+                 FROM admission_windows aw
+                 JOIN academic_years ay ON ay.id = aw.academic_year_id
+                 WHERE aw.id = ?"
+            );
+            $windowStmt->execute([$windowId]);
+            $window = $windowStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$window || empty($window['academic_year_term_id'])) {
+                return $this->errorResponse('Invalid admission window', 422);
+            }
+            $data['target_term_id'] = (int) $window['academic_year_term_id'];
+
+            // admission_applications.academic_year is a MySQL YEAR column,
+            // while academic_years.year_code is commonly stored as a school
+            // year label such as "2026/2027". Store the ending four-digit
+            // year used by the existing application records.
+            $yearCode = trim((string) ($window['year_code'] ?? ''));
+            if (preg_match('/(\d{4})\s*$/', $yearCode, $matches)) {
+                $yearCode = $matches[1];
+            }
+            if (!preg_match('/^\d{4}$/', $yearCode)) {
+                return $this->errorResponse('Admission window has an invalid academic year', 422);
+            }
+            $data['academic_year'] = $yearCode;
+        }
+
+        $allowed = [
+            'applicant_name', 'date_of_birth', 'gender', 'grade_applying_for',
+            'academic_year', 'target_term_id', 'previous_school',
+            'admission_category', 'application_source', 'has_special_needs',
+            'special_needs_details',
+        ];
+
+        $updates = [];
+        $params = [];
+        foreach ($allowed as $field) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+            $value = $data[$field];
+            if ($field === 'target_term_id') {
+                $value = ($value === '' || $value === null) ? null : (int) $value;
+                if ($value !== null) {
+                    $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE id = ?");
+                    $stmt->execute([$value]);
+                    if (!$stmt->fetchColumn()) {
+                        return $this->errorResponse('Invalid target term', 422);
+                    }
+                }
+            } elseif ($field === 'grade_applying_for') {
+                $value = trim((string) $value);
+                if (preg_match('/^grade\s*([1-9])$/i', $value, $m)) {
+                    $value = 'Grade' . $m[1];
+                }
+            } else {
+                $value = ($value === '' || $value === null) ? null : trim((string) $value);
+            }
+            $updates[] = "`{$field}` = ?";
+            $params[] = $value;
+        }
+
+        if (empty($updates)) {
+            return $this->errorResponse('No editable fields supplied', 422);
+        }
+
+        try {
+            $params[] = $id;
+            $stmt = $this->db->prepare(
+                "UPDATE admission_applications SET " . implode(', ', $updates) . ", updated_at = NOW() WHERE id = ?"
+            );
+            $stmt->execute($params);
+
+            $fresh = $this->getApplicationScopeRecord($id);
+            if ($fresh) {
+                $json = json_decode($fresh['workflow_data_json'] ?? '{}', true) ?: [];
+                $json['applicant_name'] = $fresh['applicant_name'] ?? ($json['applicant_name'] ?? null);
+                $json['grade'] = $fresh['grade_applying_for'] ?? ($json['grade'] ?? null);
+                $json['application_no'] = $fresh['application_no'] ?? ($json['application_no'] ?? null);
+                $this->db->prepare("UPDATE admission_applications SET workflow_data_json = ? WHERE id = ?")
+                    ->execute([json_encode($json, JSON_UNESCAPED_UNICODE), $id]);
+            }
+
+            return $this->successResponse(['application_id' => $id], 'Application updated');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.');
+        }
+    }
+
+    private function windowLabel(int $yearId, int $termId): string
+    {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT CONCAT(t.name, ' ', ay.year_code)
+                 FROM academic_year_terms ayt
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 JOIN terms t ON t.id = ayt.term_id
+                 WHERE ayt.academic_year_id = ? AND ayt.id = ?
+                 LIMIT 1"
+            );
+            $stmt->execute([$yearId, $termId]);
+            return (string) ($stmt->fetchColumn() ?: 'Admission Window');
+        } catch (Exception $e) {
+            return 'Admission Window';
+        }
+    }
+
     public function getPlacementClasses(): array
     {
         try {
             $rows = $this->db->query(
                 "SELECT c.id,
+                        aycs.id AS academic_year_class_stream_id,
+                        s.id AS stream_id,
+                        s.name AS stream_name,
                         c.name,
                         COALESCE(s.capacity, 0) AS capacity,
                         COUNT(sae.id) AS student_count
-                 FROM classes c
-                 LEFT JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id AND aycs.status = 'active'
-                 LEFT JOIN streams s ON s.id = aycs.stream_id
+                 FROM academic_years ay
+                 JOIN academic_year_classes ayc
+                   ON ayc.academic_year_id = ay.id AND ayc.status = 'active'
+                 JOIN classes c ON c.id = ayc.class_id
+                 JOIN academic_year_class_streams aycs
+                   ON aycs.academic_year_class_id = ayc.id AND aycs.status = 'active'
+                 JOIN streams s ON s.id = aycs.stream_id
                  LEFT JOIN student_academic_enrollments sae
                    ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
-                 GROUP BY c.id, c.name, s.capacity
-                 ORDER BY c.name ASC"
+                 WHERE (ay.status = 'active' OR ay.is_current = 1)
+                 GROUP BY c.id, aycs.id, s.id, s.name, c.name, s.capacity
+                 ORDER BY c.name ASC, s.name ASC"
             )->fetchAll(\PDO::FETCH_ASSOC);
 
             $classes = array_map(static function (array $row): array {
                 return [
                     'id' => (int) ($row['id'] ?? 0),
+                    'academic_year_class_stream_id' => (int) ($row['academic_year_class_stream_id'] ?? 0),
+                    'stream_id' => (int) ($row['stream_id'] ?? 0),
+                    'stream_name' => $row['stream_name'] ?? '',
                     'name' => $row['name'] ?? '',
                     'capacity' => isset($row['capacity']) ? (int) $row['capacity'] : null,
                     'student_count' => (int) ($row['student_count'] ?? 0),
@@ -849,27 +1474,29 @@ class AdmissionAdminManager extends BaseAPI
             ];
 
             $scopeFilter = $this->buildScopeFilter('aa', 'wi', $ctx);
-            $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application', $ctx)
-                || $this->canProcessAdmissionActionForStage('upload_document', 'document_verification', $ctx);
-            $canVerifyDocuments = $this->canProcessAdmissionActionForStage('verify_document', 'document_verification', $ctx);
+            $canViewApplicationIntake = $this->getStageAuthorization()->canView(
+                'application_applied',
+                $this->ctxRoleIds($ctx),
+                $this->ctxPermissionCodes($ctx)
+            );
             $canScheduleInterview = $this->canProcessAdmissionActionForStage('schedule_interview', 'interview_scheduling', $ctx);
-            $canRecordInterview = $this->canProcessAdmissionActionForStage('record_interview', 'interview_assessment', $ctx);
-            $canPlacement = $this->canProcessAdmissionActionForStage('placement_offer', 'placement_offer', $ctx);
-            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fee_payment', $ctx);
-            $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('complete_enrollment', 'enrollment', $ctx);
+            $canRecordInterview = $this->canProcessAdmissionActionForStage('record_interview', 'interview_results', $ctx);
+            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fees_payment', $ctx);
+            $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('final_approval', 'final_enrollment', $ctx);
 
-            if ($canUploadDocuments || $canVerifyDocuments) {
+            if ($canViewApplicationIntake) {
                 $stmt = $this->db->query(
                     "SELECT COUNT(*)
                      FROM admission_applications aa
                      LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                     WHERE aa.status IN ('submitted', 'documents_pending'){$scopeFilter}"
+                     WHERE wi.current_stage = 'application_applied'
+                       AND aa.status NOT IN ('cancelled', 'enrolled'){$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
                 if ($count > 0) {
                     $notifications['pending_tasks'][] = [
                         'type' => 'documents_pending',
-                        'label' => $canVerifyDocuments ? 'Documents to Verify' : 'Documents to Upload',
+                        'label' => 'Applications Awaiting Completion',
                         'count' => $count,
                         'icon' => 'bi-file-earmark-text',
                         'color' => 'warning',
@@ -885,7 +1512,7 @@ class AdmissionAdminManager extends BaseAPI
                     $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
                 }
                 if ($canRecordInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_assessment'";
+                    $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
                 }
 
                 $interviewStageSql = empty($interviewStageFilters)
@@ -908,29 +1535,6 @@ class AdmissionAdminManager extends BaseAPI
                         'icon' => 'bi-calendar-event',
                         'color' => 'info',
                         'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=interview_pending'),
-                    ];
-                    $notifications['total_count'] += $count;
-                }
-            }
-
-            if ($canPlacement) {
-                $stmt = $this->db->query(
-                    "SELECT COUNT(*)
-                     FROM admission_applications aa
-                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                     WHERE wi.current_stage = 'placement_offer'
-                       AND aa.status NOT IN ('placement_offered', 'fees_pending', 'enrolled', 'cancelled')
-                     {$scopeFilter}"
-                );
-                $count = (int) $stmt->fetchColumn();
-                if ($count > 0) {
-                    $notifications['pending_tasks'][] = [
-                        'type' => 'placement_pending',
-                        'label' => 'Placements to Generate',
-                        'count' => $count,
-                        'icon' => 'bi-check-circle',
-                        'color' => 'primary',
-                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=placement_pending'),
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -961,17 +1565,17 @@ class AdmissionAdminManager extends BaseAPI
                 $stmt = $this->db->query(
                     "SELECT COUNT(*) FROM admission_applications aa
                      JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                     WHERE wi.current_stage = 'enrollment' AND aa.status != 'enrolled'{$scopeFilter}"
+                     WHERE wi.current_stage = 'final_enrollment' AND aa.status != 'enrolled'{$scopeFilter}"
                 );
                 $count = (int) $stmt->fetchColumn();
                 if ($count > 0) {
                     $notifications['pending_tasks'][] = [
-                        'type' => 'enrollment_pending',
-                        'label' => 'Enrollments to Complete',
+                        'type' => 'final_enrollment_pending',
+                        'label' => 'Final Enrollments to Complete',
                         'count' => $count,
                         'icon' => 'bi-person-check',
                         'color' => 'dark',
-                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=enrollment_pending'),
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=final_enrollment_pending'),
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1014,6 +1618,41 @@ class AdmissionAdminManager extends BaseAPI
                 return $this->errorResponse('Application ID and target stage are required', 400);
             }
 
+            $application = $this->getApplicationScopeRecord($applicationId);
+            if (!$application || !$this->canViewApplicationRecord($application, $ctx)) {
+                return $this->errorResponse('You do not have access to this admission application', 403);
+            }
+            $currentStage = $application['current_stage']
+                ?? $this->inferStageFromApplication($application)
+                ?? 'application_received';
+            if ($currentStage === 'application_review' && in_array($toStage, ['interview_scheduling', 'student_admission_number'], true)) {
+                $grade = (string) ($application['grade_applying_for'] ?? '');
+                // Grade values are stored as Grade5/Grade 5; preserve the
+                // uppercase letters before removing display formatting.
+                $normalizedGrade = strtolower((string) preg_replace('/[^a-z0-9]/i', '', $grade));
+                $requiresInterview = in_array($normalizedGrade, ['grade4', 'grade5', 'grade6', 'grade7', 'grade8', 'grade9'], true);
+                if ($requiresInterview && $toStage === 'student_admission_number' && $action !== 'admin_skip_interview') {
+                    return $this->errorResponse('Grade 4-9 applications require an interview, unless an authorized reviewer explicitly skips it with a reason.', 422);
+                }
+                if (!$requiresInterview && $toStage === 'interview_scheduling') {
+                    return $this->errorResponse('This grade does not require an interview; proceed to student admission number.', 422);
+                }
+            }
+            if ($action === 'admin_skip_interview') {
+                if (!$this->hasAnyAdmissionPermission('review_application', $ctx)
+                    || $currentStage !== 'application_review'
+                    || $toStage !== 'student_admission_number') {
+                    return $this->errorResponse('Only an authorized admissions reviewer may skip the interview from application review.', 403);
+                }
+                if (trim((string) $notes) === '') {
+                    return $this->errorResponse('A reason is required when skipping the interview.', 422);
+                }
+            }
+            if (in_array($toStage, ['application_review', 'rejected'], true)
+                && !$this->canProcessAdmissionActionForStage('review_application', $currentStage, $ctx)) {
+                return $this->errorResponse('Insufficient permission to review this application', 403);
+            }
+
             if (!$this->isValidWorkflowTransition($applicationId, $toStage)) {
                 return $this->errorResponse('Invalid workflow transition for current stage', 400);
             }
@@ -1050,12 +1689,14 @@ class AdmissionAdminManager extends BaseAPI
         );
 
         $allowedTabs = [
-            'documents_pending' => !empty($matrix['application']['can_view']) || !empty($matrix['document_verification']['can_view']),
-            'interview_pending' => !empty($matrix['interview_scheduling']['can_view']) || !empty($matrix['interview_assessment']['can_view']),
-            'placement_pending' => !empty($matrix['placement_offer']['can_view']),
-            'payment_pending' => !empty($matrix['fee_payment']['can_view']),
-            'enrollment_pending' => !empty($matrix['enrollment']['can_view']),
-            'director_confirmation_pending' => !empty($matrix['director_confirmation']['can_view']),
+            'application_pending' => !empty($matrix['application_applied']['can_view']) || !empty($matrix['application_received']['can_view']),
+            'review_pending' => !empty($matrix['application_review']['can_view']),
+            'interview_pending' => !empty($matrix['interview_scheduling']['can_view']) || !empty($matrix['interview_results']['can_view']),
+            'student_admission_number_pending' => !empty($matrix['student_admission_number']['can_view']),
+            'class_placement_pending' => !empty($matrix['class_placement']['can_view']),
+            'payment_pending' => !empty($matrix['fees_payment']['can_view']),
+            'id_generation_pending' => !empty($matrix['student_id_generation']['can_view']),
+            'final_enrollment_pending' => !empty($matrix['final_enrollment']['can_view']),
         ];
 
         return $this->successResponse([
@@ -1153,6 +1794,18 @@ class AdmissionAdminManager extends BaseAPI
 
     public function canProcessAdmissionActionForApplication(string $actionGroup, array $application, array $ctx): bool
     {
+        // Payment instructions are an admissions-office communication action.
+        // Keep School Administrator access available even when legacy role
+        // permission rows have not yet been backfilled with the newer payment
+        // permission names.
+        if ($actionGroup === 'record_payment' && $this->ctxHasRole([4], ['School Administrator'], $ctx)) {
+            $stage = $this->normalizeStageCode($application['current_stage'] ?? null)
+                ?? $this->inferStageFromApplication($application);
+            if (in_array($stage, ['class_placement', 'fees_payment', 'student_id_generation'], true)) {
+                return true;
+            }
+        }
+
         if (!$this->hasAnyAdmissionPermission($actionGroup, $ctx)) {
             return false;
         }
@@ -1220,10 +1873,7 @@ class AdmissionAdminManager extends BaseAPI
             return [];
         }
         if ($status === 'enrolled') {
-            $normalizedStage = $this->normalizeStageCode($currentStage);
-            if ($normalizedStage !== 'director_confirmation') {
-                return [];
-            }
+            return [];
         }
 
         $normalizedStage = $this->normalizeStageCode($currentStage) ?? $this->inferStageFromApplication(['status' => $status]);
@@ -1233,27 +1883,12 @@ class AdmissionAdminManager extends BaseAPI
         }
 
         switch ($normalizedStage) {
+            case 'application_applied':
+                break;
             case 'application_received':
             case 'application_review':
                 if ($this->canProcessAdmissionActionForStage('review_application', $normalizedStage, $ctx)) {
                     $actions[] = 'review-application';
-                }
-                if ($this->canProcessAdmissionActionForStage('upload_document', $normalizedStage, $ctx)) {
-                    $actions[] = 'upload-documents';
-                }
-                break;
-            case 'documents_upload':
-            case 'documents_verification':
-                if ($this->canProcessAdmissionActionForStage('upload_document', $normalizedStage, $ctx)) {
-                    $actions[] = 'upload-documents';
-                }
-                if ($this->canProcessAdmissionActionForStage('verify_document', $normalizedStage, $ctx)) {
-                    $actions[] = 'verify-documents';
-                }
-                break;
-            case 'class_space_check':
-                if ($this->canProcessAdmissionActionForStage('check_class_space', $normalizedStage, $ctx)) {
-                    $actions[] = 'check-class-space';
                 }
                 break;
             case 'interview_scheduling':
@@ -1269,14 +1904,17 @@ class AdmissionAdminManager extends BaseAPI
                     $actions[] = 'admit-student';
                 }
                 break;
-            case 'admission_decision':
-                if ($this->canProcessAdmissionActionForStage('admit_student', $normalizedStage, $ctx)) {
-                    $actions = ['admit-student'];
+            case 'student_admission_number':
+                if ($this->canProcessAdmissionActionForStage('create_provisional_student', $normalizedStage, $ctx)) {
+                    $actions = ['create-student-admission-number'];
                 }
                 break;
-            case 'provisional_student_creation':
-                if ($this->canProcessAdmissionActionForStage('create_provisional_student', $normalizedStage, $ctx)) {
-                    $actions = ['create-provisional-student'];
+            case 'class_placement':
+                if ($this->canProcessAdmissionActionForStage('record_payment', $normalizedStage, $ctx)) {
+                    $actions[] = 'record-payment';
+                }
+                if ($this->canProcessAdmissionActionForStage('complete_enrollment', $normalizedStage, $ctx)) {
+                    $actions[] = 'complete-enrollment';
                 }
                 break;
             case 'fees_payment':
@@ -1288,21 +1926,13 @@ class AdmissionAdminManager extends BaseAPI
                     $actions[] = 'generate-id-card';
                 }
                 break;
-            case 'final_approval':
+            case 'final_enrollment':
                 if ($this->canProcessAdmissionActionForStage('final_approval', $normalizedStage, $ctx)) {
-                    $actions = ['final-approval'];
-                }
-                break;
-            case 'enrollment':
-                if ($this->canProcessAdmissionActionForStage('complete_enrollment', $normalizedStage, $ctx)) {
-                    $actions = ['complete-enrollment'];
+                    $actions = ['final-enrollment'];
                 }
                 break;
             case 'enrolled':
-            case 'director_confirmation':
-                if ($this->canProcessAdmissionActionForStage('confirm_enrollment', $normalizedStage, $ctx)) {
-                    $actions = ['confirm-enrollment'];
-                }
+                $actions = [];
                 break;
             default:
                 $actions = [];
@@ -1383,16 +2013,21 @@ class AdmissionAdminManager extends BaseAPI
     }
 
     /**
-     * Normalise interview score/result: the frontend may send `result` (pass|fail)
-     * with an optional `score`. The workflow uses `score >= 70` to determine qualification.
+     * Normalise interview decisions. The reviewer decides the outcome; the
+     * score is supporting evidence only and never determines pass/fail.
      */
     public function normalizeInterviewAssessment(array $assessmentData): array
     {
-        if (!isset($assessmentData['score']) || $assessmentData['score'] === '' || $assessmentData['score'] === null) {
-            $resultFlag = strtolower((string) ($assessmentData['result'] ?? ''));
-            $assessmentData['score'] = ($resultFlag === 'passed') ? 70 : 0;
-        } else {
+        $decision = strtolower(trim((string) ($assessmentData['decision'] ?? $assessmentData['result'] ?? '')));
+        $aliases = ['passed' => 'pass', 'approved' => 'pass', 'qualified' => 'pass', 'failed' => 'fail', 'rejected' => 'fail'];
+        $assessmentData['decision'] = $aliases[$decision] ?? $decision;
+        if (!in_array($assessmentData['decision'], ['pass', 'fail'], true)) {
+            throw new \InvalidArgumentException('Interview decision must be pass or fail');
+        }
+        if (isset($assessmentData['score']) && $assessmentData['score'] !== '' && $assessmentData['score'] !== null) {
             $assessmentData['score'] = (int) $assessmentData['score'];
+        } else {
+            $assessmentData['score'] = null;
         }
 
         return $assessmentData;
@@ -1407,14 +2042,6 @@ class AdmissionAdminManager extends BaseAPI
         foreach ($records as &$record) {
             $currentStage = $record['current_stage'] ?? null;
             $status = $record['status'] ?? null;
-            if (($this->normalizeStageCode($currentStage) === 'director_confirmation' || $status === 'enrolled')
-                && empty($record['director_confirmed_at'])
-                && $this->canProcessAdmissionActionForStage('confirm_enrollment', 'director_confirmation', $ctx)
-            ) {
-                $record['available_actions'] = ['confirm-enrollment'];
-                continue;
-            }
-
             $record['available_actions'] = $this->getAvailableActions($currentStage, $status, $ctx);
         }
         unset($record);
@@ -1823,7 +2450,9 @@ class AdmissionAdminManager extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT current_stage
                  FROM workflow_instances
-                 WHERE reference_type = 'admission_application' AND reference_id = ?"
+                WHERE reference_type = 'admission_application' AND reference_id = ?
+                 ORDER BY id DESC
+                 LIMIT 1"
             );
             $stmt->execute([$applicationId]);
             $current = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -1853,18 +2482,25 @@ class AdmissionAdminManager extends BaseAPI
         }
 
         if ($stageCode === 'application_submission') {
-            return 'application_received';
+            return 'application_applied';
         }
 
         $legacyMap = [
-            'application' => 'application_review',
-            'document_verification' => 'documents_verification',
-            'class_capacity_check' => 'class_space_check',
+            'application' => 'application_applied',
+            'application_submission' => 'application_applied',
+            'documents_upload' => 'application_applied',
+            'document_verification' => 'application_received',
+            'documents_verification' => 'application_received',
+            'class_capacity_check' => 'student_admission_number',
+            'class_space_check' => 'student_admission_number',
             'interview_assessment' => 'interview_results',
-            'placement_offer' => 'admission_decision',
+            'admission_decision' => 'student_admission_number',
+            'placement_offer' => 'student_admission_number',
             'fee_payment' => 'fees_payment',
-            'enrollment_confirmation' => 'enrollment',
-            'director_confirmation' => 'enrolled',
+            'enrollment' => 'final_enrollment',
+            'enrollment_confirmation' => 'final_enrollment',
+            'director_confirmation' => 'final_enrollment',
+            'final_approval' => 'final_enrollment',
         ];
 
         if (isset($legacyMap[$stageCode])) {
@@ -1879,13 +2515,13 @@ class AdmissionAdminManager extends BaseAPI
         $status = strtolower((string) ($application['status'] ?? ''));
         switch ($status) {
             case 'submitted':
-                return 'application_review';
+                return 'application_received';
             case 'documents_pending':
-                return 'documents_verification';
+                return 'application_applied';
             case 'documents_verified':
                 return $this->policy->requiresInterview((string) ($application['grade_applying_for'] ?? ''))
                     ? 'interview_scheduling'
-                    : 'admission_decision';
+                    : 'student_admission_number';
             case 'placement_offered':
             case 'fees_pending':
                 return 'fees_payment';

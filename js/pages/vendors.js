@@ -27,6 +27,8 @@ const VendorsController = (() => {
     document.getElementById('searchInput')?.addEventListener('input', _filterTable);
     document.getElementById('categoryFilter')?.addEventListener('change', _filterTable);
     document.getElementById('statusFilter')?.addEventListener('change', _filterTable);
+    document.getElementById('vaSaveBank')?.addEventListener('click', () => saveAccount('bank'));
+    document.getElementById('vaSaveMobile')?.addEventListener('click', () => saveAccount('mobile'));
   }
 
   // ── VENDORS LIST ──────────────────────────────────────────────────────
@@ -80,6 +82,7 @@ const VendorsController = (() => {
         <button class="btn btn-sm btn-outline-secondary me-1" onclick="VendorsController.viewPOs('${v.id}', '${_esc(v.name)}')" title="Purchase Orders">
           <i class="bi bi-receipt"></i>
         </button>
+        <button class="btn btn-sm btn-outline-success me-1" onclick="VendorsController.manageAccounts('${v.id}', '${_esc(v.name)}')" title="Payment accounts"><i class="bi bi-credit-card"></i></button>
         <button class="btn btn-sm btn-outline-danger" onclick="VendorsController.deleteVendor('${v.id}', '${_esc(v.name)}')" title="Deactivate">
           <i class="bi bi-slash-circle"></i>
         </button>
@@ -217,6 +220,40 @@ const VendorsController = (() => {
     showNotification(`Purchase orders for ${vendorName} — filter coming soon`, 'info');
   }
 
+  async function manageAccounts(vendorId, vendorName) {
+    document.getElementById('accountSupplierId').value = vendorId;
+    document.getElementById('vendorAccountsTitle').textContent = `${vendorName} — payment accounts`;
+    ['vaBankName','vaBankCode','vaBankAccountName','vaBankAccountNumber','vaMobileName','vaMobilePhone'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('vendorAccountsModal')).show();
+    await loadAccounts(vendorId);
+  }
+
+  async function loadAccounts(vendorId) {
+    try {
+      const r = await callAPI(`/vendors/${vendorId}/payment-accounts`, 'GET');
+      const data = r?.data || r;
+      renderAccounts('vaBankTable', data?.bank_accounts || [], 'bank');
+      renderAccounts('vaMobileTable', data?.mobile_accounts || [], 'mobile');
+    } catch (e) { showNotification(e.message || 'Unable to load payment accounts', 'danger'); }
+  }
+
+  function renderAccounts(id, accounts, kind) {
+    const table = document.getElementById(id);
+    if (!accounts.length) { table.innerHTML = '<tbody><tr><td class="text-muted">No accounts configured.</td></tr></tbody>'; return; }
+    table.innerHTML = `<tbody>${accounts.map(a => `<tr><td>${kind === 'bank' ? _esc(a.bank_name) + ' · ' + _esc(a.account_number) : 'M-Pesa · ' + _esc(a.phone_number)}<div class="small text-muted">${_esc(a.account_name)}</div></td><td><span class="badge bg-${a.verification_status === 'verified' ? 'success' : a.verification_status === 'rejected' ? 'danger' : 'warning'}">${_esc(a.verification_status)}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-success me-1" onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {verification_status:'verified'})">Verify</button><button class="btn btn-sm btn-outline-secondary" onclick="VendorsController.updateAccount('${kind}', ${Number(a.id)}, {is_primary:1})">Primary</button></td></tr>`).join('')}</tbody>`;
+  }
+
+  async function saveAccount(kind) {
+    const supplierId = Number(document.getElementById('accountSupplierId').value);
+    const payload = kind === 'bank' ? { bank_name: document.getElementById('vaBankName').value.trim(), bank_code: document.getElementById('vaBankCode').value.trim() || null, account_name: document.getElementById('vaBankAccountName').value.trim(), account_number: document.getElementById('vaBankAccountNumber').value.trim() } : { account_name: document.getElementById('vaMobileName').value.trim(), phone_number: document.getElementById('vaMobilePhone').value.trim() };
+    if (!supplierId || !payload.account_name || (kind === 'bank' ? (!payload.bank_name || !payload.account_number) : !payload.phone_number)) return showNotification('Complete the payment account fields.', 'warning');
+    try { await callAPI(`/vendors/${supplierId}/${kind === 'bank' ? 'bank-account' : 'mobile-account'}`, 'POST', payload); showNotification('Account saved in pending verification state.', 'success'); await loadAccounts(supplierId); } catch (e) { showNotification(e.message || 'Unable to save account', 'danger'); }
+  }
+
+  async function updateAccount(kind, id, payload) {
+    try { await callAPI(`/vendors/${kind === 'bank' ? 'bank-account' : 'mobile-account'}/${id}`, 'PUT', payload); showNotification('Payment account updated.', 'success'); await loadAccounts(Number(document.getElementById('accountSupplierId').value)); } catch (e) { showNotification(e.message || 'Unable to update account', 'danger'); }
+  }
+
   // ── EXPORT ─────────────────────────────────────────────────────────────
 
   function exportCSV() {
@@ -242,7 +279,7 @@ const VendorsController = (() => {
     editVendor,
     saveVendor,
     deleteVendor,
-    viewPOs,
+    viewPOs, manageAccounts, saveAccount, updateAccount,
   };
 
 })();

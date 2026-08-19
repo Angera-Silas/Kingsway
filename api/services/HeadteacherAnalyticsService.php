@@ -374,28 +374,23 @@ class HeadteacherAnalyticsService
     public function getUpcomingEvents(int $limit = 10): array
     {
         try {
-            // Map: school_calendar → academic_year_calendar_days + calendar_day_types
-            $query = "SELECT 
-                        aycd.id,
-                        aycd.date as event_date,
-                        COALESCE(aycd.title, cdt.name) as title,
-                        aycd.description,
-                        cdt.code as type,
-                        cdt.requires_attendance
-                      FROM academic_year_calendar_days aycd
-                      LEFT JOIN calendar_day_types cdt ON aycd.calendar_day_type_id = cdt.id
-                      WHERE aycd.date >= CURDATE()
-                        AND cdt.code IN ('special_event', 'exam_day', 'half_day', 'public_holiday', 'school_holiday')
-                      ORDER BY aycd.date ASC
-                      LIMIT ?";
-            $stmt = $this->db->query($query, [$limit]);
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Reuse the unified calendar feed so every dashboard shows the SAME
+            // deduplicated events (one row per logical event spanning its full
+            // start -> end range) instead of one row per calendar day.
+            $calendarSync = new CalendarSyncService($this->db->getConnection());
+            $all = $calendarSync->getUnifiedEvents();
+            $today = date('Y-m-d');
 
-            // Format the type labels for display
-            foreach ($data as &$row) {
-                $row['type'] = ucwords(str_replace('_', ' ', $row['type']));
-            }
+            $upcoming = array_values(array_filter($all, function ($ev) use ($today) {
+                return ($ev['start_date'] ?? '') >= $today
+                    && ($ev['status'] ?? '') !== 'cancelled';
+            }));
 
+            usort($upcoming, function ($a, $b) {
+                return strcmp($a['start_date'], $b['start_date']);
+            });
+
+            $data = array_slice($upcoming, 0, $limit);
             return [
                 'data' => $data,
                 'total' => count($data)

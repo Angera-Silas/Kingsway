@@ -145,6 +145,17 @@
     </div>
 
     <!-- Recent activity -->
+    <div class="col-12 mb-3">
+        <div class="app-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Communication Templates</h6>
+                <button class="btn btn-sm btn-primary" id="newTemplateBtn"><i class="bi bi-plus-lg"></i> New Template</button>
+            </div>
+            <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>Name</th><th>Channel</th><th>Category</th><th>Actions</th></tr></thead><tbody id="templateManagerBody"><tr><td colspan="4" class="text-muted">Loading templates…</td></tr></tbody></table></div>
+        </div>
+    </div>
+
+    <!-- Recent activity -->
     <div class="col-12">
         <div class="app-panel">
             <div class="d-flex align-items-center justify-content-between mb-3">
@@ -171,6 +182,8 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="templateManagerModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Communication Template</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><input type="hidden" id="templateId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Name</label><input class="form-control" id="templateName" required></div><div class="col-md-3"><label class="form-label">Channel</label><select class="form-select" id="templateChannel"><option value="sms">SMS</option><option value="whatsapp">WhatsApp</option><option value="email">Email</option></select></div><div class="col-md-3"><label class="form-label">Category</label><input class="form-control" id="templateCategory" placeholder="fees, results…"></div><div class="col-12"><label class="form-label">Body</label><textarea class="form-control" id="templateBody" rows="7" placeholder="Use {{variable_name}} placeholders"></textarea></div><div class="col-12"><small class="text-muted">WhatsApp provider templates require Africa’s Talking approval. Save the local template first, then submit it for provider approval when the sender is production-enabled.</small></div></div></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-outline-success" id="submitProviderTemplateBtn">Submit WhatsApp Template</button><button class="btn btn-primary" id="saveTemplateBtn">Save Template</button></div></div></div></div>
 
 <!-- Conversation view modal -->
 <div class="modal fade" id="conversationModal" tabindex="-1" aria-hidden="true">

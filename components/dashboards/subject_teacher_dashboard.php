@@ -1,33 +1,38 @@
 <?php
-/**
- * Kingsway role dashboard component.
- * Presentation only; data is supplied by the matching named JS controller.
- */
+$rootId = 'subjectTeacherDashboard';
+$periods = [
+    ['key' => 'today', 'label' => 'Today'],
+    ['key' => 'week', 'label' => 'This Week'],
+    ['key' => 'term', 'label' => 'This Term'],
+];
+$default = 'today';
+require __DIR__ . '/partials/period_selector.php';
+
 $dashboardConfig = [
-    'root_id' => 'subjectTeacherDashboard',
+    'root_id' => $rootId,
     'title' => 'Subject Teacher Dashboard',
     'subtitle' => 'Your teaching load, assessment queue and subject performance.',
     'icon' => 'bi-book',
     'controller_file' => 'subject_teacher_dashboard.js',
     'cards' => [
         ['id' => 'stClasses', 'label' => 'Assigned Classes', 'icon' => 'bi-building', 'colour' => 'dsc-blue', 'subtitle_id' => 'stClassesSub'],
-        ['id' => 'stSections', 'label' => 'Teaching Sections', 'icon' => 'bi-diagram-3', 'colour' => 'dsc-cyan', 'subtitle_id' => 'stSectionsSub'],
         ['id' => 'stAssessments', 'label' => 'Assessments Due', 'icon' => 'bi-clipboard2-data', 'colour' => 'dsc-orange', 'subtitle_id' => 'stAssessmentsSub'],
-        ['id' => 'stGraded', 'label' => 'Graded This Week', 'icon' => 'bi-check2-circle', 'colour' => 'dsc-green', 'subtitle_id' => 'stGradedSub']
+        ['id' => 'stGraded', 'label' => 'Graded This Week', 'icon' => 'bi-check2-circle', 'colour' => 'dsc-green', 'subtitle_id' => 'stGradedSub'],
+        ['id' => 'stExams', 'label' => 'Upcoming Exams', 'icon' => 'bi-calendar-event', 'colour' => 'dsc-amber', 'subtitle_id' => 'stExamsSub']
     ],
     'charts' => [
-        ['id' => 'stPerformanceChart', 'title' => 'Subject Performance', 'icon' => 'bi-bar-chart', 'column' => 'col-lg-6'],
-        ['id' => 'stTrendChart', 'title' => 'Assessment Trend', 'icon' => 'bi-graph-up', 'column' => 'col-lg-6']
+        ['id' => 'subPerformanceChart', 'title' => 'Subject Performance', 'icon' => 'bi-bar-chart', 'column' => 'col-lg-6'],
+        ['id' => 'subGradingChart', 'title' => 'Grading Progress', 'icon' => 'bi-graph-up', 'column' => 'col-lg-6']
     ],
     'tables' => [
-        ['body_id' => 'stAssessmentsBody', 'title' => 'Pending Assessments', 'columns' => ['Assessment', 'Class', 'Due Date', 'Status'], 'route' => 'formative_assessments', 'column' => 'col-xl-6'],
-        ['body_id' => 'stExamsBody', 'title' => 'Upcoming Exams', 'columns' => ['Class', 'Date', 'Time', 'Room'], 'route' => 'exam_schedule', 'column' => 'col-xl-6']
+        ['body_id' => 'subPendingBody', 'title' => 'Pending Assessments', 'columns' => ['Assessment', 'Class', 'Due Date', 'Status'], 'route' => 'formative_assessments', 'column' => 'col-xl-6'],
+        ['body_id' => 'subExamBody', 'title' => 'Exam Schedule', 'columns' => ['Date', 'Class', 'Type', 'Status'], 'route' => 'subject_exam_schedule', 'column' => 'col-xl-6']
     ],
     'quick_actions' => [
         ['label' => 'My Timetable', 'route' => 'timetable', 'icon' => 'bi-calendar3'],
-        ['label' => 'Enter Marks', 'route' => 'formative_assessments', 'icon' => 'bi-pencil-square'],
+        ['label' => 'Enter Marks', 'route' => 'subject_grade_entry', 'icon' => 'bi-pencil-square'],
         ['label' => 'Lesson Plans', 'route' => 'manage_lesson_plans', 'icon' => 'bi-journal-text'],
-        ['label' => 'Exam Schedule', 'route' => 'exam_schedule', 'icon' => 'bi-calendar-event']
+        ['label' => 'Exam Schedule', 'route' => 'subject_exam_schedule', 'icon' => 'bi-calendar-event']
     ],
 ];
 

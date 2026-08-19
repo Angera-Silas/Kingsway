@@ -2,6 +2,7 @@
 namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -196,6 +197,8 @@ class LeaveWorkflow extends WorkflowHandler
 
                 $this->db->commit();
 
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
+
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -266,6 +269,7 @@ class LeaveWorkflow extends WorkflowHandler
                 $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
                 $this->db->commit();
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -288,6 +292,7 @@ class LeaveWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
             $stmt->execute([$userId, $workflowData['leave_id']]);
             $this->db->commit();
+            $this->notifyLeaveStatus($workflowData, true, $userId);
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
@@ -336,6 +341,7 @@ class LeaveWorkflow extends WorkflowHandler
                 $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
                 $this->db->commit();
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -349,6 +355,7 @@ class LeaveWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
             $stmt->execute([$userId, $workflowData['leave_id']]);
             $this->db->commit();
+            $this->notifyLeaveStatus($workflowData, true, $userId);
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
@@ -456,6 +463,35 @@ class LeaveWorkflow extends WorkflowHandler
 
             default:
                 return false;
+        }
+    }
+
+    /**
+     * Push a user-facing notification to the leave requester.
+     * Only final outcomes (rejected at any stage, final approval) notify.
+     */
+    private function notifyLeaveStatus(array $workflowData, bool $approved, int $approverUserId, string $reason = ''): void
+    {
+        try {
+            $staffId = (int) ($workflowData['staff_id'] ?? 0);
+            if ($staffId <= 0) {
+                return;
+            }
+            $service = new NotificationService($this->db);
+            $recipients = $service->userIdsForStaff([$staffId]);
+            if (empty($recipients)) {
+                return;
+            }
+            $approver = $service->userName($approverUserId) ?: 'the approver';
+            $leaveType = trim((string) ($workflowData['leave_type'] ?? ''));
+            $label = $leaveType !== '' ? $leaveType . ' leave request' : 'leave request';
+            $title = $approved ? 'Leave request approved' : 'Leave request declined';
+            $message = $approved
+                ? NotificationService::approvedText($label, $approver)
+                : NotificationService::deniedText($label, $approver, $reason);
+            $service->push($recipients, 'leave_request', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[LeaveWorkflow] Notification push failed: ' . $e->getMessage());
         }
     }
 

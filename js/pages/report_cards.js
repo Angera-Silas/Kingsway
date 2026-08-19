@@ -436,36 +436,39 @@ const reportCardsCtrl = (() => {
         }
 
         const studentName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-        const grade = student.cbc_grade || deriveCBCGrade(student.overall_pct);
 
-        // Use PrintManager for consistent printing
-        if (window.PrintManager) {
-            const sections = [
-                {
-                    title: 'Student Information',
-                    fields: [
-                        { label: 'Student', value: studentName },
-                        { label: 'Admission No', value: student.admission_no || '—' },
-                        { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
-                        { label: 'CBC Grade', value: grade },
-                        { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
-                        { label: 'Position', value: student.rank || student.position || '—' },
-                        { label: 'Status', value: student.card_status || 'pending' }
-                    ]
-                }
-            ];
-
+        if (window.PrintManager && window.PrintManager.printReportCard) {
+            const level = student.cbc_level || deriveCBCLevel(student.class_name);
+            window.PrintManager.printReportCard({
+                level: level,
+                student: {
+                    first_name: student.first_name,
+                    last_name: student.last_name,
+                    admission_no: student.admission_no,
+                    class_name: student.class_name,
+                    stream_name: student.stream_name,
+                    gender: student.gender
+                },
+                term: state.currentTerm || {},
+                scores: state.currentScores || [],
+                competencies: state.currentCompetencies || [],
+                values: state.currentValues || [],
+                attendance: state.currentAttendance || {},
+                comments: state.currentComments || {},
+                filename: `report_card_${student.admission_no || student.id}_${Date.now()}`,
+            });
+        } else if (window.PrintManager) {
             window.PrintManager.printRecord({
                 title: 'Student Report Card',
                 subtitle: `Kingsway Academy - ${studentName}`,
-                sections: sections,
-                orientation: 'portrait',
-                paperSize: 'A4',
-                reportCode: 'RC-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-                signatureSection: [
-                    { label: 'Class Teacher' },
-                    { label: 'Principal' }
-                ]
+                sections: [{ title: 'Student Information', fields: [
+                    { label: 'Student', value: studentName },
+                    { label: 'Admission No', value: student.admission_no || '—' },
+                    { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
+                    { label: 'CBC Grade', value: student.cbc_grade || '—' },
+                    { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
+                ]}],
+                orientation: 'portrait', paperSize: 'A4',
             });
         } else {
             toast('PrintManager not available', 'error');
@@ -726,6 +729,14 @@ const reportCardsCtrl = (() => {
         return `<span class="rc-pill ${m[s]||'rc-pending'}">${esc(s)}</span>`;
     }
     function deriveCBCGrade(p) { if (p==null) return '—'; return GradingScale.grade(p) || '—'; }
+    function deriveCBCLevel(className) {
+        const c = (className || '').toLowerCase();
+        if (/pp|pre.?prim|play|nursery|kg/.test(c)) return 'PP';
+        if (/\b(1|2|3)\b/.test(c) && /grade|class/.test(c)) return 'LowerPrimary';
+        if (/\b(4|5|6)\b/.test(c) && /grade|class/.test(c)) return 'UpperPrimary';
+        if (/\b(7|8|9)\b/.test(c) && /grade|class/.test(c)) return 'JuniorSecondary';
+        return 'LowerPrimary';
+    }
 
     /* ─── DOMContentLoaded ────────────────────────────────────── */
     document.addEventListener('DOMContentLoaded', init);

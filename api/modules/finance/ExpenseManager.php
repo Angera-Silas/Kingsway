@@ -3,6 +3,7 @@
 namespace App\API\Modules\finance;
 
 use App\Database\Database;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -431,8 +432,12 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $this->db->beginTransaction();
 
+            $expense = $this->db->prepare("SELECT id, description, created_by FROM expenses WHERE id = ?");
+            $expense->execute([$expenseId]);
+            $expenseRow = $expense->fetch(PDO::FETCH_ASSOC);
+
             $stmt = $this->db->prepare("
-                UPDATE expenses 
+                UPDATE expenses
                 SET status = 'approved',
                     approved_by = ?,
                     approved_at = NOW(),
@@ -448,6 +453,8 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             $this->db->commit();
+
+            $this->notifyExpenseStatus($expenseRow, true, (int) $approvedBy);
 
             return formatResponse(true, ['message' => 'Expense approved successfully']);
 
@@ -472,8 +479,12 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $this->db->beginTransaction();
 
+            $expense = $this->db->prepare("SELECT id, description, created_by FROM expenses WHERE id = ?");
+            $expense->execute([$expenseId]);
+            $expenseRow = $expense->fetch(PDO::FETCH_ASSOC);
+
             $stmt = $this->db->prepare("
-                UPDATE expenses 
+                UPDATE expenses
                 SET status = 'rejected',
                     rejected_by = ?,
                     rejected_at = NOW(),
@@ -490,6 +501,8 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             $this->db->commit();
 
+            $this->notifyExpenseStatus($expenseRow, false, (int) $rejectedBy, (string) $reason);
+
             return formatResponse(true, ['message' => 'Expense rejected']);
 
         } catch (Exception $e) {
@@ -498,6 +511,36 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
             error_log('[ExpenseManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Push a user-facing notification about an expense decision to its
+     * requester (expenses.created_by is a user id).
+     */
+    private function notifyExpenseStatus($expenseRow, bool $approved, int $actorUserId, string $reason = '')
+    {
+        if (!$expenseRow || empty($expenseRow['created_by'])) {
+            return;
+        }
+        try {
+            $service = new NotificationService($this->db);
+            $requester = (int) $expenseRow['created_by'];
+            $actor = $service->userName($actorUserId) ?: 'the approver';
+
+            $label = 'expense request';
+            if (!empty($expenseRow['description'])) {
+                $label .= ' for ' . mb_substr((string) $expenseRow['description'], 0, 60);
+            }
+
+            $title = $approved ? 'Expense approved' : 'Expense declined';
+            $message = $approved
+                ? NotificationService::approvedText($label, $actor)
+                : NotificationService::deniedText($label, $actor, $reason);
+
+            $service->push([$requester], 'expense', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[ExpenseManager] Notification push failed: ' . $e->getMessage());
         }
     }
 

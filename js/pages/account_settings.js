@@ -5,6 +5,7 @@ const accountSettings = {
         tfaStatus: null,
         pendingSetup: null, // { method: 'totp', secret, qr_code_url } or null
         showBackupCodes: false,
+        reauthResolver: null,
     },
 
     async init() {
@@ -20,10 +21,25 @@ const accountSettings = {
     },
 
     setupEventListeners() {
+        document.querySelectorAll('[data-settings-target]').forEach((button) => {
+            button.addEventListener('click', () => this.showSection(button.dataset.settingsTarget));
+        });
+        document.getElementById('settings-signout')?.addEventListener('click', () => {
+            if (typeof window.showLogoutModal === 'function') window.showLogoutModal();
+        });
+        document.getElementById('openPasswordModal')?.addEventListener('click', () => {
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('passwordModal')).show();
+        });
+        document.getElementById('reauth-confirm')?.addEventListener('click', () => this.completeReauth());
+        document.getElementById('reauth-password')?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') this.completeReauth();
+        });
         // ── 2FA method selection ──
         document.getElementById('tfa-setup-totp')?.addEventListener('click', () => this.setupTOTP());
         document.getElementById('tfa-setup-email')?.addEventListener('click', () => this.setupEmail());
         document.getElementById('tfa-setup-sms')?.addEventListener('click', () => this.setupSMS());
+        document.getElementById('tfa-setup-whatsapp')?.addEventListener('click', () => this.setupWhatsApp());
+        document.getElementById('tfa-setup-passkey')?.addEventListener('click', () => this.setupPasskey());
 
         // ── 2FA verify setup code ──
         document.getElementById('tfa-verify-code-btn')?.addEventListener('click', () => this.verifySetupCode());
@@ -72,32 +88,63 @@ const accountSettings = {
         const u = user || {};
         const el = (id) => document.getElementById(id);
         const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'User';
+        const avatar = document.getElementById('settings-avatar');
+        if (avatar) avatar.textContent = name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase();
         if (el('settings-name')) el('settings-name').textContent = name;
         if (el('settings-name-2')) el('settings-name-2').textContent = name;
         if (el('settings-email')) el('settings-email').textContent = u.email || '—';
         if (el('settings-phone')) el('settings-phone').textContent = u.phone || u.phone_1 || '—';
+        if (el('settings-email-2')) el('settings-email-2').textContent = u.email || '—';
+        if (el('profile-full-name')) el('profile-full-name').textContent = name;
+        if (el('profile-username')) el('profile-username').textContent = u.username || '—';
+        if (el('profile-email')) el('profile-email').textContent = u.email || '—';
+        if (el('profile-phone')) el('profile-phone').textContent = u.phone || u.phone_1 || '—';
         const roleNames = (u.roles || []).map(r => typeof r === 'string' ? r : r.name).filter(Boolean);
         if (el('settings-role')) el('settings-role').textContent = roleNames[0] || u.role_name || '—';
+        if (el('profile-role')) el('profile-role').textContent = roleNames.join(', ') || u.role_name || '—';
+    },
+
+    showSection(section) {
+        if (!section) return;
+        document.querySelectorAll('[data-settings-section]').forEach((node) => {
+            node.classList.toggle('d-none', node.dataset.settingsSection !== section);
+        });
+        document.querySelectorAll('.settings-nav [data-settings-target]').forEach((node) => {
+            node.classList.toggle('active', node.dataset.settingsTarget === section);
+        });
+        document.querySelector('[data-settings-section="' + section + '"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
 
     renderTFAStatus(status) {
         const data = status?.data || status || {};
         const enabled = data.enabled || data.tfa_enabled || false;
         const method = data.method || '—';
+        const methods = Array.isArray(data.methods) ? data.methods.map(m => (m.method || m).toUpperCase()) : [];
 
         const statusBadge = document.getElementById('tfa-status-badge');
         if (statusBadge) {
-            statusBadge.textContent = enabled ? 'Enabled' : 'Disabled';
+            statusBadge.textContent = enabled ? 'Protected' : 'Not enabled';
             statusBadge.className = `badge ${enabled ? 'bg-success' : 'bg-secondary'}`;
+        }
+        const overviewBadge = document.getElementById('overview-security-badge');
+        if (overviewBadge) {
+            overviewBadge.textContent = enabled ? 'MFA protected' : 'Add MFA protection';
+            overviewBadge.className = `badge ${enabled ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning-emphasis'}`;
         }
 
         const methodDisplay = document.getElementById('tfa-method');
         if (methodDisplay) {
-            methodDisplay.textContent = enabled ? method.toUpperCase() : '—';
+            methodDisplay.textContent = enabled ? (methods.length ? methods.join(' + ') : method.toUpperCase()) : '—';
         }
+        const passkeys = Array.isArray(data.passkeys) ? data.passkeys : [];
+        const passkeyList = document.getElementById('tfa-passkeys-list');
+        const safe = (value) => String(value || '').replace(/[&<>'"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+        if (passkeyList) passkeyList.innerHTML = passkeys.length
+            ? `<strong>Passkeys:</strong> ${passkeys.map(p => safe(p.label || 'Passkey')).join(', ')}`
+            : '<strong>Passkeys:</strong> None registered';
 
         // Toggle sections
-        document.getElementById('tfa-setup-section')?.classList.toggle('d-none', enabled);
+        document.getElementById('tfa-setup-section')?.classList.remove('d-none');
         document.getElementById('tfa-manage-section')?.classList.toggle('d-none', !enabled);
         document.getElementById('tfa-backup-section')?.classList.toggle('d-none', !enabled);
     },
@@ -106,9 +153,29 @@ const accountSettings = {
     //  2FA Setup
     // ═══════════════════════════════════════════════════════════════════
 
+    requestReauth() {
+        return new Promise((resolve) => {
+            this.state.reauthResolver = resolve;
+            const input = document.getElementById('reauth-password');
+            if (input) input.value = '';
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('reauthModal')).show();
+            setTimeout(() => input?.focus(), 250);
+        });
+    },
+
+    completeReauth() {
+        const input = document.getElementById('reauth-password');
+        const password = input?.value?.trim() || '';
+        if (!password) { showNotification('Enter your current password to continue', 'warning'); return; }
+        bootstrap.Modal.getInstance(document.getElementById('reauthModal'))?.hide();
+        const resolve = this.state.reauthResolver;
+        this.state.reauthResolver = null;
+        resolve?.(password);
+    },
+
     async setupTOTP() {
         try {
-            const resp = await window.API.apiCall('/twofactor/setup/totp', 'POST');
+            const resp = await window.API.apiCall('/twofactor/setup/totp', 'POST', { current_password: await this.requestReauth() });
             const d = resp?.data || {};
             this.state.pendingSetup = { method: 'totp', ...d };
 
@@ -120,7 +187,7 @@ const accountSettings = {
 
     async setupEmail() {
         try {
-            const resp = await window.API.apiCall('/twofactor/setup/email', 'POST');
+            const resp = await window.API.apiCall('/twofactor/setup/email', 'POST', { current_password: await this.requestReauth() });
             const d = resp?.data || {};
             this.state.pendingSetup = { method: 'email', ...d };
 
@@ -133,7 +200,7 @@ const accountSettings = {
 
     async setupSMS() {
         try {
-            const resp = await window.API.apiCall('/twofactor/setup/sms', 'POST');
+            const resp = await window.API.apiCall('/twofactor/setup/sms', 'POST', { current_password: await this.requestReauth() });
             const d = resp?.data || {};
             this.state.pendingSetup = { method: 'sms', ...d };
 
@@ -144,6 +211,35 @@ const accountSettings = {
         }
     },
 
+    async setupWhatsApp() {
+        try {
+            const resp = await window.API.apiCall('/twofactor/setup/whatsapp', 'POST', { current_password: await this.requestReauth() });
+            const d = resp?.data || {};
+            this.state.pendingSetup = { method: 'whatsapp', ...d };
+            this.showSetupUI('whatsapp');
+            showNotification(resp?.message || 'Verification code sent to WhatsApp', 'success');
+        } catch (e) { showNotification(e.message || 'Failed to start WhatsApp setup', 'danger'); }
+    },
+
+    async setupPasskey() {
+        try {
+            if (!window.PublicKeyCredential || !navigator.credentials?.create) throw new Error('This browser or device does not support passkeys.');
+            const currentPassword = await this.requestReauth();
+            const optionsResponse = await window.API.apiCall('/twofactor/passkey/options', 'POST', { current_password: currentPassword });
+            const publicKey = window.recursiveBase64StrToArrayBuffer(optionsResponse?.data || optionsResponse);
+            const createdCredential = await navigator.credentials.create({ publicKey });
+            const credential = {
+                id: createdCredential.id,
+                clientDataJSON: window.arrayBufferToBase64(createdCredential.response.clientDataJSON),
+                attestationObject: window.arrayBufferToBase64(createdCredential.response.attestationObject),
+                transports: createdCredential.response.getTransports ? createdCredential.response.getTransports() : [],
+            };
+            await window.API.apiCall('/twofactor/passkey/register', 'POST', { credential, label: 'Passkey', current_password: currentPassword });
+            showNotification('Passkey registered successfully', 'success');
+            await this.loadData();
+        } catch (e) { showNotification(e.message || 'Passkey registration failed', 'danger'); }
+    },
+
     showSetupUI(method, secret, qrUrl) {
         const section = document.getElementById('tfa-verify-section');
         if (!section) return;
@@ -151,7 +247,7 @@ const accountSettings = {
 
         const methodLabel = document.getElementById('tfa-verify-method');
         if (methodLabel) {
-            const names = { totp: 'Authenticator App', email: 'Email', sms: 'SMS' };
+            const names = { totp: 'Authenticator App', email: 'Email', sms: 'SMS', whatsapp: 'WhatsApp' };
             methodLabel.textContent = names[method] || method.toUpperCase();
         }
 
@@ -191,7 +287,7 @@ const accountSettings = {
         if (btn) btn.disabled = true;
 
         try {
-            const resp = await window.API.apiCall('/twofactor/setup/verify', 'POST', { code });
+            const resp = await window.API.apiCall('/twofactor/setup/verify', 'POST', { code, current_password: await this.requestReauth() });
             const d = resp?.data || {};
 
             // Show backup codes
@@ -204,7 +300,7 @@ const accountSettings = {
             // Refresh 2FA status
             this.state.pendingSetup = null;
             document.getElementById('tfa-verify-section')?.classList.add('d-none');
-            document.getElementById('tfa-setup-section')?.classList.add('d-none');
+            document.getElementById('tfa-setup-section')?.classList.remove('d-none');
             document.getElementById('tfa-manage-section')?.classList.remove('d-none');
             document.getElementById('tfa-backup-section')?.classList.remove('d-none');
 
@@ -300,7 +396,7 @@ const accountSettings = {
         if (btn) btn.disabled = true;
 
         try {
-            const resp = await window.API.apiCall('/twofactor/backup/generate', 'POST');
+            const resp = await window.API.apiCall('/twofactor/backup/generate', 'POST', { current_password: await this.requestReauth() });
             const d = resp?.data || {};
 
             if (d.backup_codes && d.backup_codes.length) {
@@ -347,6 +443,7 @@ const accountSettings = {
             });
             showNotification('Password updated successfully', 'success');
             document.getElementById('passwordChangeForm')?.reset();
+            bootstrap.Modal.getInstance(document.getElementById('passwordModal'))?.hide();
         } catch (e) {
             showNotification(e.message || 'Failed to update password', 'danger');
         } finally {

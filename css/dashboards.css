@@ -454,6 +454,87 @@
     to { transform: rotate(360deg); }
 }
 
+/* ==========================================================================
+   PERIOD SELECTOR — time-range buttons at top of dashboard
+   ========================================================================== */
+
+.dash-period-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.dash-period-bar .btn-group {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.dash-period-bar .btn {
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.3rem 0.85rem;
+    border-radius: 0;
+    white-space: nowrap;
+}
+
+.dash-period-bar .btn:first-child {
+    border-radius: 8px 0 0 8px;
+}
+
+.dash-period-bar .btn:last-child {
+    border-radius: 0 8px 8px 0;
+}
+
+.dash-period-bar .dash-period-label {
+    font-size: 0.78rem;
+    color: var(--role-dashboard-muted, #6c757d);
+    font-style: italic;
+}
+
+/* Comparison badge for KPI cards */
+.dash-compare-up {
+    color: #16a34a;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+.dash-compare-down {
+    color: #dc2626;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+/* ==========================================================================
+   KPI PROGRESS BAR widget (budget utilisation, grading progress, etc.)
+   ========================================================================== */
+
+.dash-kpi-widget {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    border: 1px solid rgba(0,0,0,0.06);
+}
+
+.dash-kpi-widget .dash-kpi-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.4rem;
+}
+
+.dash-kpi-widget .dash-kpi-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #212529;
+}
+
+.dash-kpi-widget .progress {
+    height: 8px;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+}
+
 @media (max-width: 767.98px) {
     .role-dashboard .dash-greeting-bar {
         align-items: flex-start;
@@ -466,5 +547,10 @@
 
     .role-dashboard .dashboard-table-wrap {
         max-height: none;
+    }
+
+    .dash-period-bar .btn {
+        font-size: 0.72rem;
+        padding: 0.25rem 0.6rem;
     }
 }

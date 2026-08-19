@@ -343,13 +343,16 @@ class AuthAPI extends BaseAPI
                     ];
                 }
 
+                $challengeToken = $tfa->createLoginChallenge($userId, $requiredMethod);
                 return [
                     'success' => true,
                     'status' => 'success',
                     'data' => [
                         'user_id' => $userId,
                         'requires_2fa' => true,
-                        'method' => $requiredMethod,
+                            'method' => $requiredMethod,
+                            'challenge_token' => $challengeToken,
+                            'available_methods' => $tfa->getEnabledMethods($userId),
                     ],
                     'message' => 'Two-factor verification required.',
                 ];
@@ -495,6 +498,12 @@ class AuthAPI extends BaseAPI
      */
     private function complete2FALogin(int $userId, array $data): array
     {
+        $challengeToken = trim((string) ($data['challenge_token'] ?? ''));
+        if ($challengeToken === '') return ['status' => 'error', 'message' => 'A valid 2FA challenge is required', 'data' => null];
+        $tfa = new \App\API\Services\TwoFactorService();
+        if (!$tfa->consumeLoginChallenge($challengeToken, $userId)) {
+            return ['status' => 'error', 'message' => 'The 2FA challenge is invalid or expired', 'data' => null];
+        }
         // Fetch the full user record
         $userLookup = $this->usersApi->get($userId);
         $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
@@ -1180,6 +1189,13 @@ class AuthAPI extends BaseAPI
             $userData['permissions'] =
                 $permissionsResult['data'] ?? [];
 
+            // An already-valid refresh session represents an active login.
+            // Do not interrupt a user who is actively working every hour just
+            // because the short-lived access JWT is being renewed. The idle
+            // session service above still expires inactive sessions after the
+            // configured idle window; the next interactive login then passes
+            // through the normal MFA gate.
+
             // Extract permission codes only
             $permissionCodes = [];
             if (!empty($userData['permissions'])) {
@@ -1431,7 +1447,7 @@ class AuthAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare('
-                SELECT s.id AS staff_id, p.phone, p.gender, p.dob, p.email
+                SELECT u.profile_completed_at, s.id AS staff_id, p.phone, p.gender, p.dob, p.email
                 FROM users u
                 JOIN staff s ON s.person_id = u.person_id
                 JOIN persons p ON p.id = s.person_id
@@ -1443,11 +1459,19 @@ class AuthAPI extends BaseAPI
             if (!$row) {
                 return false;
             }
+            if (!empty($row['profile_completed_at'])) {
+                return false;
+            }
 
+            $details = $this->db->prepare("SELECT EXISTS (SELECT 1 FROM person_addresses WHERE person_id=(SELECT person_id FROM staff WHERE id=? ) AND address_type='residential' AND valid_to IS NULL) AS has_address, EXISTS (SELECT 1 FROM person_marital_statuses WHERE person_id=(SELECT person_id FROM staff WHERE id=? ) AND valid_to IS NULL) AS has_marital");
+            $details->execute([(int) $row['staff_id'], (int) $row['staff_id']]);
+            $detailRow = $details->fetch(\PDO::FETCH_ASSOC) ?: [];
             $hasStaffData = !empty($row['phone'])
                 && !empty($row['gender'])
                 && !empty($row['dob'])
-                && !empty($row['email']);
+                && !empty($row['email'])
+                && !empty($detailRow['has_address'])
+                && !empty($detailRow['has_marital']);
 
             return !$hasStaffData;
         } catch (\Throwable $error) {

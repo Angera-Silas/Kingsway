@@ -22,6 +22,9 @@
         </div>
     </div>
 
+    <!-- Period Selector -->
+    <?php $rootId = 'headteacherDashboard'; require __DIR__ . '/partials/period_selector.php'; ?>
+
     <!-- KPI Cards Row 1 -->
     <div class="row g-3 mb-3">
         <div class="col-xl-3 col-md-6">
@@ -233,6 +236,7 @@
 
 </div>
 
+<script src="<?= $appBase ?>/js/components/academic_events.js?v=<?= filemtime(__DIR__.'/../../js/components/academic_events.js') ?>"></script>
 <script src="<?= $appBase ?>/js/dashboards/headteacher_dashboard.js?v=<?= filemtime(__DIR__.'/../../js/dashboards/headteacher_dashboard.js') ?>"></script>
 <script>
     (function () {

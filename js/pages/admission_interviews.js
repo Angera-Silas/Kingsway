@@ -10,6 +10,9 @@ const admissionInterviewsController = {
   _schedModal: null,
   _outcomeModal: null,
   _viewModal: null,
+  _sessionsModal: null,
+  _sessions: [],
+  _windows: [],
   _initialized: false,
 
   init: async function () {
@@ -25,8 +28,9 @@ const admissionInterviewsController = {
     this._schedModal = new bootstrap.Modal(document.getElementById('aiScheduleModal'));
     this._outcomeModal = new bootstrap.Modal(document.getElementById('aiOutcomeModal'));
     this._viewModal = new bootstrap.Modal(document.getElementById('aiViewModal'));
+    this._sessionsModal = new bootstrap.Modal(document.getElementById('aiSessionsModal'));
     this._bindFilters();
-    await Promise.all([this._loadData(), this._loadStaff()]);
+    await Promise.all([this._loadData(), this._loadStaff(), this._loadSessions(), this._loadWindows()]);
   },
 
   _api: function (path, method = 'GET', data = null) {
@@ -58,19 +62,41 @@ const admissionInterviewsController = {
 
   _loadStaff: async function () {
     try {
-      const response = await this._api('/staff', 'GET');
+      const response = await this._api('/staff/teachers', 'GET');
       this._staff = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
-      const sel = document.getElementById('aiInterviewerId');
       const filter = document.getElementById('aiFilterInterviewer');
       const options = this._staff.map(s => {
         const name = `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.full_name || s.name || 'Staff';
         return `<option value="${this._esc(s.id)}">${this._esc(name)} — ${this._esc(s.role_name || s.designation || '')}</option>`;
       }).join('');
-      if (sel) sel.innerHTML = '<option value="">— Select staff member —</option>' + options;
       if (filter) filter.innerHTML = '<option value="">All Interviewers</option>' + options;
+      ['aiSessionInterviewer'].forEach(id => { const el=document.getElementById(id); if (el) el.innerHTML='<option value="">— Select interviewer —</option>'+options; });
     } catch (e) {
       console.warn('Staff failed:', e);
     }
+  },
+
+  _loadSessions: async function () {
+    try {
+      const response = await this._api('/admission/interview-sessions', 'GET');
+      this._sessions = response?.data?.sessions || response?.sessions || [];
+      this._populateSessionSelect();
+    } catch (e) { console.warn('Interview sessions failed:', e); }
+  },
+
+  _loadWindows: async function () {
+    try {
+      const response = await this._api('/admission/windows', 'GET');
+      this._windows = response?.data?.windows || response?.windows || [];
+      const el = document.getElementById('aiSessionWindow');
+      if (el) el.innerHTML = this._windows.length ? this._windows.map(w => `<option value="${this._esc(w.id)}">${this._esc(w.label || ('Window #' + w.id))}</option>`).join('') : '<option value="">No admission windows</option>';
+    } catch (e) { console.warn('Admission windows failed:', e); }
+  },
+
+  _populateSessionSelect: function () {
+    const el = document.getElementById('aiSessionId'); if (!el) return;
+    const available = this._sessions.filter(s => ['scheduled','full'].includes(s.status) && Number(s.assigned_count) < Number(s.capacity));
+    el.innerHTML = '<option value="">— Select a configured session —</option>' + available.map(s => `<option value="${this._esc(s.id)}">${this._esc(s.window_label)} · ${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))} · ${this._esc(s.venue)} · ${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</option>`).join('');
   },
 
   _populateApplicants: function () {
@@ -162,16 +188,18 @@ const admissionInterviewsController = {
       return `<tr class="${isToday ? 'table-info' : ''}">
         <td class="fw-semibold">${this._esc(app.applicant_name || 'Unknown')}${isToday ? ' <span class="badge bg-primary ms-1">Today</span>' : ''}<br><small class="text-muted">${this._esc(app.application_no || '—')}</small></td>
         <td>${this._esc(app.grade_applying_for || '—')}</td>
-        <td>${this._esc(data.interview_date || 'Not scheduled')}</td>
-        <td>${this._esc(data.interview_time || '—')}</td>
-        <td>${this._esc(this._interviewerName(data.interviewer_id) || data.interviewer_name || '—')}</td>
-        <td>${this._esc(data.venue || data.location || '—')}</td>
+        <td>${this._esc(app.interview_date || data.interview_date || 'Not scheduled')}</td>
+        <td>${this._esc(app.interview_time || data.interview_time || '—')}</td>
+        <td>${this._esc(app.interview_interviewer_name || this._interviewerName(app.interview_interviewer_id) || '—')}<br><small class="text-muted">${this._esc(app.interview_interviewer_phone || '')}</small></td>
+        <td>${this._esc(app.interview_venue || data.venue || data.location || '—')}</td>
         <td>${stageBadge}</td>
         <td>${this._esc(data.recommendation || '—')}</td>
         <td class="text-end">
           <div class="btn-group btn-group-sm">
             <button class="btn btn-outline-primary" onclick="admissionInterviewsController.viewApplication(${app.id})">View</button>
-            ${canSchedule ? `<button class="btn btn-outline-success" onclick="admissionInterviewsController.showScheduleModal(${app.id})">Schedule</button>` : ''}
+            ${canSchedule && !app.interview_id ? `<button class="btn btn-outline-success" onclick="admissionInterviewsController.showScheduleModal(${app.id})">Assign session</button>` : ''}
+            ${app.interview_id ? `<button class="btn btn-outline-warning" onclick="admissionInterviewsController.showScheduleModal(${app.id})">Switch / reschedule</button>` : ''}
+            ${app.interview_id ? `<button class="btn btn-outline-info" onclick="admissionInterviewsController.notify(${app.id})">Notify parent</button>` : ''}
             ${canRecord ? `<button class="btn btn-success" onclick="admissionInterviewsController.showOutcomeModal(${app.id})">Record</button>` : ''}
           </div>
         </td>
@@ -193,12 +221,19 @@ const admissionInterviewsController = {
   },
 
   showScheduleModal: function (applicationId = null) {
-    ['aiInterviewDate', 'aiInterviewTime', 'aiInterviewerId', 'aiLocation', 'aiSpecialRequirements'].forEach(id => {
+    ['aiSessionId', 'aiSpecialRequirements'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
     const applicant = document.getElementById('aiApplicantId');
-    if (applicant) applicant.value = applicationId || '';
+    const row = this._data.find(a => String(a.id) === String(applicationId));
+    if (applicant) {
+      if (row && ![...applicant.options].some(o => String(o.value) === String(applicationId))) {
+        applicant.insertAdjacentHTML('beforeend', `<option value="${this._esc(applicationId)}">${this._esc(row.applicant_name || 'Applicant')} — ${this._esc(row.grade_applying_for || '')} (already scheduled)</option>`);
+      }
+      applicant.value = applicationId || '';
+    }
+    if (row?.interview_session_id) document.getElementById('aiSessionId').value = row.interview_session_id;
     const err = document.getElementById('aiScheduleError');
     if (err) { err.classList.add('d-none'); err.textContent = ''; }
     this._schedModal.show();
@@ -206,34 +241,52 @@ const admissionInterviewsController = {
 
   saveSchedule: async function () {
     const applicationId = document.getElementById('aiApplicantId')?.value;
-    const date = document.getElementById('aiInterviewDate')?.value;
-    const time = document.getElementById('aiInterviewTime')?.value;
-    const interviewer = document.getElementById('aiInterviewerId')?.value;
-    const venue = document.getElementById('aiLocation')?.value.trim();
-    const specialRequirements = document.getElementById('aiSpecialRequirements')?.value.trim();
+    const sessionId = document.getElementById('aiSessionId')?.value;
     const errEl = document.getElementById('aiScheduleError');
 
-    if (!applicationId || !date || !time || !interviewer) {
-      if (errEl) { errEl.textContent = 'Applicant, date, time, and interviewer are required.'; errEl.classList.remove('d-none'); }
+    if (!applicationId || !sessionId) {
+      if (errEl) { errEl.textContent = 'Applicant and a configured interview session are required.'; errEl.classList.remove('d-none'); }
       return;
     }
     if (errEl) errEl.classList.add('d-none');
 
     try {
-      await this._api('/admission/schedule-interview', 'POST', {
+      const existing = this._data.find(a => String(a.id) === String(applicationId))?.interview_id;
+      await this._api(existing ? '/admission/interview-assignment' : '/admission/schedule-interview', 'POST', {
         application_id: applicationId,
-        interview_date: date,
-        interview_time: time,
-        interviewer_id: interviewer,
-        venue,
-        special_requirements: specialRequirements,
+        session_id: sessionId,
+        reason: 'Interview session selected by admissions staff'
       });
       showNotification('Interview scheduled.', 'success');
       this._schedModal.hide();
-      await this._loadData();
+      await Promise.all([this._loadData(), this._loadSessions()]);
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to schedule interview.'; errEl.classList.remove('d-none'); }
     }
+  },
+
+  notify: async function (applicationId) {
+    try { const result = await this._api('/admission/interview-notifications', 'POST', {application_id: applicationId}); showNotification(result?.message || 'Parent SMS and email queued.', 'success'); }
+    catch (e) { showNotification(e.message || 'Notification failed.', 'error'); }
+  },
+
+  manageSessions: async function () {
+    await Promise.all([this._loadSessions(), this._loadWindows()]);
+    const body = document.getElementById('aiSessionsBody');
+    if (body) body.innerHTML = this._sessions.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Intake</th><th>Date/time</th><th>Venue</th><th>Interviewer / follow-up phone</th><th>Assigned</th><th>Applicants</th><th>Actions</th></tr></thead><tbody>${this._sessions.map(s => `<tr><td>${this._esc(s.window_label)}</td><td>${this._esc(s.session_date)} ${this._esc(String(s.start_time).slice(0,5))}–${this._esc(String(s.end_time).slice(0,5))}</td><td>${this._esc(s.venue)}</td><td>${this._esc(s.interviewer_name || '—')}<br><small class="text-muted">${this._esc(s.interviewer_phone || 'No phone')}</small></td><td>${this._esc(s.assigned_count)}/${this._esc(s.capacity)}</td><td>${this._esc((s.assigned_applicants || '').split('||').filter(Boolean).join(', ') || 'None')}</td><td><button class="btn btn-sm btn-outline-primary" onclick="admissionInterviewsController.editSession(${s.id})">Edit</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="alert alert-info">No interview sessions have been configured.</div>';
+    this._sessionsModal.show();
+  },
+
+  editSession: function (id) {
+    const s = this._sessions.find(x => Number(x.id) === Number(id)); if (!s) return;
+    ['aiSessionEditId','aiSessionWindow','aiSessionDate','aiSessionStart','aiSessionEnd','aiSessionCapacity','aiSessionInterviewer','aiSessionVenue'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
+    document.getElementById('aiSessionEditId').value=s.id; document.getElementById('aiSessionWindow').value=s.admission_window_id; document.getElementById('aiSessionDate').value=s.session_date; document.getElementById('aiSessionStart').value=s.start_time; document.getElementById('aiSessionEnd').value=s.end_time; document.getElementById('aiSessionCapacity').value=s.capacity; document.getElementById('aiSessionInterviewer').value=s.interviewer_id || ''; document.getElementById('aiSessionVenue').value=s.venue;
+  },
+
+  saveSession: async function () {
+    const data={id:document.getElementById('aiSessionEditId').value,admission_window_id:document.getElementById('aiSessionWindow').value,session_date:document.getElementById('aiSessionDate').value,start_time:document.getElementById('aiSessionStart').value,end_time:document.getElementById('aiSessionEnd').value,capacity:document.getElementById('aiSessionCapacity').value,interviewer_id:document.getElementById('aiSessionInterviewer').value,venue:document.getElementById('aiSessionVenue').value};
+    try { await this._api(data.id ? `/admission/interview-sessions/${data.id}` : '/admission/interview-sessions',data.id ? 'PUT' : 'POST',data); showNotification('Interview session saved.','success'); await this._loadSessions(); await this.manageSessions(); }
+    catch(e){const el=document.getElementById('aiSessionError');el.textContent=e.message||'Unable to save session';el.classList.remove('d-none');}
   },
 
   showOutcomeModal: async function (applicationId) {

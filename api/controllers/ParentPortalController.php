@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\API\Controllers;
 
 use App\API\Modules\parent\ParentPortalManager;
+use App\Database\Database;
+use App\API\Services\payments\UniformCatalogService;
 
 /**
  * ParentPortalController — thin endpoint exposer for the parent portal.
@@ -87,6 +89,30 @@ class ParentPortalController extends BaseController
     {
         return $this->handleApiResponse($this->parent->getDashboard());
     }
+
+    /** GET /api/parent-portal/community */
+    public function getCommunity($id = null, $data = [], $segments = [])
+    { return $this->handleApiResponse($this->parent->getCommunity()); }
+
+    /** GET /api/parent-portal/uniform-catalog */
+    public function getUniformCatalog($id = null, $data = [], $segments = [])
+    { return $this->handleApiResponse(['success'=>true,'data'=>['products'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->list($data)]]); }
+
+    /** GET /api/parent-portal/uniform-cart */
+    public function getUniformCart($id = null, $data = [], $segments = [])
+    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->cart($parentId)]); }
+
+    /** POST /api/parent-portal/uniform-cart */
+    public function postUniformCart($id = null, $data = [], $segments = [])
+    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->addToCart($parentId,(int)($data['product_id']??0),(int)($data['size_id']??0),(int)($data['quantity']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+
+    /** POST /api/parent-portal/uniform-wishlist */
+    public function postUniformWishlist($id = null, $data = [], $segments = [])
+    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->wishlist($parentId,(int)($data['product_id']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+
+    /** POST /api/parent-portal/uniform-checkout-payment */
+    public function postUniformCheckoutPayment($id = null, $data = [], $segments = [])
+    { try{$data['parent_id']=(int)(($_SERVER['parent_auth']['parent_id']??0));$service=new \App\API\Services\payments\UniformPaymentService(Database::getInstance()->getConnection());return $this->handleApiResponse(['success'=>true,'data'=>$service->initiateAccumulated($data,(int)($data['parent_id']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     /**
      * GET /api/parent-portal/student-fees/{id}

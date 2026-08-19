@@ -9,7 +9,7 @@ const KingswayDB = (function() {
   ("use strict");
 
   const DB_NAME = "KingswayDB";
-  const DB_VERSION = 9.8; // Increment this when schema changes
+  const DB_VERSION = 10.1; // Increment this when schema changes
 
   let db = null;
 

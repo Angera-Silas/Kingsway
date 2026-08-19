@@ -1,6 +1,7 @@
 <?php
 namespace App\API\Services;
 
+use Exception;
 use PDO;
 
 /**
@@ -674,17 +675,21 @@ final class FinanceCrudService
 
     public function approveSalaryAdvance(int $id, float $approved, float $perDed, string $start, int $userId): void
     {
+        $advance = $this->getSalaryAdvance($id);
         $this->db->prepare(
             "UPDATE staff_salary_advances
              SET status = 'active', approved_amount = ?, amount_per_deduction = ?,
                  deduction_start_month = ?, balance_remaining = ?, approved_by = ?, approval_date = NOW()
              WHERE id = ?"
         )->execute([$approved, $perDed, $start, $approved, $userId, $id]);
+        $this->notifyAdvanceStatus($advance, 'approved', $userId, null);
     }
 
     public function rejectSalaryAdvance(int $id, ?string $reason): void
     {
+        $advance = $this->getSalaryAdvance($id);
         $this->db->prepare("UPDATE staff_salary_advances SET status = 'rejected', rejection_reason = ? WHERE id = ?")->execute([$reason, $id]);
+        $this->notifyAdvanceStatus($advance, 'rejected', 0, $reason);
     }
 
     public function recordSalaryAdvanceDeduction(int $id, float $amt, float $newBalance, string $newStatus): void
@@ -699,6 +704,33 @@ final class FinanceCrudService
         $r = $this->db->prepare("SELECT * FROM staff_salary_advances WHERE id = ?");
         $r->execute([$id]);
         return $r->fetch() ?: null;
+    }
+
+    /**
+     * Notify the staff member whose salary advance was approved/rejected.
+     */
+    private function notifyAdvanceStatus(?array $advance, string $decision, int $actorUserId, ?string $reason): void
+    {
+        if (!$advance || empty($advance['staff_id'])) {
+            return;
+        }
+        try {
+            $service = new NotificationService($this->db);
+            $recipients = $service->userIdsForStaff([(int) $advance['staff_id']]);
+            if (empty($recipients)) {
+                return;
+            }
+            $actor = $actorUserId > 0 ? ($service->userName($actorUserId) ?: 'the approver') : 'the approver';
+            $num = $advance['advance_number'] ?? ('#' . (int) $advance['id']);
+            $label = 'salary advance ' . $num;
+            $title = $decision === 'approved' ? 'Salary advance approved' : 'Salary advance declined';
+            $message = $decision === 'approved'
+                ? NotificationService::approvedText($label, $actor)
+                : NotificationService::deniedText($label, $actor, (string) ($reason ?? ''));
+            $service->push($recipients, 'salary_advance', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[FinanceCrudService] Notification push failed: ' . $e->getMessage());
+        }
     }
 
     public function getStaffBasicSalary(int $staffId): float

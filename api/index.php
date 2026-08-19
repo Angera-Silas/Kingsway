@@ -63,7 +63,10 @@ if (!headers_sent()) {
     header('X-Frame-Options: DENY');
     header('X-XSS-Protection: 1; mode=block');
     header('Referrer-Policy: strict-origin');
-    header('Permissions-Policy: camera=(), microphone=(), geolocation=()');
+    // Camera access is required by the authenticated QR scanner page. Keep
+    // microphone and geolocation disabled; the page still requires HTTPS and
+    // the browser's explicit camera permission.
+    header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
     header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com; connect-src \'self\'; frame-ancestors \'none\'');

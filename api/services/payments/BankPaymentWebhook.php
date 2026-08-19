@@ -101,6 +101,11 @@ class BankPaymentWebhook
                 return formatResponse(false, null, 'Missing required payment fields');
             }
 
+            $application = $this->getApplicationByReference($accountNumber);
+            if ($application) {
+                return $this->recordApplicationPaymentFromBank($application, $amount, $transactionRef, $transactionDate, $bankName, $narration, $paymentData);
+            }
+
             // FIX: Validate admission number and get student
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
@@ -234,6 +239,11 @@ return formatResponse(false, null, 'An internal error occurred.');
                 return formatResponse(false, null, 'Invalid payment data format');
             }
 
+            $application = $this->getApplicationByReference($accountNumber);
+            if ($application) {
+                return $this->recordApplicationPaymentFromBank($application, $amount, $transactionRef, $transactionDate, $bankName, $bankName . ' Payment', $paymentData);
+            }
+
             // Get student by admission number
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
@@ -297,6 +307,96 @@ $admissionCol = $this->resolveAdmissionColumn();
             error_log("Error fetching student: " . $e->getMessage());
             return null;
         }
+    }
+
+    private function getApplicationByReference(string $reference): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT aa.id AS application_id, aa.application_no, aa.parent_id,
+                    CASE WHEN EXISTS (
+                        SELECT 1 FROM student_academic_enrollments sae
+                        WHERE sae.student_id = aa.enrolled_student_id
+                          AND sae.enrollment_status = 'active'
+                    ) THEN aa.enrolled_student_id ELSE NULL END AS student_id
+             FROM admission_applications aa
+             LEFT JOIN students s ON s.id = aa.enrolled_student_id
+             WHERE (aa.application_no = :reference OR s.admission_no = :reference)
+               AND aa.status NOT IN ('cancelled', 'rejected')
+             LIMIT 1"
+        );
+        $stmt->execute(['reference' => trim($reference)]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    private function recordApplicationPaymentFromBank(array $application, float $amount, string $transactionRef, string $transactionDate, string $bankName, string $narration, array $payload)
+    {
+        if ($amount <= 0) return formatResponse(false, null, 'Payment amount must be greater than zero');
+
+        $duplicate = $this->db->prepare("SELECT id FROM admission_payments WHERE reference_no = :reference LIMIT 1");
+        $duplicate->execute(['reference' => $transactionRef]);
+        if ($duplicate->fetchColumn()) return formatResponse(false, null, 'Duplicate transaction');
+
+        $insert = $this->db->prepare(
+            "INSERT INTO admission_payments
+                (application_id, student_id, amount, payment_method, reference_no, receipt_no,
+                 payment_date, notes, status, recorded_by, created_at)
+             VALUES (:application_id, :student_id, :amount, 'bank_transfer', :reference_no, :receipt_no,
+                     :payment_date, :notes, 'recorded', 1, NOW())"
+        );
+        $insert->execute([
+            'application_id' => (int) $application['application_id'],
+            'student_id' => !empty($application['student_id']) ? (int) $application['student_id'] : null,
+            'amount' => $amount,
+            'reference_no' => $transactionRef,
+            'receipt_no' => 'BANK-' . $transactionRef,
+            'payment_date' => $transactionDate,
+            'notes' => $narration . ' — confirmed bank payment using account reference',
+        ]);
+        $paymentId = (int) $this->db->lastInsertId();
+
+        $bank = $this->db->prepare(
+            "INSERT INTO bank_transactions
+                (transaction_ref, student_id, amount, transaction_date, bank_name, account_number,
+                 narration, status, matching_status, reconciled, reconciled_at, source_type, webhook_data)
+             VALUES (:transaction_ref, :student_id, :amount, :transaction_date, :bank_name, :account_number,
+                     :narration, 'recorded', 'matched', 1, NOW(), 'api_callback', :webhook_data)"
+        );
+        $bank->execute([
+            'transaction_ref' => $transactionRef,
+            'student_id' => !empty($application['student_id']) ? (int) $application['student_id'] : null,
+            'amount' => $amount,
+            'transaction_date' => $transactionDate,
+            'bank_name' => $bankName,
+            'account_number' => $application['application_no'],
+            'narration' => $narration,
+            'webhook_data' => json_encode($payload),
+        ]);
+
+        $posted = 0;
+        if (!empty($application['student_id'])) {
+            $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->db);
+            $posted = $paymentService->postApplicationPaymentsToStudent(
+                (int) $application['application_id'],
+                (int) $application['student_id'],
+                !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                1,
+                (string) $application['application_no']
+            );
+            try {
+                (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment((int) $application['application_id']);
+            } catch (\Throwable $workflowError) {
+                error_log('[BankPaymentWebhook] payment workflow advancement deferred: ' . $workflowError->getMessage());
+            }
+        }
+
+        return formatResponse(true, [
+            'payment_id' => $paymentId,
+            'application_id' => (int) $application['application_id'],
+            'posted_to_student' => $posted,
+            'account_type' => !empty($application['student_id']) ? 'student' : 'admission_application',
+            'transaction_ref' => $transactionRef,
+        ], !empty($application['student_id']) ? 'Bank payment allocated to student account' : 'Bank payment accepted against admission application');
     }
 
     /**

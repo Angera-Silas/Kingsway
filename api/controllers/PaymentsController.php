@@ -177,6 +177,14 @@ class PaymentsController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** POST /api/payments/kcb-mpesa-express-callback */
+    public function postKcbMpesaExpressCallback($id = null, $data = [], $segments = [])
+    {
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headers['__raw_body'] = (string)(file_get_contents('php://input') ?: json_encode($data));
+        return $this->handleResponse($this->api->processKcbMpesaExpressCallback($data, $headers));
+    }
+
     /**
      * POST /api/payments/mpesa-result
      * Generic M-Pesa result sink (transaction status, account balance,
@@ -207,6 +215,7 @@ class PaymentsController extends BaseController
     public function postKcbTransferCallback($id = null, $data = [], $segments = [])
     {
         $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headers['__raw_body'] = (string) (file_get_contents('php://input') ?: json_encode($data));
         $result = $this->api->processKcbTransferCallback($data, $headers);
         return $this->handleResponse($result);
     }
@@ -218,6 +227,7 @@ class PaymentsController extends BaseController
     public function postKcbNotification($id = null, $data = [], $segments = [])
     {
         $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headers['__raw_body'] = (string) (file_get_contents('php://input') ?: json_encode($data));
         $result = $this->api->processKcbNotification($data, $headers);
         return $this->handleResponse($result);
     }
@@ -438,6 +448,12 @@ class PaymentsController extends BaseController
     public function postMpesaStkPush($id = null, $data = [], $segments = [])
     {
         return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerStkPush($data));
+    }
+
+    /** POST /api/payments/kcb-mpesa-express */
+    public function postKcbMpesaExpress($id = null, $data = [], $segments = [])
+    {
+        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerKcbMpesaExpress($data));
     }
 
     public function postMpesaStkQuery($id = null, $data = [], $segments = [])

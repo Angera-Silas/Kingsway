@@ -3,6 +3,9 @@ namespace App\API\Controllers;
 
 use App\API\Modules\transport\TransportAPI;
 use App\API\Modules\finance\TransportBillingManager;
+use App\API\Modules\transport\StudentTransportEntitlementManager;
+use App\API\Services\payments\TransportPaymentService;
+use App\Database\Database;
 use Exception;
 
 /**
@@ -18,17 +21,30 @@ class TransportController extends BaseController
 
     private TransportAPI $api;
     private TransportBillingManager $billing;
+    private StudentTransportEntitlementManager $entitlements;
+    private TransportPaymentService $transportPayments;
 
     public function __construct() {
         parent::__construct();
         $this->api     = new TransportAPI();
         $this->billing = new TransportBillingManager();
+        $this->entitlements = new StudentTransportEntitlementManager(Database::getInstance()->getConnection());
+        $this->transportPayments = new TransportPaymentService(Database::getInstance()->getConnection());
     }
 
     private function guardTransport(): ?array
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
+    private function guardTransportFinance(): ?array
+    {
+        if ($guard = $this->guardTransport()) return $guard;
+        if (!$this->userHasAnyRole(['director', 'school_administrator', 'school_accountant', 'accountant', 'admin'])) {
+            return $this->forbidden('Only authorized transport finance staff may manage entitlements and payments');
         }
         return null;
     }
@@ -206,10 +222,10 @@ class TransportController extends BaseController
     public function postRecordPayment($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardTransport()) return $guard;
-        if (empty($data['student_id']) || empty($data['amount'])) {
-            return $this->badRequest('student_id and amount are required');
+        if (empty($data['student_id']) || empty($data['amount']) || empty($data['financial_account_id'])) {
+            return $this->badRequest('student_id, amount and financial_account_id are required');
         }
-        $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'] ?? null, $data['year'] ?? null, $data['payment_date'] ?? null, $data['payment_method'] ?? null, $data['transaction_id'] ?? null);
+        $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'] ?? null, $data['year'] ?? null, $data['payment_date'] ?? null, $data['payment_method'] ?? null, $data['transaction_id'] ?? null, $data['financial_account_id'], (int)$this->getUserId());
         return $this->handleResponse($result);
     }
     public function putPaymentStatus($id = null, $data = [], $segments = [])
@@ -547,6 +563,91 @@ return $this->serverError('An internal error occurred.');
     // ================================================================
     // TRANSPORT BILLING ENDPOINTS
     // ================================================================
+
+    /**
+     * POST /api/transport/entitlements
+     * Create or update date-bounded transport coverage.
+     * period_type: day|week|month|term|year|custom
+     */
+    public function postEntitlements($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        try {
+            $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            return $this->created(
+                $this->entitlements->createEntitlement($data, $userId),
+                'Transport entitlement saved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[TransportController] entitlement create failed: ' . $e->getMessage());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** POST /api/transport/entitlements-payment/{entitlementId} */
+    public function postEntitlementsPayment($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        if (!$id) return $this->badRequest('entitlement_id required');
+        try {
+            $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            return $this->created(
+                $this->entitlements->recordPayment((int)$id, $data, $userId),
+                'Transport payment allocated to entitlement'
+            );
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[TransportController] entitlement payment failed: ' . $e->getMessage());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** POST /api/transport/payment-intents */
+    public function postPaymentIntents($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        try {
+            $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            return $this->created($this->transportPayments->initiate($data, $userId), 'Transport payment request submitted');
+        } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { error_log('[TransportController] payment intent failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
+    }
+
+    /** POST /api/transport/payment-intents/{id}/confirm */
+    public function postPaymentIntentConfirm($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        if (!$id) return $this->badRequest('payment intent id required');
+        try {
+            $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            return $this->success($this->transportPayments->confirmManual((int)$id, $userId), 'Transport payment confirmed');
+        } catch (\RuntimeException $e) { return $this->badRequest($e->getMessage()); }
+        catch (\Throwable $e) { error_log('[TransportController] payment confirmation failed: '.$e->getMessage()); return $this->serverError('An internal error occurred.'); }
+    }
+
+    /** GET /api/transport/payment-intents/{id} */
+    public function getPaymentIntents($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        if (!$id) return $this->badRequest('payment intent id required');
+        return $this->success($this->transportPayments->getIntent((int)$id));
+    }
+
+    /** GET /api/transport/entitlement-access/{studentId} */
+    public function getEntitlementAccess($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransport()) return $guard;
+        $studentId = (int)($id ?: ($data['student_id'] ?? 0));
+        $routeId = (int)($_GET['route_id'] ?? $data['route_id'] ?? 0);
+        $date = (string)($_GET['date'] ?? $data['date'] ?? date('Y-m-d'));
+        if (!$studentId || !$routeId) return $this->badRequest('student_id and route_id are required');
+        return $this->success($this->entitlements->getAccess($studentId, $routeId, $date));
+    }
 
     /** POST /api/transport/subscriptions — subscribe student to route */
     public function postSubscriptions($id = null, $data = [], $segments = [])

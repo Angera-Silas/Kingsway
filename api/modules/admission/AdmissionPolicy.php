@@ -3,7 +3,10 @@ namespace App\API\Modules\admission;
 
 class AdmissionPolicy
 {
-    private const INTERVIEW_GRADES = ['Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6'];
+    // CBC intake policy: Grade 4 through Grade 9 applicants require an
+    // interview. Playgroup, PP1, PP2 and Grades 1-3 proceed directly after
+    // the application has been approved.
+    private const INTERVIEW_GRADES = ['Grade4', 'Grade5', 'Grade6', 'Grade7', 'Grade8', 'Grade9'];
 
     public function normalizeGrade(string $grade): string
     {
@@ -93,21 +96,17 @@ class AdmissionPolicy
             return (int) $termId;
         }
 
-        $category = $this->resolveAdmissionCategory($data);
-        if ($category === 'nursery_term_1') {
-            return 1;
-        }
-        if ($category === 'nursery_term_3') {
-            return 3;
-        }
-
+        // Human-readable term tokens (e.g. "Term 1 2027") need a database join
+        // to resolve to an academic_year_terms.id, so they are handled by the
+        // workflow handler rather than here. This pure helper only surfaces an
+        // explicitly supplied id.
         return null;
     }
 
     public function describeInterviewPolicy(string $grade): string
     {
         return $this->requiresInterview($grade)
-            ? 'Grade 2-6 applicants require interview assessment.'
+            ? 'Grade 4-9 applicants require interview assessment.'
             : 'This grade proceeds to placement after document verification.';
     }
 

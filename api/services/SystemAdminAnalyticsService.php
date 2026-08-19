@@ -24,67 +24,60 @@ final class SystemAdminAnalyticsService
 
     public function getAuthEvents(): array
     {
-        try {
-            $lifetimeRecords = $this->scalar(
-                'SELECT COUNT(*) FROM login_attempts'
-            );
-        } catch (\Throwable $e) {
-            $lifetimeRecords = 0;
-        }
+        $entries = $this->readAuthLogEntries();
+        $lifetimeRecords = count($entries);
 
-        $summary = ['successful_logins' => 0, 'failed_logins' => 0, 'total_events' => 0];
-        try {
-            $summaryStmt = $this->db->query(
-                "SELECT
-                    SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successful_logins,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_logins,
-                    COUNT(*) AS total_events
-                 FROM login_attempts
-                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)"
-            );
-            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: $summary;
-        } catch (\Throwable $e) {
-            // login_attempts was dropped; the frontend now reads the auth log file.
-        }
-
+        $since = date('Y-m-d H:i:s', time() - 86400);
         $events = [];
-        try {
-            $eventsStmt = $this->db->query(
-                "SELECT
-                    la.id,
-                    la.user_id,
-                    COALESCE(u.username, la.username) AS username,
-                    pp.first_name,
-                    pp.last_name,
-                    pp.email,
-                    CASE
-                        WHEN la.status = 'success' THEN 'login_success'
-                        ELSE 'login_failed'
-                    END AS action,
-                    'user' AS entity,
-                    la.failure_reason AS details,
-                    la.ip_address,
-                    la.user_agent,
-                    la.status,
-                    la.created_at
-                 FROM login_attempts la
-                 LEFT JOIN users u ON u.id = la.user_id
-                 LEFT JOIN persons pp ON pp.id = u.person_id
-                 WHERE la.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                 ORDER BY la.created_at DESC
-                 LIMIT 100"
-            );
-            $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\Throwable $e) {
-            // login_attempts was dropped; the frontend now reads the auth log file.
+        $successfulLogins = 0;
+        $failedLogins = 0;
+
+        foreach ($entries as $entry) {
+            if (($entry['type'] ?? '') !== 'login_attempt') {
+                continue;
+            }
+            $createdAt = (string) ($entry['timestamp'] ?? '');
+            if ($createdAt < $since) {
+                continue;
+            }
+            $status = strtolower((string) ($entry['status'] ?? 'failed'));
+            if ($status === 'success') {
+                $successfulLogins++;
+            } else {
+                $failedLogins++;
+            }
+            if (count($events) >= 100) {
+                continue;
+            }
+            $events[] = [
+                'id' => null,
+                'user_id' => isset($entry['user_id'])
+                    ? (int) $entry['user_id']
+                    : null,
+                'username' => $entry['username'] ?? null,
+                'first_name' => null,
+                'last_name' => null,
+                'email' => null,
+                'action' => $status === 'success'
+                    ? 'login_success'
+                    : 'login_failed',
+                'entity' => 'user',
+                'details' => $entry['failure_reason'] ?? null,
+                'ip_address' => $entry['ip'] ?? $entry['ip_address'] ?? null,
+                'user_agent' => $entry['user_agent'] ?? null,
+                'status' => $status,
+                'created_at' => $createdAt,
+            ];
         }
+
+        $events = $this->enrichEventUsers($events);
 
         return [
             'events' => $events,
             'summary' => [
-                'successful_logins' => (int) ($summary['successful_logins'] ?? 0),
-                'failed_logins' => (int) ($summary['failed_logins'] ?? 0),
-                'total_events' => (int) ($summary['total_events'] ?? 0),
+                'successful_logins' => $successfulLogins,
+                'failed_logins' => $failedLogins,
+                'total_events' => $successfulLogins + $failedLogins,
                 'tracking_available' => $lifetimeRecords > 0,
                 'period' => '24 hours',
             ],
@@ -146,180 +139,115 @@ final class SystemAdminAnalyticsService
             $limit = 50;
         }
 
-        $where = ['1 = 1'];
-        $params = [];
+        $entries = $this->readAuthLogEntries();
+        $lifetimeRecords = count($entries);
 
-        if ($search !== '') {
-            $term = '%' . $search . '%';
-            $where[] = '(
-                la.username LIKE ?
-                OR u.username LIKE ?
-                OR pp.email LIKE ?
-                OR pp.first_name LIKE ?
-                OR pp.last_name LIKE ?
-                OR la.ip_address LIKE ?
-                OR la.failure_reason LIKE ?
-                OR la.user_agent LIKE ?
-            )';
-            array_push(
-                $params,
-                $term,
-                $term,
-                $term,
-                $term,
-                $term,
-                $term,
-                $term,
-                $term
-            );
-        }
-        if ($status !== '') {
-            $where[] = 'la.status = ?';
-            $params[] = $status;
-        }
-        if ($failureReason !== '') {
-            $where[] = 'la.failure_reason = ?';
-            $params[] = $failureReason;
-        }
-        if ($dateFrom !== '') {
-            $where[] = 'la.created_at >= ?';
-            $params[] = $dateFrom . ' 00:00:00';
-        }
-        if ($dateTo !== '') {
-            $where[] = 'la.created_at < DATE_ADD(?, INTERVAL 1 DAY)';
-            $params[] = $dateTo . ' 00:00:00';
-        }
-
-        $whereSql = implode(' AND ', $where);
-        $fromSql = '
-            FROM login_attempts la
-            LEFT JOIN users u ON u.id = la.user_id
-            LEFT JOIN persons pp ON pp.id = u.person_id
-        ';
-
-        $summary = [];
-        $total = 0;
-        $totalPages = 1;
-        $offset = 0;
         $rows = [];
         $failureReasons = [];
-        $lifetimeRecords = 0;
+        $since24h = date('Y-m-d H:i:s', time() - 86400);
+        $eventsLast24h = 0;
+        $uniqueIps = [];
 
-        try {
-            $summaryStmt = $this->db->query(
-                "SELECT
-                    COUNT(*) AS total_events,
-                    COALESCE(
-                        SUM(CASE WHEN la.status = 'success' THEN 1 ELSE 0 END),
-                        0
-                    ) AS successful_events,
-                    COALESCE(
-                        SUM(CASE WHEN la.status = 'failed' THEN 1 ELSE 0 END),
-                        0
-                    ) AS failed_events,
-                    COALESCE(
-                        SUM(
-                            CASE
-                                WHEN la.created_at >= DATE_SUB(
-                                    NOW(),
-                                    INTERVAL 24 HOUR
-                                )
-                                THEN 1
-                                ELSE 0
-                            END
-                        ),
-                        0
-                    ) AS events_last_24h,
-                    COUNT(DISTINCT NULLIF(la.ip_address, ''))
-                        AS unique_ip_addresses,
-                    COUNT(
-                        DISTINCT CASE
-                            WHEN u.account_locked_until IS NOT NULL
-                             AND u.account_locked_until > NOW()
-                            THEN u.id
-                            ELSE NULL
-                        END
-                    ) AS currently_locked_accounts
-                 $fromSql
-                 WHERE $whereSql",
-                $params
-            );
-            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-            $total = (int) ($summary['total_events'] ?? 0);
-            $totalPages = max(1, (int) ceil($total / $limit));
-            $page = min($page, $totalPages);
-            $offset = ($page - 1) * $limit;
+        foreach ($entries as $entry) {
+            if (($entry['type'] ?? '') !== 'login_attempt') {
+                continue;
+            }
 
-            // LIMIT and OFFSET are interpolated only after strict integer validation.
-            $rowsStmt = $this->db->query(
-                "SELECT
-                    la.id,
-                    la.user_id,
-                    la.username AS attempted_identifier,
-                    COALESCE(u.username, la.username) AS username,
-                    pp.first_name,
-                    pp.last_name,
-                    pp.email,
-                    u.status AS account_status,
-                    u.failed_login_attempts AS consecutive_failed_attempts,
-                    u.account_locked_until,
-                    la.status,
-                    la.failure_reason,
-                    la.ip_address,
-                    la.user_agent,
-                    la.created_at
-                 $fromSql
-                 WHERE $whereSql
-                 ORDER BY la.created_at DESC, la.id DESC
-                 LIMIT $limit OFFSET $offset",
-                $params
-            );
-            $rows = $rowsStmt->fetchAll(PDO::FETCH_ASSOC);
+            $logStatus = strtolower((string) ($entry['status'] ?? 'failed'));
+            if ($status !== '' && $logStatus !== $status) {
+                continue;
+            }
 
-            $failureReasons = $this->db->query(
-                "SELECT DISTINCT failure_reason
-                 FROM login_attempts
-                 WHERE failure_reason IS NOT NULL
-                   AND failure_reason <> ''
-                 ORDER BY failure_reason"
-            )->fetchAll(PDO::FETCH_COLUMN);
+            $reason = trim((string) ($entry['failure_reason'] ?? ''));
+            if ($failureReason !== '' && $reason !== $failureReason) {
+                continue;
+            }
 
-            $lifetimeRecords = $this->scalar(
-                'SELECT COUNT(*) FROM login_attempts'
-            );
-        } catch (\Throwable $e) {
-            // login_attempts was dropped; the frontend now reads the auth log
-            // file directly, so the registry degrades to an empty result set.
+            $createdAt = (string) ($entry['timestamp'] ?? '');
+            if ($dateFrom !== '' && $createdAt !== ''
+                && $createdAt < ($dateFrom . ' 00:00:00')) {
+                continue;
+            }
+            if ($dateTo !== '' && $createdAt !== ''
+                && $createdAt > ($dateTo . ' 23:59:59')) {
+                continue;
+            }
+
+            $username = (string) ($entry['username'] ?? '');
+            $ipAddress = (string) ($entry['ip'] ?? $entry['ip_address'] ?? '');
+            $userAgent = (string) ($entry['user_agent'] ?? '');
+            if ($search !== '') {
+                $haystack = strtolower(
+                    $username . ' ' . $ipAddress . ' ' . $userAgent . ' ' . $reason
+                );
+                if (strpos($haystack, strtolower($search)) === false) {
+                    continue;
+                }
+            }
+
+            $rows[] = [
+                'id' => null,
+                'user_id' => isset($entry['user_id'])
+                    ? (int) $entry['user_id']
+                    : null,
+                'attempted_identifier' => $username,
+                'username' => $username,
+                'first_name' => null,
+                'last_name' => null,
+                'email' => null,
+                'account_status' => null,
+                'consecutive_failed_attempts' => null,
+                'account_locked_until' => null,
+                'status' => $logStatus,
+                'failure_reason' => $reason !== '' ? $reason : null,
+                'ip_address' => $ipAddress !== '' ? $ipAddress : null,
+                'user_agent' => $userAgent !== '' ? $userAgent : null,
+                'created_at' => $createdAt !== '' ? $createdAt : null,
+            ];
+
+            if ($reason !== '') {
+                $failureReasons[$reason] = true;
+            }
+            if ($createdAt >= $since24h) {
+                $eventsLast24h++;
+            }
+            if ($ipAddress !== '') {
+                $uniqueIps[$ipAddress] = true;
+            }
         }
 
+        $enrichment = $this->enrichAuthRows($rows);
+        $enriched = $enrichment['rows'];
+        $currentlyLocked = $enrichment['locked_count'];
+
+        $total = count($rows);
+        $totalPages = max(1, (int) ceil($total / $limit));
+        $page = min($page, $totalPages);
+        $offset = ($page - 1) * $limit;
+        $pageRows = array_slice($enriched, $offset, $limit);
+
+        $successful = count(array_filter(
+            $rows,
+            static fn (array $r): bool => $r['status'] === 'success'
+        ));
+        $failed = $total - $successful;
+
         return [
-            'rows' => $rows,
+            'rows' => $pageRows,
             'summary' => [
                 'total_events' => $total,
-                'successful_events' => (int) (
-                    $summary['successful_events'] ?? 0
-                ),
-                'failed_events' => (int) (
-                    $summary['failed_events'] ?? 0
-                ),
-                'events_last_24h' => (int) (
-                    $summary['events_last_24h'] ?? 0
-                ),
-                'unique_ip_addresses' => (int) (
-                    $summary['unique_ip_addresses'] ?? 0
-                ),
-                'currently_locked_accounts' => (int) (
-                    $summary['currently_locked_accounts'] ?? 0
-                ),
+                'successful_events' => $successful,
+                'failed_events' => $failed,
+                'events_last_24h' => $eventsLast24h,
+                'unique_ip_addresses' => count($uniqueIps),
+                'currently_locked_accounts' => $currentlyLocked,
                 'tracking_available' => $lifetimeRecords > 0,
             ],
             'available_filters' => [
                 'failure_reasons' => array_values(array_filter(
                     array_map(
-                        static fn ($reason): string => trim(
-                            (string) $reason
-                        ),
-                        $failureReasons ?: []
+                        static fn (string $reason): string => trim($reason),
+                        array_keys($failureReasons)
                     )
                 )),
             ],
@@ -766,20 +694,55 @@ final class SystemAdminAnalyticsService
     {
         $failedAuthGroups = [];
         try {
-            $failedAuthStmt = $this->db->query(
-                "SELECT
-                    ip_address,
-                    attempt_count,
-                    last_attempt AS created_at,
-                    failure_reasons AS reasons
-                 FROM vw_failed_attempts_by_ip
-                 ORDER BY attempt_count DESC, last_attempt DESC
-                 LIMIT 25"
-            );
-            $failedAuthGroups = $failedAuthStmt->fetchAll(PDO::FETCH_ASSOC);
+            $since = date('Y-m-d H:i:s', time() - 86400);
+            $grouped = [];
+            foreach (\App\API\Includes\FileLogger::recent('auth', 5000) as $e) {
+                if (($e['type'] ?? '') !== 'login_attempt') {
+                    continue;
+                }
+                if (strtolower((string) ($e['status'] ?? '')) !== 'failed') {
+                    continue;
+                }
+                $createdAt = (string) ($e['timestamp'] ?? '');
+                if ($createdAt < $since) {
+                    continue;
+                }
+                $ip = (string) ($e['ip'] ?? $e['ip_address'] ?? 'unknown');
+                if ($ip === '') {
+                    $ip = 'unknown';
+                }
+                if (!isset($grouped[$ip])) {
+                    $grouped[$ip] = [
+                        'attempt_count' => 0,
+                        'last_attempt' => $createdAt,
+                        'reasons' => [],
+                    ];
+                }
+                $grouped[$ip]['attempt_count']++;
+                if ($createdAt > $grouped[$ip]['last_attempt']) {
+                    $grouped[$ip]['last_attempt'] = $createdAt;
+                }
+                $reason = trim((string) ($e['failure_reason'] ?? ''));
+                if ($reason !== '') {
+                    $grouped[$ip]['reasons'][$reason] = true;
+                }
+            }
+            foreach ($grouped as $ip => $group) {
+                $failedAuthGroups[] = [
+                    'id' => null,
+                    'ip_address' => $ip,
+                    'attempt_count' => $group['attempt_count'],
+                    'created_at' => $group['last_attempt'],
+                    'reasons' => implode(', ', array_keys($group['reasons'])),
+                ];
+            }
+            usort($failedAuthGroups, static function (array $a, array $b): int {
+                return $b['attempt_count'] <=> $a['attempt_count'];
+            });
+            $failedAuthGroups = array_slice($failedAuthGroups, 0, 25);
         } catch (\Throwable $e) {
-            // login_attempts was dropped; the view no longer exists and the
-            // frontend reads the auth log file for this signal instead.
+            // login_attempts was dropped; the frontend reads the auth log
+            // file for this signal instead.
         }
         $warnings = array_map(static function (array $row): array {
             $attempts = (int) ($row['attempt_count'] ?? 0);
@@ -950,6 +913,123 @@ final class SystemAdminAnalyticsService
     private function scalar(string $sql, array $params = []): int
     {
         return (int) ($this->db->query($sql, $params)->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Read the auth log file entries (login attempts) newest-first.
+     */
+    private function readAuthLogEntries(int $limit = 5000): array
+    {
+        try {
+            return \App\API\Includes\FileLogger::recent('auth', $limit);
+        } catch (\Throwable $e) {
+            error_log('[SystemAdminAnalyticsService] ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Best-effort enrichment of auth events with person/account details.
+     */
+    private function enrichEventUsers(array $events): array
+    {
+        $userIds = [];
+        foreach ($events as $event) {
+            $id = (int) ($event['user_id'] ?? 0);
+            if ($id > 0) {
+                $userIds[$id] = true;
+            }
+        }
+        $details = $this->loadUserDetails($userIds);
+        foreach ($events as &$event) {
+            $detail = $details[$event['user_id']] ?? null;
+            if (!$detail) {
+                continue;
+            }
+            $event['username'] = $detail['username'] ?? $event['username'];
+            $event['first_name'] = $detail['first_name'] ?? null;
+            $event['last_name'] = $detail['last_name'] ?? null;
+            $event['email'] = $detail['email'] ?? null;
+        }
+        unset($event);
+
+        return $events;
+    }
+
+    /**
+     * Best-effort enrichment of auth log rows with person/account details.
+     *
+     * Returns ['rows' => [...], 'locked_count' => int].
+     */
+    private function enrichAuthRows(array $rows): array
+    {
+        $userIds = [];
+        foreach ($rows as $row) {
+            $id = (int) ($row['user_id'] ?? 0);
+            if ($id > 0) {
+                $userIds[$id] = true;
+            }
+        }
+        $details = $this->loadUserDetails($userIds);
+        $lockedCount = 0;
+        foreach ($rows as &$row) {
+            $detail = $details[$row['user_id']] ?? null;
+            if (!$detail) {
+                continue;
+            }
+            $row['username'] = $detail['username'] ?? $row['username'];
+            $row['first_name'] = $detail['first_name'] ?? null;
+            $row['last_name'] = $detail['last_name'] ?? null;
+            $row['email'] = $detail['email'] ?? null;
+            $row['account_status'] = $detail['account_status'] ?? null;
+            $row['consecutive_failed_attempts'] = $detail['consecutive_failed_attempts'] ?? null;
+            $row['account_locked_until'] = $detail['account_locked_until'] ?? null;
+            if (!empty($detail['account_locked_until'])
+                && $detail['account_locked_until'] > date('Y-m-d H:i:s')) {
+                $lockedCount++;
+            }
+        }
+        unset($row);
+
+        return ['rows' => $rows, 'locked_count' => $lockedCount];
+    }
+
+    /**
+     * Load person/account details for the given user IDs, best-effort.
+     */
+    private function loadUserDetails(array $userIds): array
+    {
+        $ids = array_filter(array_map('intval', array_keys($userIds)));
+        if (!$ids) {
+            return [];
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $this->db->query(
+                "SELECT
+                    u.id,
+                    u.username,
+                    u.status AS account_status,
+                    u.failed_login_attempts AS consecutive_failed_attempts,
+                    u.account_locked_until,
+                    pp.first_name,
+                    pp.last_name,
+                    pp.email
+                 FROM users u
+                 LEFT JOIN persons pp ON pp.id = u.person_id
+                 WHERE u.id IN ($placeholders)",
+                $ids
+            );
+            $details = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $details[(int) $row['id']] = $row;
+            }
+            return $details;
+        } catch (\Throwable $e) {
+            error_log('[SystemAdminAnalyticsService] ' . $e->getMessage());
+            return [];
+        }
     }
 
     private function isValidDate(string $value): bool

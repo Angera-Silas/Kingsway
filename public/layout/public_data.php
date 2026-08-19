@@ -90,10 +90,16 @@ function kw_upcoming_events(int $limit = 5): array {
     if (!$db) return [];
     try {
         $st = $db->prepare(
-            "SELECT id, title, description, start_at AS event_date, location, type AS category
+            "SELECT MAX(id) AS id, title,
+                    MAX(description) AS description,
+                    MIN(DATE(start_at)) AS event_date,
+                    MAX(DATE(end_at)) AS end_date,
+                    MAX(location) AS location,
+                    MAX(type) AS category
              FROM school_events
              WHERE start_at >= CURDATE() AND status != 'cancelled'
-             ORDER BY start_at ASC LIMIT ?"
+             GROUP BY title
+             ORDER BY MIN(start_at) ASC LIMIT ?"
         );
         $st->execute([$limit]);
         return $st->fetchAll();
@@ -123,13 +129,19 @@ function kw_academic_terms(): array {
         // Completed terms are excluded. Upcoming terms get priority (listed first)
         // so the next intake is the default choice on the admissions form.
         $st = $db->query(
-            "SELECT ayt.id, t.name, ay.year_code AS year, ayt.opening_date AS start_date,
-                    ayt.closing_date AS end_date, t.code AS term_number, ayt.status
-             FROM academic_year_terms ayt
+            "SELECT aw.id AS admission_window_id, ayt.id, ayt.id AS target_term_id,
+                    t.name, ay.year_code AS year, ay.year_name,
+                    ayt.opening_date AS start_date, ayt.closing_date AS end_date,
+                    t.code AS term_number, ayt.status, aw.eligible_grades,
+                    aw.default_admission_category
+             FROM admission_windows aw
+             JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
              JOIN terms t ON t.id = ayt.term_id
              JOIN academic_years ay ON ay.id = ayt.academic_year_id
-             WHERE ayt.status IN ('current','upcoming')
-             ORDER BY FIELD(ayt.status,'upcoming','current'), ayt.opening_date ASC"
+             WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+               AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+               AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+             ORDER BY aw.application_open_at ASC, ayt.opening_date ASC"
         );
         return $st->fetchAll();
     } catch (\Throwable $e) { return []; }
@@ -538,4 +550,3 @@ function kw_category_image(string $category, int $w = 800): string {
     $id = $map[$category] ?? 'photo-1503676260728-1c00da094a0b';
     return "https://images.unsplash.com/{$id}?w={$w}&q=80";
 }
-

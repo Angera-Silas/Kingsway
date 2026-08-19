@@ -48,6 +48,7 @@ class AuthMiddleware
             'payments/mpesa-c2b-validation',
             'payments/mpesa-c2b-confirmation',
             'payments/mpesa-stk-callback',
+            'payments/kcb-mpesa-express-callback',
             'payments/mpesa-result',
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
@@ -57,6 +58,7 @@ class AuthMiddleware
             'parent-portal/login',
             'parent-portal/login-otp-request',
             'parent-portal/login-otp-verify',
+            'public/uniform-catalog',
             // 2FA challenge/verify — called during login before JWT is issued
             'twofactor/challenge',
             'twofactor/verify',
@@ -114,6 +116,14 @@ class AuthMiddleware
             'public/inquiries',
             'public/applications',
             'public/subscribers',
+            // Provider callbacks are authenticated by the webhook secret checked
+            // in CommunicationsController, not by a staff JWT.
+            'communications/sms-delivery-report',
+            'communications/whatsapp-delivery-report',
+            'communications/whatsapp-incoming',
+            'communications/sms-opt-out-callback',
+            'communications/sms-subscription-callback',
+            'communications/process-outbox',
         ];
 
         // Check if current request is to a public endpoint

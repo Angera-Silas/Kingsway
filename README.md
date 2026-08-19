@@ -144,3 +144,4 @@ Important supporting docs include:
 - [docs/SERVICE_WORKER_GUIDE.md](docs/SERVICE_WORKER_GUIDE.md) for offline/service-worker behavior.
 - [docs/PRINTING_SYSTEM_GUIDE.md](docs/PRINTING_SYSTEM_GUIDE.md) for print and template behavior.
 - [docs/file_lifecycle/FINAL_ARCHITECTURE.md](docs/file_lifecycle/FINAL_ARCHITECTURE.md) for upload and file lifecycle architecture.
+- [docs/PAYMENTS_FINANCE_WORKFLOWS.md](docs/PAYMENTS_FINANCE_WORKFLOWS.md) for fee collection, payroll, supplier payouts, statutory remittances, and provider callbacks.

@@ -35,6 +35,7 @@ const AdmissionsController = {
     referenceData: {
       parents: [],
       academicYears: [],
+      openTerms: [],
     },
   },
 
@@ -532,7 +533,7 @@ const AdmissionsController = {
    * Load reference data for forms (parents, academic years)
    */
   async loadReferenceData() {
-    await Promise.all([this.loadParents(), this.loadAcademicYears(), this.loadClassOptions()]);
+    await Promise.all([this.loadParents(), this.loadAcademicYears(), this.loadOpenTerms(), this.loadClassOptions()]);
   },
 
   async loadClassOptions() {
@@ -586,6 +587,33 @@ const AdmissionsController = {
         "[AdmissionsController] Failed to load academic years:",
         error,
       );
+    }
+  },
+
+  async loadOpenTerms() {
+    try {
+      const response = await API.admission.getOpenAdmissionTerms();
+      const terms = this.unwrapList(response, 'terms');
+      this.state.referenceData.openTerms = terms;
+      const termSelect = document.getElementById('targetTermSelect');
+      const yearSelect = document.getElementById('academicYearSelect');
+      const termInput = document.getElementById('targetTermInput');
+      const yearInput = document.getElementById('academicYearInput');
+      if (!termSelect || !yearSelect || !terms.length) return;
+      termSelect.innerHTML = terms.map((term) => `<option value="${term.target_term_id}">${term.term_name || term.term_number} ${term.year_code || term.year_name}</option>`).join('');
+      termSelect.disabled = false;
+      termSelect.value = String(terms[0].target_term_id);
+      const term = terms[0];
+      const yearCode = term.year_code || term.year_name || '';
+      const parts = yearCode.match(/\d{4}/g) || [];
+      const year = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+      yearSelect.innerHTML = `<option value="${year}">${yearCode}</option>`;
+      yearSelect.value = year;
+      yearSelect.disabled = true;
+      if (termInput) termInput.value = term.target_term_id;
+      if (yearInput) yearInput.value = year;
+    } catch (error) {
+      console.warn('[AdmissionsController] No open admission intake:', error);
     }
   },
 

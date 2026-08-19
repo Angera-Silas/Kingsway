@@ -96,6 +96,16 @@ final class UploadService
                 'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
                 'max_bytes' => 5242880,
             ],
+            'uniform_catalog_image' => [
+                'root' => (string) UPLOAD_PATH . '/uniform_catalog',
+                // Keep the browser URL aligned with the physical upload root.
+                // This prevents catalogue images from being stored under one
+                // path while database links point at a different path.
+                'public_segment' => 'uniform_catalog',
+                'extensions' => ['jpg', 'jpeg', 'png', 'webp'],
+                'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
+                'max_bytes' => 5242880,
+            ],
             'staff_photo' => [
                 'root' => (string) STAFF_PHOTOS,
                 'public_segment' => 'staff/profile_pictures',

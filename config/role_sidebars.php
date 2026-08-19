@@ -68,6 +68,7 @@ return [
             'icon' => 'fas fa-cogs',
             'subitems' => [
                 ['label' => 'System Settings', 'url' => 'system_settings'],
+                ['label' => 'Payment Integration Accounts', 'url' => 'payment_integration_settings'],
                 ['label' => 'Feature Flags', 'url' => 'feature_flags'],
                 ['label' => 'Module Enablement', 'url' => 'module_enablement'],
                 ['label' => 'Maintenance Mode', 'url' => 'maintenance_mode'],
@@ -167,20 +168,11 @@ return [
 
         [
             'label' => 'Website Management',
-            'url' => null,
+            'url' => 'manage_website',
             'icon' => 'fas fa-globe',
-            'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Gallery', 'url' => 'manage_website'],
-                ['label' => 'Downloads', 'url' => 'manage_website'],
-                ['label' => 'Vacancies', 'url' => 'manage_website'],
-                ['label' => 'Applications', 'url' => 'manage_website'],
-                ['label' => 'Inquiries', 'url' => 'manage_website'],
-                ['label' => 'Page Content', 'url' => 'manage_website'],
-                ['label' => 'Settings', 'url' => 'manage_website'],
-            ]
+            'subitems' => null,
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -191,6 +183,7 @@ return [
     // =========================================================================
     3 => [
         ['label' => 'Dashboard', 'url' => 'director_owner_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // Admissions - Director oversight only (operational handled by School Admin, HT, Deputy Academic)
         [
@@ -208,7 +201,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-check-double',
             'subitems' => [
-                ['label' => 'Fee Structure Approval', 'url' => 'manage_fee_structure'],        // approve what accountant drafted
+                ['label' => 'Fee Structure Approval', 'url' => 'fee_structure_approvals'],        // approve what accountant drafted
                 ['label' => 'Finance Approvals', 'url' => 'finance_approvals'],           // approve large transactions
             ]
         ],
@@ -281,6 +274,7 @@ return [
                 ['label' => 'Manage Payrolls', 'url' => 'manage_payrolls'],            // create, review and approve by permission
                 ['label' => 'Payroll History', 'url' => 'payroll'],
                 ['label' => 'Payslips', 'url' => 'payslips'],
+                ['label' => 'Statutory Remittances', 'url' => 'statutory_remittances'],  // KRA/NHIF/NSSF tracking
             ]
         ],
 
@@ -304,6 +298,10 @@ return [
             'icon' => 'fas fa-money-bill-wave',
             'subitems' => [
                 ['label' => 'Manage Payments', 'url' => 'manage_payments'],
+                ['label' => 'Supplier Payments', 'url' => 'supplier_payments'],
+                ['label' => 'Parent Refunds', 'url' => 'parent_refunds'],
+                ['label' => 'Student Fund Transfers', 'url' => 'student_fund_transfers'],
+                ['label' => 'Payment Reconciliation', 'url' => 'payment_reconciliation'],
                 ['label' => 'Vendors', 'url' => 'vendors'],
                 ['label' => 'Purchase Orders', 'url' => 'purchase_orders'],
             ]
@@ -341,7 +339,7 @@ return [
             'icon' => 'fas fa-bus',
             'subitems' => [
                 ['label' => 'Manage Transport', 'url' => 'manage_transport'],
-                ['label' => 'Transportation Fees', 'url' => 'manage_transport'],            // Director approves transport fee rates
+                ['label' => 'Transportation Fees', 'url' => 'transport_fees'],            // Director approves transport fee rates
                 ['label' => 'Routes Overview', 'url' => 'my_routes'],
             ]
         ],
@@ -364,10 +362,8 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Financial', 'url' => 'finance_reports'],
                 ['label' => 'Academic', 'url' => 'academic_reports'],
                 ['label' => 'Performance', 'url' => 'performance_reports'],
-                ['label' => 'Enrollment', 'url' => 'enrollment_reports'],
                 ['label' => 'Comparative', 'url' => 'comparative_reports'],
                 ['label' => 'Attendance Trends', 'url' => 'attendance_trends'],
             ]
@@ -387,19 +383,9 @@ return [
 
         [
             'label' => 'Website Management',
-            'url' => null,
+            'url' => 'manage_website',
             'icon' => 'fas fa-globe',
-            'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Gallery', 'url' => 'manage_website'],
-                ['label' => 'Downloads', 'url' => 'manage_website'],
-                ['label' => 'Vacancies', 'url' => 'manage_website'],
-                ['label' => 'Applications', 'url' => 'manage_website'],
-                ['label' => 'Inquiries', 'url' => 'manage_website'],
-                ['label' => 'Page Content', 'url' => 'manage_website'],
-                ['label' => 'Settings', 'url' => 'manage_website'],
-            ]
+            'subitems' => null,
         ],
 
         // Activities — oversight, not operational and make recommendations to school admin
@@ -435,6 +421,7 @@ return [
     // =========================================================================
     4 => [
         ['label' => 'Dashboard', 'url' => 'school_administrative_officer_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ADMISSIONS — School Admin is the primary handler of the full workflow
         // Application → intake → documents → schedule interview → record fee → CREATE student → generate ID → assign class
@@ -509,6 +496,10 @@ return [
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // review (not draft — that's accountant)
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
                 ['label' => 'Record Payments', 'url' => 'manage_payments'],
+                ['label' => 'Supplier Payments', 'url' => 'supplier_payments'],
+                ['label' => 'Parent Refunds', 'url' => 'parent_refunds'],
+                ['label' => 'Student Fund Transfers', 'url' => 'student_fund_transfers'],
+                ['label' => 'Payment Reconciliation', 'url' => 'payment_reconciliation'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
                 ['label' => 'Fee Defaulters', 'url' => 'fee_defaulters'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
@@ -524,6 +515,7 @@ return [
             'subitems' => [
                 ['label' => 'Create Payroll', 'url' => 'manage_payrolls'],            // Admin drafts payroll
                 ['label' => 'Payroll Records', 'url' => 'payroll'],
+                ['label' => 'Statutory Remittances', 'url' => 'statutory_remittances'],
             ]
         ],
 
@@ -535,9 +527,8 @@ return [
             'subitems' => [
                 ['label' => 'Manage Transport', 'url' => 'manage_transport'],
                 ['label' => 'Routes', 'url' => 'my_routes'],
-                ['label' => 'Assign Students to Routes', 'url' => 'manage_transport'],
-                ['label' => 'Transport Fees', 'url' => 'manage_transport'],
-                ['label' => 'Permissions & Exeats', 'url' => 'permissions_exeats'],
+                ['label' => 'Assign Students to Routes', 'url' => 'student_route_assignment'],
+                ['label' => 'Transport Fees', 'url' => 'transport_fees'],
             ]
         ],
 
@@ -553,8 +544,6 @@ return [
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
                 ['label' => 'Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'View Timetable', 'url' => 'manage_timetable'],
-                ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
-                ['label' => 'View Results', 'url' => 'view_results'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
@@ -606,7 +595,6 @@ return [
             'icon' => 'fas fa-calendar-alt',
             'subitems' => [
                 ['label' => 'School Events', 'url' => 'school_events'],
-                ['label' => 'Manage Calendar', 'url' => 'manage_calendar_events'],
                 ['label' => 'Manage Holidays', 'url' => 'manage_holidays'],
                 ['label' => 'Staff Meetings', 'url' => 'manage_staff_meetings'],
                 ['label' => 'Assemblies', 'url' => 'assemblies'],
@@ -630,7 +618,7 @@ return [
             'icon' => 'fas fa-gavel',
             'subitems' => [
                 ['label' => 'Discipline Cases', 'url' => 'discipline_cases'],
-                ['label' => 'Parent Notifications', 'url' => 'manage_communications'],
+                ['label' => 'Parent Notifications', 'url' => 'send_parent_notifications'],
             ]
         ],
 
@@ -654,8 +642,6 @@ return [
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
                 ['label' => 'Academic Reports', 'url' => 'academic_reports'],
-                ['label' => 'Enrollment Reports', 'url' => 'enrollment_reports'],
-                ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
                 ['label' => 'Financial Summary', 'url' => 'finance_reports'],
             ]
         ],
@@ -677,19 +663,9 @@ return [
         */
         [
             'label' => 'Website Management',
-            'url' => null,
+            'url' => 'manage_website',
             'icon' => 'fas fa-globe',
-            'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Gallery', 'url' => 'manage_website'],
-                ['label' => 'Downloads', 'url' => 'manage_website'],
-                ['label' => 'Vacancies', 'url' => 'manage_website'],
-                ['label' => 'Applications', 'url' => 'manage_website'],
-                ['label' => 'Inquiries', 'url' => 'manage_website'],
-                ['label' => 'Page Content', 'url' => 'manage_website'],
-                ['label' => 'Settings', 'url' => 'manage_website'],
-            ]
+            'subitems' => []
         ],
 
         ['label' => 'Library', 'url' => null, 'icon' => 'fas fa-book', 'subitems' => [['label' => 'Manage Library', 'url' => 'manage_library']]],
@@ -708,6 +684,7 @@ return [
     // =========================================================================
     5 => [
         ['label' => 'Dashboard', 'url' => 'headteacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ADMISSIONS — HT review, interview, decision, oversight
         [
@@ -848,8 +825,6 @@ return [
             'subitems' => [
                 ['label' => 'Academic Reports', 'url' => 'academic_reports'],
                 ['label' => 'Performance Analysis', 'url' => 'performance_analysis'],
-                ['label' => 'Enrollment', 'url' => 'enrollment_reports'],
-                ['label' => 'Attendance', 'url' => 'attendance_reports'],
                 ['label' => 'Term Reports', 'url' => 'term_reports'],
                 ['label' => 'Comparative', 'url' => 'comparative_reports'],
             ]
@@ -871,14 +846,14 @@ return [
             'url' => null,
             'icon' => 'fas fa-globe',
             'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Gallery', 'url' => 'manage_website'],
-                ['label' => 'Downloads', 'url' => 'manage_website'],
-                ['label' => 'Vacancies', 'url' => 'manage_website'],
-                ['label' => 'Applications', 'url' => 'manage_website'],
-                ['label' => 'Inquiries', 'url' => 'manage_website'],
-                ['label' => 'Page Content', 'url' => 'manage_website'],
+                ['label' => 'News Articles', 'url' => 'manage_articles'],
+                ['label' => 'Events', 'url' => 'manage_public_events'],
+                ['label' => 'Gallery', 'url' => 'manage_school_gallery'],
+                ['label' => 'Downloads', 'url' => 'manage_public_downloads'],
+                ['label' => 'Vacancies', 'url' => 'manage_job_vacancies'],
+                ['label' => 'Applications', 'url' => 'manage_job_applications'],
+                ['label' => 'Inquiries', 'url' => 'manage_inquiries'],
+                ['label' => 'Page Content', 'url' => 'manage_page_content'],
             ]
         ],
 
@@ -954,8 +929,8 @@ return [
             'icon' => 'fas fa-calendar-alt',
             'subitems' => [
                 ['label' => 'All Timetables', 'url' => 'manage_timetable'], //draft timetables for grades 4-9 and assign teachers to the learning areas in the timetable
-                ['label' => 'Assign Teachers', 'url' => 'manage_timetable'],           // WORKFLOW: Deputy assigns teachers
-                ['label' => 'Teacher Timetables', 'url' => 'timetable'],
+                ['label' => 'Assign Teachers', 'url' => 'teacher_subject_assignment'],           // WORKFLOW: Deputy assigns teachers
+                ['label' => 'Teacher Timetables', 'url' => 'teacher_timetables'],
                 ['label' => 'Supervision Roster', 'url' => 'supervision_roster'],
             ]
         ],
@@ -968,7 +943,7 @@ return [
             'subitems' => [
                 ['label' => 'All Lesson Plans', 'url' => 'all_lesson_plans'],
                 ['label' => 'Pending My Review', 'url' => 'lesson_plan_approval'],       // WORKFLOW: Deputy → HT
-                ['label' => 'Approved Plans', 'url' => 'manage_lesson_plans'],
+                ['label' => 'Approved Plans', 'url' => 'approved_lesson_plans'],
                 ['label' => 'By Class', 'url' => 'lesson_plans_by_class'],
                 ['label' => 'By Teacher', 'url' => 'lesson_plans_by_teacher'],
             ]
@@ -1024,7 +999,7 @@ return [
             'icon' => 'fas fa-clipboard-check',
             'subitems' => [
                 ['label' => 'Daily Overview', 'url' => 'view_attendance'],
-                ['label' => 'Submit Attendance', 'url' => 'mark_attendance'],
+                ['label' => 'Submit Attendance', 'url' => 'daily_attendance'],
                 ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
                 ['label' => 'Attendance Trends', 'url' => 'attendance_trends'],
             ]
@@ -1051,6 +1026,7 @@ return [
             'icon' => 'fas fa-id-badge',
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -1071,9 +1047,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-globe',
             'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Applications', 'url' => 'manage_website'],
+                ['label' => 'News Articles', 'url' => 'manage_articles'],
+                ['label' => 'Events', 'url' => 'manage_public_events'],
+                ['label' => 'Applications', 'url' => 'manage_job_applications'],
             ]
         ],
 
@@ -1087,6 +1063,7 @@ return [
     // =========================================================================
     7 => [
         ['label' => 'Dashboard', 'url' => 'class_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // MY CLASS — primary daily view
         [
@@ -1132,7 +1109,7 @@ return [
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Create Lesson Plan', 'url' => 'manage_lesson_plans'],        // CREATE — key workflow step
+                ['label' => 'Create Lesson Plan', 'url' => 'create_lesson_plan'],        // CREATE — key workflow step
                 ['label' => 'Schemes of Work', 'url' => 'my_schemes_of_work'],
             ]
         ],
@@ -1196,6 +1173,18 @@ return [
             ]
         ],
 
+        // ── HR (personal) ────────────────────────────────────────────────────
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+            ]
+        ],
+
         [
             'label' => 'Communications',
             'url' => null,
@@ -1205,6 +1194,7 @@ return [
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1213,6 +1203,7 @@ return [
     // =========================================================================
     8 => [
         ['label' => 'Dashboard', 'url' => 'subject_teacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         [
             'label' => 'My Subjects',
@@ -1258,7 +1249,7 @@ return [
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'], // view own plans
-                ['label' => 'Create Lesson Plan', 'url' => 'manage_lesson_plans'], //get strands for each learning area assigned
+                ['label' => 'Create Lesson Plan', 'url' => 'create_lesson_plan'], //get strands for each learning area assigned
                 ['label' => 'Schemes of Work', 'url' => 'subject_schemes_of_work'],
             ]
         ],
@@ -1308,6 +1299,18 @@ return [
             ]
         ],
 
+        // ── HR (personal) ────────────────────────────────────────────────────
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+            ]
+        ],
+
         [
             'label' => 'Communications',
             'url' => null,
@@ -1317,6 +1320,7 @@ return [
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1343,8 +1347,8 @@ return [
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Create Plan', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Mentor Feedback', 'url' => 'manage_lesson_plans'],
+                ['label' => 'Create Plan', 'url' => 'create_lesson_plan'],
+                ['label' => 'Mentor Feedback', 'url' => 'mentor_feedback'],
             ]
         ],
 
@@ -1414,6 +1418,7 @@ return [
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1433,12 +1438,12 @@ return [
             'url' => null,
             'icon' => 'fas fa-list-alt',
             'subitems' => [
-                ['label' => 'Draft Fee Structure', 'url' => 'manage_fee_structure'],       // ACCOUNTANT DRAFTS
+                ['label' => 'Draft Fee Structure', 'url' => 'draft_fee_structure'],       // ACCOUNTANT DRAFTS new structure or edits the existing ones that are not yet applied
                 ['label' => 'Current Structure', 'url' => 'manage_fee_structure'],
-                ['label' => 'Fee Components', 'url' => 'manage_fee_structure'],
-                ['label' => 'Boarding Fees', 'url' => 'manage_fee_structure'],
-                ['label' => 'Transport Fees', 'url' => 'manage_fee_structure'],
-                ['label' => 'Pending Director Approval', 'url' => 'manage_fee_structure'],
+                ['label' => 'Fee Components', 'url' => 'view_fee_structure_components'],
+                ['label' => 'Boarding Fees', 'url' => 'manage_boarding_fee_structure'],
+                ['label' => 'Transport Fees', 'url' => 'manage_transport_fee_structure'],
+                ['label' => 'Pending Director Approval', 'url' => 'view_fee_structure_progress'],
             ]
         ],
 
@@ -1448,12 +1453,17 @@ return [
             'url' => null,
             'icon' => 'fas fa-file-invoice',
             'subitems' => [
+
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
-                ['label' => 'Generate Bills', 'url' => 'student_fees'],
-                ['label' => 'Payment Records', 'url' => 'manage_payments'],
+                ['label' => 'Admission Fees', 'url' => 'manage_admissions_payments'],
+                ['label' => 'Record Payments', 'url' => 'manage_payments'], //record cash payments
+                ['label' => 'Generate Bills', 'url' => 'student_fees_bill'],
+                ['label' => 'Payment Records', 'url' => 'payment_records'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
                 ['label' => 'Fee Defaulters', 'url' => 'fee_defaulters'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
+                
+
             ]
         ],
 
@@ -1466,12 +1476,11 @@ return [
                 ['label' => 'Manage Payrolls', 'url' => 'manage_payrolls'],            // view approved and process by permission
                 ['label' => 'Payslips', 'url' => 'payslips'],
                 ['label' => 'Payroll History', 'url' => 'payroll'],
+                ['label' => 'Statutory Remittances', 'url' => 'statutory_remittances'],
             ]
         ],
 
-        // ADMISSION FEES — record when new student pays
-        ['label' => 'Admission Fees', 'url' => 'manage_payments', 'icon' => 'fas fa-user-plus', 'subitems' => []],
-
+        
         // EXPENDITURE
         [
             'label' => 'Expenditure',
@@ -1506,7 +1515,7 @@ return [
             'icon' => 'fas fa-chart-line',
             'subitems' => [
                 ['label' => 'Budget Overview', 'url' => 'budget_overview'],
-                ['label' => 'Budget vs Actuals', 'url' => 'budget_overview'],
+                ['label' => 'Budget vs Actuals', 'url' => 'budget_actuals'],
             ]
         ],
 
@@ -1516,7 +1525,7 @@ return [
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
                 ['label' => 'Financial Reports', 'url' => 'finance_reports'],
-                ['label' => 'Payment Reports', 'url' => 'manage_payments'],
+                ['label' => 'Payment Reports', 'url' => 'payment_reports'],
                 ['label' => 'Enrollment Finance', 'url' => 'enrollment_reports'],
             ]
         ],
@@ -1555,6 +1564,7 @@ return [
                 ['label' => 'Email', 'url' => 'manage_email'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1572,8 +1582,8 @@ return [
                 ['label' => 'Manage Inventory', 'url' => 'manage_inventory'],
                 ['label' => 'Stock Management', 'url' => 'manage_stock'],
                 ['label' => 'Requisitions', 'url' => 'manage_requisitions'],
-                ['label' => 'Low Stock Alerts', 'url' => 'manage_inventory'],
-                ['label' => 'Stock Reports', 'url' => 'manage_inventory'],
+                ['label' => 'Low Stock Alerts', 'url' => 'low_stock_alerts'],
+                ['label' => 'Stock Reports', 'url' => 'stock_reports'],
             ]
         ],
 
@@ -1583,7 +1593,7 @@ return [
             'icon' => 'fas fa-shopping-cart',
             'subitems' => [
                 ['label' => 'Manage Sales', 'url' => 'manage_uniform_sales'],
-                ['label' => 'Sales Records', 'url' => 'manage_uniform_sales'],
+                ['label' => 'Sales Records', 'url' => 'uniform_sales_records'],
             ]
         ],
 
@@ -1594,7 +1604,7 @@ return [
             'subitems' => [
                 ['label' => 'Vendors', 'url' => 'vendors'],
                 ['label' => 'Purchase Orders', 'url' => 'purchase_orders'],
-                ['label' => 'Goods Received', 'url' => 'purchase_orders'],
+                ['label' => 'Goods Received', 'url' => 'goods_received'],
                 ['label' => 'Invoices', 'url' => 'vendor_invoices'],
             ]
         ],
@@ -1605,8 +1615,8 @@ return [
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'Manage Books', 'url' => 'manage_library'],
-                ['label' => 'Issue / Return', 'url' => 'manage_library'],
-                ['label' => 'Overdue Books', 'url' => 'manage_library'],
+                ['label' => 'Issue / Return', 'url' => 'library_issue_return'],
+                ['label' => 'Overdue Books', 'url' => 'library_overdue'],
             ]
         ],
 
@@ -1616,7 +1626,7 @@ return [
             'icon' => 'fas fa-utensils',
             'subitems' => [
                 ['label' => 'Food Stock', 'url' => 'food_store'],
-                ['label' => 'Food Orders', 'url' => 'food_store'],
+                ['label' => 'Food Orders', 'url' => 'food_orders'],
             ]
         ],
 
@@ -1625,8 +1635,8 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Inventory Reports', 'url' => 'manage_inventory'],
-                ['label' => 'Purchase Reports', 'url' => 'purchase_orders'],
+                ['label' => 'Inventory Reports', 'url' => 'inventory_reports'],
+                ['label' => 'Purchase Reports', 'url' => 'purchase_reports'],
             ]
         ],
 
@@ -1639,6 +1649,7 @@ return [
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1654,8 +1665,8 @@ return [
             'icon' => 'fas fa-utensils',
             'subitems' => [
                 ['label' => 'Menu Planning', 'url' => 'menu_planning'],
-                ['label' => 'Today\'s Menu', 'url' => 'manage_menus'],
-                ['label' => 'Weekly Menu', 'url' => 'manage_menus'],
+                ['label' => 'Today\'s Menu', 'url' => 'todays_menu'],
+                ['label' => 'Weekly Menu', 'url' => 'weekly_menu'],
                 ['label' => 'Manage Menus', 'url' => 'manage_menus'],
             ]
         ],
@@ -1666,9 +1677,9 @@ return [
             'icon' => 'fas fa-warehouse',
             'subitems' => [
                 ['label' => 'Food Inventory', 'url' => 'food_store'],
-                ['label' => 'Food Stock Levels', 'url' => 'food_store'],
-                ['label' => 'Low Stock Alerts', 'url' => 'food_store'],
-                ['label' => 'Food Orders', 'url' => 'food_store'],
+                ['label' => 'Food Stock Levels', 'url' => 'food_stock_levels'],
+                ['label' => 'Low Stock Alerts', 'url' => 'food_low_stock'],
+                ['label' => 'Food Orders', 'url' => 'food_orders'],
             ]
         ],
 
@@ -1696,13 +1707,14 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Meal Statistics', 'url' => 'manage_menus'],
-                ['label' => 'Food Consumption', 'url' => 'food_store'],
+                ['label' => 'Meal Statistics', 'url' => 'meal_statistics'],
+                ['label' => 'Food Consumption', 'url' => 'food_consumption'],
             ]
         ],
 
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1712,10 +1724,10 @@ return [
     // =========================================================================
     18 => [
         ['label' => 'Dashboard', 'url' => 'matron_housemother_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ADMISSIONS — Boarding Master assigns dorm after Admin creates student record
-        ['label' => 'New Boarders', 'url' => 'dormitory_management', 'icon' => 'fas fa-user-plus', 'subitems' => []],
-
+        ['label' => 'New Boarders', 'url' => 'room_assignments', 'icon' => 'fas fa-user-plus', 'subitems' => []],
         // BOARDING — core daily operations
         [
             'label' => 'Boarding',
@@ -1725,7 +1737,6 @@ return [
                 ['label' => 'Manage Boarding', 'url' => 'manage_boarding'],
                 ['label' => 'Roll Call', 'url' => 'boarding_roll_call'],
                 ['label' => 'Dormitory Management', 'url' => 'dormitory_management'],
-                ['label' => 'Room Assignments', 'url' => 'dormitory_management'],
                 ['label' => 'Boarding Students List', 'url' => 'boarding_students'],
             ]
         ],
@@ -1737,9 +1748,9 @@ return [
             'icon' => 'fas fa-id-card',
             'subitems' => [
                 ['label' => 'Issue Exeat', 'url' => 'permissions_exeats'],
-                ['label' => 'Pending Requests', 'url' => 'permissions_exeats'],
-                ['label' => 'Exeat History', 'url' => 'permissions_exeats'],
-                ['label' => 'End-of-Term Travel', 'url' => 'permissions_exeats'],
+                ['label' => 'Pending Requests', 'url' => 'pending_exeat_requests'],
+                ['label' => 'Exeat History', 'url' => 'exeat_history'],
+                ['label' => 'End-of-Term Travel', 'url' => 'end_of_term_travel'],
             ]
         ],
 
@@ -1751,8 +1762,8 @@ return [
             'subitems' => [
                 ['label' => 'Student Health Records', 'url' => 'student_health'],
                 ['label' => 'Sick Bay Log', 'url' => 'sick_bay'],
-                ['label' => 'Medical Alerts', 'url' => 'student_health'],
-                ['label' => 'Vaccination Records', 'url' => 'student_health'],
+                ['label' => 'Medical Alerts', 'url' => 'medical_alerts'],
+                ['label' => 'Vaccination Records', 'url' => 'vaccination_records'],
             ]
         ],
 
@@ -1762,8 +1773,8 @@ return [
             'url' => null,
             'icon' => 'fas fa-clipboard-check',
             'subitems' => [
-                ['label' => 'Evening Roll Call', 'url' => 'boarding_roll_call'],
-                ['label' => 'Morning Roll Call', 'url' => 'boarding_roll_call'],
+                ['label' => 'Evening Roll Call', 'url' => 'evening_roll_call'],
+                ['label' => 'Morning Roll Call', 'url' => 'morning_roll_call'],
                 ['label' => 'Absence Reports', 'url' => 'attendance_reports'],
             ]
         ],
@@ -1773,9 +1784,20 @@ return [
             'url' => null,
             'icon' => 'fas fa-user-graduate',
             'subitems' => [
-                ['label' => 'All Boarding Students', 'url' => 'boarding_students'],
-                ['label' => 'Student Profiles', 'url' => 'student_profiles'],
+                ['label' => 'Boarding Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
+            ]
+        ],
+
+        // ── HR (personal) ────────────────────────────────────────────────────
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
 
@@ -1786,7 +1808,7 @@ return [
             'subitems' => [
                 ['label' => 'My Messages', 'url' => 'communications/messages_inbox'],
                 ['label' => 'Announcements', 'url' => 'manage_announcements'],
-                ['label' => 'Parent Notifications', 'url' => 'manage_communications'],
+                ['label' => 'Parent Notifications', 'url' => 'send_parent_notifications'],
             ]
         ],
 
@@ -1795,11 +1817,12 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Boarding Reports', 'url' => 'manage_boarding'],
-                ['label' => 'Health Reports', 'url' => 'student_health'],
-                ['label' => 'Exeat Reports', 'url' => 'permissions_exeats'],
+                ['label' => 'Boarding Reports', 'url' => 'boarding_reports'],
+                ['label' => 'Health Reports', 'url' => 'health_reports'],
+                ['label' => 'Exeat Reports', 'url' => 'exeat_reports'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1815,7 +1838,7 @@ return [
             'icon' => 'fas fa-running',
             'subitems' => [
                 ['label' => 'Manage Activities', 'url' => 'manage_activities'],
-                ['label' => 'Create Activity', 'url' => 'manage_activities'],
+                ['label' => 'Create Activity', 'url' => 'create_activity'],
                 ['label' => 'Clubs & Societies', 'url' => 'clubs_societies'],
                 ['label' => 'Sports Teams', 'url' => 'sports'],
                 ['label' => 'Competitions', 'url' => 'competitions'],
@@ -1829,7 +1852,6 @@ return [
             'subitems' => [
                 ['label' => 'School Events', 'url' => 'school_events'],
                 ['label' => 'Assemblies', 'url' => 'assemblies'],
-                ['label' => 'Event Schedule', 'url' => 'manage_calendar_events'],
                 ['label' => 'View Calendar', 'url' => 'view_calendar'],
             ]
         ],
@@ -1840,8 +1862,8 @@ return [
             'icon' => 'fas fa-user-graduate',
             'subitems' => [
                 ['label' => 'Activity Participants', 'url' => 'all_students'],
-                ['label' => 'Participant Registration', 'url' => 'manage_activities'],
-                ['label' => 'Achievement Records', 'url' => 'manage_activities'],
+                ['label' => 'Participant Registration', 'url' => 'activity_participants'],
+                ['label' => 'Achievement Records', 'url' => 'activity_achievements'],
             ]
         ],
 
@@ -1860,9 +1882,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-globe',
             'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
-                ['label' => 'Gallery', 'url' => 'manage_website'],
+                ['label' => 'News Articles', 'url' => 'manage_articles'],
+                ['label' => 'Events', 'url' => 'manage_public_events'],
+                ['label' => 'Gallery', 'url' => 'manage_school_gallery'],
             ]
         ],
 
@@ -1871,10 +1893,11 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Activity Reports', 'url' => 'manage_activities'],
-                ['label' => 'Participation Reports', 'url' => 'manage_activities'],
+                ['label' => 'Activity Reports', 'url' => 'activity_reports'],
+                ['label' => 'Participation Reports', 'url' => 'participation_reports'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1883,6 +1906,7 @@ return [
     // =========================================================================
     23 => [
         ['label' => 'Dashboard', 'url' => 'driver_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         [
             'label' => 'Transport',
@@ -1904,8 +1928,21 @@ return [
             ]
         ],
 
+        // ── HR (personal) ────────────────────────────────────────────────────
+        [
+            'label' => 'My HR',
+            'url' => null,
+            'icon' => 'fas fa-id-badge',
+            'subitems' => [
+                ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
+                ['label' => 'My Attendance', 'url' => 'my_attendance'],
+            ]
+        ],
+
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -1923,7 +1960,7 @@ return [
                 ['label' => 'Student Sessions', 'url' => 'student_counseling'],
                 ['label' => 'Counseling Records', 'url' => 'counseling_records'],
                 ['label' => 'Referrals', 'url' => 'counseling_referrals'],      // from Discipline Deputy
-                ['label' => 'Case Management', 'url' => 'student_counseling'],
+                ['label' => 'Case Management', 'url' => 'counseling_cases'],
             ]
         ],
 
@@ -1933,7 +1970,7 @@ return [
             'icon' => 'fas fa-church',
             'subitems' => [
                 ['label' => 'Chapel Services', 'url' => 'chapel_services'],
-                ['label' => 'Chapel Schedule', 'url' => 'chapel_services'],
+                ['label' => 'Chapel Schedule', 'url' => 'chapel_schedule'],
             ]
         ],
 
@@ -1966,7 +2003,7 @@ return [
             'icon' => 'fas fa-user-graduate',
             'subitems' => [
                 ['label' => 'Student Welfare', 'url' => 'student_welfare'],
-                ['label' => 'Welfare Records', 'url' => 'student_counseling'],
+                ['label' => 'Welfare Records', 'url' => 'welfare_records'],
             ]
         ],
 
@@ -1985,10 +2022,11 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Counseling Reports', 'url' => 'student_counseling'],
-                ['label' => 'Welfare Summary', 'url' => 'at_risk_students'],
+                ['label' => 'Counseling Reports', 'url' => 'counseling_reports'],
+                ['label' => 'Welfare Summary', 'url' => 'welfare_summary'],
             ]
         ],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2012,6 +2050,7 @@ return [
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2034,6 +2073,7 @@ return [
         ],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2049,6 +2089,7 @@ return [
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2060,6 +2101,7 @@ return [
     // =========================================================================
     63 => [
         ['label' => 'Dashboard', 'url' => 'deputy_head_discipline_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
 
         // ── MY TEACHING (daily teacher tasks) ────────────────────────────────
         [
@@ -2085,9 +2127,9 @@ return [
             'subitems' => [
                 ['label' => 'All Cases', 'url' => 'discipline_cases'],
                 ['label' => 'Log New Case', 'url' => 'log_discipline_case'],
-                ['label' => 'Open Cases', 'url' => 'discipline_cases'],
-                ['label' => 'Suspensions / Expulsions', 'url' => 'discipline_cases'],
-                ['label' => 'Sanctions', 'url' => 'policy_violations'],
+                ['label' => 'Open Cases', 'url' => 'pending_discipline_cases'],
+                ['label' => 'Suspensions / Expulsions', 'url' => 'suspensions_expulsions'],
+                ['label' => 'Sanctions', 'url' => 'sanctions'],
                 ['label' => 'Policy Violations', 'url' => 'policy_violations'],
             ]
         ],
@@ -2116,9 +2158,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-user-check',
             'subitems' => [
-                ['label' => 'Behavior Logs', 'url' => 'conduct_reports'],
-                ['label' => 'Conduct Grades', 'url' => 'conduct_reports'],
-                ['label' => 'Rewards & Recognition', 'url' => 'conduct_reports'],
+                ['label' => 'Behavior Logs', 'url' => 'behavior_logs'],
+                ['label' => 'Conduct Grades', 'url' => 'conduct_grades'],
+                ['label' => 'Rewards & Recognition', 'url' => 'rewards_recognition'],
                 ['label' => 'Refer to Counseling', 'url' => 'student_counseling'],         // → Chaplain/Counselor workflow
                 ['label' => 'At-Risk Students', 'url' => 'student_welfare'],
             ]
@@ -2133,7 +2175,7 @@ return [
                 ['label' => 'Daily Attendance Overview', 'url' => 'view_attendance'],
                 ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
                 ['label' => 'Absenteeism Trends', 'url' => 'attendance_trends'],
-                ['label' => 'Parent Alerts (Truancy)', 'url' => 'manage_communications'],
+                ['label' => 'Parent Alerts (Truancy)', 'url' => 'send_parent_notifications'],
             ]
         ],
 
@@ -2145,7 +2187,7 @@ return [
             'subitems' => [
                 ['label' => 'Parent Meetings', 'url' => 'parent_meetings'],
                 ['label' => 'Send Notifications', 'url' => 'manage_communications'],
-                ['label' => 'Meeting Records', 'url' => 'parent_meetings'],
+                ['label' => 'Meeting Records', 'url' => 'parent_meeting_records'],
             ]
         ],
 
@@ -2168,6 +2210,7 @@ return [
             'icon' => 'fas fa-id-badge',
             'subitems' => [
                 ['label' => 'My Payslip', 'url' => 'detailed_payslip'],
+                ['label' => 'Leave Requests', 'url' => 'staff_leave'],
                 ['label' => 'My Attendance', 'url' => 'my_attendance'],
             ]
         ],
@@ -2187,8 +2230,8 @@ return [
             'url' => null,
             'icon' => 'fas fa-globe',
             'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_website'],
-                ['label' => 'Events', 'url' => 'manage_website'],
+                ['label' => 'News Articles', 'url' => 'manage_articles'],
+                ['label' => 'Events', 'url' => 'manage_public_events'],
             ]
         ],
 
@@ -2197,14 +2240,14 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
-                ['label' => 'Discipline Reports', 'url' => 'conduct_reports'],
-                ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
+                ['label' => 'Discipline Reports', 'url' => 'discipline_reports'],
                 ['label' => 'Conduct Reports', 'url' => 'conduct_reports'],
                 ['label' => 'Term Summary', 'url' => 'term_reports'],
             ]
         ],
 
         ['label' => 'Library', 'url' => null, 'icon' => 'fas fa-book', 'subitems' => [['label' => 'Library', 'url' => 'manage_library']]],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
     // =========================================================================
@@ -2220,6 +2263,7 @@ return [
         ['label' => 'Payslips & P9', 'url' => 'detailed_payslip', 'icon' => 'fas fa-file-invoice', 'subitems' => []],
         ['label' => 'Announcements', 'url' => 'manage_announcements', 'icon' => 'fas fa-bullhorn', 'subitems' => []],
         ['label' => 'My Messages', 'url' => 'communications/messages_inbox', 'icon' => 'fas fa-comments', 'subitems' => []],
+        ['label' => 'School Calendar', 'url' => 'academic_calendar', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
     ],
 
 ];

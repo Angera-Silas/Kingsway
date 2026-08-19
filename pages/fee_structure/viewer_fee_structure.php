@@ -13,28 +13,58 @@
 /* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<!-- Page Header -->
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-        <h2 class="mb-1"><i class="bi bi-clipboard-data"></i> Fee Structure Overview</h2>
-        <p class="text-muted mb-0">View fee structures across all classes and levels</p>
+        <div class="text-uppercase text-muted small fw-semibold">Finance oversight</div>
+        <h2 class="mb-1"><i class="bi bi-wallet2 me-2"></i>Fee Structure Review</h2>
+        <p class="text-muted mb-0">Review submitted structures and monitor active fees.</p>
     </div>
-    <div>
-        <button class="btn btn-outline-secondary btn-sm" onclick="exportReport()">
-            <i class="bi bi-download"></i> Export Report
-        </button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="printSummary()">
-            <i class="bi bi-printer"></i> Print Summary
-        </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportReport()"><i class="bi bi-download me-1"></i>Export</button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="printSummary()"><i class="bi bi-printer me-1"></i>Print</button>
     </div>
 </div>
 
-<!-- Stats Row -->
+<div class="card border-warning shadow-sm mb-4" id="headteacherFeeReviewCard">
+    <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center bg-warning-subtle">
+        <div><strong><i class="bi bi-inbox me-1"></i>Pending review</strong><br><small class="text-muted">Record feedback before final approval.</small></div>
+        <span class="badge text-bg-warning" id="viewerPendingFeeCount">0 pending</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>Academic Year</th><th>Terms</th><th>Student Types</th><th>Classes</th><th class="text-end">Action</th></tr></thead>
+            <tbody id="viewerPendingFeeBody"><tr><td colspan="5" class="text-center text-muted py-3">Loading…</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="feeReviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-1">Review Fee Structure</h5>
+                    <small class="text-muted" id="feeReviewMeta">Loading saved grade amounts…</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="feeReviewModalBody">
+                <div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm me-2"></div>Loading saved structure…</div>
+            </div>
+            <div class="modal-footer d-block">
+                <label for="feeReviewNotes" class="form-label fw-semibold">Review feedback</label>
+                <textarea id="feeReviewNotes" class="form-control mb-3" rows="3" placeholder="Record observations for the School Administrator or Director"></textarea>
+                <div class="text-end"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button><button type="button" class="btn btn-primary" id="submitFeeReviewBtn">Save review feedback</button></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card border-primary">
             <div class="card-body text-center">
-                <h6 class="text-muted mb-2"><i class="bi bi-clipboard-data"></i> Active Fee Structures</h6>
+        <h6 class="text-muted mb-2">Active structures</h6>
                 <h3 class="text-primary mb-0" id="activeStructures">0</h3>
             </div>
         </div>
@@ -42,7 +72,7 @@
     <div class="col-md-4">
         <div class="card border-success">
             <div class="card-body text-center">
-                <h6 class="text-muted mb-2"><i class="bi bi-cash-coin"></i> Total Expected Revenue</h6>
+        <h6 class="text-muted mb-2">Expected revenue</h6>
                 <h3 class="text-success mb-0" id="totalExpectedRevenue">KES 0</h3>
             </div>
         </div>
@@ -50,31 +80,26 @@
     <div class="col-md-4">
         <div class="card border-info">
             <div class="card-body text-center">
-                <h6 class="text-muted mb-2"><i class="bi bi-people"></i> Students Covered</h6>
+        <h6 class="text-muted mb-2">Students covered</h6>
                 <h3 class="text-info mb-0" id="totalStudents">0</h3>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Chart -->
-<div class="card mb-3">
-    <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-bar-chart"></i> Fee Structure Distribution by Level</h5>
-        <canvas id="feeDistributionChart" height="300"></canvas>
+<div class="card shadow-sm mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <strong><i class="bi bi-filter me-1"></i>Active fee structures</strong>
+        <button class="btn btn-sm btn-link text-decoration-none" onclick="clearFilters()">Reset filters</button>
     </div>
-</div>
-
-<!-- Filters -->
-<div class="card mb-3">
     <div class="card-body">
-        <div class="row g-2">
-            <div class="col-md-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-lg-2 col-md-4">
                 <select class="form-select form-select-sm" id="academicYearFilter">
                     <option value="">All Academic Years</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-lg-2 col-md-4">
                 <select class="form-select form-select-sm" id="termFilter">
                     <option value="">All Terms</option>
                     <option value="1">Term 1</option>
@@ -82,92 +107,37 @@
                     <option value="3">Term 3</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-lg-2 col-md-4">
                 <select class="form-select form-select-sm" id="levelFilter">
                     <option value="">All Levels</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-lg-2 col-md-4">
                 <select class="form-select form-select-sm" id="studentTypeFilter">
                     <option value="">All Student Types</option>
                 </select>
             </div>
-            <div class="col-md-3">
-                <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search...">
-            </div>
-            <div class="col-md-1">
-                <button class="btn btn-outline-secondary btn-sm w-100" onclick="clearFilters()">Clear</button>
+            <div class="col-lg-3 col-md-8">
+                <input type="search" class="form-control form-control-sm" id="searchInput" placeholder="Search fee item...">
             </div>
         </div>
     </div>
 </div>
 
-<!-- Data Table -->
-<div class="card mb-3">
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-hover" id="feeStructuresTable">
-                <thead>
-                    <tr>
-                        <th scope="col">Academic Year</th>
-                        <th scope="col">Level</th>
-                        <th scope="col">Student Type</th>
-                        <th scope="col">Term</th>
-                        <th scope="col">Total Fees</th>
-                        <th scope="col">Students</th>
-                        <th scope="col">Expected Revenue</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="feeStructuresBody">
-                    <tr>
-                        <td colspan="9" class="loading-row">Loading fee structures...</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <div class="d-flex justify-content-between align-items-center mt-3">
-            <span class="text-muted" id="paginationInfo">Showing 0 of 0</span>
-            <div id="paginationControls"></div>
-        </div>
+<div class="card shadow-sm mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div><strong><i class="bi bi-grid-3x3-gap me-1"></i>Current fee matrix</strong><div class="small text-muted">Saved Day and Full Boarder amounts by grade and term</div></div>
+        <span class="badge text-bg-success">Active</span>
+    </div>
+    <div class="card-body" id="activeFeeMatrix">
+        <div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm me-2"></div>Loading saved fee matrix…</div>
     </div>
 </div>
 
-<!-- Summary Section -->
-<div class="card">
-    <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-graph-up"></i> Summary</h5>
-        <div class="row g-3">
-            <div class="col-md-3">
-                <div class="text-center">
-                    <div class="text-muted">Total Fee Structures</div>
-                    <div class="h4 mb-0" id="summaryTotal">0</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center">
-                    <div class="text-muted">Active Structures</div>
-                    <div class="h4 mb-0 text-success" id="summaryActive">0</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center">
-                    <div class="text-muted">Total Expected Revenue</div>
-                    <div class="h4 mb-0 text-primary" id="summaryRevenue">KES 0</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="text-center">
-                    <div class="text-muted">Average Fee per Student</div>
-                    <div class="h4 mb-0" id="summaryAverage">KES 0</div>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+    <h6 class="text-muted mb-0"><i class="bi bi-bar-chart me-1"></i>Fee distribution by level</h6>
 </div>
+<div class="card shadow-sm mb-4"><div class="card-body"><canvas id="feeDistributionChart" height="120"></canvas></div></div>
 
 <!-- View Fee Structure Details Modal (Read-Only) -->
 <div class="modal" id="viewFeeStructureModal">
@@ -227,14 +197,3 @@
         </div>
     </div>
 </div>
-
-<script src="<?= $appBase ?>/js/pages/fee_structure_viewer.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_viewer.js") ?>"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof window.FeeStructureViewerController !== 'undefined') {
-            window.FeeStructureViewerController.init();
-        } else {
-            console.error('FeeStructureViewerController not found');
-        }
-    });
-</script>

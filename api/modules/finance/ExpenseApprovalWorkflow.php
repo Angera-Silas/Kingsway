@@ -7,6 +7,7 @@ use App\API\Modules\finance\ExpenseManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\payments\SupplierDisbursementService;
 
 /**
  * Expense Approval Workflow
@@ -331,29 +332,43 @@ return formatResponse(false, null, 'An internal error occurred.');
 
             // Update expense with payment details
             $workflowData = json_decode($instance['data_json'], true);
+            $expenseId = (int) ($workflowData['expense_id'] ?? 0);
+            $method = strtolower((string) ($data['payment_method'] ?? 'cash'));
+            $supplierPayment = null;
+            if (in_array($method, ['bank_transfer', 'kcb_bank'], true)) {
+                $supplierCheck = $this->db->prepare("SELECT vendor_id FROM expenses WHERE id = ? LIMIT 1");
+                $supplierCheck->execute([$expenseId]);
+                $vendorId = $supplierCheck->fetchColumn();
+                if ($vendorId) {
+                    $supplierPayment = (new SupplierDisbursementService($this->db))->initiateExpensePayment($expenseId, (int) $userId, $data);
+                }
+            }
             $stmt = $this->db->prepare("
                 UPDATE expenses 
-                SET status = 'paid',
+                SET status = ?,
                     payment_method = ?,
                     reference_number = ?,
-                    paid_at = NOW(),
+                    paid_at = IF(? = 'paid', NOW(), paid_at),
                     paid_by = ?
                 WHERE id = ?
             ");
+            $expenseStatus = $supplierPayment ? ($supplierPayment['status'] === 'pending' ? 'payment_pending' : 'approved') : 'paid';
             $stmt->execute([
-                $data['payment_method'] ?? 'cash',
-                $data['payment_reference'] ?? '',
+                $expenseStatus,
+                $method,
+                $supplierPayment['transaction_ref'] ?? ($data['payment_reference'] ?? ''),
+                $expenseStatus,
                 $userId,
-                $workflowData['expense_id']
+                $expenseId
             ]);
 
             // Complete workflow
             $this->completeWorkflow($instanceId, [
                 'completed_by' => $userId,
                 'completed_at' => date('Y-m-d H:i:s'),
-                'outcome' => 'paid',
-                'payment_method' => $data['payment_method'] ?? 'cash',
-                'payment_reference' => $data['payment_reference'] ?? ''
+                'outcome' => $supplierPayment ? 'payment_submitted' : 'paid',
+                'payment_method' => $method,
+                'payment_reference' => $supplierPayment['transaction_ref'] ?? ($data['payment_reference'] ?? '')
             ]);
 
             $this->db->commit();

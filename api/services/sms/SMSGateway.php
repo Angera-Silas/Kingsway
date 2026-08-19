@@ -26,6 +26,10 @@ class SMSGateway
             'sender_id' => defined('SMS_SENDER_ID') ? SMS_SENDER_ID : '',
             'shortcode' => defined('SMS_SHORTCODE') ? SMS_SHORTCODE : '',
             'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
+            'whatsapp_api_url' => defined('SMS_WHATSAPP_API_URL') ? SMS_WHATSAPP_API_URL : 'https://chat.africastalking.com',
+            'account_sid' => defined('TWILIO_ACCOUNT_SID') ? TWILIO_ACCOUNT_SID : '',
+            'auth_token' => defined('TWILIO_AUTH_TOKEN') ? TWILIO_AUTH_TOKEN : '',
+            'from' => defined('TWILIO_FROM') ? TWILIO_FROM : '',
         ];
         $this->config = array_merge($defaults, $config);
         $this->provider = $this->initializeProvider();
@@ -265,7 +269,7 @@ class AfricasTalkingProvider implements SMSProvider
      */
     public function sendWhatsApp($to, $message, $media = null)
     {
-        $url = 'https://chat.africastalking.com/whatsapp/message/send';
+        $url = rtrim((string) ($this->config['whatsapp_api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
         $apiKey = $this->config['api_key'];
         $username = $this->config['username'];
         $waNumber = $this->config['wa_number'] ?? null;

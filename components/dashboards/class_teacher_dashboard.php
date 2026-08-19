@@ -1,10 +1,15 @@
 <?php
-/**
- * Kingsway role dashboard component.
- * Presentation only; data is supplied by the matching named JS controller.
- */
+$rootId = 'classTeacherDashboard';
+$periods = [
+    ['key' => 'today', 'label' => 'Today'],
+    ['key' => 'week', 'label' => 'This Week'],
+    ['key' => 'term', 'label' => 'This Term'],
+];
+$default = 'today';
+require __DIR__ . '/partials/period_selector.php';
+
 $dashboardConfig = [
-    'root_id' => 'classTeacherDashboard',
+    'root_id' => $rootId,
     'title' => 'Class Teacher Dashboard',
     'subtitle' => 'Your class register, lessons, assessments and student progress.',
     'icon' => 'bi-people',
@@ -20,7 +25,7 @@ $dashboardConfig = [
         ['id' => 'ctPerformanceChart', 'title' => 'Assessment Performance', 'icon' => 'bi-bar-chart', 'column' => 'col-lg-6']
     ],
     'tables' => [
-        ['body_id' => 'ctScheduleBody', 'title' => 'Today’s Schedule', 'columns' => ['Time', 'Subject', 'Room', 'Status'], 'route' => 'timetable', 'column' => 'col-xl-6'],
+        ['body_id' => 'ctScheduleBody', 'title' => 'Today\'s Schedule', 'columns' => ['Time', 'Subject', 'Room', 'Status'], 'route' => 'timetable', 'column' => 'col-xl-6'],
         ['body_id' => 'ctRosterBody', 'title' => 'Student Roster', 'columns' => ['Admission No.', 'Student', 'Gender', 'Status'], 'route' => 'my_students_list', 'column' => 'col-xl-6']
     ],
     'quick_actions' => [

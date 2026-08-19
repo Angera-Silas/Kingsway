@@ -994,3 +994,9 @@ img { max-width: 100%; height: auto; display: block; }
 @media (max-width: 575px) {
   .pc-update-bar { left: 12px; right: 12px; transform: none; bottom: 12px; font-size: .82rem; }
 }
+/* ── Events scroll container ─────────────────────────────────── */
+#events-scroll-container::-webkit-scrollbar { width: 6px; }
+#events-scroll-container::-webkit-scrollbar-track { background: transparent; }
+#events-scroll-container::-webkit-scrollbar-thumb { background: #07552f; border-radius: 3px; }
+#events-scroll-container::-webkit-scrollbar-thumb:hover { background: #0b6b3a; }
+#events-scroll-btn:hover { background: #07552f !important; color: #fff !important; }

@@ -114,20 +114,44 @@ class AdmissionController extends BaseController
     public function postScheduleInterview($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
-        $interview_date = $data['interview_date'] ?? null;
-        $interview_time = $data['interview_time'] ?? null;
-        $venue = $data['venue'] ?? 'Main Office';
-
-        if (!$application_id) {
-            return $this->badRequest('application_id is required');
+        $session_id = !empty($data['session_id']) ? (int) $data['session_id'] : 0;
+        if ($session_id > 0) {
+            $guard = $this->guardApplicationAction((int) $application_id, 'schedule_interview', 'schedule admission interviews', 'Insufficient permission to schedule admission interviews');
+            if ($guard !== null) return $guard;
+            return $this->handleApiResponse($this->admin->workflow()->scheduleInterviewSession((int) $application_id, $session_id));
         }
+        return $this->badRequest('session_id is required; select an existing interview session');
+    }
 
-        $guard = $this->guardApplicationAction((int) $application_id, 'schedule_interview', 'schedule admission interviews', 'Insufficient permission to schedule admission interviews');
-        if ($guard !== null) {
-            return $guard;
-        }
+    public function getInterviewSessions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) return $this->forbidden('Insufficient permission to view interview sessions');
+        return $this->handleApiResponse($this->admin->getInterviewSessions($data, $this->buildAdmissionContext()));
+    }
 
-        return $this->handleApiResponse($this->admin->workflow()->scheduleInterview($application_id, $interview_date, $interview_time, $venue));
+    public function postInterviewSessions($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->saveInterviewSession($data, $this->buildAdmissionContext()));
+    }
+
+    public function putInterviewSessions($id = null, $data = [], $segments = [])
+    {
+        $data['id'] = $id ?: ($data['id'] ?? 0);
+        return $this->handleApiResponse($this->admin->saveInterviewSession($data, $this->buildAdmissionContext()));
+    }
+
+    public function postInterviewAssignment($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($data['application_id'] ?? 0);
+        $sessionId = (int) ($data['session_id'] ?? 0);
+        $guard = $this->guardApplicationAction($applicationId, 'schedule_interview', 'change interview assignment', 'Insufficient permission to change interview assignments');
+        if ($guard !== null) return $guard;
+        return $this->handleApiResponse($this->admin->reassignInterviewSession($applicationId, $sessionId, $data['reason'] ?? '', $this->buildAdmissionContext()));
+    }
+
+    public function postInterviewNotifications($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->admin->notifyInterviewApplicant($data, $this->buildAdmissionContext()));
     }
 
     // 5. Interview Assessment
@@ -145,7 +169,11 @@ class AdmissionController extends BaseController
             return $guard;
         }
 
-        $assessment_data = $this->admin->normalizeInterviewAssessment($assessment_data);
+        try {
+            $assessment_data = $this->admin->normalizeInterviewAssessment($assessment_data);
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        }
 
         return $this->handleApiResponse($this->admin->workflow()->recordInterviewResults($application_id, $assessment_data));
     }
@@ -192,6 +220,27 @@ class AdmissionController extends BaseController
         return $this->handleApiResponse($this->admin->workflow()->recordFeePayment($application_id, $payment_data));
     }
 
+    public function postPaymentInstructions($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($data['application_id'] ?? $id);
+        if (!$applicationId) return $this->badRequest('application_id is required');
+        $guard = $this->guardApplicationAction($applicationId, 'record_payment', 'send admission payment instructions', 'Insufficient permission to send admission payment instructions');
+        if ($guard !== null) return $guard;
+        return $this->handleApiResponse($this->admin->workflow()->sendPaymentInstructions($applicationId));
+    }
+
+    public function postConfirmFeePayment($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($data['application_id'] ?? $id ?? $segments[0] ?? 0);
+        $paymentId = (int) ($data['payment_id'] ?? 0);
+        if (!$applicationId || !$paymentId) {
+            return $this->badRequest('application_id and payment_id are required');
+        }
+        $guard = $this->guardApplicationAction($applicationId, 'record_payment', 'verify admission payments', 'Insufficient permission to verify admission payments');
+        if ($guard !== null) return $guard;
+        return $this->handleApiResponse($this->admin->workflow()->confirmManualPayment($applicationId, $paymentId, $data));
+    }
+
     // 8. Enrollment
     public function postCompleteEnrollment($id = null, $data = [], $segments = [])
     {
@@ -206,7 +255,7 @@ class AdmissionController extends BaseController
             return $guard;
         }
 
-        return $this->handleApiResponse($this->admin->workflow()->completeEnrollment($application_id));
+        return $this->handleApiResponse($this->admin->workflow()->completeEnrollment($application_id, $data));
     }
 
     public function getPolicy($id = null, $data = [], $segments = [])
@@ -313,7 +362,7 @@ class AdmissionController extends BaseController
      */
     public function postFinalApproval($id = null, $data = [], $segments = [])
     {
-        $applicationId = (int) ($id ?? $segments[0] ?? null);
+        $applicationId = (int) ($id ?? $data['application_id'] ?? $segments[0] ?? null);
         if (!$applicationId) {
             return $this->badRequest('Application ID is required');
         }
@@ -365,10 +414,16 @@ class AdmissionController extends BaseController
             return $this->forbidden('Insufficient permission to create student record');
         }
 
-        // createProvisionalStudent() already advances the workflow instance to
+        // createStudentAdmissionNumber() already advances the workflow instance to
         // fees_payment and writes the student linkage, so no second
         // sp_advance_admission_workflow_stage call is needed here.
-        return $this->handleApiResponse($this->admin->workflow()->createProvisionalStudent($applicationId));
+        return $this->handleApiResponse($this->admin->workflow()->createStudentAdmissionNumber($applicationId));
+    }
+
+    /** POST /api/admission/create-student-admission-number/{id} */
+    public function postCreateStudentAdmissionNumber($id = null, $data = [], $segments = [])
+    {
+        return $this->postCreateProvisionalStudent($id, $data, $segments);
     }
 
     /**
@@ -397,6 +452,114 @@ class AdmissionController extends BaseController
         }
 
         return $this->handleApiResponse($this->admin->getApplication((int) $id, $this->buildAdmissionContext()));
+    }
+
+    /**
+     * PUT /api/admission/application/{id} - Inline edit applicant/application fields.
+     */
+    public function putApplication($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Application ID is required');
+        }
+
+        return $this->handleApiResponse($this->admin->updateApplicationFields((int) $id, $data, $this->buildAdmissionContext()));
+    }
+
+    /**
+     * GET /api/admission/windows - List admission intake windows.
+     */
+    public function getAdmissionWindows($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admission windows');
+        }
+
+        return $this->handleApiResponse($this->admin->getAdmissionWindows($this->buildAdmissionContext()));
+    }
+
+    // Router-compatible aliases for /api/admission/windows.
+    public function getWindows($id = null, $data = [], $segments = [])
+    {
+        return $this->getAdmissionWindows($id, $data, $segments);
+    }
+
+    /**
+     * POST /api/admission/windows - Create an admission intake window.
+     */
+    public function postAdmissionWindows($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to manage admission windows');
+        }
+
+        return $this->handleApiResponse($this->admin->saveAdmissionWindow($data, $this->buildAdmissionContext()));
+    }
+
+    public function postWindows($id = null, $data = [], $segments = [])
+    {
+        return $this->postAdmissionWindows($id, $data, $segments);
+    }
+
+    /**
+     * PUT /api/admission/windows/{id} - Update or toggle an admission intake window.
+     * When only `status` is supplied, it toggles the window; otherwise it saves
+     * the full window (requires academic_year_id + academic_year_term_id).
+     */
+    public function putAdmissionWindows($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to manage admission windows');
+        }
+        $data['id'] = $id ? (int) $id : ($data['id'] ?? 0);
+        $statusOnly = ($data['id'] ?? 0) > 0
+            && array_key_exists('status', $data)
+            && !array_key_exists('academic_year_id', $data)
+            && !array_key_exists('academic_year_term_id', $data);
+
+        if ($statusOnly) {
+            return $this->handleApiResponse($this->admin->toggleAdmissionWindow((int) $data['id'], $data, $this->buildAdmissionContext()));
+        }
+
+        return $this->handleApiResponse($this->admin->saveAdmissionWindow($data, $this->buildAdmissionContext()));
+    }
+
+    public function putWindows($id = null, $data = [], $segments = [])
+    {
+        return $this->putAdmissionWindows($id, $data, $segments);
+    }
+
+    /**
+     * POST /api/admission/windows/{id}/toggle - Open or close an intake window.
+     */
+    public function postToggleAdmissionWindow($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Admission window ID is required');
+        }
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to manage admission windows');
+        }
+
+        return $this->handleApiResponse($this->admin->toggleAdmissionWindow((int) $id, $data, $this->buildAdmissionContext()));
+    }
+
+    /**
+     * GET /api/admission/open-terms - Open intake terms for the application form.
+     */
+    public function getOpenAdmissionTerms($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admission terms');
+        }
+
+        return $this->handleApiResponse($this->admin->getOpenAdmissionTerms($this->buildAdmissionContext()));
+    }
+
+    // Router alias used by the frontend API wrapper.
+    public function getOpenTerms($id = null, $data = [], $segments = [])
+    {
+        return $this->getOpenAdmissionTerms($id, $data, $segments);
     }
 
     /**

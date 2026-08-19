@@ -2,6 +2,10 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\inventory\InventoryAPI;
+use App\Database\Database;
+use App\API\Services\payments\UniformPaymentService;
+use App\API\Services\payments\UniformCatalogService;
+use App\API\Services\UploadService;
 use Exception;
 
 /**
@@ -1549,6 +1553,76 @@ class InventoryController extends BaseController
         $receivedBy = $this->user['user_id'] ?? $this->user['id'] ?? null;
         $result = $this->api->recordUniformSalePayment((int)$id, $data, $receivedBy);
         return $this->handleResponse($result);
+    }
+
+    /** POST /api/inventory/uniform-payment-intents */
+    public function postUniformPaymentIntents($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+        try {
+            $service = new UniformPaymentService(Database::getInstance()->getConnection());
+            $result = !empty($data['accumulated'])
+                ? $service->initiateAccumulated($data, (int) $this->getCurrentUserId())
+                : $service->initiate($data, (int) $this->getCurrentUserId());
+            return $this->created($result, 'Uniform payment request created');
+        } catch (\Throwable $e) {
+            error_log('[InventoryController] uniform payment initiate: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/inventory/uniform-payment-intents/{id} */
+    public function getUniformPaymentIntents($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) return $this->badRequest('Uniform payment intent ID is required');
+        return $this->handleResponse((new UniformPaymentService(Database::getInstance()->getConnection()))->get((int) $id));
+    }
+
+    /** GET /api/inventory/uniform-catalog */
+    public function getUniformCatalog($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventory()) return $guard;
+        return $this->success(['products' => (new UniformCatalogService(Database::getInstance()->getConnection()))->list(['staff' => true] + $data)]);
+    }
+
+    /** POST /api/inventory/uniform-catalog-products */
+    public function postUniformCatalogProducts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+        try { return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->saveProduct($data, (int)$this->getCurrentUserId()), 'Uniform catalogue product saved'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/inventory/uniform-catalog-images */
+    public function postUniformCatalogImages($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+        $productId=(int)($data['product_id']??$id??0); if(!$productId||empty($_FILES['file']))return $this->badRequest('product_id and image file are required');
+        try { $stored=(new UploadService())->store($_FILES['file'],'uniform_catalog_image',['owner_id'=>(string)$productId,'prefix'=>'uniform']); return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->addImage($productId,(string)$stored['url'],$data['alt_text']??null,!empty($data['is_primary'])),'Uniform catalogue image uploaded'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/inventory/uniform-catalog-purchases — authorised staff sale */
+    public function postUniformCatalogPurchases($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+        $studentId=(int)($data['student_id']??0);$productId=(int)($data['product_id']??0);$sizeId=(int)($data['size_id']??0);$quantity=(int)($data['quantity']??0);
+        if(!$studentId||!$productId||!$sizeId||$quantity<1)return $this->badRequest('student_id, product_id, size_id and quantity are required');
+        try{$pdo=Database::getInstance()->getConnection();$s=$pdo->prepare('SELECT i.id AS item_id,us.size,us.unit_price FROM uniform_sizes us JOIN inventory_items i ON i.id=us.item_id JOIN uniform_catalog_products cp ON cp.item_id=i.id WHERE cp.id=? AND us.id=? AND us.quantity_available-us.quantity_reserved>=?');$s->execute([$productId,$sizeId,$quantity]);$size=$s->fetch(\PDO::FETCH_ASSOC);if(!$size)return $this->badRequest('Selected size is unavailable');$manager=new \App\API\Modules\inventory\UniformSalesManager();return $this->created($manager->registerUniformSale($studentId,(int)$size['item_id'],['size'=>$size['size'],'quantity'=>$quantity,'unit_price'=>$size['unit_price'],'sold_by'=>$this->getCurrentUserId(),'notes'=>'Internal catalogue purchase']), 'Uniform purchase created');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}
+    }
+
+    /** POST /api/inventory/uniform-payment-intent-confirm/{id} */
+    public function postUniformPaymentIntentConfirm($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardInventoryWrite()) return $guard;
+        if ($id === null) return $this->badRequest('Uniform payment intent ID is required');
+        try {
+            $service = new UniformPaymentService(Database::getInstance()->getConnection());
+            return $this->success($service->confirmManual((int) $id, (int) $this->getCurrentUserId()), 'Uniform payment confirmed');
+        } catch (\Throwable $e) {
+            error_log('[InventoryController] uniform payment confirm: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
     }
 
     /**

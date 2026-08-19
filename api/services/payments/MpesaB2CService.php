@@ -56,6 +56,13 @@ class MpesaB2CService
     public function sendPayment($data)
     {
         try {
+            $idempotency = trim((string) ($data['idempotency_reference'] ?? ''));
+            if ($idempotency !== '') {
+                $existing = $this->getDb()->prepare('SELECT status,transaction_ref,request_id,result_description FROM disbursement_transactions WHERE idempotency_reference=? LIMIT 1');
+                $existing->execute([$idempotency]);
+                $row = $existing->fetch(PDO::FETCH_ASSOC);
+                if ($row) return ['status' => in_array($row['status'], ['pending','completed'], true) ? 'pending' : $row['status'], 'message' => 'Existing idempotent disbursement reused.', 'transaction_ref' => $row['transaction_ref'], 'request_id' => $row['request_id']];
+            }
             $phone = preg_replace('/\D/', '', (string) ($data['phone'] ?? ''));
             if (strlen($phone) === 9) {
                 $phone = '254' . $phone;
@@ -154,18 +161,22 @@ class MpesaB2CService
         try {
             $this->getDb()->prepare(
                 "INSERT INTO disbursement_transactions
-                    (disbursement_type, payroll_id, payslip_id, recipient_id, recipient_name,
-                     amount, phone_number, channel, conversation_id, originator_conversation_id,
+                    (disbursement_type, payroll_id, payslip_id, refund_request_id, recipient_id, recipient_name,
+                     payment_purpose, source_financial_account_id, idempotency_reference, amount, phone_number, channel, conversation_id, originator_conversation_id,
                      transaction_ref, status, result_description, callback_data, created_at)
-                 VALUES (:dtype, :payroll_id, :payslip_id, :recipient_id, :recipient_name,
-                         :amount, :phone, 'mpesa_b2c', :conv, :originator,
+                 VALUES (:dtype, :payroll_id, :payslip_id, :refund_request_id, :recipient_id, :recipient_name,
+                         :purpose, :source_account_id, :idempotency_reference, :amount, :phone, 'mpesa_b2c', :conv, :originator,
                          :txref, 'pending', :desc, :callback, NOW())"
             )->execute([
                 'dtype'       => $data['disbursement_type'] ?? 'salary',
                 'payroll_id'  => $data['payroll_id'] ?? null,
                 'payslip_id'  => $data['payslip_id'] ?? null,
+                'refund_request_id' => $data['refund_request_id'] ?? null,
                 'recipient_id' => $data['recipient_id'] ?? null,
                 'recipient_name' => $data['recipient_name'] ?? null,
+                'purpose' => $data['payment_purpose'] ?? ($data['disbursement_type'] ?? 'operations'),
+                'source_account_id' => $data['source_financial_account_id'] ?? null,
+                'idempotency_reference' => $data['idempotency_reference'] ?? null,
                 'amount'      => $amount,
                 'phone'       => $phone,
                 'conv'        => $conversationId,

@@ -192,6 +192,20 @@ $gradeColors  = ['BE'=>'#ef4444','AE'=>'#f59e0b','ME'=>'#3b82f6','EE'=>'#10b981'
 </div>
 <?php endif; ?>
 
+<?php if (!empty($comments['next_term_focus'])): ?>
+<div class="pathway-box" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:1.5mm;padding:1.5mm 3mm;margin-bottom:2.5mm;font-size:7.5pt;color:#0369a1;">
+    <strong>Next Term Focus Areas:</strong><br>
+    <?php
+    $focus = $comments['next_term_focus'];
+    if (is_array($focus)) {
+        echo implode('<br>', array_map(fn($f) => '• ' . pe($f), $focus));
+    } else {
+        echo nl2br(pe($focus));
+    }
+    ?>
+</div>
+<?php endif; ?>
+
 <div class="section-title">Teacher's Comments</div>
 <div class="comment-block">
     <strong>Class Teacher:</strong>
@@ -201,3 +215,33 @@ $gradeColors  = ['BE'=>'#ef4444','AE'=>'#f59e0b','ME'=>'#3b82f6','EE'=>'#10b981'
     <strong>Headteacher:</strong>
     <p><?= nl2br(pe($comments['headteacher'] ?? '')) ?: 'Well done. Prepare diligently for the next level.' ?></p>
 </div>
+
+<div class="section-title">Signatures</div>
+<table class="info-table" style="margin-bottom:2mm;">
+    <tr>
+        <td style="width:25%;text-align:center;">
+            <div style="height:10mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7pt;font-weight:700;">Class Teacher</div>
+            <div style="font-size:6.5pt;">Date: _______________</div>
+        </td>
+        <td style="width:25%;text-align:center;">
+            <div style="height:10mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7pt;font-weight:700;">Headteacher</div>
+            <div style="font-size:6.5pt;">Date: _______________</div>
+        </td>
+        <td style="width:25%;text-align:center;">
+            <div style="height:10mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7pt;font-weight:700;">Dean of Studies</div>
+            <div style="font-size:6.5pt;">Date: _______________</div>
+        </td>
+        <td style="width:25%;text-align:center;">
+            <div style="height:10mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7pt;font-weight:700;">Parent / Guardian</div>
+            <div style="font-size:6.5pt;">Date: _______________</div>
+        </td>
+    </tr>
+</table>

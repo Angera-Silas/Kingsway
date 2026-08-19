@@ -168,6 +168,20 @@ if ($hasStrands):
 </div>
 <?php endif; ?>
 
+<?php if (!empty($comments['next_term_focus'])): ?>
+<div class="note-box" style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:1.5mm;padding:2mm 4mm;margin-bottom:3mm;font-size:8pt;color:#0369a1;">
+    <strong>Next Term Focus Areas:</strong><br>
+    <?php
+    $focus = $comments['next_term_focus'];
+    if (is_array($focus)) {
+        echo implode('<br>', array_map(fn($f) => '• ' . pe($f), $focus));
+    } else {
+        echo nl2br(pe($focus));
+    }
+    ?>
+</div>
+<?php endif; ?>
+
 <div class="section-title">Teacher's Comments</div>
 <div class="comment-block">
     <strong>Class Teacher:</strong>
@@ -177,3 +191,27 @@ if ($hasStrands):
     <strong>Headteacher:</strong>
     <p><?= nl2br(pe($comments['headteacher'] ?? '')) ?: 'Well done. Continue striving for excellence.' ?></p>
 </div>
+
+<div class="section-title">Signatures</div>
+<table class="info-table" style="margin-bottom:2mm;">
+    <tr>
+        <td style="width:33%;text-align:center;">
+            <div style="height:12mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7.5pt;font-weight:700;">Class Teacher</div>
+            <div style="font-size:7pt;">Date: _______________</div>
+        </td>
+        <td style="width:33%;text-align:center;">
+            <div style="height:12mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7.5pt;font-weight:700;">Headteacher</div>
+            <div style="font-size:7pt;">Date: _______________</div>
+        </td>
+        <td style="width:34%;text-align:center;">
+            <div style="height:12mm;"></div>
+            <div style="border-top:0.5pt solid #000;width:70%;margin:0 auto;"></div>
+            <div style="font-size:7.5pt;font-weight:700;">Parent / Guardian</div>
+            <div style="font-size:7pt;">Date: _______________</div>
+        </td>
+    </tr>
+</table>

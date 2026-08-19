@@ -94,6 +94,9 @@ const newApplicationsController = {
 
       parentSelect: document.getElementById("parentSelect"),
       academicYearSelect: document.getElementById("academicYearSelect"),
+      targetTermSelect: document.getElementById("targetTermSelect"),
+      academicYearInput: document.getElementById("academicYearInput"),
+      targetTermInput: document.getElementById("targetTermInput"),
 
       parentTypeExisting: document.getElementById("parentTypeExisting"),
       parentTypeNew: document.getElementById("parentTypeNew"),
@@ -179,6 +182,10 @@ const newApplicationsController = {
 
     this.safeListen("gradeSelect", "change", () =>
       this.toggleDocumentRequirements(),
+    );
+
+    this.safeListen("targetTermSelect", "change", () =>
+      this.syncYearFromTerm(),
     );
   },
 
@@ -268,9 +275,77 @@ const newApplicationsController = {
     await this.loadParents();
     await this.loadClasses();
 
-    const currentYear = new Date().getFullYear();
-    this.academicYears = [currentYear, currentYear + 1];
-    this.populateAcademicYearDropdown();
+    // Pull the real academic years and the open intake terms from the API
+    // instead of guessing "this year / next year". The intake term drives the
+    // target_term_id on the application; the year is derived from it.
+    try {
+      const [yearsResponse, termsResponse] = await Promise.all([
+        window.API?.academic?.listYears
+          ? window.API.academic.listYears({ limit: 50 })
+          : Promise.resolve(null),
+        window.API?.admission?.getOpenAdmissionTerms
+          ? window.API.admission.getOpenAdmissionTerms()
+          : Promise.resolve(null),
+      ]);
+
+      const yearsPayload = yearsResponse?.data ?? yearsResponse ?? {};
+      const years = Array.isArray(yearsPayload)
+        ? yearsPayload
+        : yearsPayload.years || yearsPayload.items || [];
+
+      const termsPayload = termsResponse?.data ?? termsResponse ?? {};
+      const terms = Array.isArray(termsPayload)
+        ? termsPayload
+        : termsPayload.terms || termsPayload.items || [];
+
+      this.academicYears = years.map((year) => ({
+        id: year.id,
+        year_code: year.year_code || year.year_name || String(year.id),
+      }));
+
+      if (this.academicYears.length === 0) {
+        // Fallback so the form still works even if the API is unreachable.
+        const currentYear = new Date().getFullYear();
+        const yearCode = `${currentYear}/${currentYear + 1}`;
+        this.academicYears = [{ id: yearCode, year_code: yearCode }];
+      }
+
+      this.populateAcademicYearDropdown();
+      this.populateTargetTermDropdown(terms);
+      this.applyIntakeDefaults(terms);
+    } catch (error) {
+      console.error("Failed to load academic metadata:", error);
+      const currentYear = new Date().getFullYear();
+      const yearCode = `${currentYear}/${currentYear + 1}`;
+      this.academicYears = [{ id: yearCode, year_code: yearCode }];
+      this.populateAcademicYearDropdown();
+      this.populateTargetTermDropdown([]);
+    }
+  },
+
+  applyIntakeDefaults: function (terms) {
+    const intake = Array.isArray(terms) ? terms[0] : null;
+    const category = document.getElementById('admissionCategorySelect');
+    if (category && intake?.default_admission_category) {
+      category.value = intake.default_admission_category;
+      category.disabled = true;
+      let hidden = document.getElementById('admissionCategoryInput');
+      if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden'; hidden.name = 'admission_category'; hidden.id = 'admissionCategoryInput';
+        category.form?.appendChild(hidden);
+      }
+      hidden.value = intake.default_admission_category;
+    }
+    if (intake?.eligible_grades) {
+      let allowed = [];
+      try { allowed = JSON.parse(intake.eligible_grades) || []; } catch (_) {}
+      if (allowed.length && this.dom.gradeSelect) {
+        const current = this.dom.gradeSelect.value;
+        this.dom.gradeSelect.innerHTML = '<option value="">Select Grade</option>' + allowed.map((grade) => `<option value="${this.escapeHtml(grade)}">${this.escapeHtml(grade)}</option>`).join('');
+        if (allowed.includes(current)) this.dom.gradeSelect.value = current;
+      }
+    }
   },
 
   loadClasses: async function () {
@@ -353,15 +428,92 @@ const newApplicationsController = {
     select.innerHTML = '<option value="">Select Year</option>';
 
     this.academicYears.forEach((year) => {
+      const value = this.intakeYearFromCode(year.year_code);
       const option = document.createElement("option");
-      option.value = String(year);
-      option.textContent = String(year);
+      option.value = value;
+      option.textContent = year.year_code;
       select.appendChild(option);
     });
 
-    if (this.academicYears.length > 0) {
-      select.value = String(this.academicYears[0]);
+    // Default to the year of the first term once the term list is loaded;
+    // otherwise pick the first year.
+    if (this.dom.targetTermSelect && this.dom.targetTermSelect.value) {
+      const term = this.openTerms?.find(
+        (t) => String(t.target_term_id) === this.dom.targetTermSelect.value,
+      );
+      if (term) {
+        const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
+        select.value = intakeYear;
+      }
     }
+
+    if (!select.value && this.academicYears.length > 0) {
+      select.value = this.intakeYearFromCode(this.academicYears[0].year_code);
+    }
+  },
+
+  intakeYearFromCode: function (yearCode) {
+    const code = String(yearCode || "");
+    const match = code.match(/\d{4}/g);
+    if (match && match.length > 1) {
+      return match[match.length - 1];
+    }
+    return match ? match[0] : String(new Date().getFullYear());
+  },
+
+  populateTargetTermDropdown: function (terms = []) {
+    this.openTerms = Array.isArray(terms) ? terms : [];
+    const select = this.dom.targetTermSelect;
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Select Term</option>';
+
+    if (this.openTerms.length === 0) {
+      select.innerHTML +=
+        '<option value="" disabled>No intake windows open — ask an administrator to open one.</option>';
+      select.disabled = true;
+      return;
+    }
+
+    this.openTerms.forEach((term) => {
+      const yearLabel = term.year_code || term.year_name || "";
+      const label = `${term.term_name || term.term_number || "Term"} ${yearLabel}`.trim();
+      const option = document.createElement("option");
+      option.value = term.target_term_id ?? term.academic_year_term_id;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+
+    // Default to the first (current/upcoming) open term and sync the year.
+    if (this.openTerms.length > 0) {
+      select.value = String(
+        this.openTerms[0].target_term_id ?? this.openTerms[0].academic_year_term_id,
+      );
+      select.disabled = false;
+      this.syncYearFromTerm();
+    }
+  },
+
+  syncYearFromTerm: function () {
+    const select = this.dom.targetTermSelect;
+    const yearSelect = this.dom.academicYearSelect;
+    if (!select || !yearSelect) return;
+
+    const term = this.openTerms?.find(
+      (t) => String(t.target_term_id ?? t.academic_year_term_id) === select.value,
+    );
+    if (!term) return;
+
+    const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
+    if (![...yearSelect.options].some((o) => o.value === intakeYear)) {
+      const option = document.createElement("option");
+      option.value = intakeYear;
+      option.textContent = term.year_code || intakeYear;
+      yearSelect.appendChild(option);
+    }
+    yearSelect.value = intakeYear;
+    if (this.dom.academicYearInput) this.dom.academicYearInput.value = intakeYear;
+    if (this.dom.targetTermInput) this.dom.targetTermInput.value = select.value;
   },
 
   loadApplications: async function () {
@@ -1081,6 +1233,7 @@ const newApplicationsController = {
 
     if (response.success === true) return true;
     if (response.status === true) return true;
+    if (response.status === "success") return true;
     if (response.ok === true) return true;
 
     if (response.success === false || response.status === false) {
@@ -1101,7 +1254,15 @@ const newApplicationsController = {
       return true;
     }
 
-    return response.data !== undefined;
+    if (response.data !== undefined) return true;
+
+    // api.js handleApiResponse unwraps response.data on success —
+    // if we got a non-null object with no wrapper, it's the payload itself
+    if (typeof response === "object" && Object.keys(response).length > 0) {
+      return true;
+    }
+
+    return false;
   },
 
   unwrapPayload: function (response) {

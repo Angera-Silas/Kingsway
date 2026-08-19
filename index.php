@@ -269,6 +269,30 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
+<!-- ═══ UNIFORM STORE ═════════════════════════════════════════════════════════ -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-7 reveal reveal-left">
+        <div class="section-label"><span>School Store</span></div>
+        <h2 class="section-title">Everything they need to <span>look the part</span></h2>
+        <p class="section-subtitle mb-4">Browse official Kingsway uniforms by size, save favourites, and let the school store prepare your child’s order. Uniform purchases are optional and handled separately from school fees.</p>
+        <div class="d-flex flex-wrap gap-3">
+          <a href="<?= $appBase ?>/uniform_catalog.php" class="btn-kw-primary"><i class="bi bi-bag-heart"></i>Shop Uniforms</a>
+          <a href="<?= $appBase ?>/parent_portal.php" class="btn-kw-outline"><i class="bi bi-person"></i>Parent Portal</a>
+        </div>
+      </div>
+      <div class="col-lg-5 reveal reveal-right">
+        <div class="p-4 rounded-4 bg-white shadow-sm border-start border-4 border-success">
+          <div class="d-flex align-items-center gap-3 mb-3"><div class="rounded-circle bg-success-subtle text-success p-3"><i class="bi bi-phone fs-3"></i></div><div><h5 class="mb-1">Simple parent checkout</h5><p class="text-muted small mb-0">Choose sizes online and pay securely by M-Pesa.</p></div></div>
+          <div class="d-flex align-items-center gap-3 mb-3"><div class="rounded-circle bg-warning-subtle text-warning p-3"><i class="bi bi-rulers fs-3"></i></div><div><h5 class="mb-1">Correct fit, less stress</h5><p class="text-muted small mb-0">View available sizes and prices before visiting the store.</p></div></div>
+          <div class="d-flex align-items-center gap-3"><div class="rounded-circle bg-primary-subtle text-primary p-3"><i class="bi bi-shield-check fs-3"></i></div><div><h5 class="mb-1">Separate store account</h5><p class="text-muted small mb-0">Uniform purchases never alter school-fee balances.</p></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ═══ ADMISSIONS CTA ════════════════════════════════════════════════════════ -->
 <section class="cta-banner">
   <div class="container position-relative" style="z-index:1">

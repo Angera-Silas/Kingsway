@@ -213,6 +213,15 @@ class StudentsAPI extends BaseAPI
                         LIMIT 1
                     ) AS parent_phone,
                     (
+                        SELECT parp.phone
+                        FROM student_parents sp
+                        JOIN parents par ON par.id = sp.parent_id
+                        JOIN persons parp ON parp.id = par.person_id
+                        WHERE sp.student_id = s.id
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
+                        LIMIT 1
+                    ) AS guardian_contact,
+                    (
                         SELECT parp.email
                         FROM student_parents sp
                         JOIN parents par ON par.id = sp.parent_id
@@ -221,6 +230,15 @@ class StudentsAPI extends BaseAPI
                         ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
                         LIMIT 1
                     ) AS parent_email,
+                    (
+                        SELECT parp.email
+                        FROM student_parents sp
+                        JOIN parents par ON par.id = sp.parent_id
+                        JOIN persons parp ON parp.id = par.person_id
+                        WHERE sp.student_id = s.id
+                        ORDER BY sp.is_primary_contact DESC, sp.is_emergency_contact DESC
+                        LIMIT 1
+                    ) AS guardian_email,
                     (
                         SELECT par.address
                         FROM student_parents sp
@@ -1156,38 +1174,66 @@ class StudentsAPI extends BaseAPI
 
         $studentStmt = $this->db->prepare("
             SELECT s.student_type_id,
-                   c.level_id AS level_id
+                   c.level_id AS level_id,
+                   ayc.id AS academic_year_class_id
             FROM students s
             LEFT JOIN student_academic_enrollments sae 
-                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                ON sae.student_id = s.id
+               AND sae.academic_year_id = ?
+               AND sae.enrollment_status IN ('active', 'pending')
             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
             LEFT JOIN classes c ON c.id = ayc.class_id
             WHERE s.id = ?
+            ORDER BY sae.id DESC
             LIMIT 1
         ");
-        $studentStmt->execute([$studentId]);
+        $studentStmt->execute([$academicYearId, $studentId]);
         $studentMeta = $studentStmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$studentMeta || empty($studentMeta['student_type_id']) || empty($studentMeta['level_id'])) {
+        if (!$studentMeta || empty($studentMeta['student_type_id']) || empty($studentMeta['academic_year_class_id'])) {
             return 0;
         }
 
+        $termStmt = $this->db->prepare(
+            "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+               AND ayt.status = 'current'"
+        );
+        $termStmt->execute([$academicYearId]);
+        $startTermNumber = (int) ($termStmt->fetchColumn() ?: 0);
+        if ($startTermNumber <= 0) {
+            $termStmt = $this->db->prepare(
+                "SELECT MIN(CAST(SUBSTRING(t.code, 2) AS UNSIGNED))
+                 FROM academic_year_terms ayt
+                 JOIN terms t ON t.id = ayt.term_id
+                 WHERE ayt.academic_year_id = ?
+                   AND CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date"
+            );
+            $termStmt->execute([$academicYearId]);
+            $startTermNumber = (int) ($termStmt->fetchColumn() ?: 1);
+        }
+
         $structureStmt = $this->db->prepare("
-            SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount, ayfs.due_date
+            SELECT ayfs.id, ayfs.academic_year_term_id AS term_id, ayfs.amount,
+                   COALESCE(ayfs.due_date, ayt.closing_date) AS due_date
             FROM academic_year_fee_schedules ayfs
-            JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-            JOIN classes c ON c.id = ayc.class_id
-            WHERE c.level_id = ?
+            JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
+            JOIN terms t ON t.id = ayt.term_id
+            WHERE ayfs.academic_year_class_id = ?
               AND ayfs.academic_year_id = ?
               AND ayfs.student_type_id = ?
               AND ayfs.status = 'active'
-            ORDER BY ayfs.academic_year_term_id ASC, ayfs.id ASC
+              AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) >= ?
+            ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED) ASC, ayfs.id ASC
         ");
         $structureStmt->execute([
-            (int) $studentMeta['level_id'],
+            (int) $studentMeta['academic_year_class_id'],
             $academicYearId,
-            (int) $studentMeta['student_type_id']
+            (int) $studentMeta['student_type_id'],
+            $startTermNumber
         ]);
         $feeStructures = $structureStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
@@ -1999,12 +2045,62 @@ class StudentsAPI extends BaseAPI
         $totalPaid = (float) ($summary['total_paid'] ?? 0);
         $balance = (float) ($summary['balance'] ?? 0);
 
+        // Admission/registration is a separate obligation from tuition. It
+        // is stored in admission_payments while tuition is stored in the fee
+        // ledger, so combine them here without double-counting the same
+        // payment transaction.
+        $admissionDue = 0.0;
+        $admissionPaid = 0.0;
+        $admissionStmt = $this->db->prepare(
+            "SELECT aa.id, aa.parent_id
+             FROM admission_applications aa
+             WHERE aa.enrolled_student_id = ?
+             ORDER BY aa.id DESC
+             LIMIT 1"
+        );
+        $admissionStmt->execute([$studentId]);
+        $admission = $admissionStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if ($admission) {
+            $existingParentStudents = $this->db->prepare(
+                "SELECT COUNT(*)
+                 FROM student_parents
+                 WHERE parent_id = ? AND student_id <> ?"
+            );
+            $existingParentStudents->execute([
+                (int) ($admission['parent_id'] ?? 0),
+                $studentId,
+            ]);
+            $admissionDue = ((int) $existingParentStudents->fetchColumn() > 0) ? 1000.0 : 2000.0;
+
+            $admissionPaidStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0)
+                 FROM admission_payments
+                 WHERE application_id = ?
+                   AND status IN ('recorded', 'posted')"
+            );
+            $admissionPaidStmt->execute([(int) $admission['id']]);
+            $admissionPaid = (float) $admissionPaidStmt->fetchColumn();
+        }
+
+        $tuitionFees = $totalFees;
+        $tuitionPaid = $totalPaid;
+        $tuitionBalance = $balance;
+        $totalFees += $admissionDue;
+        $totalPaid += min($admissionPaid, $admissionDue);
+        $balance = $tuitionBalance + max(0.0, $admissionDue - $admissionPaid);
+
         return [
             'academic_year' => $academicYear,
-            'total_fees' => $summary['total_fees'] ?? 0,
-            'total_paid' => $summary['total_paid'] ?? 0,
+            'total_fees' => $totalFees,
+            'total_paid' => $totalPaid,
             'total_waived' => $summary['total_waived'] ?? 0,
-            'balance' => $summary['balance'] ?? 0,
+            'balance' => $balance,
+            'tuition_fees' => $tuitionFees,
+            'tuition_paid' => $tuitionPaid,
+            'tuition_balance' => $tuitionBalance,
+            'admission_fee_due' => $admissionDue,
+            'admission_fee_paid' => min($admissionPaid, $admissionDue),
+            'admission_fee_balance' => max(0.0, $admissionDue - $admissionPaid),
             'payment_percentage' => $totalFees > 0 ? round(($totalPaid / $totalFees) * 100, 2) : 0,
             'payment_status' => $balance <= 0 && $totalFees > 0
                 ? 'paid'
@@ -2763,16 +2859,11 @@ class StudentsAPI extends BaseAPI
             $qrClass = '\Endroid\QrCode\QrCode';
             $writerClass = '\Endroid\QrCode\Writer\PngWriter';
 
-            // Generate QR code pointing to the ID card verification page (scanned
-            // by the bus crew, security and staff from the learner's ID card). Built
-            // from BASE_URL (env-aware: localhost in dev, prod domain in prod) so
-            // the scanned link resolves correctly in ANY environment. The page gates
-            // sections by the viewer's role - drivers see the transport ride-check,
-            // security sees authorization, teachers academic, etc. Public scans get
-            // name + class only; department scanners can pin a scope (?scope=transport).
-            // See student_portal.php.
-            $portalUrl = rtrim(BASE_URL, '/') . '/student_portal.php?student_id=' . (int) $id;
-            $qrCode = new $qrClass($portalUrl);
+            // Print only an opaque, non-enumerable credential. The scanner API
+            // resolves it server-side and never trusts identity, fees, or URLs
+            // embedded in the image.
+            $qrToken = 'KWA1.' . rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+            $qrCode = new $qrClass($qrToken);
             $qrCode->setSize(300);
             $qrCode->setMargin(10);
 
@@ -2799,11 +2890,9 @@ class StudentsAPI extends BaseAPI
             );
 
             // Persist to student_id_cards (the live schema has no students.qr_code_path)
-            $qrToken = 'qr_' . md5((string) $id . '_' . $student['admission_no'] . '_' . time());
             $qrPayload = json_encode([
-                'student_id' => (int) $id,
-                'admission_no' => $student['admission_no'],
-                'portal' => $portalUrl
+                'token' => $qrToken,
+                'version' => 1
             ], JSON_UNESCAPED_SLASHES);
             $cardNumber = 'CARD-' . $student['admission_no'] . '-' . date('Y');
             $academicYearId = $this->getCurrentAcademicYearIdForScope();

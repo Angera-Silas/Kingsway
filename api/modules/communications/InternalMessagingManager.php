@@ -15,6 +15,7 @@
 
 namespace App\API\Modules\communications;
 
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 
@@ -188,6 +189,7 @@ class InternalMessagingManager
             $messageId = $this->insertMessage($conversationId, $userId, $subject, $message, $priority);
 
             $this->bumpUnread($conversationId, $validRecipients);
+            $this->notifyMessageRecipients($validRecipients, $conversationId, $userId, $message, false);
             $this->markSenderRead($conversationId, $userId, $messageId);
 
             $this->db->commit();
@@ -232,6 +234,7 @@ class InternalMessagingManager
 
             $others = $this->otherParticipants($conversationId, $userId);
             $this->bumpUnread($conversationId, $others);
+            $this->notifyMessageRecipients($others, $conversationId, $userId, $message, true);
             $this->markSenderRead($conversationId, $userId, $messageId);
 
             $this->db->commit();
@@ -332,6 +335,26 @@ class InternalMessagingManager
         foreach ($participantIds as $participantId) {
             $stmt->execute([$conversationId, $participantId]);
         }
+    }
+
+    private function notifyMessageRecipients(array $recipientIds, int $conversationId, int $senderId, string $message, bool $isReply): void
+    {
+        if (empty($recipientIds)) return;
+        $stmt = $this->db->prepare(
+            "SELECT CONCAT_WS(' ', p.first_name, p.last_name)
+               FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?"
+        );
+        $stmt->execute([$senderId]);
+        $sender = trim((string) $stmt->fetchColumn()) ?: 'a colleague';
+        $service = new NotificationService($this->db);
+        $service->push($recipientIds, $isReply ? 'message_reply' : 'message',
+            $isReply ? "New reply from {$sender}" : "New message from {$sender}",
+            NotificationService::messageText($sender, $message),
+            'medium', [
+                'action_url' => 'home.php?route=communications/messages_inbox&conversation_id=' . $conversationId,
+                'reference_type' => 'conversation',
+                'reference_id' => $conversationId,
+            ]);
     }
 
     private function markSenderRead(int $conversationId, int $userId, int $messageId): void

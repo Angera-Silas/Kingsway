@@ -925,8 +925,14 @@ const AuthContext = (() => {
     }, {});
   }
 
-  // Initialize on load
-  initialize();
+  // Public pages still use apiCall(), but must not bootstrap a stale staff
+  // session and redirect a guest to login.
+  const isPublicUniformCatalogue = /\/uniform_catalog\.php(?:$|[?#])/.test(
+    window.location.pathname + window.location.search,
+  );
+  if (!window.KINGSWAY_PUBLIC_PAGE && !isPublicUniformCatalogue) {
+    initialize();
+  }
 
   // Return public API
   return {
@@ -1380,10 +1386,22 @@ const ENDPOINT_PERMISSIONS = {
     POST: "finance_create",
     PUT: "finance_update",
   },
+  "/finance/student-fund-transfers": {
+    GET: "finance_view",
+    POST: "finance_create",
+    PUT: "finance_approve",
+  },
+  "/finance/student-fund-sources": "finance_view",
+  "/finance/student-fund-transfer-post": { POST: "finance_approve" },
+  "/finance/payment-routing-cases": "finance_view",
+  "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
+  "/finance/payment-references": { POST: "finance_create" },
+  "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
 
   // M-Pesa (Daraja) outbound API triggers — all require finance permissions.
   // Client-side gate only; server RBAC is enforced in PaymentsController.
   "/payments/mpesa-stk-push": { POST: "finance_create" },
+  "/payments/kcb-mpesa-express": { POST: "finance_create" },
   "/payments/mpesa-stk-query": { POST: "finance_view" },
   "/payments/mpesa-c2b-register": { POST: "finance_create" },
   "/payments/mpesa-c2b-simulate": { POST: "finance_create" },
@@ -1394,6 +1412,19 @@ const ENDPOINT_PERMISSIONS = {
   "/payments/mpesa-b2b": { POST: "finance_create" },
   "/payments/mpesa-b2c": { POST: "finance_create" },
   "/payments/mpesa-results": { GET: "finance_view" },
+
+  "/transport/payment-intents": { POST: "finance_create", GET: "finance_view" },
+  "/transport/payment-intent-confirm": { POST: "finance_update" },
+  "/family": null,
+  "/family/dashboard": null,
+  "/family/community": null,
+  "/family/grading-scale": null,
+  "/inventory/uniform-payment-intents": { GET: "inventory_view", POST: "inventory_manage" },
+  "/inventory/uniform-payment-intent-confirm": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog": "inventory_view",
+  "/inventory/uniform-catalog-products": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog-images": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog-purchases": { POST: "inventory_manage" },
 
   // Staff
   // Staff-domain controllers enforce their canonical StaffAccess permissions
@@ -1488,6 +1519,9 @@ const ENDPOINT_PERMISSIONS = {
   "/admission/upload-document": "admission_documents_upload",
   "/admission/verify-document": "admission_documents_verify",
   "/admission/schedule-interview": "admission_interviews_schedule",
+  "/admission/interview-assignment": "admission_interviews_schedule",
+  "/admission/interview-notifications": "admission_interviews_schedule",
+  "/admission/interview-sessions": "admission_interviews_schedule",
   "/admission/record-interview-results": "admission_interviews_create",
   "/admission/generate-placement-offer": "admission_applications_generate",
   "/admission/record-fee-payment": "admission_applications_edit",
@@ -1497,6 +1531,13 @@ const ENDPOINT_PERMISSIONS = {
     POST: "admission_applications_create",
     PUT: "admission_applications_edit",
   },
+  "/admission/open-terms": "admission_view",
+  "/admission/windows": {
+    GET: "admission_view",
+    POST: "admission_applications_edit",
+    PUT: "admission_applications_edit",
+  },
+  "/admission/advance-workflow-stage": "admission_manage",
 
   // Communications
   "/communications/index": "communications_view",
@@ -1504,6 +1545,7 @@ const ENDPOINT_PERMISSIONS = {
     GET: "communications_view",
     POST: "communications_create",
   },
+  "/communications/audience-options": "communications_view",
 
   // Transport
   "/transport/index": "transport_view",
@@ -1901,6 +1943,16 @@ async function performRefreshAccessToken() {
 
     const result = await readJsonSafely(response, "Token refresh");
     const payload = result && result.data ? result.data : result;
+    if (payload && payload.requires_2fa) {
+      // api.js can boot before the shared footer loads public.js. Wait briefly
+      // for the MFA modal provider instead of treating that ordering as logout.
+      for (let i = 0; i < 50 && typeof window.requestTFAForSession !== 'function'; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (typeof window.requestTFAForSession !== 'function') return false;
+      await window.requestTFAForSession(payload);
+      return true;
+    }
     const token = payload && (payload.token || payload.access_token);
 
     if (!token) {
@@ -2724,12 +2776,13 @@ window.API = {
     },
     // Complete a 2FA-verified login. Called after the user enters their
     // TOTP/OTP code and /twofactor/verify returns success.
-    complete2FALogin: async (userId, rememberMe = false) => {
+    complete2FALogin: async (userId, rememberMe = false, challengeToken = "") => {
       AuthContext.setPersistence(rememberMe);
       const response = await apiCall("/auth/login", "POST", {
         user_id: userId,
         remember_me: rememberMe,
         "2fa_verified": "1",
+        challenge_token: challengeToken,
       });
 
       if (response && response.token) {
@@ -3982,6 +4035,22 @@ window.API = {
       apiCall("/admission/complete-enrollment", "POST", data),
     confirmEnrollment: async (data) =>
       apiCall("/admission/confirm-enrollment", "POST", data),
+    // Intake windows + open terms (school-admin controlled)
+    getOpenAdmissionTerms: async () =>
+      apiCall("/admission/open-terms", "GET"),
+    getAdmissionWindows: async () =>
+      apiCall("/admission/windows", "GET"),
+    // Backward-compatible name used by the admissions workspace.
+    getWindows: async () => apiCall("/admission/windows", "GET"),
+    saveAdmissionWindow: async (data) =>
+      apiCall("/admission/windows", "POST", data),
+    updateAdmissionWindow: async (id, data) =>
+      apiCall(`/admission/windows/${id}`, "PUT", data),
+    toggleAdmissionWindow: async (id, status) =>
+      apiCall(`/admission/windows/${id}`, "PUT", { status }),
+    // Inline edit of an application's core fields
+    updateApplication: async (id, data) =>
+      apiCall(`/admission/application/${id}`, "PUT", data),
   },
 
   // Communications endpoints
@@ -3991,6 +4060,8 @@ window.API = {
     // SMS callbacks
     smsDeliveryReport: async (data) =>
       apiCall("/communications/sms-delivery-report", "POST", data),
+    whatsappDeliveryReport: async (data) =>
+      apiCall("/communications/whatsapp-delivery-report", "POST", data),
     smsOptOutCallback: async (data) =>
       apiCall("/communications/sms-opt-out-callback", "POST", data),
     smsSubscriptionCallback: async (data) =>
@@ -4099,6 +4170,8 @@ window.API = {
         : apiCall("/communications/communication", "GET"),
     createCommunication: async (data) =>
       apiCall("/communications/communication", "POST", data),
+    dispatchCommunication: async (id) =>
+      apiCall(`/communications/dispatch-communication/${id}`, "POST"),
     updateCommunication: async (id, data) =>
       apiCall(`/communications/communication/${id}`, "PUT", data),
     deleteCommunication: async (id) =>
@@ -4201,6 +4274,8 @@ window.API = {
     getTemplates: async () => apiCall("/communications/template", "GET"),
     saveTemplate: async (data) =>
       apiCall("/communications/template", "POST", data),
+    getAudienceOptions: async () => apiCall("/communications/audience-options", "GET"),
+    createWhatsappTemplate: async (data) => apiCall("/communications/create-whatsapp-template", "POST", data),
   },
 
   // Finance endpoints
@@ -4212,6 +4287,50 @@ window.API = {
     create: async (data) => apiCall("/finance", "POST", data),
     update: async (id, data) => apiCall(`/finance/${id}`, "PUT", data),
     delete: async (id) => apiCall(`/finance/${id}`, "DELETE"),
+    listStudentFundTransfers: async (params = {}) =>
+      apiCall("/finance/student-fund-transfers", "GET", null, params),
+    getStudentFundSources: async () =>
+      apiCall("/finance/student-fund-sources", "GET"),
+    getPaymentRoutingCases: async (params = {}) =>
+      apiCall("/finance/payment-routing-cases", "GET", null, params),
+    resolvePaymentRoutingCase: async (id, data) =>
+      apiCall(`/finance/payment-routing-cases-resolve/${id}`, "POST", data),
+    generatePaymentReference: async (data) =>
+      apiCall("/finance/payment-references", "POST", data),
+    getPaymentCollectionRoutes: async () =>
+      apiCall("/finance/payment-collection-routes", "GET"),
+    savePaymentCollectionRoute: async (data) =>
+      apiCall("/finance/payment-collection-routes", "POST", data),
+    getAccountingTrialBalance: async () =>
+      apiCall("/finance/accounting/trial-balance", "GET"),
+    getAccountingReport: async (type = "income") =>
+      apiCall("/finance/accounting/report", "GET", null, { type }),
+    getFinancialAccounts: async (params = {}) =>
+      apiCall("/finance/financial-accounts", "GET", null, params),
+    getFinancialAccountSetupOptions: async () =>
+      apiCall("/finance/financial-account-setup-options", "GET"),
+    createFinancialAccount: async (data) =>
+      apiCall("/finance/financial-accounts", "POST", data),
+    updateFinancialAccount: async (id, data) =>
+      apiCall(`/finance/financial-accounts/${id}`, "PUT", data),
+    verifyFinancialAccount: async (id, status) =>
+      apiCall(`/finance/financial-accounts/${id}/verify`, "PUT", { status }),
+    setFinancialAccountPermissions: async (id, permissions) =>
+      apiCall(`/finance/financial-accounts/${id}/permissions`, "POST", { permissions }),
+    getFinancialAccountPermissions: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/permissions`, "GET"),
+    getStatementLines: async (params = {}) =>
+      apiCall("/finance/reconciliation/statement-lines", "GET", null, params),
+    importStatement: async (data) =>
+      apiCall("/finance/reconciliation/statement-imports", "POST", data),
+    resolveStatementLine: async (id, data) =>
+      apiCall(`/finance/reconciliation/statement-lines/${id}/resolve`, "POST", data),
+    createStudentFundTransfer: async (data) =>
+      apiCall("/finance/student-fund-transfers", "POST", data),
+    decideStudentFundTransfer: async (id, decision) =>
+      apiCall(`/finance/student-fund-transfers/${id}`, "PUT", { decision }),
+    postStudentFundTransfer: async (id) =>
+      apiCall(`/finance/student-fund-transfer-post/${id}`, "POST"),
 
     // Department budgets
     proposeBudget: async (data) =>
@@ -4346,6 +4465,8 @@ window.API = {
       apiCall("/finance/fees-approve-structure", "POST", data),
     activateStructure: async (data) =>
       apiCall("/finance/fees-activate-structure", "POST", data),
+    deactivateFeeStructure: async (data) =>
+      apiCall("/finance/fees-deactivate-structure", "POST", data),
     rolloverStructure: async (data) =>
       apiCall("/finance/fees-rollover-structure", "POST", data),
     getTermBreakdown: async (params) =>
@@ -4359,6 +4480,12 @@ window.API = {
     deleteAnnualStructure: async (data) =>
       apiCall("/finance/fees-delete-annual-structure", "POST", data),
     listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
+    createFeeType: async (data) =>
+      apiCall("/finance/fee-types-list", "POST", data),
+    updateFeeType: async (id, data) =>
+      apiCall(`/finance/fee-types-list/${id}`, "PUT", data),
+    toggleFeeTypeStatus: async (id) =>
+      apiCall(`/finance/fee-types-list/${id}`, "PATCH"),
     listStudentTypes: async () => apiCall("/finance/student-types-list", "GET"),
     createFeeStructureBundle: async (data) =>
       apiCall("/finance/fees-create-bundle", "POST", data),
@@ -4410,6 +4537,8 @@ window.API = {
     getPayments: async (params = {}) =>
       apiCall("/finance/payrolls-staff-payments", "GET", null, params),
     getStats: async () => apiCall("/finance", "GET"),
+    getSupplierPayables: async () => apiCall("/finance/supplier-payables", "GET"),
+    submitSupplierPayments: async (data) => apiCall("/finance/supplier-payments", "POST", data),
     getOutstandingFees: async () =>
       apiCall("/finance/fees-annual-summary", "GET"),
     getPaymentHistory: async (params = {}) =>
@@ -4632,6 +4761,15 @@ window.API = {
     // Get uniform payment summary
     getUniformPaymentSummary: async () =>
       apiCall("/inventory/uniform-payment-summary", "GET"),
+
+    createUniformPaymentIntent: async (data) =>
+      apiCall("/inventory/uniform-payment-intents", "POST", data),
+
+    getUniformPaymentIntent: async (id) =>
+      apiCall(`/inventory/uniform-payment-intents/${id}`, "GET"),
+
+    confirmUniformPaymentIntent: async (id) =>
+      apiCall(`/inventory/uniform-payment-intent-confirm/${id}`, "POST"),
 
     // Get student uniform size profile
     getStudentUniformProfile: async (studentId) =>
@@ -5042,6 +5180,18 @@ window.API = {
       apiCall("/transport/withdraw-assignment", "POST", data),
     getAssignments: async (params) =>
       apiCall("/transport/assignments", "GET", null, params),
+    createEntitlement: async (data) =>
+      apiCall("/transport/entitlements", "POST", data),
+    allocateEntitlementPayment: async (entitlementId, data) =>
+      apiCall(`/transport/entitlements-payment/${entitlementId}`, "POST", data),
+    getEntitlementAccess: async (studentId, params = {}) =>
+      apiCall(`/transport/entitlement-access/${studentId}`, "GET", null, params),
+    createPaymentIntent: async (data) =>
+      apiCall("/transport/payment-intents", "POST", data),
+    confirmPaymentIntent: async (id) =>
+      apiCall(`/transport/payment-intent-confirm/${id}`, "POST"),
+    getPaymentIntent: async (id) =>
+      apiCall(`/transport/payment-intents/${id}`, "GET"),
     getStudentsByRoute: async (routeId) =>
       apiCall(`/transport/students-by-route?route_id=${routeId}`, "GET"),
 
@@ -5603,6 +5753,7 @@ window.API = {
     // status, account balance, reversal, B2B, B2C) land on the webhook sinks
     // and can be read back via getMpesaResults().
     stkPush: async (data) => apiCall("/payments/mpesa-stk-push", "POST", data),
+    kcbMpesaExpress: async (data) => apiCall("/payments/kcb-mpesa-express", "POST", data),
     stkQuery: async (data) => apiCall("/payments/mpesa-stk-query", "POST", data),
     c2bRegister: async (data) => apiCall("/payments/mpesa-c2b-register", "POST", data),
     c2bSimulate: async (data) => apiCall("/payments/mpesa-c2b-simulate", "POST", data),
@@ -6277,8 +6428,8 @@ window.API = {
      * Get full class teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getClassTeacherFull: async () => {
-      return await apiCall("/dashboard/class-teacher/full", "GET");
+    getClassTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/class-teacher/full", "GET", null, params);
     },
 
     /**
@@ -6322,8 +6473,8 @@ window.API = {
      * Get full subject teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getSubjectTeacherFull: async () => {
-      return await apiCall("/dashboard/subject-teacher/full", "GET");
+    getSubjectTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/subject-teacher/full", "GET", null, params);
     },
 
     /**
@@ -6353,8 +6504,8 @@ window.API = {
      * Get full intern teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getInternTeacherFull: async () => {
-      return await apiCall("/dashboard/intern-teacher/full", "GET");
+    getInternTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/intern-teacher/full", "GET", null, params);
     },
 
     /**

@@ -404,6 +404,25 @@ if (!isset($appBase)) {
     </div>
 </div>
 
+<!-- Submitted structures awaiting review/final approval -->
+<div class="console-card mb-4">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <div>
+            <h5 class="mb-1">Submitted Fee Structures</h5>
+            <small class="text-muted">Review feedback first, then final-approve to make the structure effective. Authorised School Administrators and Directors may bypass an outstanding Headteacher review.</small>
+        </div>
+        <span class="badge rounded-pill text-bg-warning" id="pendingApprovalBadge">0 pending</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light"><tr>
+                <th>Academic Year</th><th>Terms</th><th>Student Types</th><th>Classes</th><th>Submitted By</th><th>Status</th><th class="text-end">Actions</th>
+            </tr></thead>
+            <tbody id="pendingApprovalsBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading submitted structures…</td></tr></tbody>
+        </table>
+    </div>
+</div>
+
 <!-- Charts + Filters -->
 <div class="console-grid">
     <div>
@@ -430,89 +449,25 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<!-- Filters Section -->
-<div class="filter-panel p-4 mb-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+<!-- Canonical active fee matrix -->
+<div class="console-card mb-4">
+    <div class="card-header d-flex align-items-center justify-content-between">
         <div>
-            <div class="metric-label">Decision Filters</div>
-            <h5 class="mb-0" style="font-family: Georgia, 'Times New Roman', serif; font-weight:800;">Narrow the fee book</h5>
+            <h5 class="mb-1">Active Fee Structure</h5>
+            <small class="text-muted">The approved Day and Full Boarder amounts exactly as configured by grade and term.</small>
         </div>
-        <button class="btn btn-outline-success rounded-pill px-4" onclick="clearFilters()"><i class="bi bi-arrow-counterclockwise me-2"></i>Reset</button>
-    </div>
-    <div class="row g-3">
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">Academic Year</label>
-            <select class="form-select" id="academicYearFilter">
-                <option value="">All Years</option>
+        <div class="d-flex align-items-center gap-2">
+            <label for="adminMatrixAcademicYearFilter" class="small fw-semibold text-muted mb-0">Academic Year</label>
+            <select class="form-select form-select-sm" id="adminMatrixAcademicYearFilter" style="width: 150px">
+                <option value="">Select year</option>
             </select>
-        </div>
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">School Level</label>
-            <select class="form-select" id="schoolLevelFilter">
-                <option value="">All Levels</option>
-            </select>
-        </div>
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">Student Type</label>
-            <select class="form-select" id="studentTypeFilter">
-                <option value="">All Types</option>
-            </select>
-        </div>
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">Term</label>
-            <select class="form-select" id="termFilter">
-                <option value="">All Terms</option>
-                <option value="1">Term 1</option>
-                <option value="2">Term 2</option>
-                <option value="3">Term 3</option>
-            </select>
-        </div>
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">Status</label>
-            <select class="form-select" id="statusFilter">
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="draft">Draft</option>
-                <option value="reviewed">Reviewed</option>
-                <option value="approved">Approved</option>
-                <option value="archived">Archived</option>
-            </select>
-        </div>
-        <div class="col-xl-2 col-md-4">
-            <label class="form-label">Search</label>
-            <input type="text" class="form-control" id="searchFeeStructure" placeholder="Level, type, year...">
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearFilters()">Reset</button>
+            <span class="badge rounded-pill text-bg-success">Active</span>
         </div>
     </div>
-</div>
-
-<!-- Data Table -->
-<div class="fee-table-shell table-responsive">
-    <table class="table table-hover" id="feeStructuresTable">
-        <thead>
-            <tr>
-                <th scope="col">Academic Year</th>
-                <th scope="col">Term</th>
-                <th scope="col">Level</th>
-                <th scope="col">Student Type</th>
-                <th class="text-end">Total Amount</th>
-                <th scope="col">Students</th>
-                <th class="text-end">Expected Revenue</th>
-                <th scope="col">Status</th>
-                <th scope="col">Actions</th>
-            </tr>
-        </thead>
-        <tbody id="feeStructuresBody">
-            <tr>
-                <td colspan="9" class="text-center py-5 text-muted">Loading fee structures...</td>
-            </tr>
-        </tbody>
-    </table>
-</div>
-
-<!-- Pagination -->
-<div class="pagination-footer d-flex justify-content-between align-items-center mt-3">
-    <span class="text-muted fw-semibold" id="paginationInfo">Showing 0 of 0</span>
-    <div class="btn-group" id="paginationControls"></div>
+    <div class="card-body" id="adminActiveFeeMatrix">
+        <div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading active fee matrix…</div>
+    </div>
 </div>
 
 <!-- Create/Edit Fee Structure Modal -->
@@ -611,14 +566,10 @@ if (!isset($appBase)) {
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/fee_structure_admin.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_admin.js") ?>"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof window.FeeStructureAdminController !== 'undefined') {
-            window.FeeStructureAdminController.init();
-        } else {
-            console.error('FeeStructureAdminController not found');
-        }
-    });
-</script>
+<div class="modal fade" id="adminFeeMatrixModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><div><h5 class="modal-title mb-1">Fee Structure Matrix</h5><small class="text-muted" id="adminFeeMatrixMeta"></small></div><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body" id="adminFeeMatrixBody"></div>
+    </div></div>
+</div>
 </div>

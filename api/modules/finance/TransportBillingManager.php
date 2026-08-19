@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\API\Modules\finance;
 
 use App\Database\Database;
+use App\API\Modules\transport\StudentTransportEntitlementManager;
 use Exception;
 
 /**
@@ -13,10 +14,12 @@ use Exception;
 class TransportBillingManager
 {
     private \PDO $db;
+    private StudentTransportEntitlementManager $entitlements;
 
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
+        $this->entitlements = new StudentTransportEntitlementManager($this->db);
     }
 
     /**
@@ -121,6 +124,10 @@ class TransportBillingManager
             ]);
             if ($ins->rowCount() > 0) $generated++;
             else $skipped++;
+            $this->entitlements->ensureMonthlyEntitlement(
+                (int)$sub['student_id'], (int)$sub['id'], (int)$sub['route_id'],
+                $billingMonth, $amount, $generatedBy ? (int)$generatedBy : null
+            );
         }
 
         return [
@@ -363,6 +370,10 @@ class TransportBillingManager
             ':rid' => $sub['route_id'],   ':bm' => $billingMonth,
             ':amt' => $sub['expected_amount'] ?? 0, ':due' => $dueDate,
         ]);
+        $this->entitlements->ensureMonthlyEntitlement(
+            (int)$sub['student_id'], (int)$sub['id'], (int)$sub['route_id'],
+            $billingMonth, (float)($sub['expected_amount'] ?? 0), null
+        );
     }
 
     private function getSubscriptionId(int $studentId, int $routeId, string $startMonth): int

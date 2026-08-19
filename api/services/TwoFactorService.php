@@ -98,6 +98,51 @@ class TwoFactorService
         return false;
     }
 
+    public function verifyUserTOTP(int $userId, string $code): bool
+    {
+        $stmt = $this->db->prepare("SELECT id, secret_ciphertext, last_used_timestep FROM user_two_factor_methods WHERE user_id=? AND method='totp' AND is_enabled=1 LIMIT 1");
+        $stmt->execute([$userId]); $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $secret = $row ? $this->decryptSecret($row['secret_ciphertext']) : $this->getSecret($userId);
+        if (!$secret) return false;
+        $slice = (int) floor(time() / self::TOTP_PERIOD);
+        $normalized = str_pad(preg_replace('/\D/', '', $code), self::TOTP_DIGITS, '0', STR_PAD_LEFT);
+        for ($offset = -1; $offset <= 1; $offset++) {
+            if (hash_equals($this->generateTOTPCode($this->base32Decode($secret), $slice + $offset), $normalized)) {
+                if ($row && (int) ($row['last_used_timestep'] ?? -1) >= ($slice + $offset)) return false;
+                if ($row) $this->db->prepare("UPDATE user_two_factor_methods SET last_used_timestep=? WHERE id=? AND (last_used_timestep IS NULL OR last_used_timestep<?)")->execute([$slice + $offset, $row['id'], $slice + $offset]);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function encryptionKey(): string
+    {
+        $configured = defined('TFA_ENCRYPTION_KEY') ? (string) TFA_ENCRYPTION_KEY : '';
+        if ($configured === '') throw new \RuntimeException('TFA_ENCRYPTION_KEY is not configured');
+        $key = ctype_xdigit($configured) ? hex2bin($configured) : hash('sha256', $configured, true);
+        if ($key === false || strlen($key) !== 32) throw new \RuntimeException('Invalid TFA encryption key');
+        return $key;
+    }
+
+    public function encryptSecret(string $secret): string
+    {
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($secret, 'aes-256-gcm', $this->encryptionKey(), OPENSSL_RAW_DATA, $iv, $tag);
+        if ($cipher === false) throw new \RuntimeException('Unable to encrypt 2FA secret');
+        return base64_encode($iv . $tag . $cipher);
+    }
+
+    public function decryptSecret(?string $encoded): ?string
+    {
+        if (!$encoded) return null;
+        $raw = base64_decode($encoded, true);
+        if ($raw === false || strlen($raw) < 28) return null;
+        $plain = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', $this->encryptionKey(), OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+        return $plain === false ? null : $plain;
+    }
+
     /**
      * Generate a TOTP code for a given time slice (RFC 6238).
      */
@@ -130,7 +175,7 @@ class TwoFactorService
      */
     public function generateOTP(int $userId, string $method, string $otpType = 'login'): ?string
     {
-        if (!in_array($method, ['email', 'sms'], true)) return null;
+        if (!in_array($method, ['email', 'sms', 'whatsapp'], true)) return null;
 
         $code = str_pad(
             (string) random_int(0, pow(10, self::OTP_LENGTH) - 1),
@@ -301,9 +346,12 @@ class TwoFactorService
         $stmt->execute([$userId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        $methods = $this->db->prepare("SELECT method, label, is_primary, verified_at FROM user_two_factor_methods WHERE user_id = ? AND is_enabled = 1 ORDER BY is_primary DESC, id ASC");
+        $methods->execute([$userId]);
         return [
             'enabled' => (bool) ($row['two_factor_enabled'] ?? 0),
             'method' => $row['two_factor_method'] ?? null,
+            'methods' => $methods->fetchAll(PDO::FETCH_ASSOC),
             'verified_at' => $row['two_factor_verified_at'] ?? null,
             'backup_codes_generated_at' => $row['backup_codes_generated_at'] ?? null,
             'backup_codes_remaining' => $this->getBackupCodeCount($userId),
@@ -315,17 +363,20 @@ class TwoFactorService
      */
     public function enable2FA(int $userId, string $method, string $secret): bool
     {
-        if (!in_array($method, ['totp', 'email', 'sms'], true)) return false;
+        if (!in_array($method, ['totp', 'email', 'sms', 'whatsapp'], true)) return false;
 
-        $stmt = $this->db->prepare(
-            "UPDATE users
-             SET two_factor_secret = ?,
-                 two_factor_enabled = 1,
-                 two_factor_method = ?,
-                 two_factor_verified_at = NOW()
-             WHERE id = ?"
-        );
-        return $stmt->execute([$secret, $method, $userId]);
+        $ciphertext = $method === 'totp' ? $this->encryptSecret($secret) : null;
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("UPDATE user_two_factor_methods SET is_primary = 0 WHERE user_id = ?")->execute([$userId]);
+            $stmt = $this->db->prepare("INSERT INTO user_two_factor_methods (user_id, method, secret_ciphertext, is_primary, verified_at) VALUES (?, ?, ?, 1, NOW()) ON DUPLICATE KEY UPDATE secret_ciphertext = VALUES(secret_ciphertext), is_enabled = 1, is_primary = 1, verified_at = NOW()");
+            $stmt->execute([$userId, $method, $ciphertext]);
+            $legacy = $ciphertext ?: null;
+            $this->db->prepare("UPDATE users SET two_factor_secret = ?, two_factor_enabled = 1, two_factor_method = ?, two_factor_verified_at = NOW() WHERE id = ?")->execute([$legacy, $method, $userId]);
+            $this->audit($userId, 'factor_enabled', $method, true);
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
     }
 
     /**
@@ -362,7 +413,55 @@ class TwoFactorService
             "SELECT two_factor_secret FROM users WHERE id = ?"
         );
         $stmt->execute([$userId]);
-        return $stmt->fetchColumn() ?: null;
+        $value = $stmt->fetchColumn() ?: null;
+        if (!$value) return null;
+        return $this->decryptSecret($value) ?: $value; // compatibility for pre-hardening records
+    }
+
+    public function createLoginChallenge(int $userId, string $method): string
+    {
+        $raw = bin2hex(random_bytes(32));
+        $stmt = $this->db->prepare("INSERT INTO user_two_factor_challenges (user_id, challenge_hash, method, expires_at, ip_address, user_agent) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), ?, ?)");
+        $stmt->execute([$userId, hash('sha256', $raw), $method, $_SERVER['REMOTE_ADDR'] ?? null, substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 512)]);
+        return $raw;
+    }
+
+    private function challenge(string $raw, ?int $userId = null, array $statuses = ['pending']): ?array
+    {
+        $marks = implode(',', array_fill(0, count($statuses), '?'));
+        $sql = "SELECT * FROM user_two_factor_challenges WHERE challenge_hash = ? AND status IN ($marks) AND expires_at > NOW()";
+        $params = array_merge([hash('sha256', $raw)], $statuses);
+        if ($userId !== null) { $sql .= ' AND user_id = ?'; $params[] = $userId; }
+        $sql .= ' ORDER BY id DESC LIMIT 1';
+        $stmt = $this->db->prepare($sql); $stmt->execute($params); return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    public function getLoginChallenge(string $raw, ?int $userId = null): ?array { return $this->challenge($raw, $userId); }
+
+    public function markChallengeVerified(string $raw, int $userId): bool
+    {
+        $row = $this->challenge($raw, $userId); if (!$row) return false;
+        $this->db->prepare("UPDATE user_two_factor_challenges SET status='verified', verified_at=NOW() WHERE id=? AND status='pending'")->execute([$row['id']]);
+        $this->audit($userId, 'challenge_verified', $row['method'], true, (int) $row['id']); return true;
+    }
+
+    public function consumeLoginChallenge(string $raw, int $userId): bool
+    {
+        $row = $this->challenge($raw, $userId, ['verified']); if (!$row) return false;
+        $this->db->prepare("UPDATE user_two_factor_challenges SET status='consumed', consumed_at=NOW() WHERE id=? AND status='verified'")->execute([$row['id']]);
+        return true;
+    }
+
+    public function registerChallengeFailure(string $raw, ?int $userId = null): void
+    {
+        $row = $this->challenge($raw, $userId); if (!$row) return;
+        $this->db->prepare("UPDATE user_two_factor_challenges SET attempts=attempts+1, status=IF(attempts+1>=5,'locked',status) WHERE id=?")->execute([$row['id']]);
+        $this->audit($row['user_id'], 'challenge_failed', $row['method'], false, (int) $row['id']);
+    }
+
+    private function audit(?int $userId, string $event, ?string $method, bool $success, ?int $challengeId = null): void
+    {
+        $this->db->prepare("INSERT INTO user_two_factor_audit_events (user_id,event_type,method,challenge_id,success,ip_address,user_agent) VALUES (?,?,?,?,?,?,?)")->execute([$userId,$event,$method,$challengeId,$success?1:0,$_SERVER['REMOTE_ADDR']??null,substr($_SERVER['HTTP_USER_AGENT']??'',0,512)]);
     }
 
     // ========================================================================
@@ -385,6 +484,24 @@ class TwoFactorService
         if (!$row || !$row['two_factor_enabled']) return null;
 
         return $row['two_factor_method'] ?? null;
+    }
+
+    public function getEnabledMethods(int $userId): array
+    {
+        $stmt = $this->db->prepare("SELECT method FROM user_two_factor_methods WHERE user_id=? AND is_enabled=1 ORDER BY is_primary DESC, id ASC");
+        $stmt->execute([$userId]);
+        $methods = array_values(array_unique(array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'method')));
+        if (!$methods) { $primary = $this->getRequiredMethod($userId); if ($primary) $methods[] = $primary; }
+        $passkeys = $this->db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id=?"); $passkeys->execute([$userId]);
+        if ((int) $passkeys->fetchColumn() > 0) $methods[] = 'passkey';
+        return $methods;
+    }
+
+    public function setChallengeMethod(string $raw, int $userId, string $method): bool
+    {
+        if (!in_array($method, $this->getEnabledMethods($userId), true)) return false;
+        $row = $this->challenge($raw, $userId); if (!$row) return false;
+        return $this->db->prepare("UPDATE user_two_factor_challenges SET method=? WHERE id=? AND status='pending'")->execute([$method, $row['id']]);
     }
 
     /**

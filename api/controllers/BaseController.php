@@ -694,8 +694,11 @@ abstract class BaseController extends FileLifecycleBase
             return $result;
         }
 
-        // Extract status info
-        $status = $result['status'] ?? 'error';
+        // Extract status info (accept both `status` and legacy `success` keys)
+        $successFlag = $result['success'] ?? null;
+        $status = $result['status']
+            ?? (($successFlag === true) ? 'success'
+                : (($successFlag === false) ? 'error' : 'error'));
         $code = $result['code'] ?? ($status === 'success' ? 200 : 400);
         $message = $result['message'] ?? '';
         $data = $result['data'] ?? null;

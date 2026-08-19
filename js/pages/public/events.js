@@ -56,8 +56,8 @@
       this.initialized = true;
       try {
         const [events, terms] = await Promise.all([
-          PS.get('events', {}, { tier: 'dynamic' }),
-          PS.get('terms', {}, { tier: 'reference' }),
+          PS.get('events', { upcoming: '0' }, { tier: 'dynamic', forceRefresh: true }),
+          PS.get('terms', {}, { tier: 'reference', forceRefresh: true }),
         ]);
         this.renderEvents(events);
         this.renderTerms(terms);
@@ -72,7 +72,9 @@
     renderEvents(data) {
       const el = document.getElementById('events-list');
       if (!el) return;
-      const list = PS.items(data);
+      const today = new Date().toISOString().slice(0, 10);
+      const all = PS.deduplicateEvents(PS.items(data));
+      const list = all.filter((ev) => dateOnly(ev.end_at || ev.start_at) >= today);
       if (!list.length) {
         el.innerHTML =
           '<div class="text-center py-5">' +
@@ -81,49 +83,84 @@
         return;
       }
 
-      el.innerHTML = list.map((ev) => {
+      const cards = list.map((ev) => {
         const d = toDate(ev.start_at);
         const dEnd = toDate(ev.end_at);
         const tc = typeColor(ev.type);
-        const isPast = dateOnly(ev.start_at) < new Date().toISOString().slice(0, 10);
         const day = d ? String(d.getDate()).padStart(2, '0') : '';
         const mon = d ? d.toLocaleString('en-GB', { month: 'short' }) : '';
         const yr = d ? String(d.getFullYear()) : '';
-        // Full range: end date when it differs, and start -> end times.
         const sameDay = !dEnd || dateOnly(ev.end_at) === dateOnly(ev.start_at);
-        const endStr = dEnd && !sameDay ? ' → ' + dEnd.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+        const fmtShort = (dt) => dt ? dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+        const dateRange = sameDay ? '' : fmtShort(d) + ' – ' + fmtShort(dEnd);
         const sT = ev.start_at && hasTime(ev.start_at) ? PS.formatDate(d, 'time') : '';
         const eT = ev.end_at && hasTime(ev.end_at) ? PS.formatDate(dEnd, 'time') : '';
         const timeStr = (sT && eT && eT !== sT) ? sT + ' – ' + eT : (sT || '');
         return '<a href="' + base + '/event-detail.php?id=' + encodeURIComponent(ev.id) + '" class="text-decoration-none">' +
-          '<div class="card-modern mb-4 reveal' + (isPast ? ' opacity-50' : '') + '" style="cursor:pointer">' +
+          '<div class="card-modern" style="cursor:pointer;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">' +
           '<div class="row g-0">' +
           '<div class="col-auto d-flex">' +
-          '<div class="d-flex flex-column align-items-center justify-content-center px-4 text-white rounded-start-4" style="min-width:90px;background:var(--green-dark)">' +
+          '<div class="d-flex flex-column align-items-center justify-content-center px-4 text-white rounded-start-4" style="min-width:90px;background:#07552f;border-radius:16px 0 0 16px">' +
           '<div style="font-size:2rem;font-weight:900;line-height:1">' + day + '</div>' +
           '<div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;opacity:.9">' + mon + '</div>' +
           '<div style="font-size:.75rem;opacity:.75">' + yr + '</div>' +
           '</div></div>' +
-          '<div class="col p-4">' +
+          '<div class="col p-4" style="color:#333">' +
           '<div class="d-flex align-items-start justify-content-between flex-wrap gap-2">' +
           '<div>' +
-          '<span class="event-type mb-2" style="background:' + tc[0] + ';color:' + tc[1] + '">' + S(ev.type || 'Event') + '</span>' +
-          '<h5 class="fw-bold mb-2">' + S(ev.title) + '</h5>' +
-          '<p class="text-muted small mb-2">' + S(String(ev.description || '').slice(0, 120)) + '</p>' +
-          '<div class="event-meta">' +
-          (endStr ? '<span><i class="bi bi-calendar-x text-success"></i>' + endStr + '</span>' : '') +
-          (timeStr ? '<span><i class="bi bi-clock text-success"></i>' + timeStr + '</span>' : '') +
-          (ev.location ? '<span><i class="bi bi-geo-alt text-success"></i>' + S(ev.location) + '</span>' : '') +
+          '<span style="display:inline-block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.6px;padding:2px 8px;border-radius:4px;margin-bottom:5px;background:' + tc[0] + ';color:' + tc[1] + '">' + S(ev.type || 'Event') + '</span>' +
+          '<h5 style="font-weight:700;font-size:1.05rem;margin:0 0 8px;color:#1a1a2e">' + S(ev.title) + '</h5>' +
+          '<p style="color:#666;font-size:.88rem;margin:0 0 8px">' + S(String(ev.description || '').slice(0, 120)) + '</p>' +
+          '<div style="font-size:.8rem;color:#666;display:flex;align-items:center;gap:12px">' +
+          (dateRange ? '<span><i class="bi bi-calendar-range" style="color:#07552f"></i> ' + S(dateRange) + '</span>' : '') +
+          (timeStr ? '<span><i class="bi bi-clock" style="color:#07552f"></i> ' + timeStr + '</span>' : '') +
+          (ev.location ? '<span><i class="bi bi-geo-alt" style="color:#07552f"></i> ' + S(ev.location) + '</span>' : '') +
           '</div></div>' +
           '<div class="d-flex flex-column align-items-end gap-1">' +
-          (isPast
-            ? '<span class="tag bg-secondary bg-opacity-10 text-secondary">Past</span>'
-            : '<span class="tag bg-success bg-opacity-10 text-success">Upcoming</span>') +
-          '<span class="text-muted small"><i class="bi bi-chevron-right"></i>Details</span>' +
+          (dateOnly(ev.start_at) <= today
+            ? '<span style="display:inline-flex;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:600;background:#fff3cd;color:#856404">Ongoing</span>'
+            : '<span style="display:inline-flex;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:600;background:#e8f5e9;color:#07552f">Upcoming</span>') +
+          '<span style="color:#999;font-size:.8rem"><i class="bi bi-chevron-right"></i>Details</span>' +
           '</div></div></div></div></a>';
       }).join('');
 
-      if (window.PublicUI && window.PublicUI.observeReveals) window.PublicUI.observeReveals(el);
+      el.innerHTML =
+        '<div id="events-scroll-container" style="max-height:calc(6 * 180px);overflow-y:auto;scroll-behavior:smooth;border-radius:12px;scrollbar-width:thin;scrollbar-color:#07552f transparent">' +
+          '<div style="display:flex;flex-direction:column;gap:20px;padding:4px">' +
+            cards +
+          '</div>' +
+        '</div>' +
+        (list.length > 6
+          ? '<div id="events-scroll-wrap" style="display:flex;justify-content:center;margin-top:16px">' +
+              '<button id="events-scroll-btn" ' +
+              'style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;border:1px solid #07552f;border-radius:24px;background:transparent;color:#07552f;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s">' +
+                '<i class="bi bi-chevron-down"></i> Show more' +
+              '</button>' +
+            '</div>'
+          : '');
+
+      if (list.length > 6) {
+        var btn = document.getElementById('events-scroll-btn');
+        var sc = document.getElementById('events-scroll-container');
+        if (btn && sc) {
+          btn.addEventListener('click', function () {
+            var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 20;
+            if (atBottom) {
+              sc.scrollTo({ top: 0, behavior: 'smooth' });
+              btn.innerHTML = '<i class="bi bi-chevron-down"></i> Show more';
+            } else {
+              sc.scrollTo({ top: sc.scrollTop + sc.clientHeight + 180, behavior: 'smooth' });
+              btn.innerHTML = '<i class="bi bi-chevron-up"></i> Scroll to top';
+            }
+          });
+          sc.addEventListener('scroll', function () {
+            var atBottom = sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 20;
+            btn.innerHTML = atBottom
+              ? '<i class="bi bi-chevron-up"></i> Scroll to top'
+              : '<i class="bi bi-chevron-down"></i> Show more';
+          });
+        }
+      }
     },
 
     renderTerms(data) {

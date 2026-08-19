@@ -39,8 +39,8 @@
             <h5 class="border-bottom pb-2">Contact &amp; Emergency</h5>
           </div>
           <div class="col-md-6">
-            <label class="form-label">Communication Email</label>
-            <input name="communication_email" type="email" class="form-control">
+            <label class="form-label">Communication Email <span class="text-danger">*</span></label>
+            <input name="communication_email" type="email" class="form-control" required>
           </div>
           <div class="col-md-6">
             <label class="form-label">Communication Phone</label>

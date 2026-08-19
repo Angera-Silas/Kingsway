@@ -827,6 +827,9 @@ class AcademicAPI extends BaseAPI
                 case 'calendar-events':
                     $result = $this->getCalendarEvents($params);
                     break;
+                case 'unified-events':
+                    $result = $this->getUnifiedCalendarEvents($params);
+                    break;
                 case 'parent-meetings':
                     $result = $this->getParentMeetings($params);
                     break;
@@ -933,6 +936,164 @@ class AcademicAPI extends BaseAPI
         }
     }
 
+    /**
+     * Unified calendar events for the read-only calendar page (headteacher /
+     * deputy). Returns merged logical events (one row per event, spanning its
+     * full start -> end range), filterable by year/term/week/type/search, plus
+     * the current-year context for building the filter controls.
+     */
+    public function getUnifiedCalendarEvents(array $params = [])
+    {
+        try {
+            $calendarSync = new CalendarSyncService($this->db);
+            $events = $calendarSync->getUnifiedEvents(false);
+
+            $yearId = !empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : null;
+            $termId = !empty($params['term_id']) ? (int) $params['term_id'] : null;
+            $weekNo = isset($params['week_number']) && $params['week_number'] !== '' ? (int) $params['week_number'] : null;
+            $type = isset($params['type']) ? trim((string) $params['type']) : '';
+            $search = isset($params['search']) ? trim((string) $params['search']) : '';
+            $scope = isset($params['scope']) ? trim((string) $params['scope']) : 'current_term';
+
+            $current = $this->currentCalendarContext();
+
+            if ($termId === null && $yearId !== null) {
+                $termIds = $this->termIdsForYear($yearId);
+                if ($termIds) {
+                    $events = array_values(array_filter($events, function ($ev) use ($termIds) {
+                        return $ev['term_id'] !== null && in_array($ev['term_id'], $termIds, true);
+                    }));
+                }
+            }
+
+            if ($termId === null && $yearId === null && $scope === 'current_term' && $current['current_term_id'] !== null) {
+                $termId = $current['current_term_id'];
+            }
+
+            if ($termId !== null) {
+                $events = array_values(array_filter($events, function ($ev) use ($termId) {
+                    return $ev['term_id'] !== null && (int) $ev['term_id'] === $termId;
+                }));
+            }
+
+            if ($weekNo !== null) {
+                $events = array_values(array_filter($events, function ($ev) use ($weekNo) {
+                    return $ev['week_number'] !== null && (int) $ev['week_number'] === $weekNo;
+                }));
+            }
+
+            if ($type !== '' && $type !== 'all') {
+                $events = array_values(array_filter($events, function ($ev) use ($type) {
+                    return ($ev['type'] ?? '') === $type;
+                }));
+            }
+
+            if ($scope === 'upcoming') {
+                $events = array_values(array_filter($events, function ($ev) use ($current) {
+                    return ($ev['start_date'] ?? '') >= $current['today'];
+                }));
+            }
+
+            if ($search !== '') {
+                $needle = mb_strtolower($search);
+                $events = array_values(array_filter($events, function ($ev) use ($needle) {
+                    return mb_strpos(mb_strtolower($ev['title'] ?? ''), $needle) !== false
+                        || mb_strpos(mb_strtolower($ev['description'] ?? ''), $needle) !== false;
+                }));
+            }
+
+            return successResponse([
+                'events' => $events,
+                'total' => count($events),
+                'context' => $current,
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+    /**
+     * Current year / term context used to pre-fill calendar filters.
+     */
+    private function currentCalendarContext(): array
+    {
+        $context = [
+            'today' => date('Y-m-d'),
+            'year_id' => null,
+            'year_name' => null,
+            'current_term_id' => null,
+            'current_term_name' => null,
+            'terms' => [],
+            'weeks' => [],
+        ];
+
+        $year = $this->db->prepare(
+            "SELECT id, year_name, year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+        );
+        $year->execute();
+        $yearRow = $year->fetch(PDO::FETCH_ASSOC);
+        if (!$yearRow) {
+            return $context;
+        }
+        $context['year_id'] = (int) $yearRow['id'];
+        $context['year_name'] = $yearRow['year_name'] ?: $yearRow['year_code'];
+        $termsStmt = $this->db->prepare(
+            "SELECT ayt.id, t.name AS term_name
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+             ORDER BY ayt.term_id ASC"
+        );
+        $termsStmt->execute([$context['year_id']]);
+        $terms = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($terms as $t) {
+            $context['terms'][] = ['id' => (int) $t['id'], 'name' => $t['term_name']];
+        }
+
+        $cur = $this->db->prepare(
+            "SELECT ayt.id, t.name AS term_name
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ? AND CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date
+             ORDER BY ayt.term_id ASC LIMIT 1"
+        );
+        $cur->execute([$context['year_id']]);
+        $curRow = $cur->fetch(PDO::FETCH_ASSOC);
+        if (!$curRow) {
+            $cur = $this->db->prepare(
+                "SELECT ayt.id, t.name AS term_name
+                 FROM academic_year_terms ayt
+                 JOIN terms t ON t.id = ayt.term_id
+                 WHERE ayt.academic_year_id = ? AND ayt.opening_date >= CURDATE()
+                 ORDER BY ayt.opening_date ASC LIMIT 1"
+            );
+            $cur->execute([$context['year_id']]);
+            $curRow = $cur->fetch(PDO::FETCH_ASSOC);
+        }
+        if ($curRow) {
+            $context['current_term_id'] = (int) $curRow['id'];
+            $context['current_term_name'] = $curRow['term_name'];
+        }
+
+        $weeksStmt = $this->db->prepare(
+            "SELECT DISTINCT ac.week_number
+             FROM academic_year_calendar ac
+             JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
+             WHERE ayt.academic_year_id = ?
+             ORDER BY ac.week_number ASC"
+        );
+        $weeksStmt->execute([$context['year_id']]);
+        $context['weeks'] = array_map('intval', $weeksStmt->fetchAll(PDO::FETCH_COLUMN));
+
+        return $context;
+    }
+
+    private function termIdsForYear(int $yearId): array
+    {
+        $stmt = $this->db->prepare("SELECT id FROM academic_year_terms WHERE academic_year_id = ?");
+        $stmt->execute([$yearId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
     public function createCalendarEvent($data)
     {
         try {
@@ -949,10 +1110,10 @@ class AcademicAPI extends BaseAPI
             if (!in_array($dayType, $allowedTypes, true)) {
                 $dayType = 'special_event';
             }
-            $dayTypeId = $this->db->query(
+            $dayTypeId = $this->queryScalar(
                 "SELECT id FROM calendar_day_types WHERE code = ?",
                 [$dayType]
-            )->fetchColumn();
+            );
             if (!$dayTypeId) {
                 $dayTypeId = (int) $this->db->query(
                     "SELECT id FROM calendar_day_types WHERE code = 'special_event'"
@@ -969,24 +1130,24 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('term_id is required to create a calendar event');
             }
 
-            $calendarId = (int) $this->db->query(
+            $calendarId = (int) $this->queryScalar(
                 "SELECT ac.id FROM academic_year_calendar ac
                  WHERE ac.academic_year_term_id = ? AND ? BETWEEN ac.week_start AND ac.week_end
                  ORDER BY ac.week_number LIMIT 1",
                 [$termId, $date]
-            )->fetchColumn();
+            );
             if (!$calendarId) {
-                $calendarId = (int) $this->db->query(
+                $calendarId = (int) $this->queryScalar(
                     "SELECT ac.id FROM academic_year_calendar ac WHERE ac.academic_year_term_id = ? ORDER BY ac.week_number LIMIT 1",
                     [$termId]
-                )->fetchColumn();
+                );
             }
             if (!$calendarId) {
-                $term = $this->db->query(
+                $term = $this->queryRow(
                     "SELECT opening_date, closing_date FROM academic_year_terms WHERE id = ?",
                     [$termId]
-                )->fetch(PDO::FETCH_ASSOC);
-                $this->db->query(
+                );
+                $this->runQuery(
                     "INSERT INTO academic_year_calendar (academic_year_term_id, week_number, week_start, week_end) VALUES (?, 1, ?, ?)",
                     [$termId, $term['opening_date'] ?: $date, $term['closing_date'] ?: $date]
                 );
@@ -1010,10 +1171,10 @@ class AcademicAPI extends BaseAPI
                 $data['description'] ?? null,
             ]);
 
-            $dayId = (int) $this->db->query(
+            $dayId = (int) $this->queryScalar(
                 "SELECT id FROM academic_year_calendar_days WHERE academic_year_calendar_id = ? AND date = ?",
                 [$calendarId, $date]
-            )->fetchColumn();
+            );
 
             require_once __DIR__ . '/../../services/CalendarSyncService.php';
             $sync = new CalendarSyncService($this->db);
@@ -1121,26 +1282,101 @@ class AcademicAPI extends BaseAPI
             }
             $startAt = $meetingDate . ' ' . $startTime;
 
+            $nextEventId = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events")->fetchColumn();
             $stmt = $this->db->prepare("
                 INSERT INTO school_events
-                    (title, description, type, location, start_at, end_at, status)
-                VALUES (?, ?, 'parent_meeting', ?, ?, NULL, 'upcoming')
+                    (id, title, description, type, location, start_at, end_at, status)
+                VALUES (?, ?, ?, 'parent_meeting', ?, ?, NULL, 'upcoming')
             ");
             $stmt->execute([
+                $nextEventId,
                 $title,
                 $description ?: $purpose,
                 $venue,
                 $startAt,
             ]);
 
+            $meetingId = $nextEventId;
+            $this->queueParentMeetingInvitations($meetingId, [
+                'title' => $title,
+                'meeting_date' => $meetingDate,
+                'start_time' => $startTime,
+                'venue' => $venue,
+                'description' => $description ?: $purpose,
+                'parent_id' => $parentId,
+                'student_id' => $studentId,
+                'class_id' => $classId,
+            ]);
+
             return successResponse([
                 'status' => 'success',
                 'message' => 'Meeting scheduled successfully',
-                'id' => (int) $this->db->lastInsertId(),
+                'id' => $meetingId,
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    private function queueParentMeetingInvitations(int $meetingId, array $meeting): void
+    {
+        $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $eventId = $eventService->getOrCreate('parent_event_invitation', (string) $meetingId, $meeting['meeting_date'] . ' ' . $meeting['start_time'], $this->getCurrentUserId());
+        $eventService->linkSchoolEvent($eventId, $meetingId);
+        $targets = [];
+        if (!empty($meeting['student_id'])) {
+            $targets[] = ['kind' => 'student', 'id' => (int) $meeting['student_id']];
+        } elseif (!empty($meeting['parent_id'])) {
+            $targets[] = ['kind' => 'parent', 'id' => (int) $meeting['parent_id']];
+        } elseif (!empty($meeting['class_id'])) {
+            $stmt = $this->db->prepare(
+                "SELECT DISTINCT sae.student_id
+                   FROM student_academic_enrollments sae
+                   JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                   JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                  WHERE ayc.class_id = ? AND sae.status = 'active'"
+            );
+            $stmt->execute([(int) $meeting['class_id']]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $studentId) {
+                $targets[] = ['kind' => 'student', 'id' => (int) $studentId];
+            }
+        }
+        if (!$targets) return;
+
+        $date = date('D, d M Y', strtotime($meeting['meeting_date']));
+        $eventVars = [
+            'event_title' => $meeting['title'],
+            'event_date' => $date,
+            'event_time' => $meeting['start_time'],
+            'event_venue' => $meeting['venue'] ?: 'School campus',
+            'event_description' => $meeting['description'] ?: '',
+        ];
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+        foreach ([7, 3, 1] as $daysBefore) {
+            $when = date('Y-m-d H:i:s', strtotime($meeting['meeting_date'] . ' ' . $meeting['start_time'] . " -{$daysBefore} days"));
+            if ($when < date('Y-m-d H:i:s')) $when = date('Y-m-d H:i:s');
+            foreach ($targets as $target) {
+                foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                    try {
+                        $options = [
+                            'scheduled_at' => $when,
+                            'purpose' => 'parent_event',
+                            'business_event_id' => $eventId,
+                            'sender_id' => $this->getCurrentUserId() ?: 1,
+                            'subject' => $meeting['title'],
+                        ];
+                        if ($target['kind'] === 'student') {
+                            $platform->queueForStudentParents($target['id'], $channel, 'parent_event', $eventVars, $options);
+                        } else {
+                            $platform->queueForParent($target['id'], $channel, 'parent_event', $eventVars, $options);
+                        }
+                    } catch (Exception $e) {
+                        error_log('[AcademicAPI] Parent meeting communication queue failed: ' . $e->getMessage());
+                    }
+                }
+            }
+        }
+        $eventService->markProcessed($eventId);
     }
 
     /**
@@ -1890,10 +2126,10 @@ class AcademicAPI extends BaseAPI
 
             $termId = (int) $this->db->lastInsertId();
             if (!$termId) {
-                $termId = (int) $this->db->query(
+                $termId = (int) $this->queryScalar(
                     "SELECT id FROM academic_year_terms WHERE academic_year_id = ? AND term_id = ?",
                     [$yearId, $masterTermId]
-                )->fetchColumn();
+                );
             }
 
             // Set updated_at if column exists
@@ -2012,6 +2248,21 @@ return errorResponse($e->getMessage(), 400);
                     'status' => 'error',
                     'message' => 'Academic year ID is required'
                 ], 400);
+            }
+
+            // Keep both labels canonical and derive them from the opening
+            // year whenever the opening date is supplied or changed.
+            $startDate = $data['start_date'] ?? null;
+            if (!$startDate) {
+                $yearStmt = $this->db->prepare('SELECT start_date FROM academic_years WHERE id = ? LIMIT 1');
+                $yearStmt->execute([(int) $yearId]);
+                $startDate = $yearStmt->fetchColumn();
+            }
+            if ($startDate) {
+                $startYear = (int) date('Y', strtotime($startDate));
+                $canonicalYear = $startYear . '/' . ($startYear + 1);
+                $data['year_code'] = $canonicalYear;
+                $data['year_name'] = $canonicalYear;
             }
 
             $sql = "UPDATE academic_years SET ";
@@ -2232,10 +2483,10 @@ return errorResponse($e->getMessage(), 400);
 
             // Changing term dates changes the school calendar - regenerate the
             // weeks/days for the owning academic year automatically.
-            $yearId = (int) $this->db->query(
+            $yearId = (int) $this->queryScalar(
                 "SELECT academic_year_id FROM academic_year_terms WHERE id = ?",
                 [$termId]
-            )->fetchColumn();
+            );
             if ($yearId > 0) {
                 require_once __DIR__ . '/AcademicCalendarService.php';
                 $calendarService = new AcademicCalendarService($this->db);

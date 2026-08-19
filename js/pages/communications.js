@@ -35,6 +35,10 @@ const communicationsController = {
     this.initialized = true;
     this.setupEventListeners();
     await this.loadConversations();
+    const requestedConversation = parseInt(new URLSearchParams(window.location.search).get("conversation_id"), 10);
+    if (requestedConversation > 0) {
+      this.openConversation(requestedConversation);
+    }
   },
 
   setupEventListeners: function () {

@@ -404,45 +404,36 @@ const DetailedPayslipController = {
     const payslip = this.data.currentPayslip;
     const staff = this.data.selectedStaff || {};
 
-    // Build payslip items
-    const items = [];
-    
-    // Add earnings
-    if (payslip.earnings && payslip.earnings.length) {
-      payslip.earnings.forEach(earning => {
-        items.push({
-          name: earning.description || earning.name || 'Earning',
-          price: earning.amount || earning.value || 0
-        });
+    if (window.PrintManager && window.PrintManager.printDedicatedPayslip) {
+      window.PrintManager.printDedicatedPayslip({
+        employeeName: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+        staffNo: staff.staff_no || '',
+        department: staff.department_name || staff.department || '',
+        designation: staff.designation || staff.position || '',
+        kraPin: staff.kra_pin || '',
+        nssfNo: staff.nssf_no || '',
+        nhifNo: staff.nhif_no || '',
+        period: payslip.period || new Date().toISOString().slice(0, 7),
+        basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
+        allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
+        deductions: (payslip.deductions || []).map(d => ({ name: d.description || d.name || '', amount: d.amount || d.value || 0 })),
+        statutory: {
+          paye: payslip.paye || payslip.tax || 0,
+          nssf: payslip.nssf || 0,
+          nhif_shif: payslip.nhif || payslip.shif || 0,
+          housing_levy: payslip.housing_levy || 0,
+        },
+        grossPay: payslip.gross_pay || payslip.gross_salary || 0,
+        totalDeductions: payslip.total_deductions || 0,
+        netPay: payslip.net_pay || payslip.net_salary || 0,
+        bankName: staff.bank_name || '',
+        bankBranch: staff.bank_branch || '',
+        bankAccount: staff.bank_account || '',
+        filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
       });
+    } else {
+      this.showError("PrintManager not available");
     }
-    
-    // Add deductions
-    if (payslip.deductions && payslip.deductions.length) {
-      payslip.deductions.forEach(deduction => {
-        items.push({
-          name: deduction.description || deduction.name || 'Deduction',
-          price: -(deduction.amount || deduction.value || 0)
-        });
-      });
-    }
-
-    window.PrintManager.printReceipt({
-      title: 'Staff Payslip',
-      subtitle: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-      receiptNumber: payslip.payslip_number || payslip.id || '—',
-      date: payslip.pay_date || payslip.period || new Date().toISOString(),
-      customer: `${staff.first_name || ''} ${staff.last_name || ''} (${staff.staff_no || '—'})`,
-      items: items,
-      total: payslip.net_pay || payslip.total || 0,
-      receiptNote: 'This payslip is system-generated and subject to payroll verification.',
-      reportCode: `PAY-${payslip.payslip_number || payslip.id || Date.now()}`,
-      filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
-      signatureSection: [
-        { label: 'Payroll Officer', dateLine: true },
-        { label: 'Headteacher', dateLine: true },
-      ]
-    });
   },
 
   /**

@@ -23,6 +23,13 @@
             </button>
             <button
                 type="button"
+                class="btn btn-outline-secondary"
+                id="liveAuthenticationLogsBtn"
+            >
+                <i class="bi bi-broadcast me-1"></i> Live
+            </button>
+            <button
+                type="button"
                 class="btn btn-primary"
                 id="refreshAuthenticationLogsBtn"
             >

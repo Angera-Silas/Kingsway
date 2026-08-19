@@ -29,6 +29,7 @@ class CsrfMiddleware
         'payments/mpesa-c2b-validation',
         'payments/mpesa-c2b-confirmation',
         'payments/mpesa-stk-callback',
+        'payments/kcb-mpesa-express-callback',
         'payments/mpesa-result',
         'payments/kcb-validation',
         'payments/kcb-transfer-callback',
@@ -64,6 +65,12 @@ class CsrfMiddleware
         'public/inquiries',
         'public/applications',
         'public/subscribers',
+        'communications/sms-delivery-report',
+        'communications/whatsapp-delivery-report',
+        'communications/whatsapp-incoming',
+        'communications/sms-opt-out-callback',
+        'communications/sms-subscription-callback',
+        'communications/process-outbox',
     ];
 
     public static function handle(): void

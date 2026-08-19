@@ -194,6 +194,7 @@ if ($appBase === '.')
                                     <th scope="col">Application No</th>
                                     <th scope="col">Applicant Name</th>
                                     <th scope="col">Applied Grade</th>
+                                    <th scope="col">Admission No.</th>
                                     <th scope="col">Assigned Class</th>
                                     <th scope="col">Stream</th>
                                     <th scope="col">Status</th>
@@ -202,7 +203,7 @@ if ($appBase === '.')
                             </thead>
                             <tbody id="placementsTableBody">
                                 <tr>
-                                    <td colspan="7" class="text-center py-4">
+                                    <td colspan="8" class="text-center py-4">
                                         <div class="spinner-border text-info" role="status"></div>
                                         <div class="mt-2 text-muted">Loading placements...</div>
                                     </td>
@@ -260,11 +261,8 @@ if ($appBase === '.')
                 </div>
             </div>
 
-            <div class="row g-3" id="capacityGrid">
-                <div class="col-12 text-center py-4">
-                    <div class="spinner-border text-info" role="status"></div>
-                    <div class="mt-2 text-muted">Loading capacity data...</div>
-                </div>
+            <div class="alert alert-info mb-0">
+                Capacity projections use the configured active-year class streams and are kept separate from the live class/stream list shown in the Classes tab.
             </div>
         </div>
     </div>
@@ -287,22 +285,12 @@ if ($appBase === '.')
                         <input type="text" id="editPlacementApplicant" class="form-control" readonly>
                     </div>
                     
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Class <span class="text-danger">*</span></label>
-                            <select id="editPlacementClass" class="form-select" required>
-                                <option value="">Select Class</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-semibold">Stream</label>
-                            <select id="editPlacementStream" class="form-select">
-                                <option value="">No Stream</option>
-                                <option value="A">Stream A</option>
-                                <option value="B">Stream B</option>
-                                <option value="C">Stream C</option>
-                            </select>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Placement stream <span class="text-danger">*</span></label>
+                        <select id="editPlacementStream" class="form-select" required>
+                            <option value="">Select placement stream</option>
+                        </select>
+                        <div class="form-text">Select the configured class and stream together.</div>
                     </div>
                     
                     <div class="mb-3">
@@ -326,7 +314,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_class_placement.js"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_class_placement.js?v=<?= (int) @filemtime(__DIR__ . '/../js/pages/admissions_class_placement.js') ?>"
     onload="console.log('admissions_class_placement.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_class_placement.js. Check path:', this.src)">
 </script>

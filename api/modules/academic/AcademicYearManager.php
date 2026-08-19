@@ -75,6 +75,15 @@ class AcademicYearManager
      */
     public function createAcademicYear(array $data): array
     {
+        // Academic years are always represented as YYYY/YYYY+1. Derive the
+        // label from the opening date so year_code and year_name cannot drift.
+        if (!empty($data['start_date'])) {
+            $startYear = (int) date('Y', strtotime($data['start_date']));
+            $canonicalYear = $startYear . '/' . ($startYear + 1);
+            $data['year_code'] = $canonicalYear;
+            $data['year_name'] = $canonicalYear;
+        }
+
         // Validate required fields
         $required = ['year_code', 'year_name', 'start_date', 'end_date'];
         foreach ($required as $field) {

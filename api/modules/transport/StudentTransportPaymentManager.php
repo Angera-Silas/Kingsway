@@ -2,6 +2,7 @@
 namespace App\API\Modules\transport;
 
 use PDO;
+use App\API\Services\FinancialPostingCoordinator;
 
 class StudentTransportPaymentManager
 {
@@ -66,10 +67,15 @@ class StudentTransportPaymentManager
     }
 
     // Record payment for a student for a given month/year
-    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId)
+    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId, $financialAccountId = null, $userId = 0)
     {
+        if ((int)$financialAccountId <= 0) throw new \RuntimeException('A transport receiving financial account is required.');
         $stmt = $this->db->prepare("CALL sp_record_transport_payment(?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId]);
+        $lookup = $this->db->prepare('SELECT id FROM transport_bill_payments WHERE transaction_id=? ORDER BY id DESC LIMIT 1');
+        $lookup->execute([$transactionId]);
+        $paymentId = (int)$lookup->fetchColumn();
+        if ($paymentId) (new FinancialPostingCoordinator($this->db))->postIncoming('transport_bill_payment', $paymentId, (int)$financialAccountId, 'transport', (string)$amount, (int)$userId, (string)$transactionId);
         return $stmt->rowCount() > 0;
     }
 

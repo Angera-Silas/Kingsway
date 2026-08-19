@@ -12,6 +12,8 @@ const placementTestsController = {
     dom: {},
     currentAcademicYear: null,
     currentTerm: null,
+    testsLoading: false,
+    contextReloadEnabled: false,
 
     init: async function() {
         if (this.initialized) return;
@@ -36,7 +38,7 @@ const placementTestsController = {
                 window.AcademicContext.subscribe((context, event, data) => {
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload tests when academic year or term changes
-                        this.loadTests();
+                        if (this.contextReloadEnabled) this.loadTests();
                     }
                 });
                 
@@ -54,6 +56,7 @@ const placementTestsController = {
             this.setupEventListeners();
             await this.loadLearningAreas();
             await this.loadTests();
+            this.contextReloadEnabled = true;
 
         } catch (error) {
             console.error("Failed to initialize Placement Tests Controller:", error);
@@ -74,8 +77,8 @@ const placementTestsController = {
     },
 
     isSuccessfulResponse: function(response) {
-        // Accept responses with success === true OR responses with data
-        return (response && response.success === true) || (response && (response.data || response.queues));
+        // An empty placement-test list is still a successful response.
+        return Array.isArray(response) || Boolean(response && (response.success === true || response.status === 'success' || response.status === true));
     },
 
     unwrapPayload: function(response) {
@@ -221,6 +224,8 @@ const placementTestsController = {
     },
 
     loadTests: async function() {
+        if (this.testsLoading) return;
+        this.testsLoading = true;
         if (this.dom.testsGrid) {
             this.dom.testsGrid.innerHTML = `
                 <div class="col-12 text-center py-4">
@@ -262,6 +267,8 @@ const placementTestsController = {
         } catch (error) {
             console.error('Failed to load placement tests:', error);
             this.showError('Failed to load placement tests');
+        } finally {
+            this.testsLoading = false;
         }
     },
 

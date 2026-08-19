@@ -304,8 +304,7 @@ final class StaffMigrationService
                 p.first_name, p.last_name,
                 p.photo_url AS profile_pic_url,
                 COALESCE(p.phone,'') AS phone,
-                '' AS address,
-                p.gender, '' AS marital_status,
+                p.gender,
                 p.dob AS date_of_birth,
                 s.position, s.employment_date, s.contract_type,
                 sda.department_id, s.supervisor_id,
@@ -316,13 +315,19 @@ final class StaffMigrationService
                 s.status, s.staff_type_id, s.staff_category_id,
                 NULL AS documents_folder, s.created_at, s.updated_at,
                 COALESCE(p.email, '') AS communication_email,
-                COALESCE(p.phone, '') AS communication_phone,
+                COALESCE((SELECT contact_value FROM person_contact_points WHERE person_id=p.id AND channel='phone' AND purpose='communication' LIMIT 1), p.phone, '') AS communication_phone,
+                COALESCE((SELECT address_line FROM person_addresses WHERE person_id=p.id AND address_type='residential' AND valid_to IS NULL ORDER BY is_primary DESC, id DESC LIMIT 1), '') AS address,
+                COALESCE((SELECT marital_status FROM person_marital_statuses WHERE person_id=p.id AND valid_to IS NULL ORDER BY id DESC LIMIT 1), '') AS marital_status,
                 COALESCE((SELECT name FROM emergency_contacts WHERE person_id=p.id ORDER BY id LIMIT 1), '') AS emergency_contact_name,
                 COALESCE((SELECT phone FROM emergency_contacts WHERE person_id=p.id ORDER BY id LIMIT 1), '') AS emergency_contact_phone,
                 CASE WHEN u.password_changed_at IS NOT NULL THEN 1 ELSE 0 END AS password_completed,
-                CASE WHEN p.phone IS NOT NULL AND p.gender IS NOT NULL AND p.dob IS NOT NULL THEN 1 ELSE 0 END AS profile_completed,
+                CASE WHEN p.phone IS NOT NULL AND p.gender IS NOT NULL AND p.dob IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM person_addresses pa WHERE pa.person_id=p.id AND pa.address_type='residential' AND pa.valid_to IS NULL)
+                    AND EXISTS (SELECT 1 FROM person_marital_statuses pm WHERE pm.person_id=p.id AND pm.valid_to IS NULL) THEN 1 ELSE 0 END AS profile_completed,
                 CASE WHEN p.email IS NOT NULL AND p.phone IS NOT NULL THEN 1 ELSE 0 END AS communication_completed,
-                CASE WHEN p.phone IS NOT NULL AND p.gender IS NOT NULL AND p.dob IS NOT NULL THEN 'completed' ELSE 'invited' END AS onboarding_status,
+                CASE WHEN p.phone IS NOT NULL AND p.gender IS NOT NULL AND p.dob IS NOT NULL
+                    AND EXISTS (SELECT 1 FROM person_addresses pa WHERE pa.person_id=p.id AND pa.address_type='residential' AND pa.valid_to IS NULL)
+                    AND EXISTS (SELECT 1 FROM person_marital_statuses pm WHERE pm.person_id=p.id AND pm.valid_to IS NULL) THEN 'completed' ELSE 'invited' END AS onboarding_status,
                 d.name  AS department_name,
                 st.name AS staff_type_name,
                 sc.category_name AS staff_category_name,
@@ -349,15 +354,33 @@ final class StaffMigrationService
     {
         $stmt=$this->db->prepare("SELECT s.id AS sid,p.id AS pid FROM staff s JOIN persons p ON p.id=s.person_id JOIN users u ON u.person_id=s.person_id WHERE u.id=?");$stmt->execute([$userId]);$row=$stmt->fetch(PDO::FETCH_ASSOC);if(!$row)throw new RuntimeException('Staff profile not found.');
         $sid=(int)$row['sid'];$pid=(int)$row['pid'];
-        foreach(['phone','address','gender','marital_status','date_of_birth'] as $f){if(empty($data[$f]))throw new RuntimeException("$f is required.");}
+        foreach(['phone','address','gender','marital_status','date_of_birth','communication_email'] as $f){if(empty($data[$f]))throw new RuntimeException("$f is required.");}
         $this->db->beginTransaction();try{
-            $this->db->prepare("UPDATE persons SET phone=?,gender=?,dob=?,email=COALESCE(?,email) WHERE id=?")
-                ->execute([$data['phone'],$data['gender'],$data['date_of_birth'],$data['communication_email']??null,$pid]);
-            if(!empty($data['emergency_contact_name'])){
+            $this->db->prepare("UPDATE persons SET phone=?,gender=?,dob=?,email=NULLIF(?, '') WHERE id=?")
+                ->execute([$data['phone'],$data['gender'],$data['date_of_birth'],$data['communication_email']??'',$pid]);
+            $this->db->prepare("INSERT INTO person_addresses (person_id,address_type,address_line,is_primary,valid_from) VALUES (?, 'residential', ?, 1, CURDATE()) ON DUPLICATE KEY UPDATE address_line=VALUES(address_line), is_primary=1, valid_to=NULL, updated_at=NOW()")
+                ->execute([$pid, trim((string) $data['address'])]);
+            $this->db->prepare("UPDATE person_addresses SET valid_to=CURDATE() WHERE person_id=? AND address_type='residential' AND valid_to IS NULL AND address_line<>? AND valid_from<CURDATE()")
+                ->execute([$pid, trim((string) $data['address'])]);
+            $this->db->prepare("UPDATE person_marital_statuses SET valid_to=CURDATE() WHERE person_id=? AND valid_to IS NULL AND marital_status<>?")
+                ->execute([$pid, $data['marital_status']]);
+            $this->db->prepare("INSERT INTO person_marital_statuses (person_id,marital_status,valid_from) VALUES (?, ?, CURDATE()) ON DUPLICATE KEY UPDATE marital_status=VALUES(marital_status), valid_to=NULL")
+                ->execute([$pid, $data['marital_status']]);
+            if (array_key_exists('communication_phone', $data)) {
+                $this->db->prepare("DELETE FROM person_contact_points WHERE person_id=? AND channel='phone' AND purpose='communication'")->execute([$pid]);
+            }
+            if (!empty($data['communication_phone'])) {
+                $this->db->prepare("INSERT INTO person_contact_points (person_id,channel,purpose,contact_value,is_primary) VALUES (?, 'phone', 'communication', ?, 1) ON DUPLICATE KEY UPDATE contact_value=VALUES(contact_value), is_primary=1, updated_at=NOW()")
+                    ->execute([$pid, trim((string) $data['communication_phone'])]);
+            }
+            if (array_key_exists('emergency_contact_name', $data)) {
                 $this->db->prepare("DELETE FROM emergency_contacts WHERE person_id=?")->execute([$pid]);
+            }
+            if(!empty($data['emergency_contact_name'])){
                 $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
                     ->execute([$this->nextId('emergency_contacts'),$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
             }
+            $this->db->prepare("UPDATE users SET profile_completed_at=NOW() WHERE id=?")->execute([$userId]);
             $this->audit($userId,'staff_profile_completed','staff',$sid);$this->db->commit();return $this->onboardingForUser($userId);
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw$e;}
     }

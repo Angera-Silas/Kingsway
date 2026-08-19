@@ -13,6 +13,7 @@ class OTPDeliveryService
 {
     private ?\App\API\Services\MessageService $messageService = null;
     private ?\App\API\Services\sms\SMSGateway $smsGateway = null;
+    private ?\App\API\Services\whatsapp\WhatsAppGateway $whatsappGateway = null;
 
     public function __construct()
     {
@@ -27,6 +28,9 @@ class OTPDeliveryService
         }
         if (class_exists(\App\API\Services\sms\SMSGateway::class)) {
             $this->smsGateway = new \App\API\Services\sms\SMSGateway();
+        }
+        if (class_exists(\App\API\Services\whatsapp\WhatsAppGateway::class)) {
+            try { $this->whatsappGateway = new \App\API\Services\whatsapp\WhatsAppGateway(); } catch (\Throwable $e) { error_log('[OTPDelivery] WhatsApp not available: ' . $e->getMessage()); }
         }
     }
 
@@ -72,6 +76,18 @@ class OTPDeliveryService
         // Fallback: log the code (dev mode only)
         error_log("[OTPDelivery] SMS to {$phone}: {$code} (context: {$context})");
         return true;
+    }
+
+    public function sendWhatsAppOTP(string $phone, string $code, string $context = 'login'): bool
+    {
+        if (!$this->whatsappGateway) return false;
+        try {
+            $templateId = defined('WHATSAPP_2FA_TEMPLATE_ID') ? (string) WHATSAPP_2FA_TEMPLATE_ID : '';
+            $result = $templateId !== ''
+                ? $this->whatsappGateway->sendTemplate($phone, $templateId, ['bodyValues' => [$code]])
+                : $this->whatsappGateway->sendMessage($phone, $this->buildSMSMessage($code, $context));
+            return is_array($result) && in_array(strtolower((string) ($result['status'] ?? '')), ['success','sent','queued','accepted'], true);
+        } catch (\Throwable $e) { error_log('[OTPDelivery] WhatsApp failed: ' . $e->getMessage()); return false; }
     }
 
     /**

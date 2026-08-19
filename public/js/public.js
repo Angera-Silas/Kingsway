@@ -44,6 +44,25 @@ window.PublicUI = (() => {
 
 document.addEventListener('DOMContentLoaded', () => {
 
+  // WebAuthn wire-format helpers. The PHP relying-party library returns
+  // base64url values; the browser API requires ArrayBuffers.
+  window.arrayBufferToBase64 = (buffer) => {
+    let binary = ''; const bytes = new Uint8Array(buffer);
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    return btoa(binary);
+  };
+  window.recursiveBase64StrToArrayBuffer = (value, key = '') => {
+    if (Array.isArray(value)) return value.map((v) => window.recursiveBase64StrToArrayBuffer(v, key));
+    if (value && typeof value === 'object') { Object.keys(value).forEach((k) => { value[k] = window.recursiveBase64StrToArrayBuffer(value[k], k); }); return value; }
+    if (typeof value === 'string' && ['challenge', 'id'].includes(key)) {
+      const normalized = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+      const binary = atob(normalized); const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+    return value;
+  };
+
   window.PublicUI.observeReveals(document);
   window.PublicUI.observeCounters(document);
 
@@ -145,10 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /* ── 2FA Verification ───────────────────────────────────────────────────── */
-  let tfaState = null; // { userId, method, username, password, rememberMe }
+  let tfaState = null; // { userId, method, challengeToken, rememberMe }
 
   window.showTFAVerification = async function (res, username, password, rememberMe) {
-    tfaState = { userId: res.user_id, method: res.method, username, password, rememberMe };
+    tfaState = { userId: res.user_id, method: res.method, challengeToken: res.challenge_token, username, password, rememberMe, onComplete: res.onComplete };
 
     const modalEl = document.getElementById('tfaModal');
     const methodDesc = document.getElementById('tfaMethodDesc');
@@ -159,6 +178,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const tfaCode = document.getElementById('tfaCode');
     const tfaError = document.getElementById('tfaError');
     const tfaErrorText = document.getElementById('tfaErrorText');
+    const passkeyBtn = document.getElementById('tfaPasskeyBtn');
+    const picker = document.getElementById('tfaMethodPicker');
+    const select = document.getElementById('tfaMethodSelect');
+    const methods = Array.isArray(res.available_methods) ? res.available_methods : [res.method];
+    if (methods.length > 1 && picker && select) {
+      const labels = {totp:'Authenticator app',email:'Email',sms:'SMS',whatsapp:'WhatsApp'};
+      select.innerHTML = methods.map(m => `<option value="${m}" ${m === res.method ? 'selected' : ''}>${labels[m] || m}</option>`).join('');
+      picker.classList.remove('d-none');
+      select.onchange = async () => {
+        tfaState.method = select.value;
+        passkeyBtn?.classList.toggle('d-none', tfaState.method !== 'passkey');
+        tfaCode?.classList.toggle('d-none', tfaState.method === 'passkey');
+        try { await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: tfaState.method }); showTFASuccess('Verification method selected.'); } catch (e) { showTFAError(e.message || 'Unable to select method'); }
+      };
+    } else if (picker) picker.classList.add('d-none');
+    passkeyBtn?.classList.toggle('d-none', res.method !== 'passkey');
+    tfaCode?.classList.toggle('d-none', res.method === 'passkey');
 
     // Reset
     tfaCode.value = '';
@@ -178,16 +214,16 @@ document.addEventListener('DOMContentLoaded', () => {
       startTFACountdown();
       // Auto-send OTP
       try {
-        await window.callAPI?.('/twofactor/challenge', 'POST', { user_id: res.user_id, method: res.method });
+        await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
       } catch (_) { /* ignore — code may already be sent */ }
-    } else if (res.method === 'sms') {
+    } else if (res.method === 'sms' || res.method === 'whatsapp') {
       methodDesc.textContent = 'A verification code has been sent to your phone.';
-      codeLabel.textContent = 'SMS Verification Code';
+      codeLabel.textContent = res.method === 'whatsapp' ? 'WhatsApp Verification Code' : 'SMS Verification Code';
       resendRow.classList.remove('d-none');
       tfaRecoveryBtn.classList.add('d-none');
       startTFACountdown();
       try {
-        await window.callAPI?.('/twofactor/challenge', 'POST', { user_id: res.user_id, method: res.method });
+        await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
       } catch (_) { /* ignore */ }
     }
 
@@ -199,6 +235,29 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Submit 2FA code
+  document.getElementById('tfaPasskeyBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    try {
+      const start = await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: 'passkey' });
+      const publicKey = start?.public_key || start?.data?.public_key;
+      if (!publicKey || !navigator.credentials?.get) throw new Error('Passkeys are not supported by this browser.');
+      const credential = await navigator.credentials.get({ publicKey: recursiveBase64StrToArrayBuffer(publicKey) });
+      const encoded = {
+        id: credential.id,
+        clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+        authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
+        signature: arrayBufferToBase64(credential.response.signature),
+        userHandle: credential.response.userHandle ? arrayBufferToBase64(credential.response.userHandle) : null,
+      };
+      const verified = await window.callAPI?.('/twofactor/verify', 'POST', { challenge_token: tfaState.challengeToken, method: 'passkey', credential: encoded });
+      if (!verified?.verified) throw new Error('Passkey verification failed.');
+      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe, tfaState.challengeToken);
+      if (!loginRes?.token) throw new Error(loginRes?.message || 'Login failed');
+      if (typeof tfaState.onComplete === 'function') { const done = tfaState.onComplete; tfaState = null; bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide(); done(loginRes); return; }
+      window.location.href = (window.APP_BASE || '') + '/home.php';
+    } catch (e) { showTFAError(e.message || 'Passkey verification failed'); }
+  });
+
   document.getElementById('tfaSubmitBtn')?.addEventListener('click', async () => {
     if (!tfaState) return;
     const code = document.getElementById('tfaCode')?.value?.trim();
@@ -219,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Verify the code
       const verifyRes = await window.callAPI?.('/twofactor/verify', 'POST', {
         code,
-        user_id: tfaState.userId,
+        challenge_token: tfaState.challengeToken,
         method,
       });
 
@@ -231,8 +290,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 2FA passed — complete the login
       document.getElementById('tfaBtnText').textContent = 'Completing login…';
-      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe);
+      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe, tfaState.challengeToken);
       if (!loginRes?.token) throw new Error(loginRes?.message || 'Login failed');
+
+      if (typeof tfaState.onComplete === 'function') {
+        const complete = tfaState.onComplete;
+        tfaState = null;
+        bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+        complete(loginRes);
+        return;
+      }
 
       // Close 2FA modal
       bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
@@ -248,6 +315,12 @@ document.addEventListener('DOMContentLoaded', () => {
       hideTFASpinner();
     }
   });
+
+  window.requestTFAForSession = function (res) {
+    return new Promise((resolve, reject) => {
+      window.showTFAVerification({ ...res, onComplete: resolve }, '', '', true).catch(reject);
+    });
+  };
 
   // Back to login
   document.getElementById('tfaBackBtn')?.addEventListener('click', () => {
@@ -279,8 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!tfaState) return;
     try {
       await window.callAPI?.('/twofactor/challenge', 'POST', {
-        user_id: tfaState.userId,
-        method: tfaState.method,
+        challenge_token: tfaState.challengeToken,
       });
       startTFACountdown();
       showTFASuccess('A new code has been sent.');

@@ -85,6 +85,15 @@ const PrintManager = (() => {
       certificate: "/api/print/certificate",
       studentIdCards: "/api/students/id-cards/print",
       receipt: "/api/print/receipt",
+      receiptTemplate: "/api/print/receipt-template",
+      academicCalendar: "/api/print/academic-calendar",
+      feeStructure: "/api/print/fee-structure",
+      feeStructureSimple: "/api/print/fee-structure-simple",
+      p9Form: "/api/print/p9-form",
+      payslip: "/api/print/payslip",
+      feeStatement: "/api/print/fee-statement",
+      invoice: "/api/print/invoice",
+      timetable: "/api/print/timetable",
       fileDownload: "/api/print/download",
     },
 
@@ -1440,6 +1449,131 @@ const PrintManager = (() => {
   }
 
   /* ==========================================================================
+     Dedicated template printing methods
+     ========================================================================== */
+
+  async function printAcademicCalendar(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.academicCalendar, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the academic calendar.");
+      throw error;
+    }
+  }
+
+  async function printFeeStructure(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructure, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee structure.");
+      throw error;
+    }
+  }
+
+  async function printFeeStructureComparison(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructure, { ...options, comparison: true }, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee structure comparison.");
+      throw error;
+    }
+  }
+
+  async function printSimpleFeeStructure(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructureSimple, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the simple fee structure.");
+      throw error;
+    }
+  }
+
+  async function printP9Form(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.p9Form, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the P9 form.");
+      throw error;
+    }
+  }
+
+  async function printDedicatedPayslip(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.payslip, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the payslip.");
+      throw error;
+    }
+  }
+
+  async function printFeeStatement(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStatement, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee statement.");
+      throw error;
+    }
+  }
+
+  async function printDedicatedReceipt(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.receiptTemplate, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the receipt.");
+      throw error;
+    }
+  }
+
+  async function printInvoice(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.invoice, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the invoice.");
+      throw error;
+    }
+  }
+
+  async function printTimetable(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.timetable, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the timetable.");
+      throw error;
+    }
+  }
+
+  async function printMasterTimetable(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.timetable, { ...options, master: true }, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the master timetable.");
+      throw error;
+    }
+  }
+
+  /* ==========================================================================
      Backward-compatible helper names
      ========================================================================== */
 
@@ -1505,6 +1639,17 @@ const PrintManager = (() => {
     setStoredIdChunkSize,
 
     printReceipt,
+    printDedicatedReceipt,
+    printAcademicCalendar,
+    printFeeStructure,
+    printFeeStructureComparison,
+    printSimpleFeeStructure,
+    printP9Form,
+    printDedicatedPayslip,
+    printFeeStatement,
+    printInvoice,
+    printTimetable,
+    printMasterTimetable,
     exportToCSV,
 
     handleGeneratedFiles,

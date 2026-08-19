@@ -3,6 +3,7 @@
 namespace App\API\Modules\finance;
 
 use App\Database\Database;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -37,14 +38,18 @@ class FeeManager
     }
 
     /**
-     * Resolve an academic_years.id from a 4-digit year code (or year_code string)
+     * Resolve an academic_years.id from either its primary key or year code.
+     * Frontend selectors use the primary key; older callers may still send
+     * the four-digit starting year or the stored year_code.
      */
     private function resolveAcademicYearId($year)
     {
         $stmt = $this->db->prepare(
-            "SELECT id FROM academic_years WHERE year_code = ? OR YEAR(start_date) = ? LIMIT 1"
+            "SELECT id FROM academic_years
+             WHERE id = ? OR year_code = ? OR YEAR(start_date) = ?
+             LIMIT 1"
         );
-        $stmt->execute([$year, $year]);
+        $stmt->execute([$year, $year, $year]);
         return $stmt->fetchColumn();
     }
 
@@ -634,6 +639,118 @@ class FeeManager
     }
 
     /**
+     * Create a new fee type
+     * @param array $data Contains: code, name, category (required); description, is_mandatory (optional)
+     * @return array Response with new fee type ID
+     */
+    public function createFeeType($data)
+    {
+        try {
+            $required = ['code', 'name', 'category'];
+            $missing = array_diff($required, array_keys($data));
+
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            $stmt = $this->db->prepare("
+                INSERT INTO fee_types (code, name, description, category, is_mandatory, status)
+                VALUES (?, ?, ?, ?, ?, 'active')
+            ");
+            $stmt->execute([
+                $data['code'],
+                $data['name'],
+                $data['description'] ?? null,
+                $data['category'],
+                $data['is_mandatory'] ?? 0
+            ]);
+
+            $newId = $this->db->lastInsertId();
+
+            return formatResponse(true, [
+                'id' => $newId,
+                'message' => 'Fee type created successfully'
+            ]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Update an existing fee type
+     * @param int $id Fee type ID
+     * @param array $data Allowed fields: name, description, category, is_mandatory, status
+     * @return array Response
+     */
+    public function updateFeeType($id, $data)
+    {
+        try {
+            $check = $this->db->prepare("SELECT id FROM fee_types WHERE id = ?");
+            $check->execute([$id]);
+            if (!$check->fetch()) {
+                return formatResponse(false, null, 'Fee type not found');
+            }
+
+            $allowed = ['name', 'description', 'category', 'is_mandatory', 'status'];
+            $updates = [];
+            $params = [];
+
+            foreach ($allowed as $field) {
+                if (array_key_exists($field, $data)) {
+                    $updates[] = "$field = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            if (empty($updates)) {
+                return formatResponse(false, null, 'No valid fields to update');
+            }
+
+            $params[] = $id;
+            $sql = "UPDATE fee_types SET " . implode(', ', $updates) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return formatResponse(true, [
+                'message' => 'Fee type updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Toggle fee type status between active and inactive
+     * @param int $id Fee type ID
+     * @return array Response with new status
+     */
+    public function toggleFeeTypeStatus($id)
+    {
+        try {
+            $check = $this->db->prepare("SELECT id, status FROM fee_types WHERE id = ?");
+            $check->execute([$id]);
+            $feeType = $check->fetch(PDO::FETCH_ASSOC);
+
+            if (!$feeType) {
+                return formatResponse(false, null, 'Fee type not found');
+            }
+
+            $newStatus = $feeType['status'] === 'active' ? 'inactive' : 'active';
+
+            $stmt = $this->db->prepare("UPDATE fee_types SET status = ? WHERE id = ?");
+            $stmt->execute([$newStatus, $id]);
+
+            return formatResponse(true, [
+                'id' => (int) $id,
+                'status' => $newStatus,
+                'message' => 'Fee type status toggled successfully'
+            ]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
      * List student types
      * @return array Response with student types list
      */
@@ -1039,11 +1156,43 @@ class FeeManager
     public function sendFeeReminder($studentId)
     {
         try {
-            // Call stored procedure
-            $stmt = $this->db->prepare("CALL sp_send_fee_reminder(?)");
-            $stmt->execute([$studentId]);
+            $stmt = $this->db->prepare(
+                "SELECT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
+                        COALESCE(SUM(v.balance), 0) AS amount_due,
+                        MAX(v.latest_due_date) AS due_date,
+                        MAX(v.academic_year) AS academic_year,
+                        MAX(v.term_id) AS term_id
+                   FROM students s JOIN persons p ON p.id = s.person_id
+                   LEFT JOIN vw_student_fee_balances v ON v.student_id = s.id
+                  WHERE s.id = ? GROUP BY s.id, p.first_name, p.middle_name, p.last_name"
+            );
+            $stmt->execute([(int) $studentId]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$student || (float) $student['amount_due'] <= 0) {
+                return formatResponse(false, null, 'No outstanding fee balance found.');
+            }
 
-            return formatResponse(true, ['message' => 'Fee reminder sent successfully']);
+            $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+            $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+            $eventId = $eventService->getOrCreate('fee_reminder', $studentId . ':manual:' . date('Y-m-d'), date('Y-m-d H:i:s'), null);
+            $eventService->linkFeeStudent($eventId, (int) $studentId, 'manual');
+            $queued = [];
+            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                $queued[$channel] = $platform->queueForStudentParents((int) $studentId, $channel, 'fees', [
+                    'parent_name' => 'Parent/Guardian',
+                    'amount_due' => number_format((float) $student['amount_due'], 2),
+                    'student_name' => $student['student_name'],
+                    'class_name' => '',
+                    'due_date' => $student['due_date'] ?: '',
+                ], [
+                    'business_event_id' => $eventId,
+                    'purpose' => 'fees',
+                    'sender_id' => $this->user_id ?: 1,
+                    'subject' => 'Fee Reminder: ' . $student['student_name'],
+                ]);
+            }
+            $eventService->markProcessed($eventId);
+            return formatResponse(true, ['message' => 'Fee reminders queued for SMS, WhatsApp and email.', 'channels' => $queued]);
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'An internal error occurred.');
@@ -1514,11 +1663,14 @@ class FeeManager
     public function sendBatchFeeReminders()
     {
         try {
-            // Call stored procedure sp_send_fee_reminders (plural)
-            $stmt = $this->db->prepare("CALL sp_send_fee_reminders()");
-            $stmt->execute();
-
-            return formatResponse(true, ['message' => 'Batch fee reminders sent successfully']);
+            $stmt = $this->db->query("SELECT DISTINCT student_id FROM vw_student_fee_balances WHERE balance > 0");
+            $queued = 0;
+            $failed = 0;
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $studentId) {
+                $result = $this->sendFeeReminder((int) $studentId);
+                if (($result['success'] ?? false) === true) $queued++; else $failed++;
+            }
+            return formatResponse(true, ['message' => 'Batch fee reminders queued.', 'queued_students' => $queued, 'failed_students' => $failed]);
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'An internal error occurred.');
@@ -1760,6 +1912,18 @@ class FeeManager
 
             $this->db->beginTransaction();
 
+            // Some legacy installations do not have the optional propagation
+            // procedure. Drafting must still work there; propagation is an
+            // enhancement, not a prerequisite for saving the schedule.
+            $procedureCheck = $this->db->prepare(
+                "SELECT COUNT(*) FROM information_schema.ROUTINES
+                 WHERE ROUTINE_SCHEMA = DATABASE()
+                   AND ROUTINE_TYPE = 'PROCEDURE'
+                   AND ROUTINE_NAME = 'sp_propagate_fee_schedule_changes'"
+            );
+            $procedureCheck->execute();
+            $propagationAvailable = (bool) $procedureCheck->fetchColumn();
+
             $rowsCreated = 0;
             $rowsArchived = 0;
             $obligationsUpdated = 0;
@@ -1780,8 +1944,10 @@ class FeeManager
 
                     foreach ($studentTypeIds as $stId) {
                         $raw = $typeAmounts[$stId] ?? null;
-                        $hasAmount = ($raw !== null && $raw !== '');
-                        $amount = $hasAmount ? (float) $raw : null;
+                        // $raw can be:
+                        //   - a scalar number  → same amount for all classes in range (legacy format)
+                        //   - an associative array { classId: amount } → per-class amounts (simple mode)
+                        $isPerClass = is_array($raw) && !empty($raw);
 
                         $cacheKey = $feeCode . '|' . $stId;
                         if (!array_key_exists($cacheKey, $catalogCache)) {
@@ -1794,6 +1960,17 @@ class FeeManager
 
                         foreach ($classRows as $classRow) {
                             $aycId = (int) $classRow['id'];
+                            $classId = (int) $classRow['class_id'];
+
+                            // Resolve amount: per-class map or scalar
+                            if ($isPerClass) {
+                                $classRaw = $raw[$classId] ?? $raw[$aycId] ?? null;
+                                $hasAmount = ($classRaw !== null && $classRaw !== '');
+                                $amount = $hasAmount ? (float) $classRaw : null;
+                            } else {
+                                $hasAmount = ($raw !== null && $raw !== '');
+                                $amount = $hasAmount ? (float) $raw : null;
+                            }
 
                             $archiveStmt = $this->db->prepare("
                                 UPDATE academic_year_fee_schedules
@@ -1837,7 +2014,7 @@ class FeeManager
                                 'status' => 'success',
                             ]);
 
-                            if ($archivedHere > 0) {
+                            if ($archivedHere > 0 && $propagationAvailable) {
                                 $propStmt = $this->db->prepare(
                                     "CALL sp_propagate_fee_schedule_changes(?, ?, @kwa_prop_updated, @kwa_prop_credits)"
                                 );
@@ -1919,7 +2096,11 @@ class FeeManager
             ";
             $params = [$academicYearId, $fromId, $toId];
 
-            $studentTypeIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['student_type_ids'] ?? [])))));
+            $rawStudentTypeIds = $data['student_type_ids'] ?? [];
+            if (is_string($rawStudentTypeIds)) {
+                $rawStudentTypeIds = preg_split('/\s*,\s*/', $rawStudentTypeIds, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $studentTypeIds = array_values(array_unique(array_filter(array_map('intval', (array) $rawStudentTypeIds))));
             if (!empty($studentTypeIds)) {
                 $phs = implode(',', array_fill(0, count($studentTypeIds), '?'));
                 $sql .= " AND ayfs.student_type_id IN ($phs)";
@@ -1930,6 +2111,7 @@ class FeeManager
             $stmt->execute($params);
 
             $items = [];
+            $classGrid = [];
             $classIds = [];
             $typesFound = [];
             $terms = $this->getYearTermMap($academicYearId);
@@ -1938,16 +2120,31 @@ class FeeManager
                 $code = $row['fee_code'];
                 $termNumber = (int) ltrim((string) $row['term_code'], 'Tt');
                 $stId = (int) $row['student_type_id'];
+                $clsId = (int) $row['class_id'];
+                $termKey = 'term' . $termNumber;
 
+                // Legacy aggregated view (per-student-type)
                 if (!isset($items[$code])) {
                     $items[$code] = ['name' => $row['fee_name'], 'terms' => []];
                 }
-                if (!isset($items[$code]['terms']['term' . $termNumber])) {
-                    $items[$code]['terms']['term' . $termNumber] = [];
+                if (!isset($items[$code]['terms'][$termKey])) {
+                    $items[$code]['terms'][$termKey] = [];
                 }
-                $items[$code]['terms']['term' . $termNumber][$stId] = (float) $row['amount'];
+                $items[$code]['terms'][$termKey][$stId] = (float) $row['amount'];
 
-                $classIds[(int) $row['class_id']] = $row['class_name'];
+                // Per-class grid: classGrid[classId][code][termKey][studentTypeId] = amount
+                if (!isset($classGrid[$clsId])) {
+                    $classGrid[$clsId] = [];
+                }
+                if (!isset($classGrid[$clsId][$code])) {
+                    $classGrid[$clsId][$code] = [];
+                }
+                if (!isset($classGrid[$clsId][$code][$termKey])) {
+                    $classGrid[$clsId][$code][$termKey] = [];
+                }
+                $classGrid[$clsId][$code][$termKey][$stId] = (float) $row['amount'];
+
+                $classIds[$clsId] = $row['class_name'];
                 $typesFound[$stId] = true;
             }
 
@@ -1971,6 +2168,7 @@ class FeeManager
                 'student_type_ids' => array_keys($typesFound),
                 'terms' => $termList,
                 'items' => $items,
+                'class_grid' => $classGrid,
             ]);
 
         } catch (Exception $e) {
@@ -2090,6 +2288,10 @@ class FeeManager
 
             $this->db->commit();
 
+            if ($updatedCount > 0) {
+                $this->notifyFeeStructurePublished((string) $data['academic_year'], (int) ($data['approved_by'] ?? 0));
+            }
+
             return formatResponse(true, [
                 'structures_approved' => $updatedCount,
                 'academic_year' => $data['academic_year'],
@@ -2102,6 +2304,27 @@ class FeeManager
                 $this->db->rollBack();
             }
             return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Push a staff-wide notification that a fee structure is out.
+     * De-duplicated so repeated approvals don't spam.
+     */
+    private function notifyFeeStructurePublished(string $academicYear, int $actorUserId): void
+    {
+        try {
+            $title = 'Fee structure released';
+            $message = $academicYear !== ''
+                ? 'The ' . $academicYear . ' fee structure is now out.'
+                : 'The new fee structure is now out.';
+            $service = new NotificationService($this->db);
+            $recipients = $actorUserId > 0
+                ? array_values(array_filter($service->allStaffUserIds(), fn ($uid) => $uid !== $actorUserId))
+                : 'all_staff';
+            $service->push($recipients, 'fee_structure', $title, $message, 'high', ['dedup_minutes' => 60]);
+        } catch (Exception $e) {
+            error_log('[FeeManager] Notification push failed: ' . $e->getMessage());
         }
     }
 
@@ -2157,6 +2380,67 @@ class FeeManager
                 'academic_year' => $data['academic_year'],
                 'level_id' => $data['level_id'],
                 'message' => 'Fee structures activated successfully'
+            ]);
+
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Deactivate fee structure (archive it)
+     * @param array $data Contains: academic_year, level_id
+     * @return array Response
+     */
+    public function deactivateFeeStructure($data)
+    {
+        try {
+            $required = ['academic_year', 'level_id'];
+            $missing = array_diff($required, array_keys($data));
+
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            $this->db->beginTransaction();
+
+            $academicYearId = $this->resolveAcademicYearId($data['academic_year']);
+            if (!$academicYearId) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Academic year not found');
+            }
+
+            $sql = "
+                UPDATE academic_year_fee_schedules
+                SET status = 'archived'
+                WHERE academic_year_id = ?
+                AND status = 'active'
+            ";
+
+            $params = [
+                $academicYearId
+            ];
+
+            if (!empty($data['student_type_id'])) {
+                $sql .= " AND student_type_id = ?";
+                $params[] = $data['student_type_id'];
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            $updatedCount = $stmt->rowCount();
+
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'structures_deactivated' => $updatedCount,
+                'academic_year' => $data['academic_year'],
+                'level_id' => $data['level_id'],
+                'message' => 'Fee structures deactivated successfully'
             ]);
 
         } catch (Exception $e) {
@@ -2626,6 +2910,71 @@ class FeeManager
     }
 
     /**
+     * Submit all terms and student types in one fee-structure revision.
+     * A revision is idempotent: once every active row is submitted, a second
+     * submission is rejected until a changed draft creates new active rows.
+     */
+    public function submitFeeStructureBundleBatch($data)
+    {
+        try {
+            $yearId = $this->resolveAcademicYearId($data['academic_year'] ?? null);
+            $typeIds = $data['student_type_ids'] ?? [];
+            if (is_string($typeIds)) {
+                $typeIds = preg_split('/\s*,\s*/', $typeIds, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $typeIds = array_values(array_unique(array_filter(array_map('intval', (array) $typeIds))));
+            if (!$yearId || empty($typeIds)) {
+                return formatResponse(false, null, 'Academic year and student types are required');
+            }
+
+            $ph = implode(',', array_fill(0, count($typeIds), '?'));
+            $stmt = $this->db->prepare(
+                "SELECT COUNT(*) AS total_rows,
+                        SUM(CASE WHEN approved_by IS NOT NULL THEN 1 ELSE 0 END) AS submitted_rows
+                 FROM academic_year_fee_schedules
+                 WHERE academic_year_id = ? AND student_type_id IN ($ph) AND status = 'active'"
+            );
+            $stmt->execute(array_merge([(int) $yearId], $typeIds));
+            $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $totalRows = (int) ($counts['total_rows'] ?? 0);
+            $submittedRows = (int) ($counts['submitted_rows'] ?? 0);
+
+            if ($totalRows === 0) {
+                return formatResponse(false, null, 'No active fee structure draft exists for this academic year');
+            }
+            if ($submittedRows === $totalRows) {
+                return formatResponse(false, null, 'This fee structure has already been submitted. Change at least one amount before submitting again.');
+            }
+
+            $userId = (int) ($data['submitted_by'] ?? 0);
+            $this->db->beginTransaction();
+            $update = $this->db->prepare(
+                "UPDATE academic_year_fee_schedules
+                 SET approved_by = ?, approved_at = NULL, updated_at = NOW()
+                 WHERE academic_year_id = ? AND student_type_id IN ($ph)
+                   AND status = 'active' AND approved_by IS NULL"
+            );
+            $update->execute(array_merge([$userId, (int) $yearId], $typeIds));
+            $submittedNow = (int) $update->rowCount();
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'submitted_rows' => $submittedNow,
+                'academic_year_id' => (int) $yearId,
+                'student_type_ids' => $typeIds,
+                'status' => 'submitted',
+                'message' => 'Fee structure submitted for review',
+            ]);
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('[FeeManager] submitFeeStructureBundleBatch: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
      * Review a fee structure bundle (approve or reject at review stage)
      * @param array $data Contains: approval_id, reviewed_by, action ('approve'|'reject'), notes
      * @return array Response with updated approval record
@@ -3066,8 +3415,12 @@ class FeeManager
             $params = [];
 
             if (!empty($filters['academic_year'])) {
-                $where .= " AND ay.year_code = ?";
-                $params[] = $filters['academic_year'];
+                $yearId = $this->resolveAcademicYearId($filters['academic_year']);
+                if (!$yearId) {
+                    return formatResponse(true, ['bundles' => [], 'pagination' => ['total' => 0, 'page' => $page, 'limit' => $limit, 'pages' => 0]]);
+                }
+                $where .= " AND ay.id = ?";
+                $params[] = $yearId;
             }
             if (!empty($filters['term_id'])) {
                 $where .= " AND ayfs.academic_year_term_id = ?";
@@ -3076,6 +3429,10 @@ class FeeManager
             if (!empty($filters['level_id'])) {
                 $where .= " AND c.level_id = ?";
                 $params[] = $filters['level_id'];
+            }
+            if (!empty($filters['student_type_id'])) {
+                $where .= " AND ayfs.student_type_id = ?";
+                $params[] = $filters['student_type_id'];
             }
 
             $innerSql = "
@@ -3089,6 +3446,7 @@ class FeeManager
                        ayfs.student_type_id AS student_type_id,
                        st.name AS student_type_name,
                        COUNT(ayfs.id) AS line_item_count,
+                       COUNT(DISTINCT ayfs.academic_year_class_id) AS class_count,
                        SUM(ayfs.amount) AS total_amount,
                        MAX(u_sub.username) AS submitted_by_name,
                        MIN(ayfs.created_at) AS submitted_at,

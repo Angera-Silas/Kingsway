@@ -10,6 +10,7 @@ use App\Database\Database;
 use App\API\Services\PermissionContract;
 use App\API\Core\FileLifecycleBase;
 use PDO;
+use PDOStatement;
 use RuntimeException;
 use Exception;
 use finfo;
@@ -326,6 +327,40 @@ class BaseAPI extends FileLifecycleBase
             return $this->db->rollBack();
         }
         throw new Exception('No valid database connection for rollback');
+    }
+
+    /**
+     * Run a parameterized query on the raw PDO connection and return the
+     * statement. Callers may not pass bindings to PDO::query() directly
+     * (its second argument is an int fetch mode), so bindings go through
+     * prepare()/execute() here.
+     *
+     * @param array $params Values to bind (positional placeholders).
+     * @return PDOStatement
+     */
+    protected function runQuery(string $sql, array $params = []): PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+
+    /**
+     * Fetch the first column of the first row for a parameterized query.
+     */
+    protected function queryScalar(string $sql, array $params = [])
+    {
+        $value = $this->runQuery($sql, $params)->fetchColumn();
+        return $value === false ? null : $value;
+    }
+
+    /**
+     * Fetch the first row (associative) for a parameterized query.
+     */
+    protected function queryRow(string $sql, array $params = [])
+    {
+        $row = $this->runQuery($sql, $params)->fetch(PDO::FETCH_ASSOC);
+        return $row === false ? null : $row;
     }
 
     protected function handleException($e)

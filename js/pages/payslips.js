@@ -187,54 +187,67 @@ const payslipsController = {
     const payslip = this.data.currentPayslip;
     const staff = this.data.selectedStaff || {};
 
-    // Build payslip items
-    const items = [];
-    
-    // Add earnings
-    if (payslip.earnings && payslip.earnings.length) {
-      payslip.earnings.forEach(earning => {
-        items.push({
-          name: earning.description || earning.name || 'Earning',
-          price: earning.amount || earning.value || 0
-        });
+    if (window.PrintManager && window.PrintManager.printDedicatedPayslip) {
+      window.PrintManager.printDedicatedPayslip({
+        employeeName: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+        staffNo: staff.staff_no || '',
+        department: staff.department_name || staff.department || '',
+        designation: staff.designation || staff.position || '',
+        kraPin: staff.kra_pin || '',
+        period: payslip.period || new Date().toISOString().slice(0, 7),
+        basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
+        allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
+        deductions: (payslip.deductions || []).map(d => ({ name: d.description || d.name || '', amount: d.amount || d.value || 0 })),
+        statutory: {
+          paye: payslip.paye || payslip.tax || 0,
+          nssf: payslip.nssf || 0,
+          nhif_shif: payslip.nhif || payslip.shif || 0,
+          housing_levy: payslip.housing_levy || 0,
+        },
+        grossPay: payslip.gross_pay || payslip.gross_salary || 0,
+        totalDeductions: payslip.total_deductions || 0,
+        netPay: payslip.net_pay || payslip.net_salary || 0,
+        bankAccount: staff.bank_account || '',
+        filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
       });
+    } else {
+      showNotification("PrintManager not available", "error");
     }
-    
-    // Add deductions
-    if (payslip.deductions && payslip.deductions.length) {
-      payslip.deductions.forEach(deduction => {
-        items.push({
-          name: deduction.description || deduction.name || 'Deduction',
-          price: -(deduction.amount || deduction.value || 0)
-        });
-      });
-    }
-
-    window.PrintManager.printReceipt({
-      title: 'Staff Payslip',
-      subtitle: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
-      receiptNumber: payslip.payslip_number || payslip.id || '—',
-      date: payslip.pay_date || payslip.period || new Date().toISOString(),
-      customer: `${staff.first_name || ''} ${staff.last_name || ''} (${staff.staff_no || '—'})`,
-      items: items,
-      total: payslip.net_pay || payslip.net_salary || 0,
-      receiptNote: 'This payslip is system-generated and subject to payroll verification.',
-      reportCode: `PAY-${payslip.payslip_number || payslip.id || Date.now()}`,
-      filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
-      signatureSection: [
-        { label: 'Payroll Officer', dateLine: true },
-        { label: 'Headteacher', dateLine: true },
-      ]
-    });
   },
 
   downloadP9: async function () {
     try {
-      const year   = document.getElementById('psYear').value;
-      const params = new URLSearchParams({ year });
-      if (this._staffId) params.set('staff_id', this._staffId);
-      const url = (window.APP_BASE || '') + '/api/staff/payroll-download-p9?' + params.toString();
-      window.open(url, '_blank');
+      const year = document.getElementById('psYear').value;
+      const staffId = this._staffId;
+
+      if (window.PrintManager && window.PrintManager.printP9Form) {
+        const payslip = this._currentSlipData || {};
+        const staff = payslip;
+        await window.PrintManager.printP9Form({
+          employeeName: staff.employee_name || staff.staff_name || '',
+          staffNo: staff.staff_no || '',
+          kraPin: staff.kra_pin || '',
+          department: staff.department_name || '',
+          designation: staff.designation || '',
+          taxYear: year,
+          employerName: 'Kingsway Preparatory School',
+          employerPin: '',
+          employerKraAddress: '',
+          monthlyData: staff.monthly_payslips || payslip.monthly_payslips || [],
+          basicSalary: staff.basic_salary || 0,
+          grossPay: staff.gross_pay || 0,
+          totalPaye: staff.paye_tax || staff.paye || 0,
+          totalNssf: staff.nssf || 0,
+          totalNhifShif: staff.nhif || staff.shif || 0,
+          totalHousingLevy: staff.housing_levy || 0,
+          filename: `P9_${staff.staff_no || staffId || 'staff'}_${year}`,
+        });
+      } else {
+        const params = new URLSearchParams({ year });
+        if (staffId) params.set('staff_id', staffId);
+        const url = (window.APP_BASE || '') + '/api/staff/payroll-download-p9?' + params.toString();
+        window.open(url, '_blank');
+      }
     } catch (e) { showNotification('P9 download failed', 'error'); }
   },
 

@@ -7,6 +7,7 @@
     contacts: [],
     groups: [],
     templates: [],
+    audiences: { parents: [], students: [], classes: [], student_types: [], school_levels: [], vendors: [], staff: [] },
     currentPage: 1,
     perPage: 10,
     composeModal: null,
@@ -21,7 +22,7 @@
       this.composeModal = new bootstrap.Modal(document.getElementById("composeModal"));
       this.bindEvents();
       this.updateCharMetrics();
-      await Promise.all([this.loadData(), this.loadContacts(), this.loadGroups(), this.loadTemplates()]);
+      await Promise.all([this.loadData(), this.loadContacts(), this.loadGroups(), this.loadTemplates(), this.loadAudienceOptions()]);
     },
 
     bindEvents: function () {
@@ -104,13 +105,17 @@
       }
     },
 
+    loadAudienceOptions: async function () {
+      try { const r = await window.API.communications.getAudienceOptions(); const data = r?.data || r || {}; this.audiences = data; const allowed = data.allowed_audiences || []; const select = document.getElementById('recipientType'); if (select) Array.from(select.options).forEach(o => { if (o.value && !allowed.includes(o.value)) o.remove(); }); } catch (e) { console.error('Audience load failed', e); }
+    },
+
     toggleRecipientSection: function (val) {
       document.getElementById("recipientSelector").style.display = "none";
       document.getElementById("groupSelector").style.display = "none";
       document.getElementById("customNumbersDiv").style.display = "none";
       const sel = document.getElementById("specificRecipients");
       sel.innerHTML = "";
-      if (val === "specific_class" || val === "specific_parents") {
+      if (["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"].includes(val)) {
         document.getElementById("recipientSelector").style.display = "";
         this.populateRecipientList(val);
       } else if (val === "contact_group") {
@@ -123,13 +128,12 @@
     populateRecipientList: function (type) {
       const sel = document.getElementById("specificRecipients");
       sel.innerHTML = "";
-      const items = type === "specific_class"
-        ? this.contacts.filter(c => c.contact_type === "student" || c.contact_type === "parent")
-        : this.contacts.filter(c => c.contact_type === "parent");
+      const map = { selected_students: this.audiences.students, selected_class: this.audiences.classes, student_type: this.audiences.student_types, school_level: this.audiences.school_levels, selected_parents: this.audiences.parents, selected_staff: this.audiences.staff, selected_vendors: this.audiences.vendors };
+      const items = map[type] || [];
       items.forEach(c => {
         const opt = document.createElement("option");
         opt.value = c.id;
-        opt.textContent = c.name + (c.phone ? " (" + c.phone + ")" : "");
+        opt.textContent = (c.name || c.code || '') + (c.phone ? " (" + c.phone + ")" : '') + (c.school_level ? ' · ' + c.school_level : '');
         sel.appendChild(opt);
       });
     },
@@ -190,7 +194,7 @@
         recipients = this.value("customNumbers").split(",").map(s => s.trim()).filter(Boolean);
       } else if (recipientType === "contact_group") {
         recipients = [this.value("groupSelect")];
-      } else if (recipientType === "specific_class" || recipientType === "specific_parents") {
+      } else if (["selected_students", "selected_class", "student_type", "school_level", "selected_parents", "selected_staff", "selected_vendors"].includes(recipientType)) {
         recipients = Array.from(document.getElementById("specificRecipients").selectedOptions).map(o => o.value);
       } else {
         recipients = [recipientType];
@@ -222,6 +226,7 @@
         reminder_at: reminderAt,
         sender_signature: signature,
         recipient_type: recipientType,
+        target_ids: recipients,
       };
     },
 
@@ -234,9 +239,13 @@
       sendBtn.disabled = true;
       sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
       try {
-        await window.API.communications.createCommunication(data);
+        const created = await window.API.communications.createCommunication(data);
+        const commId = created?.id || created?.communication_id || created?.data?.id;
+        const result = data.status === "sent" && commId
+          ? await window.API.communications.dispatchCommunication(commId)
+          : created;
         this.composeModal.hide();
-        this.notify("SMS queued successfully", "success");
+        this.notify(result?.status === "failed" ? "SMS delivery failed" : (data.status === "scheduled" ? "SMS scheduled" : "SMS sent or queued"), result?.status === "failed" ? "error" : "success");
         await this.loadData();
       } catch (e) {
         console.error("Send error:", e);

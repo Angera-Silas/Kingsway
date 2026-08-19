@@ -12,6 +12,9 @@
             <p class="text-muted mb-0">Search immutable system activity records.</p>
         </div>
         <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-system-live>
+                <i class="bi bi-broadcast me-1"></i> Live
+            </button>
             <button type="button" class="btn btn-outline-secondary" data-system-refresh>
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>

@@ -67,6 +67,19 @@ if ($appBase === '.')
             padding: 1rem;
         }
     }
+
+    #viewApplicationModal .modal-body,
+    #newApplicationModal .modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    @media (max-height: 600px) {
+        #viewApplicationModal .modal-body,
+        #newApplicationModal .modal-body {
+            max-height: 55vh;
+        }
+    }
 </style>
 
 <div class="new-applications-page">
@@ -302,10 +315,19 @@ if ($appBase === '.')
                                     </select>
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="form-label fw-semibold">Target Intake Term <span class="text-danger">*</span></label>
+                                    <select id="targetTermSelect" class="form-select" required disabled>
+                                        <option value="">Select Term</option>
+                                    </select>
+                                    <input type="hidden" name="target_term_id" id="targetTermInput">
+                                    <small class="text-muted">Term this applicant intends to join.</small>
+                                </div>
+                                <div class="col-md-4">
                                     <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                                    <select name="academic_year" id="academicYearSelect" class="form-select" required>
+                                    <select id="academicYearSelect" class="form-select" required disabled>
                                         <option value="">Select Year</option>
                                     </select>
+                                    <input type="hidden" name="academic_year" id="academicYearInput">
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label fw-semibold">Application Source</label>
@@ -530,7 +552,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= filemtime(__DIR__ . '/js/pages/new_applications.js') ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= filemtime(__DIR__ . '/../js/pages/new_applications.js') ?>"
     onload="console.log('new_applications.js script tag loaded successfully')"
     onerror="console.error('FAILED to load new_applications.js. Check path:', this.src)">
 </script>

@@ -12,6 +12,7 @@ use App\API\Services\StaffLifecycleService;
 use App\API\Services\StaffRecordsService;
 use RuntimeException;
 use Exception;
+use App\API\Services\payments\StatutoryRemittanceService;
 
 /**
  * StaffController - Explicit REST endpoints for Staff Management
@@ -2018,6 +2019,156 @@ return $this->serverError('An internal error occurred.');
         } catch (\Throwable $e) {
             error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
+        }
+    }
+
+    /** GET /api/staff/statutory-remittances */
+    public function getStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try {
+            $year = (int)($_GET['year'] ?? date('Y'));
+            $agency = $_GET['agency'] ?? null;
+            $status = $_GET['status'] ?? null;
+            $sql = "SELECT * FROM statutory_remittances WHERE period_year = ?";
+            $params = [$year];
+            if ($agency) { $sql .= " AND agency = ?"; $params[] = $agency; }
+            if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
+            $sql .= " ORDER BY period_year DESC, period_month DESC, agency";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $remittances = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            $agencies = ['KRA','NHIF','NSSF','Housing Levy'];
+            $breakdown = [];
+            foreach (range(1, 12) as $m) {
+                $row = ['period_month' => $m, 'kra' => 0, 'nhif' => 0, 'nssf' => 0, 'housing_levy' => 0];
+                foreach ($agencies as $a) {
+                    $key = strtolower(str_replace(' ', '_', str_replace('/', '_', $a)));
+                    foreach ($remittances as $r) {
+                        if ((int)$r['period_month'] === $m && $r['agency'] === $a) {
+                            $row[$key === 'kra_(paye)' ? 'kra' : $key] = (float)$r['total_deducted'];
+                        }
+                    }
+                }
+                $breakdown[] = $row;
+            }
+            $totalDeducted = array_sum(array_column($remittances, 'total_deducted'));
+            $totalRemitted = array_sum(array_column($remittances, 'amount_remitted'));
+            $summary = [
+                'total_deducted' => $totalDeducted,
+                'total_remitted' => $totalRemitted,
+                'outstanding' => $totalDeducted - $totalRemitted,
+                'overdue_count' => count(array_filter($remittances, fn($r) => $r['status'] === 'overdue')),
+            ];
+            return $this->success(['remittances' => $remittances, 'breakdown' => $breakdown, 'summary' => $summary]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] getStatutoryRemittances: ' . $e->getMessage());
+            return $this->badRequest('Failed to load remittances.');
+        }
+    }
+
+    /** POST /api/staff/statutory-remittances */
+    public function postStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        try {
+            $agency = $data['agency'] ?? null;
+            $month = (int)($data['period_month'] ?? 0);
+            $year = (int)($data['period_year'] ?? 0);
+            if (!$agency || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
+            $stmt = $this->db->prepare("INSERT INTO statutory_remittances (agency, period_month, period_year, total_deducted, amount_remitted, status, due_date, remittance_date, filing_reference, notes, filed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $agency, $month, $year,
+                $data['total_deducted'] ?? 0, $data['amount_remitted'] ?? 0,
+                $data['status'] ?? 'pending',
+                $data['due_date'] ?? null, $data['remittance_date'] ?? null,
+                $data['filing_reference'] ?? null, $data['notes'] ?? null,
+                $this->access->staffId()
+            ]);
+            return $this->success(['id' => $this->db->lastInsertId()], 'Remittance saved');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] createStatutoryRemittance: ' . $e->getMessage());
+            return $this->badRequest('Failed to save remittance.');
+        }
+    }
+
+    /** PUT /api/staff/statutory-remittances/{id} */
+    public function putStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $remId = (int)($id ?? $data['id'] ?? 0);
+        if (!$remId) return $this->badRequest('Remittance ID required');
+        try {
+            $stmt = $this->db->prepare("UPDATE statutory_remittances SET amount_remitted = ?, status = ?, remittance_date = ?, filing_reference = ?, notes = ?, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([
+                $data['amount_remitted'] ?? 0, $data['status'] ?? 'pending',
+                $data['remittance_date'] ?? null, $data['filing_reference'] ?? null,
+                $data['notes'] ?? null, $remId
+            ]);
+            return $this->success(null, 'Remittance updated');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] updateStatutoryRemittance: ' . $e->getMessage());
+            return $this->badRequest('Failed to update remittance.');
+        }
+    }
+
+    /** POST /api/staff/statutory-remittances/{id}/initiate-payment */
+    public function postStatutoryRemittancePayment($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $remittanceId = (int) ($id ?? $data['id'] ?? 0);
+        if (!$remittanceId || empty($data['agency_account_id'])) return $this->badRequest('Remittance ID and agency_account_id are required');
+        try {
+            $result = (new StatutoryRemittanceService($this->db))->initiate($remittanceId, (int) $this->access->staffId(), $data);
+            return $this->success($result, 'Statutory payment submitted for confirmation');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] initiate statutory payment: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/statutory-agency-accounts?agency=KRA */
+    public function getStatutoryAgencyAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $agency = $_GET['agency'] ?? $data['agency'] ?? null;
+        if (!$agency) return $this->badRequest('Agency is required');
+        try {
+            $stmt = $this->db->prepare("SELECT id, agency, account_name, account_number, bank_name, bank_code, payment_reference_rule FROM statutory_agency_accounts WHERE agency = ? AND active = 1 ORDER BY account_name, id");
+            $stmt->execute([$agency]);
+            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] statutory agency accounts: ' . $e->getMessage());
+            return $this->badRequest('Failed to load agency accounts.');
+        }
+    }
+
+    /** GET /api/staff/statutory-remittances/calc?agency=X&month=X&year=X */
+    public function getStatutoryRemittancesCalc($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try {
+            $agency = $_GET['agency'] ?? null;
+            $month = (int)($_GET['month'] ?? 0);
+            $year = (int)($_GET['year'] ?? 0);
+            if (!$agency || !$month || !$year) return $this->badRequest('agency, month, year required');
+            $colMap = ['KRA' => 'paye_tax', 'NHIF' => 'nhif_contribution', 'NSSF' => 'nssf_contribution', 'Housing Levy' => 'housing_levy'];
+            $col = $colMap[$agency] ?? null;
+            if (!$col) return $this->badRequest('Unknown agency');
+            $sql = "SELECT p.staff_id, s.staff_no, CONCAT(ps.first_name, ' ', ps.last_name) AS staff_name, p.{$col} AS amount FROM payslips p JOIN staff s ON s.id = p.staff_id JOIN persons ps ON ps.id = s.person_id WHERE p.payroll_month = ? AND p.payroll_year = ? AND p.payslip_status IN ('approved','paid') AND p.{$col} > 0 ORDER BY ps.last_name, ps.first_name";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$month, $year]);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $total = array_sum(array_column($rows, 'amount'));
+            return $this->success(['total' => $total, 'staff' => $rows]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] calcStatutoryDeduction: ' . $e->getMessage());
+            return $this->badRequest('Failed to calculate deductions.');
         }
     }
 

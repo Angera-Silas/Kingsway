@@ -413,6 +413,9 @@ class WebsiteController extends BaseController
     {
         if (!$this->hasPerm('website_inquiries_view')) return $this->forbidden('Access denied.');
         if (!$id) return $this->badRequest('Inquiry ID required.');
+        if (!empty($data['reply'])) {
+            return $this->handleResponse($this->manager->replyInquiry((int) $id, (string) $data['reply'], (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0)));
+        }
         if (empty($data['status'])) return $this->badRequest('Status is required.');
         return $this->handleResponse($this->manager->updateInquiryStatus($id, (string) $data['status']));
     }

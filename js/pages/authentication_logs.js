@@ -28,6 +28,8 @@ const AuthenticationLogsController = {
     loading: false,
     reloadQueued: false,
     searchTimer: null,
+    liveEnabled: false,
+    liveTimer: null,
   },
 
   elements: {},
@@ -119,6 +121,7 @@ const AuthenticationLogsController = {
       resetButton: document.getElementById(
         "resetAuthenticationLogFiltersBtn",
       ),
+      liveButton: document.getElementById("liveAuthenticationLogsBtn"),
       refreshButton: document.getElementById(
         "refreshAuthenticationLogsBtn",
       ),
@@ -176,6 +179,20 @@ const AuthenticationLogsController = {
     this.elements.refreshButton.addEventListener("click", () => {
       void this.loadLogs();
     });
+    this.elements.liveButton.addEventListener("click", () => {
+      this.toggleLive();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && this.state.liveEnabled) {
+        this.stopLive();
+      } else if (!document.hidden && this.state.liveEnabled) {
+        this.startLive();
+        void this.loadLogs(true);
+      }
+    });
+    window.addEventListener("pagehide", () => {
+      this.stopLive();
+    });
     this.elements.resetButton.addEventListener("click", () => {
       this.resetFilters();
     });
@@ -197,7 +214,7 @@ const AuthenticationLogsController = {
     this.state.eventsBound = true;
   },
 
-  async loadLogs() {
+  async loadLogs(quiet = false) {
     if (this.state.loading) {
       this.state.reloadQueued = true;
       return;
@@ -210,11 +227,13 @@ const AuthenticationLogsController = {
     }
 
     this.state.loading = true;
-    this.elements.refreshButton.disabled = true;
-    this.elements.previousButton.disabled = true;
-    this.elements.nextButton.disabled = true;
-    this.showState("Loading authentication logs...", "info");
-    this.showTableLoading();
+    if (!quiet) {
+      this.elements.refreshButton.disabled = true;
+      this.elements.previousButton.disabled = true;
+      this.elements.nextButton.disabled = true;
+      this.showState("Loading authentication logs...", "info");
+      this.showTableLoading();
+    }
 
     const filters = this.readFilters();
 
@@ -284,12 +303,14 @@ const AuthenticationLogsController = {
       );
     } finally {
       this.state.loading = false;
-      this.elements.refreshButton.disabled = false;
+      if (!quiet) {
+        this.elements.refreshButton.disabled = false;
+      }
       this.renderPagination();
 
       if (this.state.reloadQueued) {
         this.state.reloadQueued = false;
-        void this.loadLogs();
+        void this.loadLogs(quiet);
       }
     }
   },
@@ -313,6 +334,39 @@ const AuthenticationLogsController = {
     this.elements.dateTo.value = "";
     this.state.pagination.page = 1;
     void this.loadLogs();
+  },
+
+  toggleLive() {
+    this.state.liveEnabled = !this.state.liveEnabled;
+    const button = this.elements.liveButton;
+    if (this.state.liveEnabled) {
+      button.classList.add("btn-success");
+      button.classList.remove("btn-outline-secondary");
+      button.innerHTML =
+        '<span class="spinner-grow spinner-grow-sm me-1" aria-hidden="true"></span>Live';
+      this.startLive();
+      void this.loadLogs(true);
+    } else {
+      button.classList.remove("btn-success");
+      button.classList.add("btn-outline-secondary");
+      button.innerHTML = '<i class="bi bi-broadcast me-1"></i> Live';
+      this.stopLive();
+    }
+  },
+
+  startLive() {
+    this.stopLive();
+    this.state.liveTimer = window.setInterval(() => {
+      if (document.hidden) return;
+      void this.loadLogs(true);
+    }, 5000);
+  },
+
+  stopLive() {
+    if (this.state.liveTimer) {
+      window.clearInterval(this.state.liveTimer);
+      this.state.liveTimer = null;
+    }
   },
 
   validateDateRange() {

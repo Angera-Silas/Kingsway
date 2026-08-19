@@ -101,10 +101,32 @@ $sidebar_items = [];
                         Page not found:
                         <?= htmlspecialchars($route, ENT_QUOTES, 'UTF-8') ?>
                     </div>
+                    <script>
+                    (async function() {
+                        try {
+                            if (window.AuthContext?.ready) await window.AuthContext.ready();
+                            else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
+                        } catch(e) {}
+                        var di = window.AuthContext?.getDashboardInfo?.();
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        setTimeout(function() { window.location.replace((window.APP_BASE || '') + dest); }, 1500);
+                    })();
+                    </script>
                 <?php else: ?>
                     <div class="alert alert-info border-0 shadow-sm">
                         Redirecting to dashboard...
                     </div>
+                    <script>
+                    (async function() {
+                        try {
+                            if (window.AuthContext?.ready) await window.AuthContext.ready();
+                            else if (window.KingswayBootstrap?.initialize) await window.KingswayBootstrap.initialize();
+                        } catch(e) {}
+                        var di = window.AuthContext?.getDashboardInfo?.();
+                        var dest = (di && di.key) ? '/home.php?route=' + di.key : '/home.php?route=profile';
+                        window.location.replace((window.APP_BASE || '') + dest);
+                    })();
+                    </script>
                 <?php endif; ?>
             </div>
         </main>

@@ -32,6 +32,30 @@ class CommunicationsManager extends FileLifecycleBase
         return $stmt->execute($params);
     }
 
+    public function updateDeliveryStatusByProvider($providerMessageId, $status, $deliveredAt = null, $errorMessage = null)
+    {
+        $normalized = strtolower((string) $status);
+        $recipientStatus = in_array($normalized, ['delivered', 'success'], true) ? 'delivered' : ($normalized === 'failed' ? 'failed' : 'sent');
+        $endpoint = $this->db->prepare("UPDATE communication_recipient_endpoints SET status = ?, provider_status = ?, delivered_at = ?, last_error = ? WHERE provider_message_id = ?");
+        $endpoint->execute([$recipientStatus, $normalized, $deliveredAt, $errorMessage, (string) $providerMessageId]);
+        if ($endpoint->rowCount() < 1) return false;
+        $stmt = $this->db->prepare("UPDATE communication_recipients r JOIN communication_recipient_endpoints e ON e.communication_recipient_id = r.id SET r.status = ?, r.delivered_at = ?, r.error_message = ?, r.last_attempt_at = CURRENT_TIMESTAMP WHERE e.provider_message_id = ?");
+        $result = $stmt->execute([$recipientStatus, $deliveredAt, $errorMessage, (string) $providerMessageId]);
+        $aggregate = $this->db->prepare(
+            "UPDATE communications c
+                JOIN communication_recipients r ON r.communication_id = c.id
+                JOIN communication_recipient_endpoints e ON e.communication_recipient_id = r.id
+               SET c.status = CASE
+                    WHEN EXISTS (SELECT 1 FROM communication_recipient_endpoints ef JOIN communication_recipients rf ON rf.id = ef.communication_recipient_id WHERE rf.communication_id = c.id AND ef.status = 'failed') THEN 'failed'
+                    WHEN NOT EXISTS (SELECT 1 FROM communication_recipient_endpoints ep JOIN communication_recipients rp ON rp.id = ep.communication_recipient_id WHERE rp.communication_id = c.id AND ep.status NOT IN ('sent','delivered')) THEN 'delivered'
+                    ELSE c.status END,
+                   c.processed_at = CASE WHEN c.status = 'delivered' THEN NOW() ELSE c.processed_at END
+             WHERE e.provider_message_id = ?"
+        );
+        $aggregate->execute([(string) $providerMessageId]);
+        return $result;
+    }
+
     /**
      * Mark a recipient as opted out (used for opt-out callbacks)
      * @param string $recipientIdentifier (phone/email/user id)
@@ -67,6 +91,58 @@ class CommunicationsManager extends FileLifecycleBase
             ':received_at' => $data['received_at'] ?? date('Y-m-d H:i:s'),
             ':subject' => $data['subject'] ?? null
         ]);
+    }
+
+    /** Store and route an Africa's Talking WhatsApp inbound event. */
+    public function storeIncomingWhatsappMessage(array $data): array
+    {
+        $sender = trim((string) ($data['phone'] ?? $data['sender'] ?? $data['phoneNumber'] ?? $data['from'] ?? ''));
+        $message = (string) ($data['message'] ?? $data['text'] ?? $data['body'] ?? '');
+        $providerId = trim((string) ($data['message_id'] ?? $data['messageId'] ?? $data['provider_message_id'] ?? ''));
+        if ($sender === '') throw new \InvalidArgumentException('WhatsApp sender is required');
+        $normalized = preg_replace('/[^0-9]/', '', $sender);
+        if (substr($normalized, 0, 1) === '0') $normalized = '254' . substr($normalized, 1);
+
+        $parentId = null;
+        $userId = null;
+        $contactStmt = $this->db->query("SELECT pr.id AS parent_id, u.id AS user_id, p.phone FROM parents pr JOIN persons p ON p.id = pr.person_id LEFT JOIN users u ON u.person_id = p.id AND u.status = 'active' WHERE pr.status = 'active'");
+        foreach ($contactStmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
+            $candidate = preg_replace('/[^0-9]/', '', (string) ($contact['phone'] ?? ''));
+            if (substr($candidate, 0, 1) === '0') $candidate = '254' . substr($candidate, 1);
+            if ($candidate !== '' && $candidate === $normalized) {
+                $parentId = (int) $contact['parent_id'];
+                $userId = $contact['user_id'] !== null ? (int) $contact['user_id'] : null;
+                break;
+            }
+        }
+
+        $thread = $this->db->prepare("SELECT ct.id FROM communication_threads ct JOIN communication_thread_messages tm ON tm.thread_id = ct.id WHERE ct.thread_type = 'parent_portal' AND tm.sender_address = ? AND ct.status IN ('open','pending') ORDER BY ct.id DESC LIMIT 1");
+        $thread->execute([$sender]);
+        $threadId = (int) ($thread->fetchColumn() ?: 0);
+        if (!$threadId) {
+            $this->db->prepare("INSERT INTO communication_threads (thread_type, subject, created_by, status) VALUES ('parent_portal', 'WhatsApp conversation', NULL, 'open')")->execute();
+            $threadId = (int) $this->db->lastInsertId();
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare("INSERT INTO external_inbound_messages (source_type, source_address, provider_message_id, received_at, linked_user_id, linked_parent_id, subject, body, status, processing_notes, raw_payload, thread_id) VALUES ('whatsapp', ?, ?, ?, ?, ?, 'WhatsApp inbound message', ?, 'processed', ?, ?, ?)");
+            $stmt->execute([$sender, $providerId !== '' ? $providerId : null, $data['received_at'] ?? date('Y-m-d H:i:s'), $userId, $parentId, $message, $parentId ? 'Matched to parent account' : 'Unverified sender; staff review required', json_encode($data, JSON_UNESCAPED_SLASHES), $threadId]);
+            $inboundId = (int) $this->db->lastInsertId();
+            $this->db->prepare("INSERT INTO communication_thread_messages (thread_id, sender_user_id, sender_address, direction, subject, body) VALUES (?, ?, ?, 'inbound', 'WhatsApp message', ?)")->execute([$threadId, $userId, $sender, $message]);
+            $mediaUrl = $data['media_url'] ?? $data['url'] ?? null;
+            if ($mediaUrl) {
+                $type = strtolower((string) ($data['media_type'] ?? $data['mediaType'] ?? 'other'));
+                if (!in_array($type, ['image','video','audio','sticker','document','voice'], true)) $type = 'other';
+                $this->db->prepare("INSERT INTO external_inbound_media (inbound_message_id, media_type, media_url, caption) VALUES (?, ?, ?, ?)")->execute([$inboundId, $type, $mediaUrl, $data['caption'] ?? null]);
+            }
+            $this->db->commit();
+            return ['status' => 'success', 'inbound_id' => $inboundId, 'thread_id' => $threadId, 'matched_parent' => $parentId !== null];
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            if (strpos(strtolower($e->getMessage()), 'duplicate') !== false && $providerId !== '') return ['status' => 'duplicate', 'message' => 'Inbound WhatsApp event already recorded'];
+            throw $e;
+        }
     }
 
     private $db;
@@ -265,19 +341,149 @@ class CommunicationsManager extends FileLifecycleBase
 
         $sql = "INSERT INTO communications (sender_id, subject, body, type, status, priority, template_id, scheduled_at, reminder_at, sender_signature) VALUES (:sender_id, :subject, :body, :type, :status, :priority, :template_id, :scheduled_at, :reminder_at, :sender_signature)";
         $stmt = $this->db->prepare($sql);
+        $requestedStatus = $this->normalizeStatus($data['status'] ?? 'draft');
+        $recordOnly = !empty($data['record_only']);
+        $storedStatus = (!$recordOnly && $requestedStatus === 'sent') ? 'queued' : ($recordOnly && $requestedStatus === 'sent' ? 'delivered' : $requestedStatus);
+        if (!$recordOnly && in_array($storedStatus, ['queued', 'scheduled'], true) && empty($data['recipients'])) {
+            throw new \InvalidArgumentException('At least one recipient is required for delivery');
+        }
+        $startedTransaction = !$this->db->inTransaction();
+        if ($startedTransaction) $this->db->beginTransaction();
+        try {
         $stmt->execute([
             ':sender_id' => $data['sender_id'] ?? 1,
             ':subject' => $data['subject'] ?? 'No subject',
             ':body' => $content,
             ':type' => $type,
-            ':status' => $this->normalizeStatus($data['status'] ?? 'draft'),
+            ':status' => $storedStatus,
             ':priority' => $this->normalizePriority($data['priority'] ?? 'medium'),
             ':template_id' => $data['template_id'] ?? null,
             ':scheduled_at' => $data['scheduled_at'] ?? null,
             ':reminder_at' => $data['reminder_at'] ?? null,
             ':sender_signature' => $data['sender_signature'] ?? $data['signature'] ?? null,
         ]);
-        return $this->getCommunication($this->db->lastInsertId());
+        $communicationId = (int) $this->db->lastInsertId();
+        if (!empty($data['recipients'])) {
+            $this->createCommunicationRecipients($communicationId, $type, (array) $data['recipients'], $data['recipient_type'] ?? null, $recordOnly, $requestedStatus, (array) ($data['target_ids'] ?? []));
+        }
+        $communication = $this->getCommunication($communicationId);
+        if ($startedTransaction) $this->db->commit();
+        return $communication;
+        } catch (\Throwable $e) {
+            if ($startedTransaction && $this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /** Create one durable delivery row per resolved email/phone recipient. */
+    private function createCommunicationRecipients(int $communicationId, string $type, array $recipients, ?string $recipientType, bool $recordOnly = false, string $recordOnlyStatus = 'sent', array $targetIds = []): void
+    {
+        $rows = [];
+        $targetIds = array_values(array_filter(array_map('intval', $targetIds)));
+        if ($recipientType === 'selected_parents') {
+            $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
+            if (!$ids) throw new \InvalidArgumentException('At least one parent is required');
+            $marks = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM parents pr JOIN persons p ON p.id = pr.person_id LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active' WHERE pr.status = 'active' AND pr.id IN ($marks)");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [$contact['user_id'] !== null ? (int) $contact['user_id'] : null, $address]; }
+        } elseif (in_array($recipientType, ['selected_students','selected_class','student_type','school_level'], true)) {
+            $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
+            if (!$ids) throw new \InvalidArgumentException('At least one audience item is required');
+            $marks = implode(',', array_fill(0, count($ids), '?'));
+            $where = $recipientType === 'selected_students' ? "s.id IN ($marks)" : ($recipientType === 'selected_class' ? "c.id IN ($marks)" : ($recipientType === 'student_type' ? "s.student_type_id IN ($marks)" : "c.level_id IN ($marks)"));
+            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.phone, p.email FROM students s JOIN persons sperson ON sperson.id = s.person_id JOIN student_parents sx ON sx.student_id = s.id JOIN parents pr ON pr.id = sx.parent_id AND pr.status = 'active' JOIN users u ON u.person_id = pr.person_id AND u.status = 'active' JOIN persons p ON p.id = u.person_id JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active' JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id AND aycs.status = 'active' JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id AND ayc.status = 'active' JOIN classes c ON c.id = ayc.class_id WHERE s.status = 'active' AND {$where}");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [(int) $contact['user_id'], $address]; }
+        } elseif ($recipientType === 'selected_staff') {
+            $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
+            if (!$ids) throw new \InvalidArgumentException('At least one staff member is required');
+            $stmt = $this->db->prepare("SELECT DISTINCT u.id AS user_id, p.email, p.phone FROM staff s JOIN users u ON u.person_id = s.person_id AND u.status = 'active' JOIN persons p ON p.id = u.person_id WHERE s.status = 'active' AND s.id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) { $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']); if ($address !== '') $rows[] = [(int) $contact['user_id'], $address]; }
+        } elseif (in_array($recipientType, ['selected_vendors','all_vendors'], true)) {
+            $ids = $targetIds ?: array_values(array_filter(array_map('intval', $recipients)));
+            $sql = "SELECT id, phone, email FROM suppliers WHERE status = 'active'";
+            $params = [];
+            if ($recipientType === 'selected_vendors') {
+                if (!$ids) throw new \InvalidArgumentException('At least one vendor is required');
+                $sql .= ' AND id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+                $params = $ids;
+            }
+            $stmt = $this->db->prepare($sql); $stmt->execute($params);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $supplier) { $address = $type === 'email' ? trim((string) $supplier['email']) : trim((string) $supplier['phone']); if ($address !== '') $rows[] = [null, $address]; }
+        } elseif ($recipientType === 'all_parents') {
+            $stmt = $this->db->query(
+                "SELECT DISTINCT u.id AS user_id, p.email, p.phone
+                   FROM parents pr JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
+                   JOIN persons p ON p.id = u.person_id WHERE pr.status = 'active'"
+            );
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
+                $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
+                if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
+            }
+        } elseif ($recipientType === 'all_staff') {
+            $stmt = $this->db->query(
+                "SELECT DISTINCT u.id AS user_id, p.email, p.phone
+                   FROM staff s JOIN users u ON u.person_id = s.person_id AND u.status = 'active'
+                   JOIN persons p ON p.id = u.person_id WHERE s.status = 'active'"
+            );
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
+                $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
+                if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
+            }
+        } elseif ($recipientType === 'contact_group') {
+            $groupIds = array_values(array_filter(array_map('intval', $recipients)));
+            if ($groupIds) {
+                $marks = implode(',', array_fill(0, count($groupIds), '?'));
+                $sql = "SELECT DISTINCT gm.user_id, p.email, p.phone
+                          FROM group_members gm
+                          JOIN users u ON u.id = gm.user_id
+                          JOIN persons p ON p.id = u.person_id
+                         WHERE gm.group_id IN ($marks)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($groupIds);
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $contact) {
+                    $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
+                    if ($address !== '') $rows[] = [(int) $contact['user_id'], $address];
+                }
+            }
+        }
+        foreach ($recipients as $recipient) {
+            if (in_array($recipientType, ['contact_group', 'all_parents', 'all_staff', 'all_students', 'selected_parents','selected_students','selected_class','student_type','school_level','selected_staff','selected_vendors','all_vendors'], true)) continue;
+            $value = trim((string) $recipient);
+            if ($value === '') continue;
+            if (ctype_digit($value)) {
+                $stmt = $this->db->prepare("SELECT id, name, email, phone FROM contact_directory WHERE id = ? LIMIT 1");
+                $stmt->execute([(int) $value]);
+                $contact = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($contact) {
+                    $address = $type === 'email' ? trim((string) $contact['email']) : trim((string) $contact['phone']);
+                    if ($address !== '') $rows[] = [(int) $contact['id'], $address];
+                    continue;
+                }
+            }
+            if (ctype_digit($value)) {
+                throw new \InvalidArgumentException('Recipient contact could not be resolved');
+            }
+            $rows[] = [null, $value];
+        }
+        if (!$rows) throw new \InvalidArgumentException('At least one valid recipient is required');
+        $recipientStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'queued';
+        $endpointStatus = $recordOnly ? ($recordOnlyStatus === 'failed' ? 'failed' : 'sent') : 'pending';
+        $recipientStmt = $this->db->prepare(
+            "INSERT INTO communication_recipients (communication_id, recipient_id, status)
+             VALUES (?, ?, '{$recipientStatus}')"
+        );
+        $endpointStmt = $this->db->prepare(
+            "INSERT INTO communication_recipient_endpoints
+                (communication_recipient_id, channel, address, status)
+             VALUES (?, ?, ?, '{$endpointStatus}')"
+        );
+        foreach ($rows as [$recipientId, $address]) {
+            $recipientStmt->execute([$communicationId, $recipientId]);
+            $endpointStmt->execute([(int) $this->db->lastInsertId(), $type, $address]);
+        }
     }
     public function getCommunication($id)
     {
@@ -415,6 +621,8 @@ class CommunicationsManager extends FileLifecycleBase
         // If an uploaded file is provided in $fileData (or in $_FILES), use MediaManager to store it
         $filePath = $fileData['file_path'] ?? null;
         $fileName = $fileData['file_name'] ?? null;
+        $mimeType = $fileData['mime_type'] ?? null;
+        $fileSize = $fileData['file_size'] ?? null;
         $mediaId = null;
         try {
             $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
@@ -425,19 +633,36 @@ class CommunicationsManager extends FileLifecycleBase
                 $preview = $mediaManager->getPreviewUrl($mediaId);
                 $filePath = $preview ?: $filePath;
                 $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
+                $mimeType = $mimeType ?: ($uploadFile['type'] ?? null);
+                $fileSize = $fileSize ?: ($uploadFile['size'] ?? null);
             }
         } catch (\Exception $e) {
             // fallback to provided file_path/file_name if media upload fails
         }
 
-        $sql = "INSERT INTO communication_attachments (communication_id, file_name, file_path) VALUES (:communication_id, :file_name, :file_path)";
+        $publicUrl = filter_var($filePath, FILTER_VALIDATE_URL) ? $filePath : $this->publicUploadAssetUrl('communications', (string) ($fileName ?? 'unnamed_file'));
+        $sql = "INSERT INTO communication_attachments (communication_id, file_name, file_path, mime_type, file_size, public_url) VALUES (:communication_id, :file_name, :file_path, :mime_type, :file_size, :public_url)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':communication_id' => $communicationId,
             ':file_name' => $fileName ?? 'unnamed_file',
-            ':file_path' => $filePath ?? $this->publicUploadAssetUrl('communications', 'unnamed_file')
+            ':file_path' => $filePath ?? $publicUrl,
+            ':mime_type' => $mimeType,
+            ':file_size' => $fileSize,
+            ':public_url' => $publicUrl,
         ]);
-        return $this->getAttachment($this->db->lastInsertId());
+        $attachmentId = (int) $this->db->lastInsertId();
+        $channels = $fileData['channels'] ?? ($fileData['channel'] ?? 'email');
+        if (!is_array($channels)) $channels = [$channels];
+        $channelStmt = $this->db->prepare(
+            "INSERT INTO communication_attachment_channels (attachment_id, channel, provider_media_url, status) VALUES (?, ?, ?, 'ready') ON DUPLICATE KEY UPDATE provider_media_url = VALUES(provider_media_url), status = 'ready'"
+        );
+        foreach ($channels as $channel) {
+            if (in_array($channel, ['email', 'whatsapp', 'portal'], true)) {
+                $channelStmt->execute([$attachmentId, $channel, $publicUrl]);
+            }
+        }
+        return $this->getAttachment($attachmentId);
     }
     public function getAttachment($id)
     {
@@ -672,10 +897,12 @@ class CommunicationsManager extends FileLifecycleBase
     public function createTemplate($data)
     {
         // Map channel to message_templates.type (enum: email, sms, notification)
-        $templateType = $data['template_type'] ?? $data['channel'] ?? 'sms';
+        $canonicalChannel = strtolower((string) ($data['template_type'] ?? $data['channel'] ?? 'sms'));
+        $templateType = $canonicalChannel;
         $typeMap = [
             'sms' => 'sms',
             'email' => 'email',
+            'whatsapp' => 'whatsapp',
             'notification' => 'notification',
             'announcement' => 'notification',
             'internal' => 'notification',
@@ -700,7 +927,18 @@ class CommunicationsManager extends FileLifecycleBase
             ':status' => $data['status'] ?? 'active',
             ':use_count' => $data['usage_count'] ?? 0
         ]);
-        return $this->getTemplate($this->db->lastInsertId());
+        $legacyId = (int) $this->db->lastInsertId();
+        $this->syncCanonicalTemplateVersion([
+            'code' => ($canonicalChannel ?: $templateType) . '.' . (($data['category'] ?? '') ?: 'custom_' . $legacyId),
+            'name' => $data['name'] ?? 'Unnamed Template',
+            'purpose' => $data['category'] ?? 'custom',
+            'channel' => in_array($canonicalChannel, ['email','sms','whatsapp','portal','in_app'], true) ? $canonicalChannel : $templateType,
+            'subject' => $data['subject'] ?? null,
+            'body' => $templateBody,
+            'variables' => $data['variables_json'] ?? $data['variables'] ?? [],
+            'created_by' => $data['created_by'] ?? 1,
+        ]);
+        return $this->getTemplate($legacyId);
     }
     public function getTemplate($id)
     {
@@ -715,6 +953,7 @@ class CommunicationsManager extends FileLifecycleBase
     }
     public function updateTemplate($id, $data)
     {
+        $existing = $this->getTemplate($id);
         $colMap = [
             'name' => 'name',
             'template_type' => 'type',
@@ -739,13 +978,28 @@ class CommunicationsManager extends FileLifecycleBase
         $sql = "UPDATE message_templates SET " . implode(", ", $fields) . " WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return $this->getTemplate($id);
+        $fresh = $this->getTemplate($id);
+        if ($fresh) {
+            $this->syncCanonicalTemplateVersion([
+                'code' => ($fresh['template_type'] ?? 'sms') . '.' . (($fresh['category'] ?? '') ?: 'custom_' . $id),
+                'name' => $fresh['name'],
+                'purpose' => $fresh['category'] ?? 'custom',
+                'channel' => in_array(($fresh['template_type'] ?? ''), ['email','sms','whatsapp','portal','in_app'], true) ? $fresh['template_type'] : 'sms',
+                'subject' => $fresh['subject'],
+                'body' => $fresh['template_body'],
+                'variables' => $fresh['variables_json'] ?? [],
+                'created_by' => $fresh['created_by'] ?? 1,
+            ]);
+        }
+        return $fresh ?: $existing;
     }
     public function deleteTemplate($id)
     {
         $sql = "DELETE FROM message_templates WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute([':id' => $id]);
+        $result = $stmt->execute([':id' => $id]);
+        $this->db->prepare("UPDATE communication_template_catalog SET status = 'inactive' WHERE code LIKE CONCAT('%custom_', ?, '%')")->execute([(int) $id]);
+        return $result;
     }
     public function listTemplates($filters = [])
     {
@@ -778,6 +1032,54 @@ class CommunicationsManager extends FileLifecycleBase
         $row['example_output'] = null;
         $row['variables_json'] = isset($row['variables']) ? json_decode($row['variables'], true) : null;
         return $row;
+    }
+
+    private function syncCanonicalTemplateVersion(array $data): void
+    {
+        $channel = $data['channel'];
+        $code = $data['code'];
+        if (!in_array($channel, ['email','sms','whatsapp','portal','in_app'], true)) return;
+        $this->db->prepare(
+            "INSERT INTO communication_template_catalog (code, name, purpose, status, created_by)
+             VALUES (?, ?, ?, 'active', ?)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), purpose = VALUES(purpose), status = 'active'"
+        )->execute([$code, $data['name'], $data['purpose'], $data['created_by']]);
+        $stmt = $this->db->prepare("SELECT id FROM communication_template_catalog WHERE code = ?");
+        $stmt->execute([$code]);
+        $catalogId = (int) $stmt->fetchColumn();
+        $next = $this->db->prepare("SELECT COALESCE(MAX(version_no), 0) + 1 FROM communication_template_versions WHERE template_id = ?");
+        $next->execute([$catalogId]);
+        $version = (int) $next->fetchColumn();
+        $this->db->prepare("UPDATE communication_template_versions SET status = 'retired' WHERE template_id = ? AND status = 'active'")->execute([$catalogId]);
+        $this->db->prepare("INSERT INTO communication_template_versions (template_id, version_no, status, created_by) VALUES (?, ?, 'active', ?)")
+            ->execute([$catalogId, $version, $data['created_by']]);
+        $versionId = (int) $this->db->lastInsertId();
+        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, subject, body) VALUES (?, ?, ?, ?)")
+            ->execute([$versionId, $channel, $data['subject'], $data['body']]);
+        $channelId = (int) $this->db->lastInsertId();
+        $variables = is_string($data['variables']) ? (json_decode($data['variables'], true) ?: []) : (array) $data['variables'];
+        foreach ($variables as $name => $type) {
+            $this->db->prepare("INSERT INTO communication_template_variables (template_channel_id, variable_name, data_type) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE data_type = VALUES(data_type)")
+                ->execute([$channelId, (string) $name, in_array($type, ['integer','decimal','date','datetime','url','boolean'], true) ? $type : 'string']);
+        }
+    }
+
+    public function registerProviderTemplate(array $data): void
+    {
+        $providerId = trim((string) ($data['provider_template_id'] ?? ''));
+        if ($providerId === '') return;
+        $code = 'whatsapp.provider.' . sha1($providerId);
+        $this->db->prepare("INSERT INTO communication_template_catalog (code, name, purpose, status) VALUES (?, ?, 'provider_template', 'active') ON DUPLICATE KEY UPDATE name = VALUES(name), status = 'active'")
+            ->execute([$code, (string) ($data['name'] ?? $providerId)]);
+        $stmt = $this->db->prepare("SELECT id FROM communication_template_catalog WHERE code = ?");
+        $stmt->execute([$code]);
+        $catalogId = (int) $stmt->fetchColumn();
+        $this->db->prepare("INSERT INTO communication_template_versions (template_id, version_no, status) VALUES (?, 1, 'active') ON DUPLICATE KEY UPDATE status = 'active'")->execute([$catalogId]);
+        $stmt = $this->db->prepare("SELECT id FROM communication_template_versions WHERE template_id = ? AND version_no = 1");
+        $stmt->execute([$catalogId]);
+        $versionId = (int) $stmt->fetchColumn();
+        $this->db->prepare("INSERT INTO communication_template_channels (template_version_id, channel, language_code, body, provider_name, provider_template_id, provider_template_name, provider_template_status) VALUES (?, 'whatsapp', ?, ?, 'africastalking', ?, ?, ?) ON DUPLICATE KEY UPDATE body = VALUES(body), provider_template_id = VALUES(provider_template_id), provider_template_name = VALUES(provider_template_name), provider_template_status = VALUES(provider_template_status)")
+            ->execute([$versionId, $data['language'] ?? 'en', $data['body'] ?? '', $providerId, $data['name'] ?? null, $data['status'] ?? null]);
     }
 
 }

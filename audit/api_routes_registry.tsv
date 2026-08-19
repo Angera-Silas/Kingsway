@@ -1,0 +1,13 @@
+id	name	url
+100063	auth_logout_refresh	/api/auth/logout-refresh
+100062	auth_refresh_token	/api/auth/refresh-token
+100039	finance_allowance_templates	api/finance/allowance-templates
+100040	finance_allowance_templates_get	api/finance/allowance-templates/*
+100042	finance_allowance_templates_preview	api/finance/allowance-templates/*/applicable-staff
+100041	finance_allowance_templates_apply	api/finance/allowance-templates/*/apply
+100038	website_content	api/website/content
+100034	website_events	api/website/events
+100035	website_gallery	api/website/gallery
+100036	website_jobs	api/website/jobs
+100033	website_news	api/website/news
+100037	website_settings	api/website/settings

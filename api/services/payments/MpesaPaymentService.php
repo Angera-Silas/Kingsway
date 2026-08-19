@@ -116,17 +116,15 @@ class MpesaPaymentService
                 return $this->respond(false, null, 'Amount must be greater than zero');
             }
 
-            $studentId = null;
-            try {
-                $stmt = $this->getDb()->prepare(
-                    "SELECT id FROM students WHERE admission_no = :adm LIMIT 1"
-                );
-                $stmt->execute(['adm' => $admissionNumber]);
-                $student = $stmt->fetch(PDO::FETCH_ASSOC);
-                $studentId = $student ? (int) $student['id'] : null;
-            } catch (Exception $e) {
-                error_log('[MpesaPaymentService] student lookup skipped: ' . $e->getMessage());
+            // Safaricom/Buni must never receive an STK request for an unknown
+            // account. The account may be either an existing learner's
+            // admission number or an applicant's application number.
+            $account = $this->resolvePaymentAccount((string) $admissionNumber);
+            if (!$account) {
+                return $this->respond(false, null, 'The application or admission account reference was not found');
             }
+
+            $studentId = (int) ($account['student_id'] ?? 0) ?: null;
 
             $timestamp = $this->client->timestamp();
 
@@ -248,7 +246,7 @@ class MpesaPaymentService
     {
         try {
             $stmt = $this->getDb()->prepare(
-                "SELECT id, status FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
+                "SELECT id, status, bill_ref_number, amount FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
             );
             $stmt->execute(['checkout' => $checkoutRequestId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -288,8 +286,87 @@ class MpesaPaymentService
                 'id'      => $row['id'],
             ]);
 
+            // STK pushes made before a student exists are keyed by the
+            // application reference. Preserve them in the admission ledger;
+            // placement later posts this ledger to the student's obligations.
+            $billRef = trim((string) ($row['bill_ref_number'] ?? ''));
+            if ($billRef !== '') {
+                $applicationStmt = $this->getDb()->prepare(
+                    "SELECT aa.id, aa.parent_id,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM student_academic_enrollments sae
+                                WHERE sae.student_id = aa.enrolled_student_id
+                                  AND sae.enrollment_status = 'active'
+                            ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
+                     FROM admission_applications aa
+                     LEFT JOIN students sx ON sx.id = aa.enrolled_student_id
+                     WHERE aa.application_no = :application_reference OR sx.admission_no = :admission_reference
+                     LIMIT 1"
+                );
+                $applicationStmt->execute([
+                    'application_reference' => $billRef,
+                    'admission_reference' => $billRef,
+                ]);
+                $application = $applicationStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $applicationId = (int) ($application['id'] ?? 0);
+                $admissionPaymentId = 0;
+                if ($applicationId > 0 && !$wasAlreadyProcessed && $mpesaReceipt) {
+                    $insert = $this->getDb()->prepare(
+                        "INSERT INTO admission_payments
+                            (application_id, amount, payment_method, reference_no, receipt_no,
+                             payment_date, notes, status, recorded_by, created_at)
+                         VALUES (:application_id, :amount, 'mpesa', :reference_no, :receipt_no,
+                                 NOW(), :notes, 'recorded', 1, NOW())"
+                    );
+                    $insert->execute([
+                        'application_id' => $applicationId,
+                        'amount' => (float) ($amount ?: $row['amount'] ?: 0),
+                        'reference_no' => $mpesaReceipt,
+                        'receipt_no' => 'MPESA-' . $mpesaReceipt,
+                        'notes' => 'STK payment received using application reference ' . $billRef,
+                    ]);
+                    $admissionPaymentId = (int) $this->getDb()->lastInsertId();
+                }
+
+                if ($applicationId > 0 && !$wasAlreadyProcessed) {
+                    $studentId = (int) ($application['enrolled_student_id'] ?? 0);
+                    if ($studentId > 0) {
+                        $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->getDb());
+                        $paymentService->postApplicationPaymentsToStudent(
+                            $applicationId,
+                            $studentId,
+                            !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                            1,
+                            $billRef
+                        );
+                    }
+                }
+
+                if ($applicationId > 0) {
+                    try {
+                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                    } catch (\Throwable $workflowError) {
+                        error_log('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                    }
+                }
+            }
+
             if (!$wasAlreadyProcessed) {
                 $this->sendPaymentConfirmationSms((int) $row['id']);
+            }
+            // Transport has its own entitlement ledger. A successful STK
+            // callback is the only point at which that ledger may be credited.
+            if (!$wasAlreadyProcessed && !empty($checkoutRequestId)) {
+                try {
+                    $billRef = (string)($row['bill_ref_number'] ?? '');
+                    if (preg_match('/^(U|UNIFORM)-/i', $billRef)) {
+                        (new UniformPaymentService($this->getDb()))->reconcileReference($billRef, (float)($amount ?: 0), 'mpesa_daraja', $mpesaReceipt ?: $checkoutRequestId);
+                    } else {
+                        (new TransportPaymentService($this->getDb()))->reconcileDaraja($checkoutRequestId, $mpesaReceipt ?: $checkoutRequestId, (float)($amount ?: 0));
+                    }
+                } catch (\Throwable $transportError) {
+                    error_log('[MpesaPaymentService] transport reconciliation failed: ' . $transportError->getMessage());
+                }
             }
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] Failed to record STK success: ' . $e->getMessage());
@@ -343,10 +420,27 @@ class MpesaPaymentService
             if ($annualBalance !== null) {
                 $msg .= ' Annual balance: ' . $money($annualBalance) . '.';
             }
+            $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+            $msg .= ' Receipt: ' . ($ref !== '' ? 'MPESA-' . $ref : 'available in portal') . '.';
+            if ($portalUrl !== '/parent_portal.php') {
+                $msg .= ' View statement: ' . $portalUrl;
+            }
             $msg .= ' - Kingsway Preparatory School';
 
-            $gateway = new \App\API\Services\sms\SMSGateway();
-            $sent = $gateway->send($phone, mb_substr($msg, 0, 160));
+            // Payment notifications use the durable communications outbox.
+            // The worker performs provider delivery and records retries/status;
+            // a webhook must never block on an SMS provider call.
+            $communication = (new \App\API\Modules\communications\CommunicationsManager($this->getDb()))
+                ->createCommunication([
+                    'sender_id' => 1,
+                    'subject' => 'Fee payment received',
+                    'body' => mb_substr($msg, 0, 160),
+                    'type' => 'sms',
+                    'status' => 'sent',
+                    'priority' => 'high',
+                    'recipients' => [$phone],
+                ]);
+            $sent = !empty($communication['id']);
 
             $this->logWebhook(
                 'payment_sms',
@@ -357,7 +451,7 @@ class MpesaPaymentService
                     'bill_ref'       => $ref,
                     'message'        => $msg,
                 ],
-                $sent ? 'processed' : 'failed'
+                $sent ? 'queued' : 'failed'
             );
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] payment SMS failed: ' . $e->getMessage());
@@ -471,9 +565,15 @@ class MpesaPaymentService
         try {
             $this->logWebhook('mpesa_c2b_validation', $callbackData, 'validated');
             $transId = $callbackData['TransID'] ?? $callbackData['TransactionID'] ?? null;
+            $accountReference = trim((string) ($callbackData['BillRefNumber'] ?? $callbackData['AccountReference'] ?? ''));
+            $amount = (float) ($callbackData['TransAmount'] ?? $callbackData['Amount'] ?? 0);
 
             if (empty($transId) && empty($callbackData)) {
                 return ['ResultCode' => 'C2B00011', 'ResultDesc' => 'Invalid validation request'];
+            }
+
+            if ($accountReference === '' || $amount <= 0 || !$this->resolvePaymentAccount($accountReference)) {
+                return ['ResultCode' => 'C2B00016', 'ResultDesc' => 'Invalid account reference'];
             }
 
             return ['ResultCode' => '0', 'ResultDesc' => 'Success'];
@@ -481,6 +581,38 @@ class MpesaPaymentService
             error_log('[MpesaPaymentService] validateC2BPayment error: ' . $e->getMessage());
             return ['ResultCode' => 'C2B00011', 'ResultDesc' => 'System error'];
         }
+    }
+
+    /** Resolve both official learner accounts and pre-placement applicant accounts. */
+    private function resolvePaymentAccount(string $reference): ?array
+    {
+        $reference = trim($reference);
+        if ($reference === '') return null;
+
+        $db = $this->getDb();
+        $student = $db->prepare(
+            "SELECT s.id AS student_id, sp.parent_id, s.admission_no
+             FROM students s
+             LEFT JOIN student_parents sp ON sp.student_id = s.id
+             WHERE s.admission_no = :reference
+             LIMIT 1"
+        );
+        $student->execute(['reference' => $reference]);
+        $studentRow = $student->fetch(PDO::FETCH_ASSOC);
+        if ($studentRow) {
+            return ['type' => 'student'] + $studentRow;
+        }
+
+        $application = $db->prepare(
+            "SELECT id AS application_id, parent_id, application_no, status, enrolled_student_id
+             FROM admission_applications
+             WHERE application_no = :reference
+               AND status NOT IN ('cancelled', 'rejected')
+             LIMIT 1"
+        );
+        $application->execute(['reference' => $reference]);
+        $applicationRow = $application->fetch(PDO::FETCH_ASSOC);
+        return $applicationRow ? ['type' => 'application'] + $applicationRow : null;
     }
 
     /**

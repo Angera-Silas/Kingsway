@@ -10,6 +10,8 @@ namespace App\API\Modules\payments;
 use App\API\Services\payments\BankPaymentWebhook;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\MpesaB2CService;
+use App\API\Services\payments\KcbWebhookVerifier;
+use App\API\Services\FinancialPostingCoordinator;
 use Exception;
 use App\API\Includes\BaseAPI;
 use \App\API\Modules\communications\CommunicationsAPI;
@@ -57,7 +59,7 @@ class PaymentsAPI extends BaseAPI
                     $parameters[$param['Key']] = $param['Value'];
                 }
             }
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, phone_number, recipient_name, payslip_id FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, recipient_id, amount, phone_number, recipient_name, payslip_id, refund_request_id FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
             $stmt->execute([$conversationID, $originatorConversationID]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -82,6 +84,10 @@ class PaymentsAPI extends BaseAPI
                     $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'paid', payment_reference = ?, paid_at = NOW(), notes = CONCAT(COALESCE(notes, ''), '\nB2C success: ', ?) WHERE id = ?");
                     $stmt->execute([$transactionID, $resultDesc, $disbursement['payslip_id']]);
                 }
+                if (!empty($disbursement['refund_request_id'])) {
+                    $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'paid', provider_reference = ?, completed_at = NOW(), updated_at = NOW() WHERE id = ?");
+                    $stmt->execute([$transactionID, $disbursement['refund_request_id']]);
+                }
                 $stmt = $this->db->prepare(
                     "UPDATE mpesa_transactions
                      SET status = 'processed', mpesa_code = ?, webhook_data = ?, raw_callback = ?
@@ -93,6 +99,7 @@ class PaymentsAPI extends BaseAPI
                 $logEntry = "[{$this->timestamp}] B2C SUCCESS: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Ref: $transactionID\n";
                 (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 $this->logPaymentWebhook('mpesa_b2c', $callbackData, 'processed', $disbursement, $transactionID);
+                (new FinancialPostingCoordinator($this->db))->postDisbursement('disbursement', (int)$disbursement['id'], (int)$disbursement['source_financial_account_id'], (string)($disbursement['payment_purpose'] ?: $disbursement['disbursement_type']), (string)$disbursement['amount']);
             } else {
                 $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
                 $stmt->execute([
@@ -104,6 +111,10 @@ class PaymentsAPI extends BaseAPI
                 if (!empty($disbursement['payslip_id'])) {
                     $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'failed', notes = CONCAT(COALESCE(notes, ''), '\nB2C failed: ', ?) WHERE id = ?");
                     $stmt->execute([$resultDesc, $disbursement['payslip_id']]);
+                }
+                if (!empty($disbursement['refund_request_id'])) {
+                    $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'failed', updated_at = NOW() WHERE id = ?");
+                    $stmt->execute([$disbursement['refund_request_id']]);
                 }
                 $logEntry = "[{$this->timestamp}] B2C FAILED: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Error: $resultDesc\n";
                 (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
@@ -151,7 +162,7 @@ class PaymentsAPI extends BaseAPI
             $resultDesc = $result['ResultDesc'] ?? 'Request timed out';
             $conversationID = $result['ConversationID'] ?? null;
             $originatorConversationID = $result['OriginatorConversationID'] ?? null;
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, phone_number, recipient_name, payslip_id, retry_count FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, phone_number, recipient_name, payslip_id, refund_request_id, retry_count FROM disbursement_transactions WHERE conversation_id = ? OR originator_conversation_id = ? LIMIT 1");
             $stmt->execute([$conversationID, $originatorConversationID]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -174,6 +185,9 @@ class PaymentsAPI extends BaseAPI
                 $stmt->execute([$resultDesc, $disbursement['payslip_id']]);
             } elseif ($disbursement['disbursement_type'] === 'supplier') {
                 // supplier disbursements have no payslip; tracked in disbursement_transactions only
+            } elseif ($disbursement['disbursement_type'] === 'refund' && !empty($disbursement['refund_request_id'])) {
+                $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'failed', updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$disbursement['refund_request_id']]);
             }
             $this->db->commit();
             $logEntry = "[{$this->timestamp}] B2C TIMEOUT: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Marked as timeout\n";
@@ -223,6 +237,19 @@ class PaymentsAPI extends BaseAPI
             $orgBalance = $confirmationData['OrgAccountBalance'] ?? '';
             $thirdPartyTransId = $confirmationData['ThirdPartyTransID'] ?? '';
 
+            // Structured FEE/TRN references are resolved centrally. Legacy
+            // admission-number fee payments continue through the existing path.
+            $c2bAccount = $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null;
+            if (preg_match('/^(FEE|TRN|U|UNIFORM)-/i', (string)$admissionNumber) || preg_match('/^T-/i', (string)$admissionNumber) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('mpesa_daraja', $c2bAccount)) {
+                try {
+                    $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('mpesa_daraja', $confirmationData, $mpesaCode, $amount, $confirmationData['ShortCode'] ?? $confirmationData['BusinessShortCode'] ?? null, $admissionNumber);
+                    return ['ResultCode'=>0,'ResultDesc'=>($routed['status'] ?? '') === 'processed' ? 'Payment routed successfully' : 'Payment received for reconciliation'];
+                } catch (\Throwable $routingError) {
+                    error_log('[PaymentsAPI] C2B routing error: '.$routingError->getMessage());
+                    return ['ResultCode'=>0,'ResultDesc'=>'Payment received for manual reconciliation'];
+                }
+            }
+
             // Validate required fields
             if (empty($mpesaCode) || empty($admissionNumber) || $amount <= 0) {
                 @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Missing required fields\n", FILE_APPEND);
@@ -235,6 +262,113 @@ class PaymentsAPI extends BaseAPI
             // Format transaction date
             $transDateTime = \DateTime::createFromFormat('YmdHis', $transTime);
             $transDateFormatted = $transDateTime ? $transDateTime->format('Y-m-d H:i:s') : date('Y-m-d H:i:s');
+
+            // Before a learner has a student admission number, the
+            // application reference is the payment account. Store the money
+            // against the application so placement can later allocate it to
+            // the generated fee obligations.
+            $applicationStmt = $this->db->prepare(
+                "SELECT aa.id, aa.parent_id,
+                        CASE WHEN EXISTS (
+                            SELECT 1 FROM student_academic_enrollments sae
+                            WHERE sae.student_id = aa.enrolled_student_id
+                              AND sae.enrollment_status = 'active'
+                        ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
+                 FROM admission_applications aa
+                 LEFT JOIN students sx ON sx.id = aa.enrolled_student_id
+                 WHERE aa.application_no = :application_reference OR sx.admission_no = :admission_reference
+                 LIMIT 1"
+            );
+            $applicationStmt->execute([
+                'application_reference' => $admissionNumber,
+                'admission_reference' => $admissionNumber,
+            ]);
+            $application = $applicationStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $applicationId = (int) ($application['id'] ?? 0);
+            if ($applicationId > 0) {
+                $duplicate = $this->db->prepare(
+                    "SELECT id, amount, status FROM admission_payments WHERE reference_no = :reference LIMIT 1"
+                );
+                $duplicate->execute(['reference' => $mpesaCode]);
+                $duplicatePayment = $duplicate->fetch(\PDO::FETCH_ASSOC);
+                if ($duplicatePayment) {
+                    $studentIdForDuplicate = (int) ($application['enrolled_student_id'] ?? 0);
+                    if (($duplicatePayment['status'] ?? '') === 'recorded' && $studentIdForDuplicate > 0) {
+                        $sp = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $sp->execute([
+                            $studentIdForDuplicate,
+                            !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                            (float) $duplicatePayment['amount'],
+                            'mpesa',
+                            $mpesaCode,
+                            'MPESA-' . $mpesaCode,
+                            1,
+                            $transDateFormatted,
+                            'M-Pesa application payment allocated after placement',
+                        ]);
+                        $sp->closeCursor();
+                        $this->db->prepare(
+                            "UPDATE admission_payments SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW() WHERE id = :id"
+                        )->execute(['student_id' => $studentIdForDuplicate, 'id' => (int) $duplicatePayment['id']]);
+                        try {
+                            (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                        } catch (\Throwable $workflowError) {
+                            error_log('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                        }
+                        return ['ResultCode' => 0, 'ResultDesc' => 'Payment was already received and has now been allocated to the student account'];
+                    }
+                    try {
+                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                    } catch (\Throwable $workflowError) {
+                        error_log('[PaymentsAPI] duplicate payment workflow advancement deferred: ' . $workflowError->getMessage());
+                    }
+                    return ['ResultCode' => 0, 'ResultDesc' => 'Confirmation received successfully (already processed)'];
+                }
+
+                $this->db->prepare(
+                    "INSERT INTO admission_payments
+                        (application_id, amount, payment_method, reference_no, receipt_no,
+                         payment_date, notes, status, recorded_by, created_at)
+                     VALUES (:application_id, :amount, 'mpesa', :reference_no, :receipt_no,
+                             :payment_date, :notes, 'recorded', 1, NOW())"
+                )->execute([
+                    'application_id' => $applicationId,
+                    'amount' => $amount,
+                    'reference_no' => $mpesaCode,
+                    'receipt_no' => 'MPESA-' . $mpesaCode,
+                    'payment_date' => $transDateFormatted,
+                    'notes' => 'Pre-enrollment M-Pesa C2B payment received using application reference ' . $admissionNumber,
+                ]);
+
+                $studentIdForPayment = (int) ($application['enrolled_student_id'] ?? 0);
+                if ($studentIdForPayment > 0) {
+                    $paymentId = (int) $this->db->lastInsertId();
+                    $sp = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $sp->execute([
+                        $studentIdForPayment,
+                        !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                        $amount,
+                        'mpesa',
+                        $mpesaCode,
+                        'MPESA-' . $mpesaCode,
+                        1,
+                        $transDateFormatted,
+                        'M-Pesa payment received using application/admission reference ' . $admissionNumber,
+                    ]);
+                    $sp->closeCursor();
+                    $this->db->prepare(
+                        "UPDATE admission_payments SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW() WHERE id = :id"
+                    )->execute(['student_id' => $studentIdForPayment, 'id' => $paymentId]);
+                }
+
+                try {
+                    (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                } catch (\Throwable $workflowError) {
+                    error_log('[PaymentsAPI] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                }
+
+                return ['ResultCode' => 0, 'ResultDesc' => 'Application payment received successfully'];
+            }
 
             // Look up student by admission number (names live on persons)
             $stmt = $this->db->prepare("SELECT s.id, p.first_name, p.last_name, s.status FROM students s JOIN persons p ON p.id = s.person_id WHERE s.admission_no = :admission_no LIMIT 1");
@@ -330,7 +464,7 @@ class PaymentsAPI extends BaseAPI
                     'first_name' => $firstName,
                     'middle_name' => $middleName,
                     'last_name' => $lastName,
-                    'org_balance' => $orgBalance,
+                    'org_balance' => $orgBalance !== '' ? $orgBalance : null,
                     'bill_ref' => $admissionNumber,
                     'third_party_id' => $thirdPartyTransId,
                     'raw_callback' => json_encode($confirmationData)
@@ -482,6 +616,22 @@ class PaymentsAPI extends BaseAPI
         } catch (\Exception $e) {
             error_log('[PaymentsAPI] STK callback error: ' . $e->getMessage());
             return ['ResultCode' => 1, 'ResultDesc' => 'Internal server error'];
+        }
+    }
+
+    public function processKcbMpesaExpressCallback(array $callbackData, array $headers)
+    {
+        try {
+            $raw = (string)($headers['__raw_body'] ?? json_encode($callbackData));
+            $verifier = new \App\API\Services\payments\KcbWebhookVerifier();
+            if ($verifier->shouldEnforce() && !$verifier->verify($headers, $raw)) {
+                return ['status' => 'error', 'code' => 401, 'message' => 'Invalid KCB callback signature'];
+            }
+            $ok = (new \App\API\Services\payments\TransportPaymentService($this->db))->reconcileBuni($callbackData);
+            return ['status' => 'success', 'data' => ['processed' => $ok], 'message' => $ok ? 'Transport payment confirmed' : 'Callback received for reconciliation'];
+        } catch (\Throwable $e) {
+            error_log('[PaymentsAPI] Buni transport callback error: '.$e->getMessage());
+            return ['status' => 'error', 'code' => 500, 'message' => 'Callback processing failed'];
         }
     }
 
@@ -709,7 +859,7 @@ class PaymentsAPI extends BaseAPI
                     'statusMessage' => 'Missing required fields'
                 ];
             }
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, recipient_id, amount, account_number, recipient_name, status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, expense_id, statutory_remittance_attempt_id, refund_request_id, recipient_id, amount, account_number, recipient_name, status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
             $stmt->execute([$requestId, $transactionRef]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -720,8 +870,16 @@ class PaymentsAPI extends BaseAPI
                     'statusMessage' => 'Received but transaction not found'
                 ];
             }
+            if (in_array($disbursement['status'], ['completed', 'failed'], true)) {
+                return [
+                    'statusCode' => '0',
+                    'statusMessage' => 'Transfer notification already processed'
+                ];
+            }
             $this->db->beginTransaction();
-            if (strtoupper($status) === 'SUCCESS') {
+            $normalizedStatus = strtoupper((string) $status);
+            $transferSucceeded = in_array($normalizedStatus, ['SUCCESS', 'COMPLETED', 'ACCEPTED', '0'], true);
+            if ($transferSucceeded) {
                 $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'completed', transaction_ref = ?, transaction_id = ?, completed_at = NOW(), result_description = ?, callback_data = ?, bank_charges = ? WHERE id = ?");
                 $stmt->execute([
                     $transactionRef,
@@ -731,11 +889,35 @@ class PaymentsAPI extends BaseAPI
                     $charges,
                     $disbursement['id']
                 ]);
+                if (!empty($disbursement['expense_id'])) {
+                    $this->db->prepare("UPDATE expenses SET status = 'paid', paid_at = NOW(), reference_number = ? WHERE id = ?")
+                        ->execute([$transactionRef, $disbursement['expense_id']]);
+                    $this->db->prepare("UPDATE supplier_payment_requests SET status = 'paid', provider_reference = ? WHERE disbursement_id = ?")
+                        ->execute([$transactionRef, $disbursement['id']]);
+                }
+                if (!empty($disbursement['statutory_remittance_attempt_id'])) {
+                    $attemptId = (int) $disbursement['statutory_remittance_attempt_id'];
+                    $this->db->prepare("UPDATE statutory_remittance_attempts SET status = 'paid', provider_reference = ?, completed_at = NOW() WHERE id = ?")
+                        ->execute([$transactionRef, $attemptId]);
+                    $this->db->prepare(
+                        "UPDATE statutory_remittances r
+                         JOIN statutory_remittance_attempts a ON a.remittance_id = r.id
+                         SET r.amount_remitted = r.amount_remitted + a.amount,
+                             r.status = CASE WHEN r.amount_remitted + a.amount >= r.total_deducted THEN 'paid' ELSE 'partial' END,
+                             r.remittance_date = CURDATE()
+                         WHERE a.id = ?"
+                    )->execute([$attemptId]);
+                }
+                if (!empty($disbursement['refund_request_id'])) {
+                    $this->db->prepare("UPDATE parent_refund_requests SET status = 'paid', provider_reference = ?, completed_at = NOW(), updated_at = NOW() WHERE id = ?")
+                        ->execute([$transactionRef, $disbursement['refund_request_id']]);
+                }
                 // Staff/supplier payment rows live in disbursement_transactions
                 // (already updated above); no separate staff_payments/supplier_payments row exists.
                 $logEntry = "[{$this->timestamp}] KCB TRANSFER SUCCESS: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Ref: $transactionRef\n";
                 (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 $this->sendTransferNotification($disbursement, $transactionRef, 'completed', $charges);
+                (new FinancialPostingCoordinator($this->db))->postDisbursement('disbursement', (int)$disbursement['id'], (int)$disbursement['source_financial_account_id'], (string)($disbursement['payment_purpose'] ?: $disbursement['disbursement_type']), (string)$disbursement['amount']);
             } else {
                 $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
                 $stmt->execute([
@@ -744,6 +926,20 @@ class PaymentsAPI extends BaseAPI
                     json_encode($callbackData),
                     $disbursement['id']
                 ]);
+                if (!empty($disbursement['expense_id'])) {
+                    $this->db->prepare("UPDATE expenses SET status = 'approved' WHERE id = ? AND status = 'payment_pending'")
+                        ->execute([$disbursement['expense_id']]);
+                    $this->db->prepare("UPDATE supplier_payment_requests SET status = 'failed' WHERE disbursement_id = ?")
+                        ->execute([$disbursement['id']]);
+                }
+                if (!empty($disbursement['statutory_remittance_attempt_id'])) {
+                    $this->db->prepare("UPDATE statutory_remittance_attempts SET status = 'failed', provider_reference = ? WHERE id = ?")
+                        ->execute([$transactionRef, (int) $disbursement['statutory_remittance_attempt_id']]);
+                }
+                if (!empty($disbursement['refund_request_id'])) {
+                    $this->db->prepare("UPDATE parent_refund_requests SET status = 'failed', provider_reference = ?, updated_at = NOW() WHERE id = ?")
+                        ->execute([$transactionRef, $disbursement['refund_request_id']]);
+                }
                 // See success path — no legacy staff_payments/supplier_payments rows.
                 $logEntry = "[{$this->timestamp}] KCB TRANSFER FAILED: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Error: $statusDesc\n";
                 (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
@@ -834,6 +1030,37 @@ class PaymentsAPI extends BaseAPI
      */
     public function processKcbNotification(array $notificationData, array $headers)
     {
+        $rawBody = (string) ($headers['__raw_body'] ?? json_encode($notificationData));
+        $verifier = new KcbWebhookVerifier();
+        if ($verifier->shouldEnforce() && !$verifier->verify($headers, $rawBody)) {
+            error_log('[PaymentsAPI] Rejected KCB notification with invalid RSA signature.');
+            return [
+                'transactionID' => $notificationData['requestId'] ?? '',
+                'statusCode' => '1',
+                'statusMessage' => 'Invalid callback signature'
+            ];
+        }
+        // Till IPN has a nested envelope; normalize it to the account-IPN
+        // fields consumed by the existing fee-allocation path.
+        $nested = $notificationData['requestPayload']['additionalData']['notificationData'] ?? null;
+        if (is_array($nested)) {
+            $notificationData = [
+                'transactionReference' => $nested['transactionID'] ?? '',
+                'requestId' => $notificationData['header']['originatorConversationID'] ?? ($notificationData['header']['messageID'] ?? ''),
+                'channelCode' => $notificationData['header']['channelCode'] ?? '',
+                'timestamp' => $notificationData['header']['timeStamp'] ?? '',
+                'transactionAmount' => $nested['transactionAmt'] ?? '0',
+                'currency' => $nested['currency'] ?? 'KES',
+                'customerReference' => $nested['businessKey'] ?? '',
+                'customerName' => trim(($nested['firstName'] ?? '') . ' ' . ($nested['middleName'] ?? '') . ' ' . ($nested['lastName'] ?? '')),
+                'customerMobileNumber' => $nested['debitMSISDN'] ?? '',
+                'balance' => $nested['balance'] ?? '',
+                'narration' => $nested['narration'] ?? '',
+                'creditAccountIdentifier' => $nested['creditAccountIdentifier'] ?? ($notificationData['creditAccountIdentifier'] ?? ''),
+                'organizationShortCode' => '',
+                'tillNumber' => '',
+            ];
+        }
         $signature = $headers['Signature'] ?? $headers['signature'] ?? '';
         (new \App\API\Services\UploadService())->writeFile(
             $this->logDir . '/kcb_notification_raw.log',
@@ -865,6 +1092,15 @@ class PaymentsAPI extends BaseAPI
             $balance = $notificationData['balance'] ?? '';
             if (empty($transactionReference) || empty($customerReference) || $transactionAmount <= 0) {
                 throw new \Exception("Missing required fields: TransRef={$transactionReference}, CustRef={$customerReference}, Amount={$transactionAmount}");
+            }
+            if (preg_match('/^(FEE|TRN|U|UNIFORM)-/i', (string)$customerReference) || preg_match('/^T-/i', (string)$customerReference) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('kcb_buni', $notificationData['creditAccountIdentifier'] ?? null)) {
+                try {
+                    $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('kcb_buni', $notificationData, $transactionReference, $transactionAmount, $notificationData['creditAccountIdentifier'] ?? null, $customerReference);
+                    return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>($routed['status'] ?? '') === 'processed' ? 'Notification received successfully' : 'Received for manual reconciliation'];
+                } catch (\Throwable $routingError) {
+                    error_log('[PaymentsAPI] KCB routing error: '.$routingError->getMessage());
+                    return ['transactionID'=>$requestId,'statusCode'=>'0','statusMessage'=>'Received for manual reconciliation'];
+                }
             }
             $this->db->beginTransaction();
             try {
@@ -959,6 +1195,13 @@ class PaymentsAPI extends BaseAPI
                     'status' => 'processed',
                 ]);
                 $this->db->commit();
+                $this->queueBankPaymentNotifications(
+                    $customerMobile,
+                    $customerName,
+                    $customerReference,
+                    $transactionAmount,
+                    $transactionReference
+                );
                 (new \App\API\Services\UploadService())->writeFile(
                     $this->logDir . '/kcb_notification.log',
                     $this->timestamp . " - SUCCESS: KCB {$transactionReference}, Student {$customerReference} ({$student['first_name']} {$student['last_name']}), Amount: KES {$transactionAmount}, Mobile: {$customerMobile}\n\n",
@@ -987,6 +1230,38 @@ class PaymentsAPI extends BaseAPI
             ];
         }
     }
+
+    /** Queue both parent-facing channels after a verified KCB fee payment. */
+    private function queueBankPaymentNotifications($phone, $customerName, $reference, $amount, $transactionReference)
+    {
+        $phone = preg_replace('/\D+/', '', (string) $phone);
+        if (strlen($phone) === 9) $phone = '254' . $phone;
+        if (strlen($phone) === 10 && substr($phone, 0, 1) === '0') $phone = '254' . substr($phone, 1);
+        if (!preg_match('/^254[0-9]{9}$/', $phone)) return;
+
+        $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+        $message = 'Kingsway received KES ' . number_format((float) $amount, 2)
+            . ' for account ' . $reference . '. Receipt: KCB-' . $transactionReference . '.';
+        if ($customerName !== '') $message .= ' Payer: ' . $customerName . '.';
+        if ($portalUrl !== '/parent_portal.php') $message .= ' View statement: ' . $portalUrl;
+
+        try {
+            $manager = new \App\API\Modules\communications\CommunicationsManager($this->db);
+            foreach (['sms', 'whatsapp'] as $channel) {
+                $manager->createCommunication([
+                    'sender_id' => 1,
+                    'subject' => 'Bank fee payment received',
+                    'body' => $message,
+                    'type' => $channel,
+                    'status' => 'sent',
+                    'priority' => 'high',
+                    'recipients' => [$phone],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('[PaymentsAPI] Could not queue KCB payment notifications: ' . $e->getMessage());
+        }
+    }
     /**
      * Process Bank Payment Webhook
      * @param array $webhookData
@@ -1009,6 +1284,16 @@ class PaymentsAPI extends BaseAPI
             $bankService = new BankPaymentWebhook();
             $bankName = $headers['X-Bank-Name'] ?? $webhookData['bank'] ?? $webhookData['bank_name'] ?? 'Generic Bank';
 
+            $routingReference = $webhookData['customerReference'] ?? $webhookData['customer_reference'] ?? $webhookData['reference'] ?? $webhookData['narration'] ?? '';
+            $bankAccount = $webhookData['accountNumber'] ?? $webhookData['account_number'] ?? null;
+            if (preg_match('/(FEE|TRN|U|UNIFORM)-/i', (string)$routingReference) || preg_match('/^T-/i', (string)$routingReference) || (new \App\API\Services\payments\PaymentRoutingService($this->db))->isConfiguredAccount('generic_bank', $bankAccount)) {
+                $routingReference = strtoupper((string)preg_replace('/.*?((?:FEE|TRN)-[A-Za-z0-9_-]+).*/i', '$1', (string)$routingReference));
+                try {
+                    $routed = (new \App\API\Services\payments\PaymentRoutingService($this->db))->routeIncoming('generic_bank', $webhookData, (string)($webhookData['transactionReference'] ?? $webhookData['transaction_ref'] ?? $webhookData['reference_number'] ?? ''), (float)($webhookData['transactionAmount'] ?? $webhookData['amount'] ?? 0), $webhookData['accountNumber'] ?? $webhookData['account_number'] ?? null, $routingReference);
+                    return ['status'=>($routed['status'] ?? '') === 'processed','message'=>($routed['status'] ?? '') === 'processed' ? 'Payment routed successfully' : 'Payment received for manual reconciliation','data'=>$routed];
+                } catch (\Throwable $routingError) { error_log('[PaymentsAPI] bank routing error: '.$routingError->getMessage()); return ['status'=>true,'message'=>'Payment received for manual reconciliation']; }
+            }
+
             // Use BankPaymentWebhook's flexible extractors to handle various field names
             $accountRef = $this->extractAccountNumber($webhookData);
             $narration = strtolower($webhookData['narration'] ?? '');
@@ -1024,8 +1309,11 @@ class PaymentsAPI extends BaseAPI
                         ? $bankService->processKCBPayment($webhookData)
                         : $bankService->processGenericBankPayment($webhookData, $bankName);
                     $handled = true;
-                } elseif (preg_match('/^ADM\d+$/i', $accountRef)) {
-                    // Admission number (ADM001, ADM102, etc.) - student school fees
+                } elseif (preg_match('/^(?:ADM[\/-]|KA-)/i', $accountRef) || preg_match('/^ADM\d+$/i', $accountRef)) {
+                    // Application references (ADM/2027/001) and official
+                    // admission numbers (KA-2026-0005) are both valid fee
+                    // accounts. The bank service resolves either to an
+                    // applicant or an existing learner.
                     $result = (strtoupper($bankName) === 'KCB')
                         ? $bankService->processKCBPayment($webhookData)
                         : $bankService->processGenericBankPayment($webhookData, $bankName);
@@ -1142,11 +1430,18 @@ class PaymentsAPI extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT COALESCE(SUM(balance), 0) as outstanding
-                FROM vw_student_fee_balances
-                WHERE student_id = ? AND balance > 0
+                SELECT GREATEST(
+                    COALESCE((SELECT SUM(sfo.amount_due)
+                              FROM student_fee_obligations sfo
+                              JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+                              WHERE sae.student_id = ?), 0)
+                    - COALESCE((SELECT SUM(p.amount)
+                                FROM payments p
+                                WHERE p.student_id = ? AND p.status = 'confirmed'), 0),
+                    0
+                ) AS outstanding
             ");
-            $stmt->execute([$studentId]);
+            $stmt->execute([$studentId, $studentId]);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
             return $result ? floatval($result['outstanding']) : 0;
         } catch (\Exception $e) {
@@ -1677,6 +1972,23 @@ class PaymentsAPI extends BaseAPI
             $data['description'] ?? 'School Fees Payment'
         );
         return $result;
+    }
+
+    /** Initiate a fee STK prompt through KCB Buni's M-Pesa Express API. */
+    public function triggerKcbMpesaExpress(array $data): array
+    {
+        $base = defined('KCB_CALLBACK_BASE_URL') && KCB_CALLBACK_BASE_URL !== ''
+            ? KCB_CALLBACK_BASE_URL
+            : (defined('BASE_URL') ? BASE_URL : '');
+        $service = new \App\API\Services\payments\KcbMpesaExpressService();
+        return $service->initiate([
+            'phone_number' => $data['phone'] ?? $data['phone_number'] ?? '',
+            'amount' => $data['amount'] ?? 0,
+            'invoice_number' => $data['invoice_number'] ?? $data['admission_no'] ?? $data['account_reference'] ?? '',
+            'description' => $data['description'] ?? 'School fees',
+            'callback_url' => $data['callback_url'] ?? rtrim($base, '/') . '/api/payments/mpesa-stk-callback',
+            'message_id' => $data['message_id'] ?? null,
+        ]);
     }
 
     public function triggerStkQuery(array $data): array

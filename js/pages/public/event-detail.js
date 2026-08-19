@@ -60,7 +60,7 @@
           PS.get('events', {}, { tier: 'dynamic' }),
           PS.get('terms', {}, { tier: 'reference' }),
         ]);
-        const related = PS.items(list).filter((e) => String(e.id) !== String(event.id)).slice(0, 3);
+        const related = PS.deduplicateEvents(PS.items(list)).filter((e) => String(e.id) !== String(event.id)).slice(0, 3);
         this.render(event, related, terms);
       } catch (err) {
         if (window.KINGSWAY_DEBUG) console.warn('[event-detail] not found or failed:', err);

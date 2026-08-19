@@ -155,6 +155,33 @@
     return Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : []);
   }
 
+  /**
+   * Collapse duplicate events that share the same title (e.g. a multi-day
+   * holiday stored as one row per day). Keeps the widest date range per
+   * title and merges statuses. Returns a new array sorted chronologically
+   * by start_at ASC so no event reappears after another.
+   */
+  function deduplicateEvents(list) {
+    const map = {};
+    list.forEach((ev) => {
+      const key = (ev.title || '').trim().toLowerCase();
+      if (!key) { map['_' + ev.id] = ev; return; }
+      if (!map[key]) { map[key] = Object.assign({}, ev); return; }
+      const existing = map[key];
+      const eStart = String(existing.start_at || '');
+      const eEnd   = String(existing.end_at || existing.start_at || '');
+      const nStart = String(ev.start_at || '');
+      const nEnd   = String(ev.end_at || ev.start_at || '');
+      if (nStart < eStart) existing.start_at = ev.start_at;
+      if (nEnd > eEnd)     existing.end_at = ev.end_at;
+      if (ev.description && !existing.description) existing.description = ev.description;
+      if (ev.location && !existing.location) existing.location = ev.location;
+    });
+    return Object.values(map).sort((a, b) =>
+      String(a.start_at || '').localeCompare(String(b.start_at || ''))
+    );
+  }
+
   // Build a {valueByKey} map from an array of rows (settings/content blocks).
   function keyToMap(data, keyField, valueField) {
     const map = {};
@@ -187,6 +214,7 @@
     categoryImage,
     formatDate,
     items,
+    deduplicateEvents,
     keyToMap,
     loadingHTML,
     emptyHTML,

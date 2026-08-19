@@ -745,6 +745,12 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+    /** Backward-compatible plural alias used by the exam schedule route. */
+    public function getExamSchedules($id = null, $data = [], $segments = [])
+    {
+        return $this->getExamSchedule($id, $data, $segments);
+    }
+
     /**
      * POST /api/academic/exam-schedule - Create new exam schedule
      * Router calls: postExamSchedule(null, $data, $segments)

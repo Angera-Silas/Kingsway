@@ -21,14 +21,14 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </div>
 
-<section class="section">
+<section class="section" style="background:#f5f7fa">
   <div class="container">
     <div class="row g-5">
 
       <!-- Upcoming Events list -->
       <div class="col-lg-8">
-        <div class="section-label mb-2 reveal"><span>What's On</span></div>
-        <h2 class="section-title mb-4 reveal">Upcoming <span>Events</span></h2>
+        <div class="section-label mb-2"><span>Events & Calendar</span></div>
+        <h2 class="section-title mb-4">School <span>Events</span></h2>
 
         <div id="events-list"></div>
       </div>
@@ -37,22 +37,22 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <div class="col-lg-4">
 
         <!-- Academic Terms -->
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-5">
           <h5 class="fw-bold mb-3"><i class="bi bi-calendar2-week text-success me-2"></i>Academic Calendar <?= date('Y') ?></h5>
           <div id="events-terms"></div>
-          <a href="<?= $appBase ?>/downloads.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px">
-            <i class="bi bi-download"></i>Download Calendar PDF
+          <a href="<?= $appBase ?>/calendar_download.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px" download>
+            <i class="bi bi-download"></i>Download Academic Calendar (PDF)
           </a>
         </div>
 
         <!-- Event Categories -->
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-5">
           <h5 class="fw-bold mb-3"><i class="bi bi-tags text-success me-2"></i>Event Categories</h5>
           <div id="events-categories"></div>
         </div>
 
         <!-- Newsletter subscribe -->
-        <div class="rounded-4 p-4 reveal" style="background:linear-gradient(135deg,var(--green-dark),var(--green))">
+        <div class="rounded-4 p-4" style="background:linear-gradient(135deg,var(--green-dark),var(--green))">
           <h5 class="fw-bold text-white mb-2"><i class="bi bi-bell-fill text-warning me-2"></i>Get Event Alerts</h5>
           <p class="small mb-3" style="color:rgba(255,255,255,.8)">Subscribe to receive school event reminders via email.</p>
           <form id="subscribeForm">

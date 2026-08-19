@@ -20,6 +20,7 @@
 
       this.bindEvents();
       await this.loadStatistics();
+      await this.loadTemplates();
     },
 
     pageExists: function () {
@@ -41,6 +42,10 @@
         const { default: Modal } = await import("bootstrap/dist/js/bootstrap.bundle.min.js");
         self.openInternalRequestModal();
       });
+      document.getElementById('newTemplateBtn')?.addEventListener('click', () => this.openTemplate());
+      document.getElementById('saveTemplateBtn')?.addEventListener('click', () => this.saveTemplate());
+      document.getElementById('submitProviderTemplateBtn')?.addEventListener('click', () => this.submitProviderTemplate());
+      document.getElementById('templateChannel')?.addEventListener('change', e => { document.getElementById('submitProviderTemplateBtn').classList.toggle('d-none', e.target.value !== 'whatsapp'); });
 
       document.querySelectorAll(".channel-card").forEach(function (card) {
         card.addEventListener("mouseenter", function () {
@@ -51,6 +56,15 @@
         });
       });
     },
+
+    async loadTemplates() {
+      try { const r = await window.API.communications.getTemplates(); const rows = Array.isArray(r) ? r : (r?.data || []); const body = document.getElementById('templateManagerBody'); if (!body) return; body.innerHTML = rows.length ? rows.map(t => `<tr><td>${this.escapeHtml(t.name)}</td><td>${this.escapeHtml(t.template_type || t.type || 'sms')}</td><td>${this.escapeHtml(t.category || '—')}</td><td><button class="btn btn-sm btn-outline-primary me-1" data-template-edit="${t.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-template-delete="${t.id}">Delete</button></td></tr>`).join('') : '<tr><td colspan="4" class="text-muted">No templates created yet.</td></tr>'; body.querySelectorAll('[data-template-edit]').forEach(b => b.addEventListener('click', () => this.openTemplate(rows.find(t => String(t.id) === b.dataset.templateEdit)))); body.querySelectorAll('[data-template-delete]').forEach(b => b.addEventListener('click', () => this.deleteTemplate(b.dataset.templateDelete))); } catch (e) { console.error(e); }
+    },
+
+    openTemplate(t = null) { document.getElementById('templateId').value = t?.id || ''; document.getElementById('templateName').value = t?.name || ''; document.getElementById('templateChannel').value = t?.template_type || t?.type || 'sms'; document.getElementById('templateCategory').value = t?.category || ''; document.getElementById('templateBody').value = t?.template_body || t?.body || ''; document.getElementById('submitProviderTemplateBtn').classList.toggle('d-none', document.getElementById('templateChannel').value !== 'whatsapp'); new bootstrap.Modal(document.getElementById('templateManagerModal')).show(); },
+    async submitProviderTemplate() { const name = document.getElementById('templateName').value.trim(); const body = document.getElementById('templateBody').value.trim(); const category = (document.getElementById('templateCategory').value.trim() || 'UTILITY').toUpperCase(); if (!name || !body) return this.showNotification('Name and body are required', 'warning'); try { const r = await window.API.communications.createWhatsappTemplate({ name, language: 'en', category: ['MARKETING','UTILITY','AUTHENTICATION'].includes(category) ? category : 'UTILITY', components: { body: { type: 'BODY', text: body } } }); this.showNotification(r?.message || 'Submitted for WhatsApp approval', 'success'); } catch (e) { this.showNotification(e.message || 'Provider template submission failed', 'error'); } },
+    async saveTemplate() { const id = document.getElementById('templateId').value; const data = { name: document.getElementById('templateName').value.trim(), template_type: document.getElementById('templateChannel').value, category: document.getElementById('templateCategory').value.trim() || null, template_body: document.getElementById('templateBody').value }; if (!data.name || !data.template_body) return this.showNotification('Name and body are required', 'warning'); try { if (id) await window.API.communications.updateTemplate(id, data); else await window.API.communications.createTemplate(data); bootstrap.Modal.getInstance(document.getElementById('templateManagerModal'))?.hide(); this.showNotification('Template saved', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template save failed', 'error'); } },
+    async deleteTemplate(id) { if (!(await window.confirmAction('Delete template', 'Delete this communication template?'))) return; try { await window.API.communications.deleteTemplate(id); this.showNotification('Template deleted', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template deletion failed', 'error'); } },
 
     loadStatistics: async function () {
       try {
