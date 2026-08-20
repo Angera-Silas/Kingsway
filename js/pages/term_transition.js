@@ -18,7 +18,8 @@ const termTransitionController = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    await Promise.all([this._loadTerms(), this._loadTimetableStats()]);
+    await this._loadTerms();
+    await this._loadTimetableStats();
     this._renderStep1();
   },
 
@@ -71,6 +72,12 @@ const termTransitionController = {
       }
       const rolloverBtn = document.getElementById('ttRolloverBtn');
       if (rolloverBtn) rolloverBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable' + (this._nextTerm ? ` to ${this._nextTerm.name}` : '');
+
+      const proceed = document.querySelector('#ttStep1 button[onclick*="goStep(2)"]');
+      if (proceed) {
+        proceed.disabled = !this._currentTerm || !this._nextTerm;
+        proceed.title = this._nextTerm ? '' : 'There is no upcoming term configured for this academic year';
+      }
 
       // Pre-fill next term dates if we have them
       if (this._nextTerm) {
@@ -209,7 +216,7 @@ const termTransitionController = {
 
     try {
       this._currentTerm.status = 'pending_close';
-      showNotification(`${this._currentTerm.name} will be closed atomically during final activation.`, 'info');
+      showNotification(`${this._currentTerm.name} is prepared for closure. No database change is made until final activation.`, 'info');
       this.goStep(3);
     } catch (e) {
       if (errEl) { errEl.textContent = e.message || 'Failed to close term.'; errEl.classList.remove('d-none'); }
@@ -227,7 +234,7 @@ const termTransitionController = {
     const errEl = document.getElementById('ttRolloverError');
     if (errEl) errEl.classList.add('d-none');
     this._set('ttRolloverStatus', 'Ready for atomic transition');
-    showNotification('Timetable rollover will run atomically during final activation.', 'info');
+    showNotification('Timetable rollover is prepared. It will run atomically during final activation.', 'info');
     this.goStep(4);
   },
 
@@ -291,6 +298,7 @@ const termTransitionController = {
       showNotification('Term 2 not found.', 'danger');
       return;
     }
+    if (!(await window.confirmAction('Confirm term transition', `Close ${this._currentTerm.name} and activate ${this._nextTerm.name}? This is the final atomic action.`))) return;
     const btn   = document.getElementById('ttActivateBtn');
     const errEl = document.getElementById('ttActivateError');
     if (btn) { btn.disabled = true; btn.innerHTML = '<div class="spinner-border spinner-border-sm me-1"></div> Activating…'; }

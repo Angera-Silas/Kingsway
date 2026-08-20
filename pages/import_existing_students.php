@@ -14,15 +14,22 @@
     <div class="alert alert-info" role="alert">
       <strong>Supported Format:</strong> Upload CSV or Excel using the template below.
       Required columns include: `admission_no`, `first_name`, `last_name`, `date_of_birth`,
-      `gender`, `class_name`, `stream_name`, `student_type`, `admission_date`.
+      `gender`, `class_id`, `stream_name`, `student_type_id`, `admission_date`.
       <br><strong>Date format:</strong> Use <code>YYYY-MM-DD</code> for date fields.
-      If a class has multiple streams, ensure <code>stream_name</code> is filled.
+      Use the numeric class and student-type IDs supplied by the school setup;
+      if a class has multiple streams, ensure <code>stream_name</code> matches
+      an existing stream exactly. The import does not create default streams.
+      <br><strong>Finance migration:</strong> The Excel template includes cumulative academic-year paid,
+      current-term paid, arrears, and advance fields. The current-term amount is applied once;
+      the cumulative amount is retained as historical context. Do not also enter
+      <code>opening_payment_amount</code> when using these finance fields.
     </div>
 
     <div class="mb-3">
-      <button type="button" class="btn btn-outline-primary" onclick="window.open((window.APP_BASE || '') + '/templates/student_import_template.csv', '_blank')">
-        Download Template
+      <button type="button" class="btn btn-outline-primary" onclick="window.open((window.APP_BASE || '') + '/templates/student_import_template.xlsx', '_blank')">
+        Download Excel Template
       </button>
+      <a class="btn btn-link" href="<?= $appBase ?>/templates/student_import_template.csv" target="_blank">CSV version</a>
     </div>
 
     <form id="importForm" enctype="multipart/form-data">

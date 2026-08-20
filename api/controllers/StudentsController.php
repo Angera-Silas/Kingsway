@@ -269,6 +269,34 @@ class StudentsController extends BaseController
         return $this->handleResponse($this->api->create($data));
     }
 
+    /**
+     * POST /api/students/existing-add
+     * Register a learner already attending the school. This deliberately
+     * bypasses admissions and does not add an admission/registration fee.
+     */
+    public function postExistingAdd($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to add existing students')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->api->addExistingStudent($data));
+    }
+
+    /**
+     * POST /api/students/import-existing
+     * Import learners who are already enrolled at the school.
+     */
+    public function postImportExisting($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to import existing students')) {
+            return $auth;
+        }
+        if (!empty($_FILES['file'])) {
+            $data['file'] = $_FILES['file'];
+        }
+        return $this->handleResponse($this->api->importExistingStudents($data));
+    }
+
     public function putStudent($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->authorizeStudents(self::STUDENT_EDIT_PERMS, 'Insufficient permission to update students')) {

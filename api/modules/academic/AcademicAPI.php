@@ -490,6 +490,28 @@ class AcademicAPI extends BaseAPI
         return $this->yearTransitionWorkflow->executePromotions($instanceId, $data);
     }
 
+    public function getYearPromotionCandidates($instanceId)
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->getPromotionCandidates((int) $instanceId);
+    }
+
+    public function assignYearPromotionStreams($instanceId, $data)
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->assignPromotionStreams((int) $instanceId, $data['assignments'] ?? []);
+    }
+
+    public function completeYearTransitionStage($instanceId, $data)
+    {
+        if (empty($instanceId)) return ['status' => 'error', 'message' => 'Missing year transition instance_id', 'code' => 400];
+        return $this->yearTransitionWorkflow->completeCanonicalStage(
+            (int) $instanceId,
+            (string) ($data['stage_code'] ?? ''),
+            (string) ($data['notes'] ?? '')
+        );
+    }
+
     public function setupNewAcademicYear($instanceId, $data)
     {
         if (empty($instanceId)) {

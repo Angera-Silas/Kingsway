@@ -1271,6 +1271,30 @@ return $this->serverError('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
+    /** GET /api/academic/year-transition/promotion-candidates */
+    public function getYearTransitionPromotionCandidates($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->getYearPromotionCandidates($instanceId));
+    }
+
+    /** POST /api/academic/year-transition/assign-promotion-streams */
+    public function postYearTransitionAssignPromotionStreams($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->assignYearPromotionStreams($instanceId, $data));
+    }
+
+    /** POST /api/academic/year-transition/complete-stage */
+    public function postYearTransitionCompleteStage($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->completeYearTransitionStage($instanceId, $data));
+    }
+
     /**
      * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
      * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }

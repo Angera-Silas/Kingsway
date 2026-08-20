@@ -3054,6 +3054,9 @@ window.API = {
         ? apiCall(`/students/student/${id}`, "GET")
         : apiCall("/students/student", "GET"),
     create: async (data) => apiCall("/students/student", "POST", data),
+    addExisting: async (data) => apiCall("/students/existing-add", "POST", data),
+    importExisting: async (formData) =>
+      apiCall("/students/import-existing", "POST", formData, {}, { isFile: true }),
     update: async (id, data) => apiCall(`/students/student/${id}`, "PUT", data),
     delete: async (id) => apiCall(`/students/student/${id}`, "DELETE"),
 

@@ -136,6 +136,23 @@
 
       <!-- System Settings -->
       <div class="tab-pane fade" id="system" role="tabpanel">
+        <form id="admissionNumberSettingsForm" class="border rounded p-3 mb-4 bg-light">
+          <h5 class="text-primary">Learner Admission Numbers</h5>
+          <p class="text-muted mb-3">Configure the short number printed on learner records and used as the school payment account reference.</p>
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label">Admission number format</label>
+              <input type="text" id="admissionNoFormat" class="form-control" placeholder="KPS{seq:02}" required>
+              <small class="text-muted">Use <code>{seq}</code> for KPS1, or <code>{seq:02}</code> for KPS01. Add <code>{year}</code> only if numbers should be year-based.</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Starting sequence</label>
+              <input type="number" id="admissionNoStartSequence" class="form-control" min="1" required>
+              <small class="text-muted">Used when this format has no existing sequence.</small>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Admission Number Format</button>
+        </form>
         <form id="systemSettingsForm">
           <div class="row mb-3">
             <div class="col-md-6">

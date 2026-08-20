@@ -2474,6 +2474,16 @@ class AcademicManager extends BaseAPI
 
     public function postYearRollover(array $data, ?int $userId): array
     {
+        // The staged AcademicYearTransitionWorkflow is now the only
+        // authoritative rollover path. Keeping this legacy endpoint read/write
+        // capable would allow a second implementation to bypass promotions,
+        // fee approval and reconciliation gates.
+        return $this->errorResponse(
+            'Legacy rollover endpoint is disabled. Use the staged academic year transition workflow.',
+            410
+        );
+
+        /* Legacy implementation retained below for historical reference only. */
         $step = $data['step'] ?? null;
         if (!$step) return $this->errorResponse('Missing required step parameter.', 400);
 
@@ -2541,7 +2551,42 @@ class AcademicManager extends BaseAPI
                 $result['note'] = 'Use Manage Staff → Class Assignments to confirm new year assignments';
 
             } elseif ($step === 'create_new_year') {
-                $newYearCode = (int) $currentYear['year_code'] + 1;
+                $startYear = (int) substr((string) $currentYear['year_code'], 0, 4);
+                $newYearCode = ($startYear + 1) . '/' . ($startYear + 2);
+                $parseDate = static function ($value, string $label): string {
+                    $date = \DateTime::createFromFormat('!Y-m-d', trim((string) $value));
+                    $errors = \DateTime::getLastErrors();
+                    if (!$date || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) {
+                        throw new Exception("{$label} must be a valid YYYY-MM-DD date");
+                    }
+                    return $date->format('Y-m-d');
+                };
+                $yearStart = $parseDate($data['year_start_date'] ?? '', 'Academic year opening date');
+                $yearEnd = $parseDate($data['year_end_date'] ?? '', 'Academic year closing date');
+                if ($yearStart >= $yearEnd) {
+                    return $this->errorResponse('Academic year opening date must be before its closing date.', 400);
+                }
+                $termDates = $data['terms'] ?? [];
+                if (!is_array($termDates) || count($termDates) !== 3) {
+                    return $this->errorResponse('Opening and closing dates for all three terms are required.', 400);
+                }
+                $normalisedTerms = [];
+                $previousTermEnd = null;
+                foreach (array_values($termDates) as $index => $term) {
+                    $termStart = $parseDate($term['start_date'] ?? $term['opening_date'] ?? '', 'Term ' . ($index + 1) . ' opening date');
+                    $termEnd = $parseDate($term['end_date'] ?? $term['closing_date'] ?? '', 'Term ' . ($index + 1) . ' closing date');
+                    if ($termStart >= $termEnd) {
+                        return $this->errorResponse('Each term opening date must be before its closing date.', 400);
+                    }
+                    if ($termStart < $yearStart || $termEnd > $yearEnd) {
+                        return $this->errorResponse('Every term must fall within the academic year dates.', 400);
+                    }
+                    if ($previousTermEnd !== null && $termStart <= $previousTermEnd) {
+                        return $this->errorResponse('Term dates must be chronological and must not overlap.', 400);
+                    }
+                    $normalisedTerms[] = [$index + 1, $termStart, $termEnd];
+                    $previousTermEnd = $termEnd;
+                }
                 $existing = $this->dbQuery("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch(PDO::FETCH_ASSOC);
                 if ($existing) {
                     $result['note'] = "Academic year $newYearCode already exists";
@@ -2555,17 +2600,12 @@ class AcademicManager extends BaseAPI
                             $newYearId,
                             $newYearCode,
                             "$newYearCode Academic Year",
-                            "$newYearCode-01-06",
-                            "$newYearCode-11-28",
+                            $yearStart,
+                            $yearEnd,
                         ]
                     );
 
-                    $terms = [
-                        [1, "$newYearCode-01-06", "$newYearCode-04-04"],
-                        [2, "$newYearCode-04-28", "$newYearCode-08-01"],
-                        [3, "$newYearCode-08-25", "$newYearCode-11-28"],
-                    ];
-                    foreach ($terms as [$termNo, $start, $end]) {
+                    foreach ($normalisedTerms as [$termNo, $start, $end]) {
                         $aytId = (int) $this->dbQuery("SELECT COALESCE(MAX(id),0)+1 FROM academic_year_terms")->fetchColumn();
                         $this->dbQuery(
                             "INSERT INTO academic_year_terms (id, academic_year_id, term_id, status, opening_date, closing_date)
@@ -2574,9 +2614,130 @@ class AcademicManager extends BaseAPI
                             [$aytId, $newYearId, $start, $end, "T$termNo"]
                         );
                     }
+
+                    // A new year must have its own class/stream bindings before
+                    // continuing learners can be enrolled. Copy the current
+                    // academic setup, including existing stream assignments;
+                    // staff may revise these later in Class Assignments.
+                    $classMap = [];
+                    $sourceClasses = $this->dbQuery(
+                        "SELECT id, class_id FROM academic_year_classes
+                         WHERE academic_year_id = ? ORDER BY id",
+                        [$currentYear['id']]
+                    )->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($sourceClasses as $sourceClass) {
+                        $newClassId = (int) $this->dbQuery(
+                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_classes"
+                        )->fetchColumn();
+                        $this->dbQuery(
+                            "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
+                             VALUES (?, ?, ?, 'planning')",
+                            [$newClassId, $newYearId, (int) $sourceClass['class_id']]
+                        );
+                        $classMap[(int) $sourceClass['id']] = $newClassId;
+                    }
+
+                    $sourceStreams = $this->dbQuery(
+                        "SELECT academic_year_class_id, stream_id, room_id, class_teacher_id
+                         FROM academic_year_class_streams
+                         WHERE academic_year_class_id IN (" .
+                            (empty($classMap) ? '0' : implode(',', array_map('intval', array_keys($classMap)))) .
+                         ") ORDER BY id"
+                    )->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($sourceStreams as $sourceStream) {
+                        $newStreamId = (int) $this->dbQuery(
+                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_streams"
+                        )->fetchColumn();
+                        $this->dbQuery(
+                            "INSERT INTO academic_year_class_streams
+                                (id, academic_year_class_id, stream_id, room_id, class_teacher_id, status)
+                             VALUES (?, ?, ?, ?, ?, 'planning')",
+                            [
+                                $newStreamId,
+                                $classMap[(int) $sourceStream['academic_year_class_id']],
+                                (int) $sourceStream['stream_id'],
+                                $sourceStream['room_id'] ?: null,
+                                $sourceStream['class_teacher_id'] ?: null,
+                            ]
+                        );
+                    }
+
+                    $learningAreaMap = [];
+                    $sourceLearningAreas = $this->dbQuery(
+                        "SELECT id, academic_year_class_id, learning_area_id, strand_id,
+                                sub_strand_id, status, planned_weeks, notes
+                         FROM academic_year_class_learning_areas
+                         WHERE academic_year_class_id IN (" .
+                            (empty($classMap) ? '0' : implode(',', array_map('intval', array_keys($classMap)))) .
+                         ") ORDER BY id"
+                    )->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($sourceLearningAreas as $sourceArea) {
+                        $newAreaId = (int) $this->dbQuery(
+                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_learning_areas"
+                        )->fetchColumn();
+                        $this->dbQuery(
+                            "INSERT INTO academic_year_class_learning_areas
+                                (id, academic_year_class_id, learning_area_id, strand_id,
+                                 sub_strand_id, status, planned_weeks, notes)
+                             VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)",
+                            [
+                                $newAreaId,
+                                $classMap[(int) $sourceArea['academic_year_class_id']],
+                                (int) $sourceArea['learning_area_id'],
+                                $sourceArea['strand_id'] ?: null,
+                                $sourceArea['sub_strand_id'] ?: null,
+                                $sourceArea['planned_weeks'] ?: null,
+                                $sourceArea['notes'] ?? null,
+                            ]
+                        );
+                        $learningAreaMap[(int) $sourceArea['id']] = $newAreaId;
+                    }
+
+                    $targetTerms = [];
+                    foreach ($this->dbQuery(
+                        "SELECT id, term_id FROM academic_year_terms WHERE academic_year_id = ?",
+                        [$newYearId]
+                    )->fetchAll(PDO::FETCH_ASSOC) as $targetTerm) {
+                        $targetTerms[(int) $targetTerm['term_id']] = (int) $targetTerm['id'];
+                    }
+                    $sourceTeachers = $this->dbQuery(
+                        "SELECT academic_year_class_learning_area_id, academic_year_term_id,
+                                staff_id, role
+                         FROM academic_year_class_learning_area_teachers
+                         WHERE academic_year_class_learning_area_id IN (" .
+                            (empty($learningAreaMap) ? '0' : implode(',', array_map('intval', array_keys($learningAreaMap)))) .
+                         ") ORDER BY id"
+                    )->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($sourceTeachers as $sourceTeacher) {
+                        $sourceTerm = $this->dbQuery(
+                            "SELECT term_id FROM academic_year_terms WHERE id = ? LIMIT 1",
+                            [(int) $sourceTeacher['academic_year_term_id']]
+                        )->fetchColumn();
+                        $targetTermId = $targetTerms[(int) $sourceTerm] ?? null;
+                        if (!$targetTermId) continue;
+                        $newTeacherId = (int) $this->dbQuery(
+                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_learning_area_teachers"
+                        )->fetchColumn();
+                        $this->dbQuery(
+                            "INSERT INTO academic_year_class_learning_area_teachers
+                                (id, academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
+                             VALUES (?, ?, ?, ?, ?)",
+                            [
+                                $newTeacherId,
+                                $learningAreaMap[(int) $sourceTeacher['academic_year_class_learning_area_id']],
+                                $targetTermId,
+                                (int) $sourceTeacher['staff_id'],
+                                $sourceTeacher['role'],
+                            ]
+                        );
+                    }
                     $result['new_year_id'] = $newYearId;
                     $result['new_year_code'] = $newYearCode;
                     $result['terms_created'] = 3;
+                    $result['class_bindings_created'] = count($classMap);
+                    $result['stream_bindings_created'] = count($sourceStreams);
+                    $result['learning_area_bindings_created'] = count($learningAreaMap);
+                    $result['teacher_bindings_created'] = count($sourceTeachers);
                 }
 
             } elseif ($step === 'archive_old_year') {
@@ -2594,7 +2755,8 @@ class AcademicManager extends BaseAPI
                 $result['archived_year'] = $currentYear['year_code'];
 
             } elseif ($step === 'activate_new_year') {
-                $newYearCode = (int) $currentYear['year_code'] + 1;
+                $startYear = (int) substr((string) $currentYear['year_code'], 0, 4);
+                $newYearCode = ($startYear + 1) . '/' . ($startYear + 2);
                 $newYear = $this->dbQuery("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch(PDO::FETCH_ASSOC);
                 if (!$newYear) {
                     return $this->errorResponse('Next academic year does not exist; run create_new_year first.', 400);
@@ -2609,6 +2771,11 @@ class AcademicManager extends BaseAPI
                     "UPDATE academic_year_terms SET status = 'current'
                      WHERE academic_year_id = ? AND term_id = (SELECT id FROM terms WHERE code = 'T1')",
                     [$newYear['id']]
+                );
+                $result['continuing_students'] = $this->onboardContinuingStudents(
+                    (int) $currentYear['id'],
+                    (int) $newYear['id'],
+                    $userId
                 );
                 $result['activated_year'] = $newYearCode;
             }
@@ -2631,6 +2798,91 @@ class AcademicManager extends BaseAPI
             $this->logError($e, 'AcademicManager::postYearRollover');
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Carry existing learners into the new academic year without treating
+     * them as admissions. Their class/stream identity is preserved, a new
+     * year enrollment is created once, and the normal term-aware fee
+     * procedure seeds obligations only when the target schedules are active.
+     */
+    private function onboardContinuingStudents(int $fromYearId, int $toYearId, ?int $userId): array
+    {
+        $rows = $this->dbQuery(
+            "SELECT DISTINCT sae.student_id, ayc.class_id, aycs.stream_id
+             FROM student_academic_enrollments sae
+             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             JOIN students s ON s.id = sae.student_id
+             WHERE sae.academic_year_id = ?
+               AND sae.enrollment_status = 'active'
+               AND s.status = 'active'",
+            [$fromYearId]
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $created = 0;
+        $already = 0;
+        $skipped = [];
+        foreach ($rows as $row) {
+            $targetAycs = $this->dbQuery(
+                "SELECT aycs.id
+                 FROM academic_year_class_streams aycs
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 WHERE ayc.academic_year_id = ?
+                   AND ayc.class_id = ?
+                   AND aycs.stream_id = ?
+                   AND aycs.status IN ('active', 'planning')
+                 ORDER BY aycs.status = 'active' DESC, aycs.id DESC
+                 LIMIT 1",
+                [$toYearId, (int) $row['class_id'], (int) $row['stream_id']]
+            )->fetchColumn();
+
+            if (!$targetAycs) {
+                $skipped[] = (int) $row['student_id'];
+                continue;
+            }
+
+            $existing = $this->dbQuery(
+                "SELECT id FROM student_academic_enrollments
+                 WHERE student_id = ? AND academic_year_id = ? LIMIT 1",
+                [(int) $row['student_id'], $toYearId]
+            )->fetchColumn();
+
+            if ($existing) {
+                $already++;
+                continue;
+            }
+
+            $enrollmentId = (int) $this->dbQuery(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM student_academic_enrollments"
+            )->fetchColumn();
+            $this->dbQuery(
+                "INSERT INTO student_academic_enrollments
+                    (id, student_id, academic_year_id, academic_year_class_stream_id,
+                     enrolled_on, enrollment_status)
+                 VALUES (?, ?, ?, ?, CURDATE(), 'active')",
+                [$enrollmentId, (int) $row['student_id'], $toYearId, (int) $targetAycs]
+            );
+
+            try {
+                $call = $this->db->prepare(
+                    "CALL sp_onboard_student_enrollment(?, ?, @kwa_rollover_obligations)"
+                );
+                $call->execute([$enrollmentId, $userId]);
+                $call->closeCursor();
+            } catch (Throwable $e) {
+                error_log('[YearRollover] Fee onboarding deferred for student ' . (int) $row['student_id'] . ': ' . $e->getMessage());
+            }
+            $created++;
+        }
+
+        return [
+            'processed' => count($rows),
+            'enrollments_created' => $created,
+            'already_onboarded' => $already,
+            'skipped_missing_target_stream' => count($skipped),
+            'skipped_student_ids' => $skipped,
+        ];
     }
 
     /**

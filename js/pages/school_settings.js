@@ -81,7 +81,9 @@
         backup_frequency:       "backupFrequency",
         session_timeout:        "sessionTimeout",
         email_notifications:    "enableNotifications",
-        sms_notifications:      "enableSMS"
+        sms_notifications:      "enableSMS",
+        admission_no_format:    "admissionNoFormat",
+        admission_no_start_sequence: "admissionNoStartSequence"
     };
 
     // Which fields belong to each form (for building the save payload)
@@ -99,6 +101,9 @@
         systemSettingsForm: [
             "backup_frequency", "session_timeout",
             "email_notifications", "sms_notifications"
+        ],
+        admissionNumberSettingsForm: [
+            "admission_no_format", "admission_no_start_sequence"
         ]
     };
 
@@ -115,6 +120,21 @@
             }
             this.bindForms();
             await this.loadData();
+            await this.loadAdmissionNumberSettings();
+        },
+
+        loadAdmissionNumberSettings: async function () {
+            try {
+                var response = await window.API.apiCall("/website/settings", "GET");
+                var items = response?.data?.items || response?.items || [];
+                var values = {};
+                items.forEach(function (item) { values[item.setting_key] = item.setting_value; });
+                setVal("admissionNoFormat", values.admission_no_format || "KPS{seq}");
+                setVal("admissionNoStartSequence", values.admission_no_start_sequence || "1");
+            } catch (err) {
+                console.error("school_settings: admission number settings error", err);
+                showToast("Admission number settings could not be loaded.", "error");
+            }
         },
 
         bindForms: function () {
@@ -181,10 +201,23 @@
                 }
             });
 
+            if (formId === "admissionNumberSettingsForm") {
+                var format = String(payload.admission_no_format || "").trim();
+                if (!format || format.length > 40 || !format.includes("{seq")) {
+                    showToast("Format must contain {seq} or {seq:NN}.", "error");
+                    return;
+                }
+            }
+
             showSpinner(formId, true);
 
             try {
-                await window.API.system.updateSchoolConfig(payload);
+                if (formId === "admissionNumberSettingsForm") {
+                    await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_format", value: payload.admission_no_format});
+                    await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_start_sequence", value: payload.admission_no_start_sequence});
+                } else {
+                    await window.API.system.updateSchoolConfig(payload);
+                }
                 // Merge saved values back into local cache
                 Object.assign(self.data, payload);
                 showToast("Settings saved successfully", "success");

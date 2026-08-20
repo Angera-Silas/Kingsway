@@ -47,24 +47,11 @@ class MessageService
 
         $template = file_get_contents($templatePath);
 
-        // Build logo section - use Content-ID for MIME attachment
-        // This is the standard way to embed images in emails (works best with Gmail)
-        $logoSection = '';
-        {
-            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
-            if (!file_exists($logoPath)) {
-                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
-            }
-            if (file_exists($logoPath)) {
-                // Use a data URI so the logo is rendered inline without a visible
-                // MIME attachment in the recipient's mailbox.
-                $logoSection = '<img src="data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath)) . '" width="70" alt="Kingsway Preparatory School" style="display:block;max-width:70px;height:auto;border:0;border-radius:8px;" />';
-            } else {
-                // Fallback to URL if file not found
-                $logoUrl = htmlspecialchars($schoolDetails['logo']);
-                $logoSection = '<img src="' . $logoUrl . '" alt="Kingsway Preparatory School Logo" style="max-height: 95px; width: auto; display: block; border-radius: 6px; margin: 0; padding: 0; border: none;" />';
-            }
-        }
+        // Build logo section — use CID reference so sendEmail() can embed it as a
+        // MIME inline attachment.  Gmail strips data: URIs which broke the old approach.
+        $logoSection = '<img src="cid:kingsway-logo" width="70" alt="Kingsway Preparatory School" style="display:block;max-width:70px;height:auto;border:0;border-radius:8px;" />';
+
+        $formattedBody = $this->ensureHtmlBody($formattedBody);
 
         $profile = $this->emailProfile($subject);
         $replacements = [
@@ -156,6 +143,60 @@ class MessageService
         return $formatted;
     }
 
+    /**
+     * Convert a plain-text body to safe HTML paragraphs.
+     * If the body already contains HTML tags it is returned unchanged.
+     */
+    private function ensureHtmlBody(string $body): string
+    {
+        if (preg_match('/<[^>]+>/', $body)) {
+            return $body;
+        }
+
+        $escaped = htmlspecialchars($body, ENT_QUOTES, 'UTF-8');
+
+        $paragraphs = preg_split('/\n\s*\n/', $escaped);
+        if (count($paragraphs) > 1) {
+            $html = '';
+            foreach ($paragraphs as $p) {
+                $p = trim($p);
+                if ($p !== '') {
+                    $html .= '<p style="margin:0 0 14px 0;line-height:1.75;">' . nl2br($p) . '</p>';
+                }
+            }
+            return $html;
+        }
+
+        $sentences = preg_split('/(?<=\.)\s+(?=[A-Z])/', $escaped);
+        if (count($sentences) > 1) {
+            $html = '';
+            foreach ($sentences as $s) {
+                $s = trim($s);
+                if ($s !== '') {
+                    $html .= '<p style="margin:0 0 12px 0;line-height:1.75;">' . $s . '</p>';
+                }
+            }
+            return $html;
+        }
+
+        return '<p style="margin:0 0 12px 0;line-height:1.75;">' . $escaped . '</p>';
+    }
+
+    /**
+     * Embed the school logo as a CID inline image on a PHPMailer instance.
+     * Must be called before $mail->send() when the HTML body references cid:kingsway-logo.
+     */
+    public function embedLogo($mail): void
+    {
+        $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
+        if (!file_exists($logoPath)) {
+            $logoPath = __DIR__ . '/../../images/official_school_logo.png';
+        }
+        if (file_exists($logoPath)) {
+            $mail->addEmbeddedImage($logoPath, 'kingsway-logo', 'official_school_logo.png', PHPMailer::ENCODING_BASE64, 'image/png');
+        }
+    }
+
     // Render email using Bootstrap template
     public function renderEmail($subject, $body, $signature, $footer, $media = '', $schoolDetails = [])
     {
@@ -208,6 +249,9 @@ class MessageService
             $mail->ContentType = 'text/html; charset=UTF-8';
             $mail->Subject = $subject;
             $mail->Body = $htmlBody;
+
+            // Embed the school logo as a CID inline image (referenced as cid:kingsway-logo in the template)
+            $this->embedLogo($mail);
 
             // Attachments
             foreach ($attachments as $filePath) {

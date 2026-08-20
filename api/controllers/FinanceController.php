@@ -2307,4 +2307,97 @@ return $this->error('An internal error occurred.');
 return $this->error('An internal error occurred.');
         }
     }
+
+    // =========================================================================
+    // EXTRA CHARGES — flexible charges on the fee structure
+    // =========================================================================
+
+    /** GET /api/finance/extra-charges */
+    public function getExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $filters = $_GET;
+        $result = $this->api->getExtraCharges($filters);
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/{id} */
+    public function getExtraChargesGet($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getExtraCharge((int) $id);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges */
+    public function postExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage', 'fee_structure_create'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->createExtraCharge($data, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** PUT /api/finance/extra-charges/{id} */
+    public function putExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->updateExtraCharge((int) $id, $data, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** DELETE /api/finance/extra-charges/{id} */
+    public function deleteExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_delete'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->deleteExtraCharge((int) $id, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/{id}/submit */
+    public function postExtraChargesSubmit($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->submitExtraCharge((int) $id, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/{id}/approve */
+    public function postExtraChargesApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_approve'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $notes = $data['notes'] ?? '';
+        $result = $this->api->approveExtraCharge((int) $id, (int) $userId, $notes);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/{id}/reject */
+    public function postExtraChargesReject($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_approve'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $notes = $data['notes'] ?? '';
+        $result = $this->api->rejectExtraCharge((int) $id, (int) $userId, $notes);
+        return $this->handleResponse($result);
+    }
 }

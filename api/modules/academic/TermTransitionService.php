@@ -91,6 +91,15 @@ class TermTransitionService
             if ($fromTermId === $toTermId) {
                 return formatResponse(false, null, 'from_term_id and to_term_id must differ');
             }
+            if (($fromTerm['status'] ?? '') !== 'current') {
+                return formatResponse(false, null, 'Only the current term can be closed');
+            }
+            if (($toTerm['status'] ?? '') !== 'upcoming' || (int) $toTerm['term_id'] !== (int) $fromTerm['term_id'] + 1) {
+                return formatResponse(false, null, 'The target must be the next upcoming term in the same academic year');
+            }
+            if (!empty($dates['start_date']) && !empty($dates['end_date']) && $dates['start_date'] >= $dates['end_date']) {
+                return formatResponse(false, null, 'Next-term opening date must be before its closing date');
+            }
 
             $this->db->beginTransaction();
             $logId = $this->logAction($fromTermId, $toTermId, $academicYearId, 'full_transition', 'in_progress', [

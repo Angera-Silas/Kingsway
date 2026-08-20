@@ -1106,12 +1106,32 @@ return formatResponse(false, null, 'An internal error occurred.');
         $application = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
         $parentId = (int) ($application['parent_id'] ?? 0);
         $studentId = (int) ($application['enrolled_student_id'] ?? 0);
-        if (!$parentId) return 2000.0;
+
+        // Read base registration fee from the database (extra_charges table)
+        $baseFee = 2000.0;
+        try {
+            $feeStmt = $this->db->prepare(
+                "SELECT ec.amount FROM extra_charges ec
+                 JOIN academic_years ay ON ay.id = ec.academic_year_id
+                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active'
+                 LIMIT 1"
+            );
+            $feeStmt->execute();
+            $dbFee = $feeStmt->fetchColumn();
+            if ($dbFee !== false) {
+                $baseFee = (float) $dbFee;
+            }
+        } catch (\Exception $e) {
+            // Table may not exist yet — fall back to default
+        }
+
+        if (!$parentId) return $baseFee;
 
         $existing = $this->db->prepare("SELECT COUNT(*) FROM student_parents WHERE parent_id = :parent_id AND student_id <> :student_id");
         $existing->execute(['parent_id' => $parentId, 'student_id' => $studentId]);
 
-        return ((int) $existing->fetchColumn() > 0) ? 1000.0 : 2000.0;
+        // Sibling discount: 50% off registration fee
+        return ((int) $existing->fetchColumn() > 0) ? round($baseFee * 0.5) : $baseFee;
     }
 
     public function sendPaymentInstructions(int $applicationId): array
@@ -1254,12 +1274,32 @@ return formatResponse(false, null, 'An internal error occurred.');
 
         $registrationFee = $this->getRegistrationFeeForApplication($applicationId);
         $accountReference = $admissionNumber ?: ($row['student_admission_no'] ?: $row['application_no']);
-        $body = sprintf(
+        $childName = htmlspecialchars($row['applicant_name'] ?: 'your child', ENT_QUOTES, 'UTF-8');
+        $ref = htmlspecialchars($accountReference, ENT_QUOTES, 'UTF-8');
+        $fee = number_format($registrationFee, 0);
+
+        $smsBody = sprintf(
             'Kingsway Admissions: Payment is requested for %s. Use application/admission reference %s as the account number. Registration fee due: KES %s. You may pay by M-Pesa or bank transfer; cash is not accepted. Please retain the M-Pesa message or bank receipt.',
             $row['applicant_name'] ?: 'your child',
             $accountReference,
-            number_format($registrationFee, 0)
+            $fee
         );
+
+        $parentSalutation = htmlspecialchars($row['applicant_name'] ?: 'Parent/Guardian', ENT_QUOTES, 'UTF-8');
+        $emailBody = '<p>Dear ' . $parentSalutation . ',</p>'
+            . '<p>We are pleased to confirm that <strong>' . $childName . '</strong> has been placed at Kingsway Preparatory School.</p>'
+            . '<p>To complete the admission, please settle the registration fee as detailed below:</p>'
+            . '<table style="margin:16px 0;border-collapse:collapse;width:100%;max-width:480px;">'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Registration Fee</td><td style="padding:10px 14px;border:1px solid #e5e7eb;text-align:right;">KES ' . $fee . '</td></tr>'
+            . '<tr><td style="padding:10px 14px;background:#f7fafc;border:1px solid #e5e7eb;font-weight:600;">Account Reference</td><td style="padding:10px 14px;border:1px solid #e5e7eb;text-align:right;">' . $ref . '</td></tr>'
+            . '</table>'
+            . '<p><strong>Payment methods:</strong></p>'
+            . '<ul style="margin:8px 0 16px 20px;line-height:1.8;">'
+            . '<li><strong>M-Pesa</strong> &mdash; use application/admission reference <strong>' . $ref . '</strong> as the account number</li>'
+            . '<li><strong>Bank Transfer</strong> &mdash; quote reference <strong>' . $ref . '</strong></li>'
+            . '</ul>'
+            . '<p style="color:#a15c00;"><em>Cash payments are not accepted.</em> Please retain your M-Pesa confirmation message or bank receipt as proof of payment.</p>'
+            . '<p>Should you have any questions, please contact the admissions office.</p>';
 
         $business = new \App\API\Services\CommunicationBusinessEventService($this->db);
         $platform = new \App\API\Services\CommunicationPlatformService($this->db);
@@ -1269,11 +1309,12 @@ return formatResponse(false, null, 'An internal error occurred.');
             $check->execute([$key]);
             if ($check->fetchColumn()) continue;
             $eventId = $business->getOrCreate('admission_payment_request', $key, date('Y-m-d H:i:s'), (int) ($this->user_id ?: 1));
+            $channelBody = $channel === 'email' ? $emailBody : $smsBody;
             $queued = $platform->queueRenderedForContacts(
                 [['user_id' => null, 'phone' => $row['parent_phone'] ?? null, 'email' => $row['parent_email'] ?? null]],
                 $channel,
                 'Admission placement and payment instructions',
-                $body,
+                $channelBody,
                 ['purpose' => 'admissions', 'sender_id' => (int) ($this->user_id ?: 1), 'business_event_id' => $eventId]
             );
             $business->markProcessed($eventId);

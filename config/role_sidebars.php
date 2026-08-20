@@ -260,6 +260,7 @@ return [
                 ['label' => 'Financial Reports', 'url' => 'finance_reports'],
                 ['label' => 'Budget Overview', 'url' => 'budget_overview'],
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // approve what accountant drafted
+                ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
                 ['label' => 'Student Fees Overview', 'url' => 'student_fees'],
                 ['label' => 'Petty Cash', 'url' => 'petty_cash'],
             ]
@@ -494,6 +495,7 @@ return [
             'icon' => 'fas fa-receipt',
             'subitems' => [
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // review (not draft — that's accountant)
+                ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
                 ['label' => 'Record Payments', 'url' => 'manage_payments'],
                 ['label' => 'Supplier Payments', 'url' => 'supplier_payments'],
@@ -1440,6 +1442,7 @@ return [
             'subitems' => [
                 ['label' => 'Draft Fee Structure', 'url' => 'draft_fee_structure'],       // ACCOUNTANT DRAFTS new structure or edits the existing ones that are not yet applied
                 ['label' => 'Current Structure', 'url' => 'manage_fee_structure'],
+                ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
                 ['label' => 'Fee Components', 'url' => 'view_fee_structure_components'],
                 ['label' => 'Boarding Fees', 'url' => 'manage_boarding_fee_structure'],
                 ['label' => 'Transport Fees', 'url' => 'manage_transport_fee_structure'],

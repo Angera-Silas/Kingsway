@@ -5,7 +5,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 gap-3">
     <div>
       <h3 class="mb-0"><i class="bi bi-arrow-clockwise me-2 text-primary"></i>Year Transition / Rollover</h3>
-      <small class="text-muted">Create the next academic year (calendar, classes, streams, learning areas), archive the old year, run promotions, migrate baselines and activate the new year.</small>
+      <small class="text-muted">A resumable 23-stage transition: prepare the next year, complete context and finance checks, assign promotions in batches, reconcile balances, archive history and activate Term 1.</small>
     </div>
     <span class="badge bg-warning fs-6 align-self-center" id="yrCurrentYearBadge">Loading…</span>
   </div>
@@ -72,17 +72,19 @@
       <!-- Create form -->
       <div id="yrCreateForm">
         <div class="alert alert-light border">
-          <h6 class="fw-semibold mb-3"><i class="bi bi-calendar-plus me-2"></i>Step 1 — Create the New Academic Year</h6>
+          <h6 class="fw-semibold mb-3"><i class="bi bi-calendar-plus me-2"></i>Stages 1–4 — Confirm, create, date and generate the new academic year</h6>
           <p class="small text-muted mb-3">
-            This creates the new year, its 3 terms and the full term calendar
-            (weeks numbered chronologically per term). Term weeks default to the
-            standard <strong>14 / 14 / 10</strong> (Term 1 / Term 2 / Term 3).
-            The current year's structure is then cloned one grade ahead for the new year.
+            Enter the canonical next-year code, approved academic-year dates and
+            all three term date ranges. Half-term breaks are optional per term:
+            enable the checkbox and enter both dates when a break applies; leave
+            it disabled when there is no half-term break. The system validates
+            the supplied dates and derives school weeks from them; it never
+            invents dates.
           </p>
           <div class="row g-3">
             <div class="col-md-3">
               <label class="form-label fw-semibold">New Year Code</label>
-              <input type="number" id="yrToYear" class="form-control" min="2000" max="2200">
+              <input type="text" id="yrToYear" class="form-control" placeholder="2027/2028" pattern="[0-9]{4}(/[0-9]{4})?">
             </div>
             <div class="col-md-4">
               <label class="form-label fw-semibold">Year Start Date</label>
@@ -97,29 +99,31 @@
             <table class="table table-sm align-middle">
               <thead class="table-light">
                 <tr>
-                  <th>Term</th><th>Start Date</th><th>End Date</th>
-                  <th style="width:110px">Weeks</th>
+                  <th>Term</th><th>Opening Date</th><th>Closing Date</th><th>Half-term break (optional)</th>
                 </tr>
               </thead>
               <tbody>
+                <?php for ($termNo = 1; $termNo <= 3; $termNo++): ?>
                 <tr>
-                  <td class="fw-semibold">Term 1</td>
-                  <td><input type="date" id="yrT1Start" class="form-control"></td>
-                  <td><input type="date" id="yrT1End" class="form-control"></td>
-                  <td><input type="number" id="yrT1Weeks" class="form-control" value="14" min="1" max="20"></td>
+                  <td class="fw-semibold">Term <?= $termNo ?></td>
+                  <td><input type="date" id="yrT<?= $termNo ?>Start" class="form-control" required></td>
+                  <td><input type="date" id="yrT<?= $termNo ?>End" class="form-control" required></td>
+                  <td>
+                    <div class="form-check">
+                      <input class="form-check-input yr-half-term-toggle" type="checkbox" id="yrT<?= $termNo ?>HasHalfTerm" data-term="<?= $termNo ?>">
+                      <label class="form-check-label small" for="yrT<?= $termNo ?>HasHalfTerm">Has half-term break</label>
+                    </div>
+                    <div class="yr-half-term-fields d-none mt-2" id="yrT<?= $termNo ?>HalfTermFields">
+                      <div class="input-group input-group-sm">
+                        <span class="input-group-text">From</span>
+                        <input type="date" id="yrT<?= $termNo ?>HalfStart" class="form-control" aria-label="Term <?= $termNo ?> half-term start">
+                        <span class="input-group-text">to</span>
+                        <input type="date" id="yrT<?= $termNo ?>HalfEnd" class="form-control" aria-label="Term <?= $termNo ?> half-term end">
+                      </div>
+                    </div>
+                  </td>
                 </tr>
-                <tr>
-                  <td class="fw-semibold">Term 2</td>
-                  <td><input type="date" id="yrT2Start" class="form-control"></td>
-                  <td><input type="date" id="yrT2End" class="form-control"></td>
-                  <td><input type="number" id="yrT2Weeks" class="form-control" value="14" min="1" max="20"></td>
-                </tr>
-                <tr>
-                  <td class="fw-semibold">Term 3</td>
-                  <td><input type="date" id="yrT3Start" class="form-control"></td>
-                  <td><input type="date" id="yrT3End" class="form-control"></td>
-                  <td><input type="number" id="yrT3Weeks" class="form-control" value="10" min="1" max="20"></td>
-                </tr>
+                <?php endfor; ?>
               </tbody>
             </table>
           </div>
@@ -133,6 +137,23 @@
       <!-- Stage list -->
       <div id="yrStageWrap" class="d-none">
         <div class="list-group" id="yrStages"></div>
+      </div>
+
+      <div id="yrPromotionBoard" class="d-none mt-4">
+        <div class="alert alert-info mb-3">
+          <strong>Administrator stream assignment</strong>
+          <div class="small">Assign learners in batches. Your selections are saved immediately; you may leave and continue later. The transition cannot continue until every learner has a target stream.</div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold" id="yrPromotionProgress">Loading learners…</span>
+          <button class="btn btn-primary btn-sm" id="yrSavePromotionAssignments" onclick="yearRolloverController.savePromotionAssignments()"><i class="bi bi-save me-1"></i>Save selected assignments</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle">
+            <thead class="table-light"><tr><th>Learner</th><th>Current class/stream</th><th>Next class</th><th>Target stream</th><th>Status</th></tr></thead>
+            <tbody id="yrPromotionBoardBody"><tr><td colspan="5" class="text-muted text-center">Loading…</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

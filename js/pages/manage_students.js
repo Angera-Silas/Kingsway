@@ -643,7 +643,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
     // Build student data
     const studentData = {
-      admission_no: document.getElementById("admissionNumber").value,
+      admission_no: document.getElementById("admissionNumber").value || null,
       first_name: document.getElementById("firstName").value,
       middle_name: document.getElementById("middleName").value || null,
       last_name: document.getElementById("lastName").value,
@@ -668,25 +668,44 @@ window.studentsManagementController = window.studentsManagementController || {
         document.getElementById("sponsorWaiverPercentage").value || null,
     };
 
-    // Add payment data if not sponsored (required for new students)
-    if (!isSponsored && !this.editingId) {
-      const paymentAmount =
-        parseFloat(document.getElementById("initialPaymentAmount").value) || 0;
-      const paymentMethod = document.getElementById("paymentMethod").value;
+    // These fields are an opening-balance import for an already enrolled
+    // learner. They are optional: historical payments can be entered later.
+    const paymentAmount =
+      parseFloat(document.getElementById("initialPaymentAmount")?.value) || 0;
+    const paymentMethod = document.getElementById("paymentMethod")?.value || null;
+    studentData.initial_payment_amount = paymentAmount;
+    studentData.payment_method = paymentMethod;
+    studentData.payment_reference =
+      document.getElementById("paymentReference")?.value || null;
+    studentData.receipt_no =
+      document.getElementById("receiptNo")?.value || null;
 
-      if (paymentAmount <= 0 || !paymentMethod) {
-        this.showError(
-          "Students must have an initial payment recorded OR be marked as sponsored. Please enter payment details or check 'Is Sponsored'.",
-        );
+    const financialMigration = {
+      academic_year_code: document.getElementById("financialAcademicYearCode")?.value.trim() || "",
+      academic_year_paid_amount: parseFloat(document.getElementById("academicYearPaidAmount")?.value) || 0,
+      current_term_paid_amount: parseFloat(document.getElementById("currentTermPaidAmount")?.value) || 0,
+      fee_arrears_amount: parseFloat(document.getElementById("feeArrearsAmount")?.value) || 0,
+      advance_amount: parseFloat(document.getElementById("advanceAmount")?.value) || 0,
+      reference: document.getElementById("openingBalanceReference")?.value.trim() || null,
+      payment_date: document.getElementById("openingBalanceDate")?.value || null,
+      payment_method: document.getElementById("openingBalanceMethod")?.value || null,
+      receipt_no: document.getElementById("receiptNo")?.value || null,
+      notes: document.getElementById("openingBalanceNotes")?.value.trim() || null,
+    };
+    const hasFinancialMigration = financialMigration.academic_year_code ||
+      financialMigration.academic_year_paid_amount > 0 ||
+      financialMigration.current_term_paid_amount > 0 ||
+      financialMigration.fee_arrears_amount > 0 ||
+      financialMigration.advance_amount > 0;
+    if (hasFinancialMigration) {
+      if (financialMigration.current_term_paid_amount > financialMigration.academic_year_paid_amount) {
+        this.showError("Current-term paid cannot exceed academic-year paid");
         return;
       }
-
-      studentData.initial_payment_amount = paymentAmount;
-      studentData.payment_method = paymentMethod;
-      studentData.payment_reference =
-        document.getElementById("paymentReference").value || null;
-      studentData.receipt_no =
-        document.getElementById("receiptNo").value || null;
+      if (paymentAmount > 0) {
+        this.showError("Use the finance migration fields instead of Amount already paid; do not enter the payment twice");
+        return;
+      }
     }
 
     // Build parent_info
@@ -748,7 +767,19 @@ window.studentsManagementController = window.studentsManagementController || {
       if (id) {
         response = await window.API.students.update(id, studentData);
       } else {
-        response = await window.API.students.create(studentData);
+        const streamSelect = document.getElementById("studentStream");
+        const existingStudentData = {
+          ...studentData,
+          class_id: document.getElementById("studentClass").value,
+          stream_name:
+            streamSelect?.options[streamSelect.selectedIndex]?.textContent?.trim() ||
+            null,
+          student_type_id: document.getElementById("studentTypeId").value || 1,
+          parent: studentData.parent_info,
+          initial_payment: hasFinancialMigration ? 0 : studentData.initial_payment_amount,
+          financial_migration: hasFinancialMigration ? financialMigration : null,
+        };
+        response = await window.API.students.addExisting(existingStudentData);
       }
 
       let photoUploaded = false;
@@ -1471,7 +1502,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
     try {
       const resp = await window.API.apiCall(
-        "/students/bulk-create",
+        "/students/import-existing",
         "POST",
         formData,
         {},
@@ -1514,7 +1545,7 @@ window.studentsManagementController = window.studentsManagementController || {
   },
 
   downloadTemplate: function () {
-    window.open((window.APP_BASE || '') + '/templates/student_import_template.csv', "_blank");
+    window.open((window.APP_BASE || '') + '/templates/student_import_template.xlsx', "_blank");
   },
 
   renderBulkImportResults: function (result, isError = false) {

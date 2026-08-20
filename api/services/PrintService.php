@@ -3216,7 +3216,7 @@ final class PrintService
             'documentSubtitle'=> 'PRIMARY & JUNIOR SCHOOL',
             'sections'        => $sections,
             'grades'          => $grades,
-            'otherCharges'    => $data['otherCharges'] ?? [],
+            'otherCharges'    => $this->fetchExtraChargesForPrint($db, $yearId, $data),
             'paymentMpesa'    => $data['paymentMpesa'] ?? ($sConfig['mpesa'] ?? []),
             'paymentBank'     => $data['paymentBank']  ?? ($sConfig['bank']  ?? []),
             'importantNotes'  => $data['importantNotes'] ?? [
@@ -3236,6 +3236,33 @@ final class PrintService
             if ($m['name'] === $baseName) return $cid;
         }
         return null;
+    }
+
+    /**
+     * Fetch active extra charges from the database for the fee structure printout.
+     * Falls back to caller-provided $data['otherCharges'] if the table doesn't exist yet.
+     */
+    private function fetchExtraChargesForPrint(\PDO $db, int $yearId, array $data): array
+    {
+        if (!empty($data['otherCharges'])) {
+            return $data['otherCharges'];
+        }
+        try {
+            $stmt = $db->prepare(
+                "SELECT ec.name, ec.amount
+                 FROM extra_charges ec
+                 WHERE ec.academic_year_id = ? AND ec.status = 'active'
+                 ORDER BY ec.display_order, ec.name"
+            );
+            $stmt->execute([$yearId]);
+            $charges = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $charges[] = ['name' => $row['name'], 'amount' => (float) $row['amount']];
+            }
+            return $charges;
+        } catch (\Exception $e) {
+            return $data['otherCharges'] ?? [];
+        }
     }
 
     private function emptyFeeStructureVars(string $yearLabel): array
@@ -3264,20 +3291,52 @@ final class PrintService
         $db = $this->getDb();
         try {
             $stmt = $db->query(
-                "SELECT config_key, config_value FROM system_config WHERE config_key IN ('school_name','school_address','school_phone','school_motto','school_logo','mpesa_paybill','mpesa_account','bank_name','bank_account_name','bank_account_no')"
+                "SELECT config_key, config_value FROM system_config WHERE config_key IN ('school_name','school_address','school_phone','school_motto','school_logo')"
             );
             $cfg = [];
             while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $cfg[$row['config_key']] = $row['config_value'];
             }
+
+            // Read payment accounts from the proper financial accounts table
+            $mpesa = ['paybill' => '', 'account' => ''];
+            $bank  = ['bank' => '', 'account_name' => '', 'account_no' => ''];
+            try {
+                $acctStmt = $db->query(
+                    "SELECT sfa.account_name, sfa.account_identifier, sfa.bank_name, fak.code AS kind_code
+                     FROM school_financial_accounts sfa
+                     JOIN financial_account_kinds fak ON fak.id = sfa.account_kind_id
+                     WHERE sfa.status = 'active' AND sfa.is_primary = 1
+                     ORDER BY fak.code"
+                );
+                while ($acct = $acctStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $kind = $acct['kind_code'] ?? '';
+                    if ($kind === 'mobile_money') {
+                        $mpesa['paybill'] = $acct['account_identifier'] ?? '';
+                        $mpesa['account'] = $cfg['mpesa_account'] ?? '';
+                    } elseif ($kind === 'bank') {
+                        $bank['bank']        = $acct['bank_name'] ?? '';
+                        $bank['account_name'] = $acct['account_name'] ?? '';
+                        $bank['account_no']   = $acct['account_identifier'] ?? '';
+                    }
+                }
+            } catch (\Exception $e) {
+                // Fall back to legacy system_config keys if the new table doesn't exist yet
+                $mpesa['paybill'] = $cfg['mpesa_paybill'] ?? '';
+                $mpesa['account'] = $cfg['mpesa_account'] ?? '';
+                $bank['bank']        = $cfg['bank_name'] ?? '';
+                $bank['account_name'] = $cfg['bank_account_name'] ?? '';
+                $bank['account_no']   = $cfg['bank_account_no'] ?? '';
+            }
+
             return [
                 'name'    => $cfg['school_name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
                 'address' => $cfg['school_address'] ?? '',
                 'phone'   => $cfg['school_phone'] ?? '',
                 'motto'   => $cfg['school_motto'] ?? 'In God We Soar',
                 'logo'    => $cfg['school_logo'] ?? '',
-                'mpesa'   => ['paybill' => $cfg['mpesa_paybill'] ?? '', 'account' => $cfg['mpesa_account'] ?? ''],
-                'bank'    => ['bank' => $cfg['bank_name'] ?? '', 'account_name' => $cfg['bank_account_name'] ?? '', 'account_no' => $cfg['bank_account_no'] ?? ''],
+                'mpesa'   => $mpesa,
+                'bank'    => $bank,
             ];
         } catch (\Exception $e) {
             return [

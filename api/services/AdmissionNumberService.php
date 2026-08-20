@@ -4,7 +4,7 @@
  *
  * Single source of truth for the admission-number format. The configured
  * format lives in school_settings.admission_no_format (default
- * `KA-{year}-{seq:04}`) and supports three tokens:
+ * `KPS{seq}`) and supports three tokens:
  *
  *   {year}    -> 4-digit year
  *   {seq}     -> per-year sequence, unpadded
@@ -25,7 +25,7 @@ use PDO;
 
 class AdmissionNumberService
 {
-    public const DEFAULT_FORMAT = 'KA-{year}-{seq:04}';
+    public const DEFAULT_FORMAT = 'KPS{seq}';
 
     /** @var PDO */
     private $db;

@@ -66,6 +66,85 @@ class FeeManager
     }
 
     /**
+     * Reconcile a changed fee schedule without rewriting paid history.
+     * Unpaid/partial obligations are repriced; paid obligations remain
+     * unchanged and any reduction becomes a student credit.
+     */
+    private function reconcileScheduleChange(int $oldScheduleId, int $newScheduleId, float $oldAmount, float $newAmount, ?int $userId): array
+    {
+        $rows = $this->db->prepare(
+            "SELECT sfo.id, sfo.amount_due, sfo.academic_year_id, sfo.academic_year_term_id,
+                    sae.student_id, COALESCE(vfb.amount_paid, 0) AS amount_paid
+             FROM student_fee_obligations sfo
+             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+             LEFT JOIN vw_student_fee_balances vfb
+               ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
+              AND vfb.academic_year_term_id = sfo.academic_year_term_id
+             WHERE sfo.academic_year_fee_schedule_id = ?"
+        );
+        $rows->execute([$oldScheduleId]);
+
+        $repriced = 0;
+        $credits = 0;
+        foreach ($rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $paid = (float) $row['amount_paid'];
+            $delta = round($newAmount - $oldAmount, 2);
+            $type = $delta < 0 ? 'credit' : ($delta > 0 ? 'debit' : 'unchanged');
+
+            $this->db->prepare(
+                "INSERT INTO fee_structure_adjustments
+                    (student_fee_obligation_id, old_schedule_id, new_schedule_id,
+                     old_amount, new_amount, amount_delta, adjustment_type,
+                     payment_protected, created_by, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)"
+            )->execute([
+                (int) $row['id'], $oldScheduleId, $newScheduleId,
+                $oldAmount, $newAmount, $delta, $type, $userId,
+                $paid >= $oldAmount
+                    ? 'Paid amount protected; schedule change did not rewrite payment history.'
+                    : 'Existing unpaid/partial obligation repriced to approved schedule amount.'
+            ]);
+
+            // Payments are never edited. The obligation is adjusted around
+            // them: an increase creates a remaining debit, while a reduction
+            // above the paid amount creates a usable credit.
+            if ($newAmount < $paid) {
+                $creditId = $this->nextId('fee_credit_notes');
+                $yearStmt = $this->db->prepare("SELECT year_code FROM academic_years WHERE id = ? LIMIT 1");
+                $yearStmt->execute([(int) $row['academic_year_id']]);
+                $yearCode = (string) ($yearStmt->fetchColumn() ?: date('Y'));
+                $this->db->prepare(
+                    "INSERT INTO fee_credit_notes
+                        (id, credit_number, student_id, academic_year, term_id,
+                         credit_amount, credit_reason, status, applied_amount,
+                         notes, created_by)
+                     VALUES (?, ?, ?, ?, ?, ?, 'fee_reduction', 'available', 0, ?, ?)"
+                )->execute([
+                    $creditId,
+                    'CRD-' . date('YmdHis') . '-' . $creditId,
+                    (int) $row['student_id'],
+                    substr($yearCode, 0, 4),
+                    (int) $row['academic_year_term_id'],
+                    round($paid - $newAmount, 2),
+                    'Credit created from approved fee reduction; paid history preserved.',
+                    $userId,
+                ]);
+                $credits++;
+            }
+
+            $status = $paid >= $newAmount ? 'paid' : ($paid > 0 ? 'partial' : 'pending');
+            $this->db->prepare(
+                "UPDATE student_fee_obligations
+                 SET amount_due = ?, status = ?, updated_at = NOW()
+                 WHERE id = ?"
+            )->execute([$newAmount, $status, (int) $row['id']]);
+            $repriced++;
+        }
+
+        return ['repriced' => $repriced, 'credits' => $credits];
+    }
+
+    /**
      * Build a map of term_number => academic_year_terms row for a given academic year
      */
     private function getYearTermMap($academicYearId)
@@ -1928,6 +2007,7 @@ class FeeManager
             $rowsArchived = 0;
             $obligationsUpdated = 0;
             $creditsIssued = 0;
+            $feeAdjustments = 0;
 
             $catalogCache = [];
             foreach ($items as $feeCode => $termAmounts) {
@@ -1972,6 +2052,18 @@ class FeeManager
                                 $amount = $hasAmount ? (float) $raw : null;
                             }
 
+                            // Keep the old schedule ids before archiving them so
+                            // existing obligations can be reconciled safely.
+                            $oldRowsStmt = $this->db->prepare("
+                                SELECT id, amount
+                                FROM academic_year_fee_schedules
+                                WHERE academic_year_id = ? AND academic_year_term_id = ?
+                                  AND academic_year_class_id = ? AND student_type_id = ?
+                                  AND fee_catalog_id = ? AND status = 'active'
+                            ");
+                            $oldRowsStmt->execute([$academicYearId, $aytId, $aycId, $stId, $catalogId]);
+                            $oldRows = $oldRowsStmt->fetchAll(PDO::FETCH_ASSOC);
+
                             $archiveStmt = $this->db->prepare("
                                 UPDATE academic_year_fee_schedules
                                 SET status = 'inactive', academic_year_class_id = NULL, updated_at = NOW()
@@ -1984,6 +2076,24 @@ class FeeManager
                             $rowsArchived += $archivedHere;
 
                             if (!$hasAmount) {
+                                // Cell cleared means the charge is removed. Reconcile
+                                // existing obligations to zero instead of leaving an
+                                // old charge behind. A zero new_schedule_id records
+                                // that no replacement schedule exists.
+                                foreach ($oldRows as $oldRow) {
+                                    if ((float) $oldRow['amount'] == 0.0) {
+                                        continue;
+                                    }
+                                    $reconciliation = $this->reconcileScheduleChange(
+                                        (int) $oldRow['id'],
+                                        0,
+                                        (float) $oldRow['amount'],
+                                        0.0,
+                                        isset($data['created_by']) ? (int) $data['created_by'] : null
+                                    );
+                                    $feeAdjustments += (int) ($reconciliation['repriced'] ?? 0);
+                                    $creditsIssued += (int) ($reconciliation['credits'] ?? 0);
+                                }
                                 // Cell cleared -> nothing to (re)create for this class.
                                 continue;
                             }
@@ -1998,6 +2108,21 @@ class FeeManager
                                 $insertId, $academicYearId, $aytId, $aycId, $stId, $catalogId, $amount, $data['created_by']
                             ]);
                             $rowsCreated++;
+
+                            foreach ($oldRows as $oldRow) {
+                                if ((float) $oldRow['amount'] === (float) $amount) {
+                                    continue;
+                                }
+                                $reconciliation = $this->reconcileScheduleChange(
+                                    (int) $oldRow['id'],
+                                    $insertId,
+                                    (float) $oldRow['amount'],
+                                    (float) $amount,
+                                    isset($data['created_by']) ? (int) $data['created_by'] : null
+                                );
+                                $feeAdjustments += (int) ($reconciliation['repriced'] ?? 0);
+                                $creditsIssued += (int) ($reconciliation['credits'] ?? 0);
+                            }
 
                             \App\API\Includes\FileLogger::write('finance', [
                                 'type' => 'audit',
@@ -2035,6 +2160,7 @@ class FeeManager
                 'total_rows_archived' => $rowsArchived,
                 'obligations_updated' => $obligationsUpdated,
                 'credits_issued' => $creditsIssued,
+                'fee_adjustments' => $feeAdjustments,
                 'class_count' => count($classRows),
                 'grade_range' => ['from_id' => $fromId, 'to_id' => $toId],
                 'academic_year' => $data['academic_year'],
@@ -2471,7 +2597,7 @@ class FeeManager
             $stmt->execute([
                 $data['source_year'],
                 $data['target_year'],
-                $data['executed_by'] ?? null
+                isset($data['apply_increase']) ? (int) $data['apply_increase'] : 0
             ]);
 
             // Get output parameters
@@ -3326,7 +3452,6 @@ class FeeManager
                      amount_due, status, due_date)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
                 ON DUPLICATE KEY UPDATE
-                    amount_due = VALUES(amount_due),
                     due_date   = VALUES(due_date)
             ");
 
@@ -3743,6 +3868,324 @@ class FeeManager
             ]);
 
         } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'getStudentFeeAccounts',
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    // =========================================================================
+    // EXTRA CHARGES — flexible, database-driven charges on the fee structure
+    // =========================================================================
+
+    /**
+     * List extra charges for an academic year.
+     */
+    public function getExtraCharges(array $filters = []): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+            $yearId = (int) ($filters['academic_year'] ?? 0);
+            if ($yearId <= 0) {
+                $row = $db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+                $yearId = (int) ($row['id'] ?? 0);
+            }
+            if ($yearId <= 0) return formatResponse(true, ['charges' => []]);
+
+            $where = ['ec.academic_year_id = ?'];
+            $params = [$yearId];
+
+            if (!empty($filters['status'])) {
+                $where[] = 'ec.status = ?';
+                $params[] = $filters['status'];
+            }
+            if (!empty($filters['scope'])) {
+                $where[] = 'ec.scope = ?';
+                $params[] = $filters['scope'];
+            }
+
+            $sql = "SELECT ec.*, st.name AS student_type_name, cl.name AS class_name,
+                           CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
+                           CONCAT(u2.first_name, ' ', u2.last_name) AS approved_by_name
+                    FROM extra_charges ec
+                    LEFT JOIN student_types st ON st.id = ec.student_type_id
+                    LEFT JOIN classes cl ON cl.id = ec.class_id
+                    LEFT JOIN users u ON u.id = ec.created_by
+                    LEFT JOIN users u2 ON u2.id = ec.approved_by
+                    WHERE " . implode(' AND ', $where) . "
+                    ORDER BY ec.display_order, ec.name";
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            return formatResponse(true, ['charges' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'getExtraCharges',
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Get a single extra charge with review history.
+     */
+    public function getExtraCharge(int $id): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare(
+                "SELECT ec.*, st.name AS student_type_name, cl.name AS class_name
+                 FROM extra_charges ec
+                 LEFT JOIN student_types st ON st.id = ec.student_type_id
+                 LEFT JOIN classes cl ON cl.id = ec.class_id
+                 WHERE ec.id = ?"
+            );
+            $stmt->execute([$id]);
+            $charge = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$charge) return formatResponse(false, null, 'Extra charge not found.');
+
+            $logStmt = $db->prepare(
+                "SELECT r.*, CONCAT(u.first_name, ' ', u.last_name) AS reviewer_name
+                 FROM extra_charge_review_log r
+                 JOIN users u ON u.id = r.reviewer_id
+                 WHERE r.extra_charge_id = ? ORDER BY r.created_at DESC"
+            );
+            $logStmt->execute([$id]);
+            $charge['review_log'] = $logStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['charge' => $charge]);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'getExtraCharge',
+                'charge_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Create a new extra charge (draft status).
+     */
+    public function createExtraCharge(array $data, int $userId): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+
+            $yearId = (int) ($data['academic_year_id'] ?? 0);
+            if ($yearId <= 0) return formatResponse(false, null, 'Academic year is required.');
+            $name = trim((string) ($data['name'] ?? ''));
+            if ($name === '') return formatResponse(false, null, 'Charge name is required.');
+            $amount = (float) ($data['amount'] ?? 0);
+            if ($amount <= 0) return formatResponse(false, null, 'Amount must be greater than zero.');
+
+            $freq = in_array($data['charge_frequency'] ?? '', ['one_time', 'per_term', 'per_year'], true)
+                ? $data['charge_frequency'] : 'one_time';
+            $scope = in_array($data['scope'] ?? '', ['all', 'student_type', 'class', 'specific_students'], true)
+                ? $data['scope'] : 'all';
+            $studentTypeId = !empty($data['student_type_id']) ? (int) $data['student_type_id'] : null;
+            $classId = !empty($data['class_id']) ? (int) $data['class_id'] : null;
+            $desc = trim((string) ($data['description'] ?? ''));
+            $order = (int) ($data['display_order'] ?? 0);
+
+            $stmt = $db->prepare(
+                "INSERT INTO extra_charges
+                    (academic_year_id, name, description, amount, charge_frequency, scope,
+                     student_type_id, class_id, display_order, status, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)"
+            );
+            $stmt->execute([$yearId, $name, $desc ?: null, $amount, $freq, $scope, $studentTypeId, $classId, $order, $userId]);
+            $newId = (int) $db->lastInsertId();
+
+            \App\API\Includes\FileLogger::write('finance', [
+                'action' => 'extra_charge_created',
+                'charge_id' => $newId,
+                'name' => $name,
+                'amount' => $amount,
+                'created_by' => $userId,
+            ]);
+
+            return formatResponse(true, ['id' => $newId, 'message' => 'Extra charge created.']);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'createExtraCharge',
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Update an extra charge (only drafts can be edited).
+     */
+    public function updateExtraCharge(int $id, array $data, int $userId): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+
+            $stmt = $db->prepare("SELECT id, status FROM extra_charges WHERE id = ?");
+            $stmt->execute([$id]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existing) return formatResponse(false, null, 'Extra charge not found.');
+            if ($existing['status'] !== 'draft') return formatResponse(false, null, 'Only draft charges can be edited.');
+
+            $sets = [];
+            $params = [];
+            $fields = ['name', 'description', 'amount', 'charge_frequency', 'scope', 'student_type_id', 'class_id', 'display_order'];
+            foreach ($fields as $f) {
+                if (array_key_exists($f, $data)) {
+                    $sets[] = "$f = ?";
+                    $params[] = $data[$f];
+                }
+            }
+            if (empty($sets)) return formatResponse(false, null, 'Nothing to update.');
+
+            $params[] = $id;
+            $db->prepare("UPDATE extra_charges SET " . implode(', ', $sets) . " WHERE id = ?")->execute($params);
+
+            \App\API\Includes\FileLogger::write('finance', [
+                'action' => 'extra_charge_updated',
+                'charge_id' => $id,
+                'updated_by' => $userId,
+            ]);
+
+            return formatResponse(true, ['message' => 'Extra charge updated.']);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'updateExtraCharge',
+                'charge_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Soft-delete an extra charge (set inactive).
+     */
+    public function deleteExtraCharge(int $id, int $userId): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+            $db->prepare("UPDATE extra_charges SET status = 'inactive' WHERE id = ?")->execute([$id]);
+
+            \App\API\Includes\FileLogger::write('finance', [
+                'action' => 'extra_charge_deleted',
+                'charge_id' => $id,
+                'deleted_by' => $userId,
+            ]);
+
+            return formatResponse(true, ['message' => 'Extra charge removed.']);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'deleteExtraCharge',
+                'charge_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Submit an extra charge for review (draft → submitted).
+     */
+    public function submitExtraCharge(int $id, int $userId): array
+    {
+        return $this->transitionExtraCharge($id, $userId, 'draft', 'submitted', 'submitted');
+    }
+
+    /**
+     * Approve an extra charge (draft/submitted → active).
+     */
+    public function approveExtraCharge(int $id, int $userId, string $notes = ''): array
+    {
+        $db = Database::getInstance()->getConnection();
+        $result = $this->transitionExtraCharge($id, $userId, null, 'active', 'approved', $notes);
+        if ($result['success']) {
+            $db->prepare("UPDATE extra_charges SET approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'active'")->execute([$userId, $id]);
+        }
+        return $result;
+    }
+
+    /**
+     * Reject an extra charge (back to draft).
+     */
+    public function rejectExtraCharge(int $id, int $userId, string $notes = ''): array
+    {
+        return $this->transitionExtraCharge($id, $userId, null, 'draft', 'rejected', $notes);
+    }
+
+    /**
+     * Internal: transition an extra charge status and log it.
+     */
+    private function transitionExtraCharge(int $id, int $userId, ?string $fromStatus, string $toStatus, string $action, string $notes = ''): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+
+            $where = 'id = ?';
+            $params = [$id];
+            if ($fromStatus !== null) {
+                $where .= ' AND status = ?';
+                $params[] = $fromStatus;
+            }
+
+            $stmt = $db->prepare("SELECT id, status FROM extra_charges WHERE $where");
+            $stmt->execute($params);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existing) return formatResponse(false, null, 'Extra charge not found or invalid status.');
+
+            $db->prepare("UPDATE extra_charges SET status = ? WHERE id = ?")->execute([$toStatus, $id]);
+            $db->prepare(
+                "INSERT INTO extra_charge_review_log (extra_charge_id, action, reviewer_id, notes) VALUES (?, ?, ?, ?)"
+            )->execute([$id, $action, $userId, $notes ?: null]);
+
+            \App\API\Includes\FileLogger::write('finance', [
+                'action' => "extra_charge_{$action}",
+                'charge_id' => $id,
+                'from_status' => $existing['status'],
+                'to_status' => $toStatus,
+                'reviewer_id' => $userId,
+            ]);
+
+            return formatResponse(true, ['message' => 'Status updated.']);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => "transitionExtraCharge_{$action}",
+                'charge_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Get active extra charges formatted for the fee structure printout.
+     */
+    public function getExtraChargesForPrint(int $yearId): array
+    {
+        try {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare(
+                "SELECT ec.name, ec.amount, ec.scope, ec.student_type_id, ec.class_id
+                 FROM extra_charges ec
+                 WHERE ec.academic_year_id = ? AND ec.status = 'active'
+                 ORDER BY ec.display_order, ec.name"
+            );
+            $stmt->execute([$yearId]);
+            $charges = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $charges[] = ['name' => $row['name'], 'amount' => (float) $row['amount']];
+            }
+            return formatResponse(true, ['charges' => $charges]);
+        } catch (Exception $e) {
+            \App\API\Includes\FileLogger::error('finance', [
+                'action' => 'getExtraChargesForPrint',
+                'error' => $e->getMessage(),
+            ]);
             return formatResponse(false, null, 'An internal error occurred.');
         }
     }

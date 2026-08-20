@@ -1557,7 +1557,13 @@ class StudentsAPI extends BaseAPI
 
             $this->logAction('create', $studentId, "Created new student: {$data['first_name']} {$data['last_name']}");
 
-            $this->db->commit();
+            // Enrollment onboarding may be performed by the database trigger
+            // on student_academic_enrollments. Some deployments complete the
+            // transaction inside that trigger/procedure, so do not call
+            // commit() a second time when PDO is no longer in a transaction.
+            if ($this->db->inTransaction()) {
+                $this->db->commit();
+            }
 
             return $this->response([
                 'status' => 'success',
@@ -1801,16 +1807,8 @@ class StudentsAPI extends BaseAPI
     // Helper methods
     private function generateAdmissionNumber()
     {
-        $year = date('Y');
-        $stmt = $this->db->prepare("
-            SELECT COUNT(*) + 1 as next_number 
-            FROM students 
-            WHERE admission_no LIKE ?
-        ");
-        $stmt->execute(["{$year}%"]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        $nextNumber = str_pad($result['next_number'], 4, '0', STR_PAD_LEFT);
-        return "{$year}{$nextNumber}";
+        $admissionYear = $this->getCurrentAcademicYearValue() ?? (int) date('Y');
+        return (new AdmissionNumberService($this->db))->generate($admissionYear);
     }
 
     private function addParent($studentId, $parentData)
@@ -2712,7 +2710,9 @@ class StudentsAPI extends BaseAPI
             ");
             $stmt->execute([$data['new_stream_id'], $id]);
 
-            $this->db->commit();
+            if ($this->db->inTransaction()) {
+                $this->db->commit();
+            }
             $this->logAction('update', $id, "Transferred student to new stream");
 
             return $this->response([
@@ -2894,7 +2894,12 @@ class StudentsAPI extends BaseAPI
                 'token' => $qrToken,
                 'version' => 1
             ], JSON_UNESCAPED_SLASHES);
-            $cardNumber = 'CARD-' . $student['admission_no'] . '-' . date('Y');
+            // student_id_cards.card_number is VARCHAR(20). Admission numbers
+            // such as KA-2026-0005 cannot safely be concatenated with a year
+            // without exceeding that limit. Keep the card number compact and
+            // unique; the admission number remains the learner-facing account
+            // reference.
+            $cardNumber = 'CARD-' . str_pad((string) $id, 15, '0', STR_PAD_LEFT);
             $academicYearId = $this->getCurrentAcademicYearIdForScope();
             $expiryYear = (int) date('Y') + 4;
 
@@ -5096,7 +5101,9 @@ class StudentsAPI extends BaseAPI
                 'data' => ['count' => $stmt->rowCount()]
             ]);
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -5166,8 +5173,10 @@ class StudentsAPI extends BaseAPI
                 $data['admission_no'] = $this->generateAdmissionNumber();
             }
 
-            // Get stream_id from class_id and stream_name (if provided)
-            $streamId = $this->getOrCreateStreamId($data['class_id'], $data['stream_name'] ?? 'A');
+            if (empty($data['stream_name'])) {
+                throw new Exception('A configured stream is required for an existing learner');
+            }
+            $streamId = $this->getOrCreateStreamId($data['class_id'], $data['stream_name']);
 
             $personId = $this->nextId('persons');
             $personStmt = $this->db->prepare("
@@ -5204,20 +5213,80 @@ class StudentsAPI extends BaseAPI
             ]);
 
             // Enroll into class/stream for the current year
-            $this->ensureClassEnrollment($studentId, $streamId);
+            $enrollmentId = $this->ensureClassEnrollment($studentId, $streamId);
 
-            // Generate fee obligations for the current year
-            $this->generateStudentFeeObligationsForCurrentYear($studentId);
+            // The enrollment trigger may run before the application method
+            // returns and seed all annual rows. For a newly imported learner
+            // there is no historical ledger to protect, so normalize that
+            // trigger output to the current term and future terms only.
+            if ($enrollmentId) {
+                $termStmt = $this->db->query(
+                    "SELECT COALESCE(
+                        MAX(CASE WHEN ayt.status = 'current' THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                        MAX(CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                        MIN(CASE WHEN ayt.opening_date >= CURDATE() THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                        1
+                    )
+                     FROM academic_year_terms ayt
+                     JOIN terms t ON t.id = ayt.term_id
+                     JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                     WHERE ay.is_current = 1"
+                );
+                $currentTermNumber = (int) ($termStmt ? $termStmt->fetchColumn() : 1);
+                $cleanStmt = $this->db->prepare(
+                    "DELETE sfo
+                     FROM student_fee_obligations sfo
+                     JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+                     JOIN terms t ON t.id = ayt.term_id
+                     WHERE sfo.student_academic_enrollment_id = ?
+                       AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) < ?"
+                );
+                $cleanStmt->execute([(int) $enrollmentId, $currentTermNumber]);
+            }
+
+            // The AFTER INSERT enrollment trigger is the single billing
+            // authority. It invokes sp_onboard_student_enrollment, which now
+            // applies the current-term/future-term rule. Calling the legacy
+            // PHP generator here as well could reintroduce an all-term bill.
 
             // Add parent/guardian if provided
             if (!empty($data['parent'])) {
                 $this->addStudentParent($studentId, $data['parent']);
             }
 
+            if ((float) ($data['initial_payment'] ?? 0) > 0) {
+                if (!empty($data['financial_migration'])) {
+                    throw new \InvalidArgumentException('Use either initial_payment or financial_migration, not both');
+                }
+                $this->recordInitialPayment($studentId, [
+                    'amount' => (float) $data['initial_payment'],
+                    'method' => $data['payment_method'] ?? 'bank_transfer',
+                    'reference' => $data['payment_reference'] ?? null,
+                    'receipt_no' => $data['receipt_no'] ?? null,
+                    'payment_date' => $data['payment_date'] ?? null,
+                    'notes' => 'Opening balance payment imported for existing learner',
+                ]);
+            }
+
+            if (!empty($data['financial_migration'])) {
+                $financial = $data['financial_migration'];
+                foreach (['academic_year_paid_amount', 'current_term_paid_amount', 'fee_arrears_amount', 'advance_amount'] as $field) {
+                    if (isset($financial[$field]) && (!is_numeric($financial[$field]) || (float) $financial[$field] < 0)) {
+                        throw new \InvalidArgumentException("{$field} must be a non-negative number");
+                    }
+                }
+                if ((float) ($financial['current_term_paid_amount'] ?? 0) > (float) ($financial['academic_year_paid_amount'] ?? 0)) {
+                    throw new \InvalidArgumentException('Current-term paid amount cannot exceed academic-year paid amount');
+                }
+                $this->saveFinancialMigrationSnapshot($studentId, $financial);
+            }
+
             // Generate QR code
             $this->generateQRCode($studentId);
 
-            $this->db->commit();
+            if ($this->db->inTransaction()) {
+                $this->db->commit();
+            }
 
             $this->logAction('create', $studentId, "Added existing student: {$data['first_name']} {$data['last_name']} (Quick Add)");
 
@@ -5231,7 +5300,9 @@ class StudentsAPI extends BaseAPI
             ], 201);
 
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -5389,12 +5460,70 @@ class StudentsAPI extends BaseAPI
                         'date_of_birth' => $row['date_of_birth'],
                         'gender' => strtolower($row['gender']),
                         'class_id' => $row['class_id'],
-                        'stream_name' => $row['stream_name'] ?? 'A',
+                        'stream_name' => $row['stream_name'] ?? null,
+                        'student_type_id' => !empty($row['student_type_id']) ? (int) $row['student_type_id'] : 1,
                         'admission_date' => $row['admission_date'],
                         'assessment_number' => $row['assessment_number'] ?? null,
                         'nationality' => $row['nationality'] ?? 'Kenyan',
                         'religion' => $row['religion'] ?? null
                     ];
+
+                    if (empty($studentData['stream_name'])) {
+                        throw new Exception('stream_name is required for existing-student migration');
+                    }
+
+                    if ((float) ($row['opening_payment_amount'] ?? 0) > 0) {
+                        $studentData['initial_payment'] = (float) $row['opening_payment_amount'];
+                        $studentData['payment_method'] = $row['opening_payment_method'] ?? 'bank_transfer';
+                        $studentData['payment_reference'] = $row['opening_payment_reference'] ?? null;
+                        $studentData['payment_date'] = $row['opening_payment_date'] ?? null;
+                        $studentData['receipt_no'] = $row['opening_payment_receipt'] ?? null;
+                    }
+
+                    $financialFields = [
+                        'academic_year_paid_amount',
+                        'current_term_paid_amount',
+                        'fee_arrears_amount',
+                        'advance_amount'
+                    ];
+                    $hasFinancialSnapshot = false;
+                    foreach ($financialFields as $financialField) {
+                        if (trim((string) ($row[$financialField] ?? '')) !== '') {
+                            $hasFinancialSnapshot = true;
+                            break;
+                        }
+                    }
+                    if ($hasFinancialSnapshot) {
+                        if ((float) ($row['opening_payment_amount'] ?? 0) > 0) {
+                            throw new \InvalidArgumentException('Use the financial migration fields instead of opening_payment_amount; do not enter the same payment twice');
+                        }
+                        $snapshot = [];
+                        foreach ($financialFields as $financialField) {
+                            $value = trim((string) ($row[$financialField] ?? '0'));
+                            if ($value === '') {
+                                $value = '0';
+                            }
+                            if (!is_numeric($value) || (float) $value < 0) {
+                                throw new \InvalidArgumentException("{$financialField} must be a non-negative number");
+                            }
+                            $snapshot[$financialField] = round((float) $value, 2);
+                        }
+                        if ($snapshot['current_term_paid_amount'] > $snapshot['academic_year_paid_amount']) {
+                            throw new \InvalidArgumentException('current_term_paid_amount cannot exceed academic_year_paid_amount');
+                        }
+                        $studentData['financial_migration'] = [
+                            'academic_year_code' => trim((string) ($row['financial_academic_year_code'] ?? $row['academic_year_code'] ?? '')),
+                            'academic_year_paid_amount' => $snapshot['academic_year_paid_amount'],
+                            'current_term_paid_amount' => $snapshot['current_term_paid_amount'],
+                            'fee_arrears_amount' => $snapshot['fee_arrears_amount'],
+                            'advance_amount' => $snapshot['advance_amount'],
+                            'reference' => $row['opening_balance_reference'] ?? null,
+                            'payment_date' => $row['opening_balance_date'] ?? null,
+                            'payment_method' => $row['opening_balance_method'] ?? null,
+                            'receipt_no' => $row['opening_balance_receipt'] ?? null,
+                            'notes' => $row['opening_balance_notes'] ?? 'Imported existing-student financial snapshot'
+                        ];
+                    }
 
                     // Add parent data if available
                     if (!empty($row['parent_first_name']) && !empty($row['parent_last_name'])) {
@@ -5411,6 +5540,12 @@ class StudentsAPI extends BaseAPI
                     $response = $this->addExistingStudent($studentData);
 
                     if ($response['status'] === 'success') {
+                        if (!empty($studentData['financial_migration'])) {
+                            $this->saveFinancialMigrationSnapshot(
+                                (int) ($response['data']['id'] ?? 0),
+                                $studentData['financial_migration']
+                            );
+                        }
                         $results['successful']++;
                     } else {
                         $results['failed']++;
@@ -5420,6 +5555,12 @@ class StudentsAPI extends BaseAPI
                         ];
                     }
 
+                } catch (\InvalidArgumentException $e) {
+                    $results['failed']++;
+                    $results['errors'][] = [
+                        'row' => $rowNum,
+                        'error' => $e->getMessage()
+                    ];
                 } catch (Exception $e) {
                     $results['failed']++;
                     $results['errors'][] = [
@@ -5458,6 +5599,7 @@ class StudentsAPI extends BaseAPI
             'gender',
             'class_id',
             'stream_name',
+            'student_type_id',
             'admission_date',
             'assessment_number',
             'birth_certificate_no',
@@ -5470,7 +5612,22 @@ class StudentsAPI extends BaseAPI
             'parent_last_name',
             'parent_phone',
             'parent_email',
-            'parent_relationship'
+            'parent_relationship',
+            'opening_payment_amount',
+            'opening_payment_method',
+            'opening_payment_reference',
+            'opening_payment_date',
+            'opening_payment_receipt',
+            'financial_academic_year_code',
+            'academic_year_paid_amount',
+            'current_term_paid_amount',
+            'fee_arrears_amount',
+            'advance_amount',
+            'opening_balance_reference',
+            'opening_balance_date',
+            'opening_balance_method',
+            'opening_balance_receipt',
+            'opening_balance_notes'
         ];
 
         $sampleData = [
@@ -5483,6 +5640,7 @@ class StudentsAPI extends BaseAPI
                 'male',
                 '5',
                 'A',
+                '1',
                 '2020-01-15',
                 'NEM123456',
                 'BC123456',
@@ -5495,7 +5653,22 @@ class StudentsAPI extends BaseAPI
                 'Doe',
                 '0712345678',
                 'jane.doe@email.com',
-                'mother'
+                'mother',
+                '0',
+                'bank_transfer',
+                '',
+                '',
+                '',
+                '2026/2027',
+                '15000',
+                '3500',
+                '2000',
+                '0',
+                'MIG-EXAMPLE-001',
+                '2026-08-19',
+                'bank_transfer',
+                'KCB-EXAMPLE-001',
+                'Historical paid amount is cumulative; current term paid is the amount applied now.'
             ]
         ];
 
@@ -5509,6 +5682,13 @@ class StudentsAPI extends BaseAPI
                     'Date format: YYYY-MM-DD',
                     'Gender: male, female, or other',
                     'class_id: Numeric ID of the class (e.g., 1 for Grade 1)',
+                    'stream_name: Existing stream configured for the class and current academic year; no default stream is created',
+                    'financial_academic_year_code: Full code such as 2026/2027',
+                    'academic_year_paid_amount: Cumulative amount already paid during the academic year; informational and never double-counted',
+                    'current_term_paid_amount: Portion of the cumulative amount applied to the current term; must not exceed academic_year_paid_amount',
+                    'fee_arrears_amount: Opening debit to carry into the imported learner balance',
+                    'advance_amount: Confirmed fee credit available for current/future obligations',
+                    'Financial fields are optional, but if one is supplied all four amount fields should be completed',
                     'If admission_no is empty, it will be auto-generated',
                     'If admission_date is empty, current date will be used'
                 ]
@@ -5521,14 +5701,98 @@ class StudentsAPI extends BaseAPI
     // ========================================================================
 
     /**
+     * Store the financial position supplied during migration. The snapshot is
+     * deliberately separate from payments: historical annual totals must not
+     * be replayed as new payments, while the current-term amount, arrears and
+     * advance remain available to the fee ledger.
+     */
+    private function saveFinancialMigrationSnapshot($studentId, array $financial)
+    {
+        if ($studentId <= 0) {
+            throw new \InvalidArgumentException('Imported student could not be resolved for financial migration');
+        }
+
+        $yearCode = trim((string) ($financial['academic_year_code'] ?? ''));
+        if ($yearCode === '') {
+            $yearCode = (string) ($this->db->query(
+                "SELECT year_code FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1"
+            )->fetchColumn() ?: '');
+        }
+        if (!preg_match('/^(\d{4})\/(\d{4})$/', $yearCode, $matches)) {
+            throw new \InvalidArgumentException('financial_academic_year_code must use YYYY/YYYY format');
+        }
+
+        $yearStmt = $this->db->prepare(
+            "SELECT id FROM academic_years WHERE year_code = ? LIMIT 1"
+        );
+        $yearStmt->execute([$yearCode]);
+        $academicYearId = (int) $yearStmt->fetchColumn();
+        if ($academicYearId <= 0) {
+            throw new \InvalidArgumentException("Academic year {$yearCode} was not found");
+        }
+
+        $termStmt = $this->db->prepare(
+            "SELECT ayt.id
+             FROM academic_year_terms ayt
+             JOIN terms t ON t.id = ayt.term_id
+             WHERE ayt.academic_year_id = ?
+               AND (ayt.status = 'current' OR CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date)
+             ORDER BY ayt.status = 'current' DESC, CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
+             LIMIT 1"
+        );
+        $termStmt->execute([$academicYearId]);
+        $academicYearTermId = (int) ($termStmt->fetchColumn() ?: 0);
+
+        $academicYearPaid = round((float) ($financial['academic_year_paid_amount'] ?? 0), 2);
+        $currentTermPaid = round((float) ($financial['current_term_paid_amount'] ?? 0), 2);
+        $arrears = round((float) ($financial['fee_arrears_amount'] ?? 0), 2);
+        $advance = round((float) ($financial['advance_amount'] ?? 0), 2);
+        if ($currentTermPaid > $academicYearPaid) {
+            throw new \InvalidArgumentException('Current-term paid amount cannot exceed academic-year paid amount');
+        }
+
+        $sql = "INSERT INTO student_fee_migration_snapshots
+            (student_id, academic_year_id, academic_year_term_id,
+             academic_year_paid_amount, current_term_paid_amount,
+             arrears_amount, advance_amount, reference, payment_date,
+             payment_method, receipt_no, notes, imported_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                academic_year_term_id = VALUES(academic_year_term_id),
+                academic_year_paid_amount = VALUES(academic_year_paid_amount),
+                current_term_paid_amount = VALUES(current_term_paid_amount),
+                arrears_amount = VALUES(arrears_amount),
+                advance_amount = VALUES(advance_amount),
+                reference = VALUES(reference), payment_date = VALUES(payment_date),
+                payment_method = VALUES(payment_method), receipt_no = VALUES(receipt_no),
+                notes = VALUES(notes), imported_by = VALUES(imported_by)";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            $studentId,
+            $academicYearId,
+            $academicYearTermId > 0 ? $academicYearTermId : null,
+            $academicYearPaid,
+            $currentTermPaid,
+            $arrears,
+            $advance,
+            $financial['reference'] ?? null,
+            !empty($financial['payment_date']) ? $financial['payment_date'] : null,
+            !empty($financial['payment_method']) ? $this->normalizePaymentMethod($financial['payment_method']) : null,
+            $financial['receipt_no'] ?? null,
+            $financial['notes'] ?? null,
+            $this->getCurrentUserId()
+        ]);
+    }
+
+    /**
      * Get or create academic_year_class_streams.id for a class
      * New schema: streams (master) bound to academic_year_class_streams (year-scoped)
      */
-    private function getOrCreateStreamId($classId, $streamName = 'A')
+    private function getOrCreateStreamId($classId, $streamName = null)
     {
         $streamName = trim((string) $streamName);
         if ($streamName === '') {
-            $streamName = 'A';
+            throw new Exception('A configured stream is required');
         }
 
         // Get the current academic year
@@ -5562,14 +5826,7 @@ class StudentsAPI extends BaseAPI
         $streamId = (int) $smStmt->fetchColumn();
 
         if ($streamId === 0) {
-            // Create the stream master record (idempotent via UNIQUE on name/code)
-            $streamCode = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $streamName), 0, 20));
-            $insSm = $this->db->prepare(
-                "INSERT INTO streams (name, code, capacity)
-                 VALUES (?, ?, 40)"
-            );
-            $insSm->execute([$streamName, $streamCode]);
-            $streamId = (int) $this->db->lastInsertId();
+            throw new Exception("Configured stream '{$streamName}' was not found");
         }
 
         // Check existing academic_year_class_streams binding
@@ -5585,15 +5842,7 @@ class StudentsAPI extends BaseAPI
             return (int) $row['id'];
         }
 
-        // Create the binding
-        $ins = $this->db->prepare(
-            "INSERT INTO academic_year_class_streams
-                (academic_year_class_id, stream_id, status)
-             VALUES (?, ?, 'active')"
-        );
-        $ins->execute([$academicYearClassId, $streamId]);
-
-        return (int) $this->db->lastInsertId();
+        throw new Exception("Stream '{$streamName}' is not configured for class {$classId} in the current academic year");
     }
 
     /**
@@ -5603,6 +5852,14 @@ class StudentsAPI extends BaseAPI
     {
         // Check if parent already exists by phone or email (live: persons holds contact info)
         $parentId = null;
+        if (!empty($parentData['parent_id'])) {
+            $parentStmt = $this->db->prepare("SELECT id FROM parents WHERE id = ? LIMIT 1");
+            $parentStmt->execute([(int) $parentData['parent_id']]);
+            $parentId = (int) ($parentStmt->fetchColumn() ?: 0);
+            if (!$parentId) {
+                throw new Exception('Selected parent record was not found');
+            }
+        }
         $phone = trim((string) ($parentData['phone_1'] ?? $parentData['phone'] ?? ''));
         $email = trim((string) ($parentData['email'] ?? ''));
 

@@ -347,8 +347,13 @@ class WebsiteController extends BaseController
 
     public function putSettings($id = null, $data = [], $segments = [])
     {
-        $guard = $this->requirePerm('website_settings_manage');
-        if ($guard) return $guard;
+        $isAdmissionNumberSetting = in_array((string) ($data['key'] ?? ''), [
+            'admission_no_format', 'admission_no_start_sequence'
+        ], true);
+        if (!$isAdmissionNumberSetting) {
+            $guard = $this->requirePerm('website_settings_manage');
+            if ($guard) return $guard;
+        }
         if (empty($data['key'])) return $this->badRequest('Setting key is required.');
         return $this->handleResponse($this->manager->saveSetting($data['key'], (string) ($data['value'] ?? '')));
     }

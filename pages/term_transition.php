@@ -5,7 +5,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 gap-3">
     <div>
       <h3 class="mb-1"><i class="bi bi-arrow-right-circle-fill me-2 text-primary"></i>Term Transition</h3>
-      <p class="text-muted mb-0 small">Close the current term, roll over the timetable, and activate the next term.</p>
+      <p class="text-muted mb-0 small">Review and prepare the next term, then close the current term and activate the next term in one final atomic action.</p>
     </div>
     <span class="badge bg-warning fs-6 align-self-center" id="ttCurrentTermBadge">Loading…</span>
   </div>
@@ -61,9 +61,8 @@
   <div id="ttStep2" style="display:none;">
     <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
       <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-lock-fill text-danger me-2"></i>Close Current Term</h5>
-        <p class="text-muted">This will mark <strong id="ttCurrentTermName"></strong> as <span class="badge bg-secondary">Completed</span>.
-          Lesson plans, attendance, and results will be locked from further edits.</p>
+        <h5 class="fw-semibold mb-3"><i class="bi bi-lock-fill text-danger me-2"></i>Prepare Current Term for Closure</h5>
+        <p class="text-muted">Confirm that <strong id="ttCurrentTermName"></strong> is ready to be closed. The database will only mark it <span class="badge bg-secondary">Completed</span> during final activation.</p>
         <div class="form-check mb-3">
           <input class="form-check-input" type="checkbox" id="ttConfirmClose">
           <label class="form-check-label fw-semibold" for="ttConfirmClose">
@@ -77,8 +76,8 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(1)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()">
-        <i class="bi bi-lock me-1"></i> Close Current Term
+        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()">
+        <i class="bi bi-arrow-right me-1"></i> Confirm and Continue
       </button>
     </div>
   </div>
@@ -88,7 +87,7 @@
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <h5 class="fw-semibold mb-3"><i class="bi bi-arrow-repeat text-primary me-2"></i>Roll Over Timetable</h5>
-        <p class="text-muted">Copy the current term's class timetable to the next term. You can edit individual slots after activation.</p>
+        <p class="text-muted">Prepare to copy the current term's class timetable to the next term. The copy occurs only during final activation; you can edit individual slots afterward.</p>
 
         <div class="row g-3 mb-3" id="ttTimetableStats">
           <div class="col-md-3">
@@ -175,8 +174,8 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(3)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()">
-        Save Term 2 Setup <i class="bi bi-arrow-right ms-1"></i>
+        <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()">
+        Save Setup and Review Activation <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
   </div>
@@ -189,7 +188,7 @@
         <div id="ttActivateSummary" class="row g-3 mb-3"></div>
         <div class="alert alert-success mb-0">
           <i class="bi bi-check-circle me-2"></i>
-          Activating the next term will:
+          Final activation will:
           <ul class="mb-0 mt-1">
             <li>Set the next term status to <strong>Current</strong></li>
             <li>Mark the previous term as <strong>Completed</strong> (if not already done)</li>
@@ -205,7 +204,7 @@
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
       <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" onclick="termTransitionController.activateTerm2()">
-        <i class="bi bi-play-fill me-1"></i> Activate Next Term Now
+        <i class="bi bi-play-fill me-1"></i> Close Current &amp; Activate Next Term
       </button>
     </div>
   </div>

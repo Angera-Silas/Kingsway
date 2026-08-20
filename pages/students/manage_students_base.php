@@ -198,7 +198,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title" id="studentModalLabel">Add Student</h5>
+                <h5 class="modal-title" id="studentModalLabel">Add Existing Learner</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="studentForm" enctype="multipart/form-data" onsubmit="studentsManagementController.saveStudent(event)">
@@ -279,21 +279,11 @@
                     <!-- Academic Information -->
                     <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-mortarboard"></i> Academic Information</h6>
                     <div class="row">
-                        <?php
-// Generate unique admission number (example: ADM20260001)
-function generateAdmissionNumber($prefix = 'ADM') {
-    $year = date('Y'); // current year
-    // Generate a random 4-digit number
-    $randomNumber = str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
-    return $prefix . $year . $randomNumber;
-}
-
-$admissionNumber = generateAdmissionNumber();
-?>
 <div class="col-md-3 mb-3">
     <label class="form-label">Admission Number <span class="text-danger">*</span></label>
     <input type="text" id="admissionNumber" class="form-control" 
-           value="<?php echo $admissionNumber; ?>" readonly required>
+           value="" placeholder="Generated automatically, e.g. KPS111" readonly>
+    <small class="text-muted">Generated from the school’s configured format when saved.</small>
 </div>
 
                         <div class="col-md-3 mb-3">
@@ -401,18 +391,18 @@ $admissionNumber = generateAdmissionNumber();
                         </div>
                     </div>
 
-                    <!-- Initial Payment (Required unless sponsored) -->
-                    <h6 class="mb-3 mt-3 text-primary" id="paymentSectionHeader"><i class="bi bi-cash-coin"></i> Initial Payment <span class="text-danger">*</span></h6>
+                    <!-- Optional opening balance for an already enrolled learner -->
+                    <h6 class="mb-3 mt-3 text-primary" id="paymentSectionHeader"><i class="bi bi-cash-coin"></i> Opening Balance Payment <small class="text-muted">(optional)</small></h6>
                     <div class="alert alert-info mb-3" id="paymentAlert">
                         <i class="bi bi-info-circle"></i> Students must have an initial payment recorded OR be marked as sponsored before they can be assigned to a class.
                     </div>
                     <div class="row" id="paymentFieldsSection">
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Payment Amount (KES) <span class="text-danger">*</span></label>
+                            <label class="form-label">Amount already paid (KES)</label>
                             <input type="number" id="initialPaymentAmount" class="form-control" min="0" step="0.01" placeholder="e.g. 5000">
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Payment Method <span class="text-danger">*</span></label>
+                            <label class="form-label">Payment Method</label>
                             <select id="paymentMethod" class="form-select">
                                 <option value="">-- Select Method --</option>
                                 <option value="cash">Cash</option>
@@ -428,6 +418,54 @@ $admissionNumber = generateAdmissionNumber();
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Receipt Number</label>
                             <input type="text" id="receiptNo" class="form-control" placeholder="e.g. REC-2025-001">
+                        </div>
+                    </div>
+                    <div class="alert alert-secondary mt-2">
+                        For an existing learner, use the migration fields below to preserve the financial position.
+                        Annual paid is historical; current-term paid is applied once. Do not combine these fields with Amount already paid.
+                    </div>
+                    <div class="row" id="financialMigrationSection">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Academic Year</label>
+                            <input type="text" id="financialAcademicYearCode" class="form-control" placeholder="2026/2027" pattern="\d{4}/\d{4}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Academic-year paid (KES)</label>
+                            <input type="number" id="academicYearPaidAmount" class="form-control" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Current-term paid (KES)</label>
+                            <input type="number" id="currentTermPaidAmount" class="form-control" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Arrears (KES)</label>
+                            <input type="number" id="feeArrearsAmount" class="form-control" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Advance (KES)</label>
+                            <input type="number" id="advanceAmount" class="form-control" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Opening balance reference</label>
+                            <input type="text" id="openingBalanceReference" class="form-control">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Opening balance date</label>
+                            <input type="date" id="openingBalanceDate" class="form-control">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Opening balance method</label>
+                            <select id="openingBalanceMethod" class="form-select">
+                                <option value="">-- Select --</option>
+                                <option value="bank_transfer">Bank Transfer</option>
+                                <option value="mpesa">M-Pesa</option>
+                                <option value="cheque">Cheque</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">Opening balance notes</label>
+                            <textarea id="openingBalanceNotes" class="form-control" rows="2" placeholder="Source of the migrated figures"></textarea>
                         </div>
                     </div>
 

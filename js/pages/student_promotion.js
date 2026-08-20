@@ -54,6 +54,28 @@ const StudentPromotionController = {
     }
 
     await this.loadMeta();
+    await this.checkRolloverInProgress();
+  },
+
+  async checkRolloverInProgress() {
+    const instanceId = localStorage.getItem('kingsway_yr_transition_instance');
+    if (!instanceId) return;
+    const banner = document.getElementById('promotionRolloverBanner');
+    try {
+      const response = await this.api(`/academic/workflow/status?workflow_type=year-transition&instance_id=${encodeURIComponent(instanceId)}`, 'GET');
+      const status = this.unwrap(response) || {};
+      if (status.status === 'completed' || status.workflow_status === 'completed') {
+        localStorage.removeItem('kingsway_yr_transition_instance');
+        return;
+      }
+      banner?.classList.remove('d-none');
+      if (this.ui.executePromotionBtn) {
+        this.ui.executePromotionBtn.disabled = true;
+        this.ui.executePromotionBtn.title = 'Use the Year Rollover assignment board';
+      }
+    } catch (error) {
+      console.warn('Could not check academic rollover status:', error);
+    }
   },
 
   cacheDom() {

@@ -439,7 +439,17 @@ class AdmissionAdminManager extends BaseAPI
                                 SELECT 1 FROM student_parents sp0
                                 WHERE sp0.parent_id = aa.parent_id
                                   AND (aa.enrolled_student_id IS NULL OR sp0.student_id <> aa.enrolled_student_id)
-                            ) THEN 1000 ELSE 2000 END AS registration_fee_due,
+                            ) THEN ROUND(COALESCE(
+                                (SELECT ec.amount * 0.5 FROM extra_charges ec
+                                 JOIN academic_years ay ON ay.id = ec.academic_year_id
+                                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active' LIMIT 1),
+                                1000
+                            )) ELSE COALESCE(
+                                (SELECT ec.amount FROM extra_charges ec
+                                 JOIN academic_years ay ON ay.id = ec.academic_year_id
+                                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active' LIMIT 1),
+                                2000
+                            ) END AS registration_fee_due,
                             s0.admission_no AS admission_number,
                             (SELECT c0.name
                                FROM student_academic_enrollments sae0

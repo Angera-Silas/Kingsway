@@ -42,6 +42,13 @@ if (!isset($appBase)) {
 
         <div class="card-body">
 
+            <div id="promotionRolloverBanner" class="alert alert-info d-none">
+                <div class="d-flex justify-content-between align-items-center gap-3">
+                    <div><strong>Academic-year rollover in progress.</strong><br><span class="small">Stream placement is being controlled from the resumable Year Rollover assignment board. Use that board so learners are not placed automatically or twice.</span></div>
+                    <a class="btn btn-primary btn-sm text-nowrap" href="<?php echo $appBase; ?>/home.php?route=year_rollover"><i class="bi bi-arrow-right-circle me-1"></i>Open Year Rollover</a>
+                </div>
+            </div>
+
             <!-- Promotion Setup Card -->
             <div class="card border-0 bg-light mb-4">
                 <div class="card-body">

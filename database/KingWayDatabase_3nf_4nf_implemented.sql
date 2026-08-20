@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Aug 20, 2026 at 12:29 AM
+-- Generation Time: Aug 20, 2026 at 01:49 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -515,30 +515,35 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_auto_generate_onboarding_tasks` 
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_auto_rollover_fee_structures`$$
-CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_auto_rollover_fee_structures` (IN `p_from_year` INT, IN `p_to_year` INT, IN `p_apply_increase` TINYINT, OUT `p_copied` INT, OUT `p_log_id` INT)   BEGIN
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_auto_rollover_fee_structures` (IN `p_from_year` VARCHAR(20), IN `p_to_year` VARCHAR(20), IN `p_apply_increase` TINYINT, OUT `p_copied` INT, OUT `p_log_id` INT)   BEGIN
     DECLARE v_copied INT DEFAULT 0;
     DECLARE v_from_year_id INT UNSIGNED;
     DECLARE v_to_year_id INT UNSIGNED;
+    DECLARE v_next_id BIGINT UNSIGNED;
 
-    SELECT id INTO v_from_year_id FROM academic_years WHERE year_code = p_from_year LIMIT 1;
-    SELECT id INTO v_to_year_id FROM academic_years WHERE year_code = p_to_year LIMIT 1;
+    SELECT id INTO v_from_year_id
+    FROM academic_years
+    WHERE year_code = p_from_year OR CAST(id AS CHAR) = p_from_year
+    LIMIT 1;
+
+    SELECT id INTO v_to_year_id
+    FROM academic_years
+    WHERE year_code = p_to_year OR CAST(id AS CHAR) = p_to_year
+    LIMIT 1;
+
+    IF v_from_year_id IS NULL OR v_to_year_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Source or target academic year not found';
+    END IF;
+
+    SELECT COALESCE(MAX(id), 0) INTO v_next_id FROM academic_year_fee_schedules;
 
     INSERT INTO academic_year_fee_schedules (
-        id,
-        academic_year_id,
-        academic_year_term_id,
-        academic_year_class_id,
-        student_type_id,
-        fee_catalog_id,
-        amount,
-        due_date,
-        status,
-        created_by,
-        created_at,
-        updated_at
+        id, academic_year_id, academic_year_term_id, academic_year_class_id,
+        student_type_id, fee_catalog_id, amount, due_date, status,
+        created_by, created_at, updated_at
     )
     SELECT
-        COALESCE((SELECT MAX(id) FROM academic_year_fee_schedules), 0) + ROW_NUMBER() OVER (ORDER BY src.id),
+        v_next_id + ROW_NUMBER() OVER (ORDER BY src.id),
         v_to_year_id,
         dst_ayt.id,
         dst_ayc.id,
@@ -552,14 +557,26 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_auto_rollover_fee_structures` (I
         NOW()
     FROM academic_year_fee_schedules src
     JOIN academic_year_classes src_ayc ON src_ayc.id = src.academic_year_class_id
-    JOIN academic_year_classes dst_ayc ON dst_ayc.class_id = src_ayc.class_id
+    JOIN academic_year_classes dst_ayc
+      ON dst_ayc.academic_year_id = v_to_year_id
+     AND dst_ayc.class_id = src_ayc.class_id
     LEFT JOIN academic_year_terms src_ayt ON src_ayt.id = src.academic_year_term_id
-    LEFT JOIN academic_year_terms dst_ayt ON dst_ayt.academic_year_id = v_to_year_id
-        AND dst_ayt.term_id = src_ayt.term_id
+    LEFT JOIN academic_year_terms dst_ayt
+      ON dst_ayt.academic_year_id = v_to_year_id
+     AND dst_ayt.term_id = src_ayt.term_id
     WHERE src.academic_year_id = v_from_year_id
-      AND dst_ayc.academic_year_id = v_to_year_id
       AND src.status = 'active'
-      AND (src.academic_year_term_id IS NULL OR dst_ayt.id IS NOT NULL);
+      AND (src.academic_year_term_id IS NULL OR dst_ayt.id IS NOT NULL)
+      AND NOT EXISTS (
+          SELECT 1
+          FROM academic_year_fee_schedules existing
+          WHERE existing.academic_year_id = v_to_year_id
+            AND existing.academic_year_term_id <=> dst_ayt.id
+            AND existing.academic_year_class_id = dst_ayc.id
+            AND existing.student_type_id = src.student_type_id
+            AND existing.fee_catalog_id = src.fee_catalog_id
+            AND existing.status IN ('active', 'draft')
+      );
 
     SET v_copied = ROW_COUNT();
     SET p_copied = v_copied;
@@ -2261,8 +2278,8 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_fee_obligations
     DECLARE v_academic_year_class_id INT UNSIGNED;
     DECLARE v_student_type_id INT UNSIGNED;
     DECLARE v_enrollment_id INT UNSIGNED;
-    DECLARE v_start_term_number INT DEFAULT 1;
-    DECLARE v_current_term_id INT UNSIGNED;
+    DECLARE v_start_term_number INT DEFAULT NULL;
+    DECLARE v_requested_term_id INT UNSIGNED DEFAULT NULL;
 
     SET p_obligations_created = 0;
 
@@ -2281,9 +2298,7 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_fee_obligations
     END IF;
 
     SELECT s.student_type_id INTO v_student_type_id
-    FROM students s
-    WHERE s.id = p_student_id
-    LIMIT 1;
+    FROM students s WHERE s.id = p_student_id LIMIT 1;
 
     SELECT sae.id, aycs.academic_year_class_id
       INTO v_enrollment_id, v_academic_year_class_id
@@ -2292,98 +2307,51 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_fee_obligations
     WHERE sae.student_id = p_student_id
       AND sae.academic_year_id = v_academic_year_id
       AND sae.enrollment_status IN ('active', 'pending')
-    ORDER BY sae.id DESC
-    LIMIT 1;
+    ORDER BY sae.id DESC LIMIT 1;
 
-    IF v_enrollment_id IS NULL OR v_student_type_id IS NULL THEN
-        SET p_obligations_created = 0;
-    ELSE
+    IF v_enrollment_id IS NOT NULL AND v_student_type_id IS NOT NULL THEN
         
         
         
         IF p_term_id IS NOT NULL THEN
             SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayt.id
-              INTO v_start_term_number, v_current_term_id
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ayt.id = p_term_id
-              AND ayt.academic_year_id = v_academic_year_id
-            LIMIT 1;
-
-            IF v_current_term_id IS NULL THEN
-                SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayt.id
-                  INTO v_start_term_number, v_current_term_id
-                FROM academic_year_terms ayt
-                JOIN terms t ON t.id = ayt.term_id
-                WHERE ayt.term_id = p_term_id
-                  AND ayt.academic_year_id = v_academic_year_id
-                LIMIT 1;
-            END IF;
-        END IF;
-
-        IF v_current_term_id IS NULL THEN
-            SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayt.id
-              INTO v_start_term_number, v_current_term_id
+              INTO v_start_term_number, v_requested_term_id
             FROM academic_year_terms ayt
             JOIN terms t ON t.id = ayt.term_id
             WHERE ayt.academic_year_id = v_academic_year_id
-              AND ayt.status = 'current'
-            ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-            LIMIT 1;
+              AND (ayt.id = p_term_id OR ayt.term_id = p_term_id)
+            ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED) DESC LIMIT 1;
         END IF;
 
-        IF v_current_term_id IS NULL THEN
-            SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayt.id
-              INTO v_start_term_number, v_current_term_id
+        IF v_start_term_number IS NULL THEN
+            
+            
+            
+            
+            SELECT COALESCE(
+                MAX(CASE WHEN ayt.status = 'current' THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                MAX(CASE WHEN CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                MIN(CASE WHEN ayt.opening_date >= CURDATE() THEN CAST(SUBSTRING(t.code, 2) AS UNSIGNED) END),
+                1
+            ) INTO v_start_term_number
             FROM academic_year_terms ayt
             JOIN terms t ON t.id = ayt.term_id
-            WHERE ayt.academic_year_id = v_academic_year_id
-              AND CURDATE() BETWEEN ayt.opening_date AND ayt.closing_date
-            ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-            LIMIT 1;
+            WHERE ayt.academic_year_id = v_academic_year_id;
         END IF;
-
-        IF v_current_term_id IS NULL THEN
-            SELECT CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayt.id
-              INTO v_start_term_number, v_current_term_id
-            FROM academic_year_terms ayt
-            JOIN terms t ON t.id = ayt.term_id
-            WHERE ayt.academic_year_id = v_academic_year_id
-              AND ayt.opening_date >= CURDATE()
-            ORDER BY ayt.opening_date, CAST(SUBSTRING(t.code, 2) AS UNSIGNED)
-            LIMIT 1;
-        END IF;
-
-        SET v_start_term_number = COALESCE(v_start_term_number, 1);
 
         INSERT INTO student_fee_obligations (
-            id,
-            student_academic_enrollment_id,
-            academic_year_id,
-            academic_year_term_id,
-            academic_year_fee_schedule_id,
-            amount_due,
-            status,
-            due_date,
-            is_sponsored,
-            sponsored_waiver_amount,
-            created_at,
-            updated_at
+            id, student_academic_enrollment_id, academic_year_id,
+            academic_year_term_id, academic_year_fee_schedule_id, amount_due,
+            status, due_date, is_sponsored, sponsored_waiver_amount,
+            created_at, updated_at
         )
         SELECT
             COALESCE((SELECT MAX(id) FROM student_fee_obligations), 0)
-                + ROW_NUMBER() OVER (ORDER BY ayfs.academic_year_term_id, ayfs.id),
-            v_enrollment_id,
-            v_academic_year_id,
-            ayfs.academic_year_term_id,
-            ayfs.id,
-            ayfs.amount,
-            'pending',
+                + ROW_NUMBER() OVER (ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED), ayfs.id),
+            v_enrollment_id, v_academic_year_id, ayfs.academic_year_term_id,
+            ayfs.id, ayfs.amount, 'pending',
             COALESCE(ayfs.due_date, ayt.closing_date, DATE_ADD(CURDATE(), INTERVAL 30 DAY)),
-            0,
-            0,
-            NOW(),
-            NOW()
+            0, 0, NOW(), NOW()
         FROM academic_year_fee_schedules ayfs
         JOIN academic_year_terms ayt ON ayt.id = ayfs.academic_year_term_id
         JOIN terms t ON t.id = ayt.term_id
@@ -2393,8 +2361,7 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_fee_obligations
           AND ayfs.status = 'active'
           AND CAST(SUBSTRING(t.code, 2) AS UNSIGNED) >= v_start_term_number
           AND NOT EXISTS (
-              SELECT 1
-              FROM student_fee_obligations sfo
+              SELECT 1 FROM student_fee_obligations sfo
               WHERE sfo.student_academic_enrollment_id = v_enrollment_id
                 AND sfo.academic_year_fee_schedule_id = ayfs.id
           );
@@ -5198,52 +5165,47 @@ END$$
 DROP FUNCTION IF EXISTS `fn_generate_admission_no`$$
 CREATE DEFINER=`root`@`localhost` FUNCTION `fn_generate_admission_no` (`p_year` INT) RETURNS VARCHAR(40) CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci MODIFIES SQL DATA BEGIN
     DECLARE v_seq INT;
-    DECLARE v_format VARCHAR(100);
+    DECLARE v_format VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    DECLARE v_scope_year INT;
+    DECLARE v_start INT DEFAULT 1;
+    DECLARE v_exists INT DEFAULT 0;
     DECLARE v_seq_str VARCHAR(40);
     DECLARE v_pad_str VARCHAR(10);
-    DECLARE v_pad INT;
-    DECLARE v_result VARCHAR(40);
+    DECLARE v_pad INT DEFAULT 0;
+    DECLARE v_result VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-    SELECT setting_value INTO v_format
-    FROM school_settings
-    WHERE setting_key = 'admission_no_format'
-    LIMIT 1;
+    SELECT setting_value INTO v_format FROM school_settings
+    WHERE setting_key = 'admission_no_format' LIMIT 1;
+    IF v_format IS NULL OR v_format = '' THEN SET v_format = 'KPS{seq}'; END IF;
 
-    IF v_format IS NULL OR v_format = '' THEN
-        SET v_format = 'KA-{year}-{seq:04}';
+    SET v_scope_year = IF(LOCATE('{year}', v_format) > 0, p_year, 0);
+    SELECT CAST(setting_value AS UNSIGNED) INTO v_start FROM school_settings
+    WHERE setting_key = 'admission_no_start_sequence' LIMIT 1;
+    IF v_start IS NULL OR v_start < 1 THEN SET v_start = 1; END IF;
+
+    SELECT last_seq INTO v_seq FROM number_sequences
+    WHERE context = 'student_admission' AND seq_year = v_scope_year FOR UPDATE;
+    IF v_seq IS NULL THEN
+        SET v_seq = v_start;
+        INSERT INTO number_sequences (context, seq_year, last_seq)
+        VALUES ('student_admission', v_scope_year, v_seq);
+    ELSE
+        SET v_seq = v_seq + 1;
+        UPDATE number_sequences SET last_seq = v_seq
+        WHERE context = 'student_admission' AND seq_year = v_scope_year;
     END IF;
 
-    
-    
-    
-    INSERT INTO number_sequences (context, seq_year, last_seq)
-    VALUES ('student_admission', p_year, LAST_INSERT_ID(1))
-    ON DUPLICATE KEY UPDATE last_seq = LAST_INSERT_ID(last_seq + 1);
-    SELECT LAST_INSERT_ID() INTO v_seq;
-
-    
-    
-    
     SET v_result = REPLACE(v_format, '{year}', CONVERT(p_year, CHAR) COLLATE utf8mb4_unicode_ci);
-
-    
     IF LOCATE('{seq:', v_result) > 0 THEN
-        SET v_pad_str = SUBSTRING(
-            SUBSTRING_INDEX(v_result, '{seq:', -1),
-            1,
-            LOCATE('}', SUBSTRING_INDEX(v_result, '{seq:', -1)) - 1
-        );
-        IF v_pad_str REGEXP '^[0-9]+$' AND CAST(v_pad_str AS UNSIGNED) > 0 THEN
-            SET v_pad = CAST(v_pad_str AS UNSIGNED);
-        ELSE
-            SET v_pad = 4;
-        END IF;
+        SET v_pad_str = SUBSTRING(SUBSTRING_INDEX(v_result, '{seq:', -1), 1,
+            LOCATE('}', SUBSTRING_INDEX(v_result, '{seq:', -1)) - 1);
+        IF v_pad_str REGEXP '^[0-9]+$' THEN SET v_pad = CAST(v_pad_str AS UNSIGNED); END IF;
+        IF v_pad < 1 THEN SET v_pad = 1; END IF;
         SET v_seq_str = LPAD(v_seq, v_pad, '0');
         SET v_result = REGEXP_REPLACE(v_result, '\\{seq:[0-9]+\\}', v_seq_str);
     ELSE
         SET v_result = REPLACE(v_result, '{seq}', CONVERT(v_seq, CHAR) COLLATE utf8mb4_unicode_ci);
     END IF;
-
     RETURN v_result;
 END$$
 
@@ -6801,8 +6763,7 @@ INSERT IGNORE INTO `academic_year_class_streams` (`id`, `academic_year_class_id`
 --
 -- Table structure for table `academic_year_fee_schedules`
 --
--- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 19, 2026 at 10:19 PM
+-- Creation: Aug 20, 2026 at 10:17 AM
 --
 
 DROP TABLE IF EXISTS `academic_year_fee_schedules`;
@@ -6815,7 +6776,7 @@ CREATE TABLE IF NOT EXISTS `academic_year_fee_schedules` (
   `fee_catalog_id` int(10) UNSIGNED NOT NULL,
   `amount` decimal(12,2) NOT NULL,
   `due_date` date DEFAULT NULL,
-  `status` enum('active','inactive','cancelled') NOT NULL DEFAULT 'active',
+  `status` enum('active','inactive','cancelled','draft','pending_review') NOT NULL DEFAULT 'active',
   `created_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_at` datetime DEFAULT NULL,
@@ -7124,7 +7085,6 @@ DELIMITER ;
 -- Table structure for table `accounting_account_types`
 --
 -- Creation: Aug 18, 2026 at 04:51 PM
--- Last update: Aug 18, 2026 at 04:51 PM
 --
 
 DROP TABLE IF EXISTS `accounting_account_types`;
@@ -7706,7 +7666,6 @@ TRUNCATE TABLE `activity_staff_participants`;
 -- Table structure for table `admission_applications`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 19, 2026 at 09:54 PM
 --
 
 DROP TABLE IF EXISTS `admission_applications`;
@@ -7855,7 +7814,6 @@ INSERT IGNORE INTO `admission_documents` (`id`, `application_id`, `document_type
 -- Table structure for table `admission_interviews`
 --
 -- Creation: Aug 19, 2026 at 01:35 AM
--- Last update: Aug 19, 2026 at 02:17 AM
 --
 
 DROP TABLE IF EXISTS `admission_interviews`;
@@ -7911,7 +7869,6 @@ INSERT IGNORE INTO `admission_interviews` (`id`, `application_id`, `session_id`,
 -- Table structure for table `admission_interview_assignment_history`
 --
 -- Creation: Aug 19, 2026 at 01:56 AM
--- Last update: Aug 19, 2026 at 02:17 AM
 --
 
 DROP TABLE IF EXISTS `admission_interview_assignment_history`;
@@ -7958,7 +7915,6 @@ INSERT IGNORE INTO `admission_interview_assignment_history` (`id`, `admission_in
 -- Table structure for table `admission_interview_sessions`
 --
 -- Creation: Aug 19, 2026 at 01:35 AM
--- Last update: Aug 19, 2026 at 02:17 AM
 --
 
 DROP TABLE IF EXISTS `admission_interview_sessions`;
@@ -8104,7 +8060,6 @@ TRUNCATE TABLE `admission_placement_tests`;
 -- Table structure for table `admission_windows`
 --
 -- Creation: Aug 19, 2026 at 12:51 AM
--- Last update: Aug 19, 2026 at 12:51 AM
 --
 
 DROP TABLE IF EXISTS `admission_windows`;
@@ -10384,7 +10339,6 @@ TRUNCATE TABLE `catering_meal_statuses`;
 -- Table structure for table `chart_of_accounts`
 --
 -- Creation: Aug 18, 2026 at 04:51 PM
--- Last update: Aug 18, 2026 at 04:55 PM
 --
 
 DROP TABLE IF EXISTS `chart_of_accounts`;
@@ -10403,7 +10357,7 @@ CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
   UNIQUE KEY `uq_chart_account_code` (`account_code`),
   KEY `idx_chart_account_type` (`account_type_id`),
   KEY `idx_chart_account_parent` (`parent_account_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `chart_of_accounts`:
@@ -10554,7 +10508,6 @@ TRUNCATE TABLE `class_promotion_queue`;
 -- Table structure for table `communications`
 --
 -- Creation: Aug 17, 2026 at 07:29 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communications`;
@@ -10833,7 +10786,6 @@ TRUNCATE TABLE `communication_attachment_channels`;
 -- Table structure for table `communication_audit_events`
 --
 -- Creation: Aug 17, 2026 at 07:24 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communication_audit_events`;
@@ -10905,7 +10857,6 @@ INSERT IGNORE INTO `communication_audit_events` (`id`, `communication_id`, `endp
 -- Table structure for table `communication_business_events`
 --
 -- Creation: Aug 17, 2026 at 07:29 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communication_business_events`;
@@ -10979,7 +10930,6 @@ TRUNCATE TABLE `communication_consents`;
 -- Table structure for table `communication_delivery_attempts`
 --
 -- Creation: Aug 17, 2026 at 07:24 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communication_delivery_attempts`;
@@ -11228,7 +11178,6 @@ TRUNCATE TABLE `communication_preferences`;
 -- Table structure for table `communication_recipients`
 --
 -- Creation: Aug 17, 2026 at 07:04 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communication_recipients`;
@@ -11286,7 +11235,6 @@ INSERT IGNORE INTO `communication_recipients` (`id`, `communication_id`, `recipi
 -- Table structure for table `communication_recipient_endpoints`
 --
 -- Creation: Aug 17, 2026 at 07:04 PM
--- Last update: Aug 19, 2026 at 08:47 PM
 --
 
 DROP TABLE IF EXISTS `communication_recipient_endpoints`;
@@ -11910,7 +11858,6 @@ INSERT IGNORE INTO `contact_inquiries` (`id`, `full_name`, `email`, `phone`, `su
 -- Table structure for table `conversation_participants`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 19, 2026 at 01:47 AM
 --
 
 DROP TABLE IF EXISTS `conversation_participants`;
@@ -12687,7 +12634,6 @@ TRUNCATE TABLE `dormitory_assignments`;
 -- Table structure for table `emergency_contacts`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `emergency_contacts`;
@@ -13243,6 +13189,95 @@ TRUNCATE TABLE `external_institutions`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `extra_charges`
+--
+-- Creation: Aug 20, 2026 at 11:06 AM
+-- Last update: Aug 20, 2026 at 11:06 AM
+--
+
+DROP TABLE IF EXISTS `extra_charges`;
+CREATE TABLE IF NOT EXISTS `extra_charges` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `academic_year_id` int(10) UNSIGNED NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `description` text DEFAULT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `charge_frequency` enum('one_time','per_term','per_year') NOT NULL DEFAULT 'one_time',
+  `scope` enum('all','student_type','class','specific_students') NOT NULL DEFAULT 'all',
+  `student_type_id` int(10) UNSIGNED DEFAULT NULL,
+  `class_id` int(10) UNSIGNED DEFAULT NULL,
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `status` enum('draft','active','inactive') NOT NULL DEFAULT 'draft',
+  `created_by` int(10) UNSIGNED DEFAULT NULL,
+  `approved_by` int(10) UNSIGNED DEFAULT NULL,
+  `approved_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ec_academic_year` (`academic_year_id`),
+  KEY `idx_ec_status` (`status`),
+  KEY `idx_ec_scope` (`scope`),
+  KEY `idx_ec_student_type` (`student_type_id`),
+  KEY `idx_ec_class` (`class_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charges`:
+--   `academic_year_id`
+--       `academic_years` -> `id`
+--   `class_id`
+--       `classes` -> `id`
+--   `student_type_id`
+--       `student_types` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charges`
+--
+
+TRUNCATE TABLE `extra_charges`;
+--
+-- Dumping data for table `extra_charges`
+--
+
+INSERT IGNORE INTO `extra_charges` (`id`, `academic_year_id`, `name`, `description`, `amount`, `charge_frequency`, `scope`, `student_type_id`, `class_id`, `display_order`, `status`, `created_by`, `approved_by`, `approved_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Registration Fee', 'One-time admission/registration fee for new students', 2000.00, 'one_time', 'all', NULL, NULL, 1, 'draft', NULL, NULL, NULL, '2026-08-20 11:06:04', '2026-08-20 11:06:04');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_review_log`
+--
+-- Creation: Aug 20, 2026 at 11:06 AM
+--
+
+DROP TABLE IF EXISTS `extra_charge_review_log`;
+CREATE TABLE IF NOT EXISTS `extra_charge_review_log` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `action` enum('submitted','approved','rejected','reopened') NOT NULL,
+  `reviewer_id` int(10) UNSIGNED NOT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ecrl_charge` (`extra_charge_id`),
+  KEY `idx_ecrl_action` (`action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_review_log`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_review_log`
+--
+
+TRUNCATE TABLE `extra_charge_review_log`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `fee_catalog`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
@@ -13420,6 +13455,42 @@ TRUNCATE TABLE `fee_reminders`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `fee_structure_adjustments`
+--
+-- Creation: Aug 20, 2026 at 09:12 AM
+--
+
+DROP TABLE IF EXISTS `fee_structure_adjustments`;
+CREATE TABLE IF NOT EXISTS `fee_structure_adjustments` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_fee_obligation_id` int(10) UNSIGNED NOT NULL,
+  `old_schedule_id` int(10) UNSIGNED NOT NULL,
+  `new_schedule_id` int(10) UNSIGNED NOT NULL,
+  `old_amount` decimal(12,2) NOT NULL,
+  `new_amount` decimal(12,2) NOT NULL,
+  `amount_delta` decimal(12,2) NOT NULL,
+  `adjustment_type` enum('credit','debit','reprice','unchanged') NOT NULL,
+  `payment_protected` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` int(10) UNSIGNED DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_fee_adjustment_obligation` (`student_fee_obligation_id`),
+  KEY `idx_fee_adjustment_schedule` (`old_schedule_id`,`new_schedule_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `fee_structure_adjustments`:
+--
+
+--
+-- Truncate table before insert `fee_structure_adjustments`
+--
+
+TRUNCATE TABLE `fee_structure_adjustments`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `fee_types`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
@@ -13486,7 +13557,6 @@ INSERT IGNORE INTO `fee_types` (`id`, `code`, `name`, `description`, `category`,
 -- Table structure for table `financial_account_kinds`
 --
 -- Creation: Aug 18, 2026 at 04:51 PM
--- Last update: Aug 18, 2026 at 04:51 PM
 --
 
 DROP TABLE IF EXISTS `financial_account_kinds`;
@@ -13523,7 +13593,6 @@ INSERT IGNORE INTO `financial_account_kinds` (`id`, `code`, `name`) VALUES
 -- Table structure for table `financial_account_purposes`
 --
 -- Creation: Aug 18, 2026 at 04:51 PM
--- Last update: Aug 18, 2026 at 04:51 PM
 --
 
 DROP TABLE IF EXISTS `financial_account_purposes`;
@@ -13564,7 +13633,6 @@ INSERT IGNORE INTO `financial_account_purposes` (`id`, `code`, `name`) VALUES
 -- Table structure for table `financial_channels`
 --
 -- Creation: Aug 18, 2026 at 04:51 PM
--- Last update: Aug 18, 2026 at 04:51 PM
 --
 
 DROP TABLE IF EXISTS `financial_channels`;
@@ -14360,7 +14428,6 @@ INSERT IGNORE INTO `internal_conversations` (`id`, `title`, `conversation_type`,
 -- Table structure for table `internal_messages`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 19, 2026 at 01:46 AM
 --
 
 DROP TABLE IF EXISTS `internal_messages`;
@@ -14689,7 +14756,6 @@ INSERT IGNORE INTO `inventory_departments` (`id`, `name`, `code`, `description`,
 -- Table structure for table `inventory_items`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 18, 2026 at 07:29 PM
 --
 
 DROP TABLE IF EXISTS `inventory_items`;
@@ -26218,7 +26284,7 @@ INSERT IGNORE INTO `message_templates` (`id`, `name`, `subject`, `body`, `type`,
 -- Table structure for table `migrations`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 19, 2026 at 01:56 AM
+-- Last update: Aug 20, 2026 at 10:17 AM
 --
 
 DROP TABLE IF EXISTS `migrations`;
@@ -26230,7 +26296,7 @@ CREATE TABLE IF NOT EXISTS `migrations` (
   `duration_ms` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_migrations_filename` (`filename`)
-) ENGINE=InnoDB AUTO_INCREMENT=93 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=94 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `migrations`:
@@ -26336,7 +26402,8 @@ INSERT IGNORE INTO `migrations` (`id`, `filename`, `checksum`, `applied_at`, `du
 (89, '090_admission_window_intake_controls.sql', 'e34b53e71f764f64cb3b59e4ca4fc3f', '2026-08-19 03:52:16', 0),
 (90, '091_create_admission_payments.sql', '2e96fcb4dd222f73d0a67c1d5dd2a3ab', '2026-08-19 04:18:13', 0),
 (91, '092_admission_interview_sessions.sql', '81de698aa387e996dad529afaf69a97c', '2026-08-19 04:35:28', 0),
-(92, '093_admission_interview_assignment_history.sql', 'fb5b7a095b4d3ef8296e00061072bebb', '2026-08-19 04:56:36', 0);
+(92, '093_admission_interview_assignment_history.sql', 'fb5b7a095b4d3ef8296e00061072bebb', '2026-08-19 04:56:36', 0),
+(93, '099_unify_academic_year_transition_workflow.sql', '0bc6c54cf7d675b847fb9ccb3e081f9b', '2026-08-20 13:17:17', 112);
 
 -- --------------------------------------------------------
 
@@ -26344,7 +26411,6 @@ INSERT IGNORE INTO `migrations` (`id`, `filename`, `checksum`, `applied_at`, `du
 -- Table structure for table `mpesa_transactions`
 --
 -- Creation: Aug 18, 2026 at 04:55 PM
--- Last update: Aug 19, 2026 at 08:44 PM
 --
 
 DROP TABLE IF EXISTS `mpesa_transactions`;
@@ -26612,7 +26678,6 @@ INSERT IGNORE INTO `news_categories` (`id`, `name`, `slug`, `color`, `display_or
 -- Table structure for table `notifications`
 --
 -- Creation: Aug 17, 2026 at 07:01 PM
--- Last update: Aug 19, 2026 at 09:45 PM
 --
 
 DROP TABLE IF EXISTS `notifications`;
@@ -26672,7 +26737,7 @@ INSERT IGNORE INTO `notifications` (`id`, `user_id`, `type`, `title`, `message`,
 -- Table structure for table `number_sequences`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 07:51 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `number_sequences`;
@@ -26697,6 +26762,7 @@ TRUNCATE TABLE `number_sequences`;
 --
 
 INSERT IGNORE INTO `number_sequences` (`context`, `seq_year`, `last_seq`) VALUES
+('student_admission', 0, 112),
 ('student_admission', 2026, 5);
 
 -- --------------------------------------------------------
@@ -26981,6 +27047,7 @@ TRUNCATE TABLE `page_downloads`;
 -- Table structure for table `parents`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `parents`;
@@ -27010,7 +27077,17 @@ TRUNCATE TABLE `parents`;
 --
 
 INSERT IGNORE INTO `parents` (`id`, `person_id`, `occupation`, `address`, `status`, `created_at`, `updated_at`) VALUES
-(1, 1, NULL, 'Nairobi, Kenya', 'active', '2026-08-16 16:14:06', '2026-08-16 16:14:06');
+(1, 1, NULL, 'Nairobi, Kenya', 'active', '2026-08-16 16:14:06', '2026-08-16 16:14:06'),
+(2, 42, NULL, NULL, 'active', '2026-08-20 10:54:12', '2026-08-20 10:54:12'),
+(3, 44, NULL, NULL, 'active', '2026-08-20 10:54:21', '2026-08-20 10:54:21'),
+(4, 46, NULL, NULL, 'active', '2026-08-20 10:57:20', '2026-08-20 10:57:20'),
+(5, 48, NULL, NULL, 'active', '2026-08-20 10:58:32', '2026-08-20 10:58:32'),
+(6, 50, NULL, NULL, 'active', '2026-08-20 10:59:14', '2026-08-20 10:59:14'),
+(7, 52, NULL, NULL, 'active', '2026-08-20 11:00:01', '2026-08-20 11:00:01'),
+(8, 54, NULL, NULL, 'active', '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
+(9, 56, NULL, NULL, 'active', '2026-08-20 11:18:27', '2026-08-20 11:18:27'),
+(10, 58, NULL, NULL, 'active', '2026-08-20 11:27:36', '2026-08-20 11:27:36'),
+(11, 60, NULL, NULL, 'active', '2026-08-20 11:27:46', '2026-08-20 11:27:46');
 
 -- --------------------------------------------------------
 
@@ -27312,7 +27389,6 @@ TRUNCATE TABLE `past_papers`;
 -- Table structure for table `payments`
 --
 -- Creation: Aug 18, 2026 at 05:37 PM
--- Last update: Aug 19, 2026 at 08:56 PM
 --
 
 DROP TABLE IF EXISTS `payments`;
@@ -32992,7 +33068,7 @@ TRUNCATE TABLE `permission_delegations`;
 -- Table structure for table `persons`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 07:51 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `persons`;
@@ -33065,7 +33141,27 @@ INSERT IGNORE INTO `persons` (`id`, `first_name`, `middle_name`, `last_name`, `d
 (37, 'Joseph', NULL, 'SecurityStaff', '1976-01-05', NULL, NULL, NULL, NULL, NULL),
 (38, 'Mary', NULL, 'Janitor', '1975-01-05', NULL, NULL, NULL, NULL, NULL),
 (39, 'William', NULL, 'DeputyDisc', '1973-01-05', NULL, NULL, NULL, NULL, NULL),
-(40, 'Dorcas', NULL, 'Chebet', '2022-09-10', 'female', NULL, NULL, NULL, NULL);
+(40, 'Dorcas', NULL, 'Chebet', '2022-09-10', 'female', NULL, NULL, NULL, NULL),
+(41, 'Import', 'Test', 'Learner', '2014-05-10', 'male', NULL, NULL, NULL, NULL),
+(42, 'Test', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian2@example.com', '+254700000098'),
+(43, 'Import', 'Test', 'Learner', '2014-05-10', 'male', NULL, NULL, NULL, NULL),
+(44, 'Test', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian@example.com', '254700000099'),
+(45, 'Import', 'TermAware', 'Learner', '2014-06-11', 'male', NULL, NULL, NULL, NULL),
+(46, 'Term', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian3@example.com', '254700000097'),
+(47, 'Import', 'Verified', 'Learner', '2014-07-12', 'female', NULL, NULL, NULL, NULL),
+(48, 'Verified', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian4@example.com', '254700000096'),
+(49, 'Import', 'FinalCheck', 'Learner', '2014-08-13', 'female', NULL, NULL, NULL, NULL),
+(50, 'Final', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian5@example.com', '254700000095'),
+(51, 'Import', 'Corrected', 'Learner', '2014-09-14', 'male', NULL, NULL, NULL, NULL),
+(52, 'Corrected', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'test.guardian6@example.com', '254700000094'),
+(53, 'Finance', NULL, 'Test', '2015-05-15', 'male', NULL, NULL, NULL, NULL),
+(54, 'Parent', NULL, 'Test', NULL, 'other', NULL, NULL, NULL, '0712345678'),
+(55, 'Modal', NULL, 'FinanceTest', '2015-05-15', 'male', NULL, NULL, NULL, NULL),
+(56, 'Curl', NULL, 'Guardian', NULL, 'other', NULL, NULL, 'curl.modal@example.com', '0712345679'),
+(57, 'Number', NULL, 'FormatTest', '2015-05-15', 'male', NULL, NULL, NULL, NULL),
+(58, 'Number', NULL, 'Guardian', NULL, 'other', NULL, NULL, NULL, '0712345680'),
+(59, 'NumberTwo', NULL, 'FormatTest', '2015-05-15', 'female', NULL, NULL, NULL, NULL),
+(60, 'NumberTwo', NULL, 'Guardian', NULL, 'other', NULL, NULL, NULL, '0712345681');
 
 --
 -- Triggers `persons`
@@ -33089,7 +33185,6 @@ DELIMITER ;
 -- Table structure for table `person_addresses`
 --
 -- Creation: Aug 18, 2026 at 02:36 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `person_addresses`;
@@ -33106,7 +33201,7 @@ CREATE TABLE IF NOT EXISTS `person_addresses` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_person_address_type_start` (`person_id`,`address_type`,`valid_from`),
   KEY `idx_person_address_current` (`person_id`,`address_type`,`valid_to`)
-) ENGINE=InnoDB AUTO_INCREMENT=95 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=94 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `person_addresses`:
@@ -33162,7 +33257,6 @@ INSERT IGNORE INTO `person_addresses` (`id`, `person_id`, `address_type`, `addre
 -- Table structure for table `person_contact_points`
 --
 -- Creation: Aug 18, 2026 at 02:36 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `person_contact_points`;
@@ -33265,7 +33359,6 @@ INSERT IGNORE INTO `person_contact_points` (`id`, `person_id`, `channel`, `purpo
 -- Table structure for table `person_marital_statuses`
 --
 -- Creation: Aug 18, 2026 at 02:36 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `person_marital_statuses`;
@@ -33279,7 +33372,7 @@ CREATE TABLE IF NOT EXISTS `person_marital_statuses` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_person_marital_start` (`person_id`,`valid_from`),
   KEY `idx_person_marital_current` (`person_id`,`valid_to`)
-) ENGINE=InnoDB AUTO_INCREMENT=95 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=94 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `person_marital_statuses`:
@@ -33779,7 +33872,7 @@ TRUNCATE TABLE `record_permissions`;
 -- Table structure for table `refresh_tokens`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 09:45 PM
+-- Last update: Aug 20, 2026 at 11:35 AM
 --
 
 DROP TABLE IF EXISTS `refresh_tokens`;
@@ -33795,7 +33888,7 @@ CREATE TABLE IF NOT EXISTS `refresh_tokens` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_expires_at` (`expires_at`),
   KEY `idx_revoked` (`revoked_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=129 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=163 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `refresh_tokens`:
@@ -33938,7 +34031,41 @@ INSERT IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `cr
 (125, 4, 'd252e86c0de2423722c154338b36f4618b05131c529a4ce62a0ef0c6f30bd929', '2026-08-26 15:21:46', '2026-08-19 16:21:46', NULL),
 (126, 3, 'e1d8ddf37f6e7bfdea88829a9267c08ea8f71c0d8d84ce6d5808202d55bf7c2b', '2026-08-26 17:49:36', '2026-08-19 18:49:36', NULL),
 (127, 3, '5fd92ff34fcc004b8f86a641f3a6dad9ed878a84364f39f8044189793e38fc42', '2026-08-26 20:44:39', '2026-08-19 21:44:39', NULL),
-(128, 9, '13747c6c138af01d2e9ef61c6647468c884be5abe00f36c7e8eaa8908195435f', '2026-08-26 20:45:02', '2026-08-19 21:45:02', NULL);
+(128, 9, '13747c6c138af01d2e9ef61c6647468c884be5abe00f36c7e8eaa8908195435f', '2026-08-26 20:45:02', '2026-08-19 21:45:02', NULL),
+(129, 3, '4761dde36cacc7eaf32282b11550a8edf402d0b86c364d7316877b4ff2cfe39a', '2026-08-27 09:52:05', '2026-08-20 10:52:05', NULL),
+(130, 3, '845f926387e7697a390796768b1adf7cdf8aad6860e2723ddfbedb79d23c2413', '2026-08-27 09:52:43', '2026-08-20 10:52:43', NULL),
+(131, 3, '8a99db1f560927ad66a7346248e36aadee939dbaa1fe33ddb74003c0792c6132', '2026-08-27 09:53:36', '2026-08-20 10:53:36', NULL),
+(132, 3, 'c114fa94af9b64a13021752dbb594083955267e6a9ca84ab31e94c78cdb4680b', '2026-08-27 09:54:12', '2026-08-20 10:54:12', NULL),
+(133, 3, 'e675488dbd8d984a110f759ebc443a2714d556f73ce47ac14008e4b566aa8253', '2026-08-27 09:54:20', '2026-08-20 10:54:20', NULL),
+(134, 3, 'e5bc1baef73a79c67941c71ad579e7b4079f6bd2562fcb972795b2e1e0a497e1', '2026-08-27 09:57:19', '2026-08-20 10:57:19', NULL),
+(135, 3, 'a18b415dad1186141cc418dbd9dacb12f9bf8ff1f504910bc98aebd617972997', '2026-08-27 09:58:31', '2026-08-20 10:58:31', NULL),
+(136, 3, '304fd930af430714676429a1b24fc873a343c836529e8f68d664a6a7124d6782', '2026-08-27 09:59:13', '2026-08-20 10:59:13', NULL),
+(137, 3, 'ce7086d2d5640e1e276a8015d5e30fb6b694eca092b8c305efeaa0201695610b', '2026-08-27 10:00:01', '2026-08-20 11:00:01', NULL),
+(138, 3, '49c3e94b08da96f4ad96577a13e1eadec3a053909bf9d50e582340f8e01583b8', '2026-08-27 10:00:10', '2026-08-20 11:00:10', NULL),
+(139, 3, '98af71875fe19726082e443c39ca8aec300d088703a0e59540b516c19dd7c5c5', '2026-08-27 10:11:33', '2026-08-20 11:11:33', NULL),
+(140, 3, '0d20cf133534329bc4a90609c66d18a45c7dc8d915e1c5549c4f1327ff603652', '2026-08-27 10:11:48', '2026-08-20 11:11:48', NULL),
+(141, 3, '17ae94544810ac2b24b420d00c3754b5b38050cec5a5a45a4fa6bee99c4f3593', '2026-08-27 10:12:00', '2026-08-20 11:12:00', NULL),
+(142, 3, 'fcd1d1085fd4ca9d8b8e60acbaabf13fe457fc239e50eef0965e63fd031f6315', '2026-08-27 10:12:06', '2026-08-20 11:12:06', NULL),
+(143, 3, '27ea9a027b11371a3057c0b362ac62a17308c96f4952aece7faacecca3131d3b', '2026-08-27 10:12:13', '2026-08-20 11:12:13', NULL),
+(144, 3, '46ffbac90c44cedd2bfd293be38cc57e1febb6ae6353c0c61af2b06957e15460', '2026-08-27 10:12:43', '2026-08-20 11:12:43', NULL),
+(145, 3, '913a22f32efd0c35676747e1f33d1647acfe8c71eb3cbf509733aa125f62c569', '2026-08-27 10:13:15', '2026-08-20 11:13:15', NULL),
+(146, 3, '47fecab1bdf45c2b33f9d51183ac2ab4dc45a379570e9dde1676ba3c732150a3', '2026-08-27 10:18:26', '2026-08-20 11:18:26', NULL),
+(147, 3, 'f9969dca1b76a5d2ed11b77ef474ada6695cbbe7888e71c96d5223f580ced927', '2026-08-27 10:18:43', '2026-08-20 11:18:43', NULL),
+(148, 3, '54d2dd7c2f3e4179c8b4b1eb2dc78f90852053c0bb271fa8df4cd1321f876ad4', '2026-08-27 10:18:53', '2026-08-20 11:18:53', NULL),
+(149, 3, '4d71a3a0dd6b75d9a2b02232fd0e6896a89b0b6784b7b9ed76445df1fabd5f53', '2026-08-27 10:27:17', '2026-08-20 11:27:17', NULL),
+(150, 3, '514d0713cbf5442cdac0d163848d8dfeca38ef86e41de328c5fb6e3ffeac792b', '2026-08-27 10:27:35', '2026-08-20 11:27:35', NULL),
+(151, 3, '61433a7f6071c8ffd3e30dda7976ca1d297ef3a5a846a8a89984e9416597a32e', '2026-08-27 10:27:46', '2026-08-20 11:27:46', NULL),
+(152, 3, 'bbeefd7cf344e32f29fadce3538cd4cf551cedc0ad4da454cbe1a052f0e394a7', '2026-08-27 10:31:01', '2026-08-20 11:31:01', NULL),
+(153, 3, '03d469d47112cf9e8c08998abccbfb1cc882e1bdb6571a1fab3d411ee6c58b7a', '2026-08-27 10:31:35', '2026-08-20 11:31:35', NULL),
+(154, 3, '4189ddc37b40175f6f8b68e9b0976e644eae69c6c69042f18950c6b4e1b2a14b', '2026-08-27 10:31:56', '2026-08-20 11:31:56', NULL),
+(155, 3, 'e799cc8a72cf28e80e2eb84d6fac9db41293f73947f59374711eaf884acaaca4', '2026-08-27 10:32:15', '2026-08-20 11:32:15', NULL),
+(156, 3, 'dcb398c1de900016764c6283918eb3fd6675a5385ccbd460df4329f740f5842e', '2026-08-27 10:32:33', '2026-08-20 11:32:33', NULL),
+(157, 3, 'a4ed13e2ca3818252d4f4abb05037e02cdbe5d391a9496617a720210fb56331b', '2026-08-27 10:33:06', '2026-08-20 11:33:06', NULL),
+(158, 3, '44b21570f25b8acef45c75ce99e5fcbe5b4c0e0e36696794fc30d8fb3af390bb', '2026-08-27 10:33:23', '2026-08-20 11:33:23', NULL),
+(159, 3, '497fefbf32950c3397888d169918e053a0d3ae3db21b2df1ef6c28bd54959df7', '2026-08-27 10:33:47', '2026-08-20 11:33:47', NULL),
+(160, 3, 'bb1b85be7c050657942cae4a48ce4419f89d89585e2a332ad826709a4b425d9b', '2026-08-27 10:34:15', '2026-08-20 11:34:15', NULL),
+(161, 3, 'f8f57aa82d918430029883c41bfc3dbb4bab459765a8c7783ccc3a4d2037fa9e', '2026-08-27 10:34:54', '2026-08-20 11:34:54', NULL),
+(162, 3, '8df994f38478a2cbff44f8b19e20d81af7ed936e0fadff29fd8afd7d6e59cc16', '2026-08-27 10:35:19', '2026-08-20 11:35:19', NULL);
 
 -- --------------------------------------------------------
 
@@ -82479,7 +82606,6 @@ INSERT IGNORE INTO `school_content` (`id`, `content_key`, `content_value`, `upda
 -- Table structure for table `school_events`
 --
 -- Creation: Aug 15, 2026 at 11:03 AM
--- Last update: Aug 19, 2026 at 04:21 PM
 --
 
 DROP TABLE IF EXISTS `school_events`;
@@ -83015,6 +83141,7 @@ INSERT IGNORE INTO `school_programs` (`id`, `name`, `level_range`, `icon`, `colo
 -- Table structure for table `school_settings`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `school_settings`;
@@ -83026,7 +83153,7 @@ CREATE TABLE IF NOT EXISTS `school_settings` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_key` (`setting_key`)
-) ENGINE=InnoDB AUTO_INCREMENT=64 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `school_settings`:
@@ -83104,7 +83231,8 @@ INSERT IGNORE INTO `school_settings` (`id`, `setting_key`, `setting_value`, `lab
 (60, 'system.environment', 'development', 'Application environment', '2026-07-22 22:04:32'),
 (61, 'system.default_rate_limit', '60', 'Default API requests per minute', '2026-07-22 22:04:32'),
 (62, 'security.remember_me_days', '14', 'Remember Me Duration (Days)', '2026-07-28 11:12:08'),
-(63, 'admission_no_format', 'KA-{year}-{seq:04}', 'Admission Number Format', '2026-08-15 00:00:00');
+(63, 'admission_no_format', 'KPS{seq}', 'Admission Number Format', '2026-08-20 11:27:07'),
+(64, 'admission_no_start_sequence', '111', 'First admission sequence number', '2026-08-20 11:27:07');
 
 -- --------------------------------------------------------
 
@@ -84076,7 +84204,6 @@ TRUNCATE TABLE `sports_team_members`;
 -- Table structure for table `staff`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `staff`;
@@ -84342,7 +84469,6 @@ TRUNCATE TABLE `staff_attendance`;
 -- Table structure for table `staff_attendance_profiles`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `staff_attendance_profiles`;
@@ -84581,7 +84707,6 @@ TRUNCATE TABLE `staff_deductions`;
 -- Table structure for table `staff_department_assignments`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `staff_department_assignments`;
@@ -84735,7 +84860,6 @@ INSERT IGNORE INTO `staff_duty_types` (`id`, `code`, `name`, `description`, `col
 -- Table structure for table `staff_employment_profiles`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `staff_employment_profiles`;
@@ -84805,7 +84929,6 @@ INSERT IGNORE INTO `staff_employment_profiles` (`id`, `staff_id`, `department_id
 -- Table structure for table `staff_experience`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `staff_experience`;
@@ -84823,7 +84946,7 @@ CREATE TABLE IF NOT EXISTS `staff_experience` (
   PRIMARY KEY (`id`),
   KEY `idx_staff` (`staff_id`),
   KEY `idx_dates` (`start_date`,`end_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=68 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=55 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `staff_experience`:
@@ -84876,7 +84999,6 @@ INSERT IGNORE INTO `staff_experience` (`id`, `staff_id`, `organization`, `positi
 -- Table structure for table `staff_id_cards`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `staff_id_cards`;
@@ -84896,7 +85018,7 @@ CREATE TABLE IF NOT EXISTS `staff_id_cards` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_staff_id_cards_number` (`card_number`),
   KEY `idx_staff_id_cards_staff` (`staff_id`,`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=41 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=38 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `staff_id_cards`:
@@ -85452,7 +85574,6 @@ TRUNCATE TABLE `staff_off_day_patterns`;
 -- Table structure for table `staff_payroll_profiles`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:35 PM
 --
 
 DROP TABLE IF EXISTS `staff_payroll_profiles`;
@@ -85619,7 +85740,6 @@ TRUNCATE TABLE `staff_promotions`;
 -- Table structure for table `staff_qualifications`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:34 PM
 --
 
 DROP TABLE IF EXISTS `staff_qualifications`;
@@ -85637,7 +85757,7 @@ CREATE TABLE IF NOT EXISTS `staff_qualifications` (
   PRIMARY KEY (`id`),
   KEY `idx_staff` (`staff_id`),
   KEY `idx_year` (`year_obtained`)
-) ENGINE=InnoDB AUTO_INCREMENT=68 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=55 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `staff_qualifications`:
@@ -86597,7 +86717,7 @@ INSERT IGNORE INTO `streams` (`id`, `name`, `code`, `capacity`) VALUES
 -- Table structure for table `students`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 07:51 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `students`;
@@ -86637,7 +86757,17 @@ TRUNCATE TABLE `students`;
 --
 
 INSERT IGNORE INTO `students` (`id`, `person_id`, `admission_no`, `student_type_id`, `assessment_number`, `assessment_status`, `nemis_number`, `nemis_status`, `status`, `application_id`, `admission_date`, `blood_group`, `created_at`, `updated_at`) VALUES
-(1, 40, 'KA-2026-0005', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', 1, '2026-08-19', NULL, '2026-08-19 19:51:22', '2026-08-19 19:51:22');
+(1, 40, 'KA-2026-0005', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', 1, '2026-08-19', NULL, '2026-08-19 19:51:22', '2026-08-19 19:51:22'),
+(2, 41, 'IMP-TEST-2026-002', 1, 'TEST-ASSESS-002', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:12', '2026-08-20 10:54:12'),
+(3, 43, 'IMP-TEST-2026-001', 1, 'TEST-ASSESS-001', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:21', '2026-08-20 10:54:21'),
+(4, 45, 'IMP-TEST-2026-003', 1, 'TEST-ASSESS-003', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:57:20', '2026-08-20 10:57:20'),
+(5, 47, 'IMP-TEST-2026-004', 1, 'TEST-ASSESS-004', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:58:32', '2026-08-20 10:58:32'),
+(6, 49, 'IMP-TEST-2026-005', 1, 'TEST-ASSESS-005', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:59:14', '2026-08-20 10:59:14'),
+(7, 51, 'IMP-TEST-2026-006', 1, 'TEST-ASSESS-006', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:00:01', '2026-08-20 11:00:01'),
+(8, 53, 'IMP-FIN-2026-007', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
+(9, 55, 'CURL-MODAL-2026-001', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:18:27', '2026-08-20 11:18:27'),
+(10, 57, 'KPS111', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:36', '2026-08-20 11:27:36'),
+(11, 59, 'KPS112', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:46', '2026-08-20 11:27:46');
 
 --
 -- Triggers `students`
@@ -86697,7 +86827,7 @@ DELIMITER ;
 -- Table structure for table `student_academic_enrollments`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 08:01 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_academic_enrollments`;
@@ -86728,7 +86858,17 @@ TRUNCATE TABLE `student_academic_enrollments`;
 --
 
 INSERT IGNORE INTO `student_academic_enrollments` (`id`, `student_id`, `academic_year_id`, `academic_year_class_stream_id`, `enrolled_on`, `enrollment_status`) VALUES
-(1, 1, 1, 5, '2026-08-19', 'active');
+(1, 1, 1, 5, '2026-08-19', 'active'),
+(2, 2, 1, 5, '2026-08-20', 'active'),
+(3, 3, 1, 5, '2026-08-20', 'active'),
+(4, 4, 1, 5, '2026-08-20', 'active'),
+(5, 5, 1, 5, '2026-08-20', 'active'),
+(6, 6, 1, 5, '2026-08-20', 'active'),
+(7, 7, 1, 5, '2026-08-20', 'active'),
+(8, 8, 1, 7, '2026-08-20', 'active'),
+(9, 9, 1, 7, '2026-08-20', 'active'),
+(10, 10, 1, 7, '2026-08-20', 'active'),
+(11, 11, 1, 7, '2026-08-20', 'active');
 
 --
 -- Triggers `student_academic_enrollments`
@@ -86924,10 +87064,66 @@ TRUNCATE TABLE `student_clearances`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `student_fee_migration_snapshots`
+--
+-- Creation: Aug 20, 2026 at 11:10 AM
+-- Last update: Aug 20, 2026 at 11:18 AM
+--
+
+DROP TABLE IF EXISTS `student_fee_migration_snapshots`;
+CREATE TABLE IF NOT EXISTS `student_fee_migration_snapshots` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `academic_year_id` int(10) UNSIGNED NOT NULL,
+  `academic_year_term_id` int(10) UNSIGNED DEFAULT NULL,
+  `academic_year_paid_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `current_term_paid_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `arrears_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `advance_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `reference` varchar(100) DEFAULT NULL,
+  `payment_date` date DEFAULT NULL,
+  `payment_method` varchar(30) DEFAULT NULL,
+  `receipt_no` varchar(50) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `imported_by` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_student_fee_migration_year` (`student_id`,`academic_year_id`),
+  KEY `idx_student_fee_migration_term` (`academic_year_term_id`),
+  KEY `fk_student_fee_migration_year` (`academic_year_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `student_fee_migration_snapshots`:
+--   `student_id`
+--       `students` -> `id`
+--   `academic_year_term_id`
+--       `academic_year_terms` -> `id`
+--   `academic_year_id`
+--       `academic_years` -> `id`
+--
+
+--
+-- Truncate table before insert `student_fee_migration_snapshots`
+--
+
+TRUNCATE TABLE `student_fee_migration_snapshots`;
+--
+-- Dumping data for table `student_fee_migration_snapshots`
+--
+
+INSERT IGNORE INTO `student_fee_migration_snapshots` (`id`, `student_id`, `academic_year_id`, `academic_year_term_id`, `academic_year_paid_amount`, `current_term_paid_amount`, `arrears_amount`, `advance_amount`, `reference`, `payment_date`, `payment_method`, `receipt_no`, `notes`, `imported_by`, `created_at`, `updated_at`) VALUES
+(1, 8, 1, 3, 15000.00, 3500.00, 2000.00, 0.00, 'MIG-FIN-007', '2026-08-20', 'bank_transfer', 'KCB-FIN-007', 'Test financial migration', 3, '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
+(2, 9, 1, 3, 12000.00, 3500.00, 1500.00, 500.00, 'CURL-MODAL-REF-001', '2026-08-20', 'bank_transfer', 'CURL-REC-001', 'Curl test of Add Existing Learner modal', 3, '2026-08-20 11:18:27', '2026-08-20 11:18:27');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `student_fee_obligations`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 10:19 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_fee_obligations`;
@@ -86967,7 +87163,17 @@ TRUNCATE TABLE `student_fee_obligations`;
 --
 
 INSERT IGNORE INTO `student_fee_obligations` (`id`, `student_academic_enrollment_id`, `academic_year_id`, `academic_year_term_id`, `academic_year_fee_schedule_id`, `amount_due`, `status`, `due_date`, `is_sponsored`, `sponsored_waiver_amount`, `created_at`, `updated_at`) VALUES
-(1, 1, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-19 22:19:25', '2026-08-19 22:19:25');
+(1, 1, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-19 22:19:25', '2026-08-19 22:19:25'),
+(2, 3, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(3, 2, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(4, 4, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(5, 5, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(6, 6, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(7, 7, 1, 3, 196, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:00:34', '2026-08-20 11:00:34'),
+(10, 8, 1, 3, 197, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
+(13, 9, 1, 3, 197, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:18:27', '2026-08-20 11:18:27'),
+(16, 10, 1, 3, 197, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:27:36', '2026-08-20 11:27:36'),
+(19, 11, 1, 3, 197, 3500.00, 'pending', '2026-10-23', 0, 0.00, '2026-08-20 11:27:46', '2026-08-20 11:27:46');
 
 -- --------------------------------------------------------
 
@@ -87193,7 +87399,7 @@ TRUNCATE TABLE `student_health_visits`;
 -- Table structure for table `student_id_cards`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 09:47 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_id_cards`;
@@ -87230,7 +87436,7 @@ CREATE TABLE IF NOT EXISTS `student_id_cards` (
   KEY `idx_academic_year_id` (`academic_year_id`),
   KEY `idx_status` (`status`),
   KEY `fk_replaced_card` (`replaced_from_card_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `student_id_cards`:
@@ -87246,7 +87452,17 @@ TRUNCATE TABLE `student_id_cards`;
 --
 
 INSERT IGNORE INTO `student_id_cards` (`id`, `student_id`, `card_number`, `qr_token`, `qr_payload`, `qr_code_path`, `academic_year_id`, `expiry_year`, `status`, `issue_date`, `generated_at`, `printed_at`, `issued_at`, `lost_at`, `replaced_at`, `revoked_at`, `revoked_by`, `revoked_reason`, `replaced_from_card_id`, `replacement_reason`, `generated_by`, `issued_by`, `notes`, `created_at`, `updated_at`) VALUES
-(1, 1, 'IDC-000001', '53c2ddc6478c02611adfa8c3ffc8ac5e', '{\"student_id\":1}', NULL, NULL, 1, 'generated', '2026-08-20', '2026-08-19 21:47:25', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-19 21:47:25', '2026-08-19 21:47:25');
+(1, 1, 'IDC-000001', '53c2ddc6478c02611adfa8c3ffc8ac5e', '{\"student_id\":1}', NULL, NULL, 1, 'generated', '2026-08-20', '2026-08-19 21:47:25', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-19 21:47:25', '2026-08-19 21:47:25'),
+(2, 2, 'CARD-000000000000002', 'KWA1.GhCvKnqDDpyg72RZxUFZ_8N14A9M5PGc', '{\"token\":\"KWA1.GhCvKnqDDpyg72RZxUFZ_8N14A9M5PGc\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/2/qr_codes/IMP-TEST-2026-002.png', 1, 2030, 'generated', NULL, '2026-08-20 10:54:12', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 10:54:12', '2026-08-20 10:54:12'),
+(3, 3, 'CARD-000000000000003', 'KWA1.uF-rYOVZTbc3X1398EeHwJksjFHr1FUV', '{\"token\":\"KWA1.uF-rYOVZTbc3X1398EeHwJksjFHr1FUV\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/3/qr_codes/IMP-TEST-2026-001.png', 1, 2030, 'generated', NULL, '2026-08-20 10:54:21', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 10:54:21', '2026-08-20 10:54:21'),
+(4, 4, 'CARD-000000000000004', 'KWA1.0uztFwWlmprC7BIkn27cIvxAWh7j3dIC', '{\"token\":\"KWA1.0uztFwWlmprC7BIkn27cIvxAWh7j3dIC\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/4/qr_codes/IMP-TEST-2026-003.png', 1, 2030, 'generated', NULL, '2026-08-20 10:57:20', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 10:57:20', '2026-08-20 10:57:20'),
+(5, 5, 'CARD-000000000000005', 'KWA1.dU-M-fu8O88hXPMBJods1wGztw_HB9FY', '{\"token\":\"KWA1.dU-M-fu8O88hXPMBJods1wGztw_HB9FY\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/5/qr_codes/IMP-TEST-2026-004.png', 1, 2030, 'generated', NULL, '2026-08-20 10:58:32', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 10:58:32', '2026-08-20 10:58:32'),
+(6, 6, 'CARD-000000000000006', 'KWA1.KbeQyTa8QtKd2HEgVWGJ361GRpkg4QTu', '{\"token\":\"KWA1.KbeQyTa8QtKd2HEgVWGJ361GRpkg4QTu\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/6/qr_codes/IMP-TEST-2026-005.png', 1, 2030, 'generated', NULL, '2026-08-20 10:59:14', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 10:59:14', '2026-08-20 10:59:14'),
+(7, 7, 'CARD-000000000000007', 'KWA1.bazUnrWk4s56RSysedEJt4YxkFpRA86j', '{\"token\":\"KWA1.bazUnrWk4s56RSysedEJt4YxkFpRA86j\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/7/qr_codes/IMP-TEST-2026-006.png', 1, 2030, 'generated', NULL, '2026-08-20 11:00:01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 11:00:01', '2026-08-20 11:00:01'),
+(8, 8, 'CARD-000000000000008', 'KWA1.gpKRGueYdLC_PxfV3lcKQ90tb_KyJ8yB', '{\"token\":\"KWA1.gpKRGueYdLC_PxfV3lcKQ90tb_KyJ8yB\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/8/qr_codes/IMP-FIN-2026-007.png', 1, 2030, 'generated', NULL, '2026-08-20 11:12:14', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
+(9, 9, 'CARD-000000000000009', 'KWA1.1l-AVLvve0VoFEstyR_Ac1Ma3_rnQhHf', '{\"token\":\"KWA1.1l-AVLvve0VoFEstyR_Ac1Ma3_rnQhHf\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/9/qr_codes/CURL-MODAL-2026-001.png', 1, 2030, 'generated', NULL, '2026-08-20 11:18:27', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 11:18:27', '2026-08-20 11:18:27'),
+(10, 10, 'CARD-000000000000010', 'KWA1.aZSqRyy7EwrfOgqZO2WKRazUzGDIJS7d', '{\"token\":\"KWA1.aZSqRyy7EwrfOgqZO2WKRazUzGDIJS7d\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/10/qr_codes/KPS111.png', 1, 2030, 'generated', NULL, '2026-08-20 11:27:36', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 11:27:36', '2026-08-20 11:27:36'),
+(11, 11, 'CARD-000000000000011', 'KWA1.PD2Q57cDvanLvkMogCcb-tJU2xgMs0yd', '{\"token\":\"KWA1.PD2Q57cDvanLvkMogCcb-tJU2xgMs0yd\",\"version\":1}', 'http://localhost/Kingsway/uploads/students/images/11/qr_codes/KPS112.png', 1, 2030, 'generated', NULL, '2026-08-20 11:27:46', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 3, NULL, NULL, '2026-08-20 11:27:46', '2026-08-20 11:27:46');
 
 -- --------------------------------------------------------
 
@@ -87325,7 +87541,7 @@ TRUNCATE TABLE `student_meal_profiles`;
 -- Table structure for table `student_parents`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 07:51 PM
+-- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_parents`;
@@ -87353,7 +87569,17 @@ TRUNCATE TABLE `student_parents`;
 --
 
 INSERT IGNORE INTO `student_parents` (`student_id`, `parent_id`, `relationship`, `is_primary_contact`, `is_emergency_contact`) VALUES
-(1, 1, 'parent', 1, 1);
+(1, 1, 'parent', 1, 1),
+(2, 2, 'guardian', 1, 1),
+(3, 3, 'guardian', 1, 1),
+(4, 4, 'guardian', 1, 1),
+(5, 5, 'guardian', 1, 1),
+(6, 6, 'guardian', 1, 1),
+(7, 7, 'guardian', 1, 1),
+(8, 8, 'guardian', 1, 1),
+(9, 9, 'guardian', 1, 1),
+(10, 10, 'guardian', 1, 1),
+(11, 11, 'guardian', 1, 1);
 
 -- --------------------------------------------------------
 
@@ -87743,7 +87969,6 @@ TRUNCATE TABLE `student_transport_notes`;
 -- Table structure for table `student_types`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 12:40 AM
 --
 
 DROP TABLE IF EXISTS `student_types`;
@@ -90353,7 +90578,6 @@ TRUNCATE TABLE `supervision_rosters`;
 -- Table structure for table `suppliers`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:27 PM
 --
 
 DROP TABLE IF EXISTS `suppliers`;
@@ -92239,7 +92463,6 @@ TRUNCATE TABLE `uniform_catalog_cart_items`;
 -- Table structure for table `uniform_catalog_images`
 --
 -- Creation: Aug 18, 2026 at 12:53 PM
--- Last update: Aug 18, 2026 at 07:29 PM
 --
 
 DROP TABLE IF EXISTS `uniform_catalog_images`;
@@ -92374,7 +92597,6 @@ TRUNCATE TABLE `uniform_catalog_order_items`;
 -- Table structure for table `uniform_catalog_products`
 --
 -- Creation: Aug 18, 2026 at 12:53 PM
--- Last update: Aug 18, 2026 at 07:29 PM
 --
 
 DROP TABLE IF EXISTS `uniform_catalog_products`;
@@ -92393,7 +92615,7 @@ CREATE TABLE IF NOT EXISTS `uniform_catalog_products` (
   UNIQUE KEY `uq_uniform_catalog_item` (`item_id`),
   UNIQUE KEY `uq_uniform_catalog_slug` (`slug`),
   KEY `idx_uniform_catalog_status` (`status`,`published`)
-) ENGINE=InnoDB AUTO_INCREMENT=46 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `uniform_catalog_products`:
@@ -92598,7 +92820,6 @@ TRUNCATE TABLE `uniform_sales`;
 -- Table structure for table `uniform_sizes`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 07:29 PM
 --
 
 DROP TABLE IF EXISTS `uniform_sizes`;
@@ -92736,7 +92957,7 @@ INSERT IGNORE INTO `uniform_sizes` (`id`, `item_id`, `size`, `size_label`, `size
 -- Table structure for table `users`
 --
 -- Creation: Aug 18, 2026 at 02:37 AM
--- Last update: Aug 19, 2026 at 09:45 PM
+-- Last update: Aug 20, 2026 at 11:35 AM
 --
 
 DROP TABLE IF EXISTS `users`;
@@ -92782,7 +93003,7 @@ TRUNCATE TABLE `users`;
 INSERT IGNORE INTO `users` (`id`, `person_id`, `username`, `password_hash`, `status`, `last_login`, `password_changed_at`, `profile_completed_at`, `failed_login_attempts`, `account_locked_until`, `password_expires_at`, `force_password_change`, `is_test_user`, `two_factor_secret`, `two_factor_enabled`, `two_factor_method`, `two_factor_verified_at`, `backup_codes_generated_at`, `created_at`, `updated_at`) VALUES
 (1, 1, 'test_sysadmin', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-18 17:09:53', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:18', '2026-08-18 19:34:20'),
 (2, 2, 'test_director', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-16 19:16:12', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:19', '2026-08-18 19:34:20'),
-(3, 3, 'test_scholadmin', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-20 00:44:38', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 21:44:38', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-19 21:44:38'),
+(3, 3, 'test_scholadmin', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-20 14:35:19', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-19 11:35:19', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-20 11:35:19'),
 (4, 4, 'test_headteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-19 19:21:46', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 16:21:46', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-19 16:21:46'),
 (5, 5, 'test_deputy_acad', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-18 19:34:20'),
 (6, 6, 'test_classteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-18 17:10:46', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-18 19:34:20'),
@@ -95037,7 +95258,7 @@ TRUNCATE TABLE `user_routes`;
 -- Table structure for table `user_sessions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 10:26 PM
+-- Last update: Aug 20, 2026 at 11:35 AM
 --
 
 DROP TABLE IF EXISTS `user_sessions`;
@@ -95089,7 +95310,7 @@ INSERT IGNORE INTO `user_sessions` (`id`, `user_id`, `session_token`, `ip_addres
 (15, 9, 'a690f043b9fe10d99518a3c07bfc60708cea71a19db7d38a2a3f582f6e73dadf', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0', '2026-08-18 21:06:16', '2026-08-19 18:52:39', '2026-08-19 19:41:42', 'logged_out', '2026-08-18 18:06:16', '2026-08-19 16:41:42'),
 (16, 4, 'cb76cc67125ae0a5b149375c42fa0f9eb4d30e30934391f7e46f23540d09036e', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-19 04:47:44', '2026-08-19 20:19:12', NULL, 'active', '2026-08-19 01:47:44', '2026-08-19 17:19:12'),
 (17, 3, 'ce1d04c5f8bf884607c352ba4972d24c042e3e43706473ce1ac0110d094e1c24', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-19 18:53:58', '2026-08-19 18:55:16', '2026-08-19 19:00:15', 'logged_out', '2026-08-19 15:53:58', '2026-08-19 16:00:15'),
-(18, 3, '20e18b395d0c86e309929ec496fc4d2217e89ebb6016e78bd3059b2c28728b27', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0', '2026-08-19 21:49:36', '2026-08-20 01:26:59', NULL, 'active', '2026-08-19 18:49:36', '2026-08-19 22:26:59'),
+(18, 3, 'a2c5364192072a2cf6e195a739a70d125d51c3a2ca3bae0a69a932fc9856efec', '127.0.0.1', 'curl/7.53.1', '2026-08-19 21:49:36', '2026-08-20 14:35:19', NULL, 'active', '2026-08-19 18:49:36', '2026-08-20 11:35:19'),
 (19, 9, 'b12a9e8f8cbaa709771136163ad83033aea6d342dd9a377b8a9d8d1d774ad30b', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-20 00:45:02', '2026-08-20 01:07:20', NULL, 'active', '2026-08-19 21:45:02', '2026-08-19 22:07:20');
 
 -- --------------------------------------------------------
@@ -95587,14 +95808,14 @@ CREATE TABLE IF NOT EXISTS `vw_collection_rate_by_class` (
 ,`level_code` varchar(10)
 ,`academic_term` varchar(50)
 ,`total_students` bigint(21)
-,`total_fees_due` decimal(56,2)
-,`total_fees_paid` decimal(56,2)
+,`total_fees_due` decimal(57,2)
+,`total_fees_paid` decimal(58,2)
 ,`total_fees_waived` decimal(57,2)
 ,`collection_rate_percent` decimal(62,2)
 ,`students_paid_in_full` bigint(21)
 ,`students_partial_payment` bigint(21)
 ,`students_no_payment` bigint(21)
-,`average_payment_per_student` decimal(35,2)
+,`average_payment_per_student` decimal(37,2)
 );
 
 -- --------------------------------------------------------
@@ -95792,7 +96013,7 @@ CREATE TABLE IF NOT EXISTS `vw_family_groups` (
 ,`is_primary_contact` tinyint(1)
 ,`is_emergency_contact` tinyint(1)
 ,`financial_responsibility` binary(0)
-,`current_fee_balance` decimal(59,2)
+,`current_fee_balance` decimal(61,2)
 ,`sibling_count` bigint(22)
 );
 
@@ -95828,9 +96049,9 @@ DROP VIEW IF EXISTS `vw_fee_collection_by_year`;
 CREATE TABLE IF NOT EXISTS `vw_fee_collection_by_year` (
 `academic_year` varchar(20)
 ,`total_students` bigint(21)
-,`total_fees_due` decimal(56,2)
-,`total_collected` decimal(56,2)
-,`total_outstanding` decimal(59,2)
+,`total_fees_due` decimal(57,2)
+,`total_collected` decimal(58,2)
+,`total_outstanding` decimal(61,2)
 ,`collection_rate_percent` decimal(62,2)
 ,`students_paid_full` decimal(22,0)
 ,`students_partial` decimal(22,0)
@@ -95891,7 +96112,7 @@ CREATE TABLE IF NOT EXISTS `vw_fee_structure_annual_summary` (
 ,`term2_amount` decimal(34,2)
 ,`term3_amount` decimal(34,2)
 ,`annual_total` decimal(34,2)
-,`status` enum('active','inactive','cancelled')
+,`status` enum('active','inactive','cancelled','draft','pending_review')
 ,`is_auto_rollover` int(1)
 ,`reviewed_by` int(10) unsigned
 ,`reviewer_name` binary(0)
@@ -95958,9 +96179,9 @@ CREATE TABLE IF NOT EXISTS `vw_fee_type_collection` (
 ,`fee_code` varchar(20)
 ,`fee_category` enum('tuition','boarding','activity','infrastructure','other')
 ,`is_mandatory` tinyint(1)
-,`total_due` decimal(56,2)
-,`total_collected` decimal(56,2)
-,`total_outstanding` decimal(59,2)
+,`total_due` decimal(57,2)
+,`total_collected` decimal(58,2)
+,`total_outstanding` decimal(61,2)
 ,`students_affected` bigint(21)
 ,`collection_rate_percent` decimal(62,2)
 ,`students_paid` bigint(21)
@@ -96150,10 +96371,10 @@ CREATE TABLE IF NOT EXISTS `vw_outstanding_by_class` (
 ,`level_code` varchar(10)
 ,`academic_term` varchar(50)
 ,`students_with_arrears` bigint(21)
-,`total_arrears` decimal(59,2)
-,`average_arrears_per_student` decimal(38,2)
-,`minimum_arrears` decimal(37,2)
-,`maximum_arrears` decimal(37,2)
+,`total_arrears` decimal(61,2)
+,`average_arrears_per_student` decimal(40,2)
+,`minimum_arrears` decimal(39,2)
+,`maximum_arrears` decimal(39,2)
 ,`students_overdue_30_days` bigint(21)
 ,`students_overdue_60_days` bigint(21)
 );
@@ -96226,7 +96447,7 @@ CREATE TABLE IF NOT EXISTS `vw_parent_summary` (
 ,`total_children` bigint(21)
 ,`active_children` bigint(21)
 ,`children_names` mediumtext
-,`total_fee_balance` decimal(59,2)
+,`total_fee_balance` decimal(61,2)
 );
 
 -- --------------------------------------------------------
@@ -96498,9 +96719,9 @@ CREATE TABLE IF NOT EXISTS `vw_sponsored_students_status` (
 ,`sponsor_name` binary(0)
 ,`sponsor_type` varchar(10)
 ,`sponsor_waiver_percentage` decimal(12,2)
-,`total_fees_due` decimal(56,2)
-,`total_paid` decimal(56,2)
-,`current_balance` decimal(59,2)
+,`total_fees_due` decimal(57,2)
+,`total_paid` decimal(58,2)
+,`current_balance` decimal(61,2)
 ,`total_waived` decimal(57,2)
 );
 
@@ -97063,10 +97284,10 @@ CREATE TABLE IF NOT EXISTS `vw_student_fee_balances` (
 ,`term_id` int(10) unsigned
 ,`term_code` varchar(20)
 ,`academic_year` varchar(20)
-,`amount_due` decimal(34,2)
+,`amount_due` decimal(35,2)
 ,`amount_waived` decimal(35,2)
-,`amount_paid` decimal(34,2)
-,`balance` decimal(37,2)
+,`amount_paid` decimal(36,2)
+,`balance` decimal(39,2)
 ,`payment_status` varchar(7)
 ,`latest_due_date` date
 ,`days_overdue` int(7)
@@ -97083,9 +97304,9 @@ CREATE TABLE IF NOT EXISTS `vw_student_fee_clearance` (
 `student_id` int(10) unsigned
 ,`student_name` varchar(101)
 ,`admission_no` varchar(20)
-,`total_outstanding` decimal(59,2)
-,`total_paid` decimal(56,2)
-,`total_billed` decimal(56,2)
+,`total_outstanding` decimal(61,2)
+,`total_paid` decimal(58,2)
+,`total_billed` decimal(57,2)
 ,`pending_obligations` decimal(22,0)
 ,`finance_clearance_status` varchar(11)
 );
@@ -97105,14 +97326,14 @@ CREATE TABLE IF NOT EXISTS `vw_student_fee_ledger` (
 ,`academic_year` varchar(20)
 ,`term_code` varchar(20)
 ,`term_id` int(10) unsigned
-,`amount_due` decimal(34,2)
+,`amount_due` decimal(35,2)
 ,`amount_waived` decimal(35,2)
-,`amount_paid` decimal(34,2)
-,`balance` decimal(37,2)
-,`cumulative_billed` decimal(56,2)
+,`amount_paid` decimal(36,2)
+,`balance` decimal(39,2)
+,`cumulative_billed` decimal(57,2)
 ,`cumulative_waived` decimal(57,2)
-,`cumulative_paid` decimal(56,2)
-,`cumulative_balance` decimal(59,2)
+,`cumulative_paid` decimal(58,2)
+,`cumulative_balance` decimal(61,2)
 ,`payment_status` varchar(7)
 ,`latest_due_date` date
 ,`days_overdue` int(7)
@@ -97212,8 +97433,8 @@ CREATE TABLE IF NOT EXISTS `vw_student_payment_history_multi_year` (
 ,`cash_total` decimal(34,2)
 ,`mpesa_total` decimal(34,2)
 ,`bank_total` decimal(34,2)
-,`amount_due` decimal(34,2)
-,`balance` decimal(37,2)
+,`amount_due` decimal(35,2)
+,`balance` decimal(39,2)
 ,`fee_status` varchar(7)
 );
 
@@ -97639,7 +97860,7 @@ TRUNCATE TABLE `widgets`;
 -- Table structure for table `workflow_definitions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 10:07 PM
+-- Last update: Aug 20, 2026 at 10:43 AM
 --
 
 DROP TABLE IF EXISTS `workflow_definitions`;
@@ -97691,7 +97912,7 @@ INSERT IGNORE INTO `workflow_definitions` (`id`, `code`, `name`, `description`, 
 (101, 'performance_evaluation_workflow', 'Performance Evaluation Workflow', 'Activity performance evaluation workflow', 'student_affairs', 'App\\API\\Modules\\activities\\workflows\\PerformanceEvaluationWorkflow', '{\"database_ready\": true}', 1, '2025-11-29 07:59:16', '2025-11-29 07:59:16'),
 (102, 'student_admission', 'Student Admission Workflow', 'Canonical CBC admissions: Application Applied -> Application Received -> Reviewed and Approved -> Grade 4-9 Interview -> Student Admission Number -> Class/Stream Placement -> Fees/Transport/Uniform Payments -> ID Generation -> Final Enrollment', 'student_affairs', 'StudentAdmissionWorkflow', '{}', 1, '2025-12-02 10:00:14', '2026-08-18 22:07:01'),
 (103, 'communications', 'Communications Workflow', 'Workflow for managing communication approvals and delivery', 'general', 'CommunicationsWorkflow', '{\"max_approvers\": 3, \"notification_enabled\": true}', 1, '2025-12-03 17:28:26', '2025-12-03 17:29:02'),
-(104, 'academic_year_transition', 'Academic Year Transition', 'Automates the roll-over from one academic year to the next: calendar generation, data archival, promotions, new-year class/stream setup, competency migration and readiness validation.', 'academic', 'App\\API\\Modules\\academic\\AcademicYearTransitionWorkflow', '{\"stages\": [\"prepare_calendar\", \"archive_data\", \"execute_promotions\", \"setup_new_year\", \"migrate_baselines\", \"validate_readiness\"]}', 1, '2026-08-02 17:21:23', '2026-08-02 17:21:23'),
+(104, 'academic_year_transition', 'Canonical Academic Year Transition', 'Controlled, resumable transition from one Kenyan CBC academic year to the next.', 'academic', 'App\\API\\Modules\\academic\\AcademicYearTransitionWorkflow', '{\"stages\": [\"confirm_current_year\", \"create_next_year\", \"enter_year_term_dates\", \"generate_calendar\", \"configure_classes_streams\", \"configure_learning_areas\", \"configure_teachers\", \"prepare_fee_structures\", \"approve_fee_structures\", \"configure_operational_context\", \"current_year_readiness\", \"close_current_year_terms\", \"review_promotion_candidates\", \"assign_promotion_decisions\", \"assign_target_streams\", \"create_new_year_enrollments\", \"carry_forward_finances\", \"generate_obligations\", \"reconcile_balances\", \"migrate_baselines\", \"archive_previous_year\", \"activate_new_year_term_one\", \"begin_new_year_operations\"]}', 1, '2026-08-02 17:21:23', '2026-08-20 10:43:58'),
 (105, 'student_promotion', 'Student Promotion', 'CBC-compliant end-of-year promotion: define criteria, identify candidates, validate eligibility (scores/attendance/competency), execute promotions via stored procedures, and generate reports.', 'academic', 'App\\API\\Modules\\academic\\StudentPromotionWorkflow', '{\"stages\": [\"define_criteria\", \"identify_candidates\", \"validate_eligibility\", \"execute_promotion\", \"generate_reports\"]}', 1, '2026-08-03 11:19:05', '2026-08-03 11:19:05');
 
 -- --------------------------------------------------------
@@ -97863,7 +98084,6 @@ INSERT IGNORE INTO `workflow_history` (`id`, `workflow_id`, `stage`, `action`, `
 -- Table structure for table `workflow_instances`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 09:54 PM
 --
 
 DROP TABLE IF EXISTS `workflow_instances`;
@@ -98032,7 +98252,7 @@ INSERT IGNORE INTO `workflow_notifications` (`id`, `instance_id`, `notification_
 -- Table structure for table `workflow_stages`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 18, 2026 at 10:07 PM
+-- Last update: Aug 20, 2026 at 10:44 AM
 --
 
 DROP TABLE IF EXISTS `workflow_stages`;
@@ -98053,7 +98273,7 @@ CREATE TABLE IF NOT EXISTS `workflow_stages` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_workflow_stage` (`workflow_id`,`code`),
   KEY `idx_workflow_sequence` (`workflow_id`,`sequence`)
-) ENGINE=InnoDB AUTO_INCREMENT=2021 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2067 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `workflow_stages`:
@@ -98154,12 +98374,6 @@ INSERT IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `requ
 (2003, 102, 'admission_step_4', 'Offer Letter', NULL, NULL, 'Successful applicants receive an official offer letter within 5 working days of the assessment.', 40, NULL, '[]', NULL, NULL, 0),
 (2004, 102, 'admission_step_5', 'Fee Payment', NULL, NULL, 'A non-refundable admission fee secures the placement. Full term fees are due before the start date.', 50, NULL, '[]', NULL, NULL, 0),
 (2005, 102, 'admission_step_6', 'Orientation & Enrolment', NULL, NULL, 'The student attends new-student orientation before joining class on the agreed start date.', 60, NULL, '[]', NULL, NULL, 0),
-(2006, 104, 'prepare_calendar', 'Prepare Calendar', NULL, NULL, 'Create the new academic year, its three terms and the auto-generated term calendar.', 1, NULL, '[\"archive_data\"]', NULL, NULL, 1),
-(2007, 104, 'archive_data', 'Archive Previous Year Data', NULL, NULL, 'Archive assessment results, reports and competencies for the outgoing year.', 2, NULL, '[\"execute_promotions\"]', NULL, NULL, 1),
-(2008, 104, 'execute_promotions', 'Execute Promotions', NULL, NULL, 'Promote students to the next class/stream via the academic class progression ladder.', 3, NULL, '[\"setup_new_year\"]', NULL, NULL, 1),
-(2009, 104, 'setup_new_year', 'Setup New Year', NULL, NULL, 'Create the new year class/stream structure (auto-clone one grade ahead, with stream rebalancing support).', 4, NULL, '[\"migrate_baselines\"]', NULL, NULL, 1),
-(2010, 104, 'migrate_baselines', 'Migrate Competency Baselines', NULL, NULL, 'Carry forward learner competency baselines for continued CBC tracking.', 5, NULL, '[\"validate_readiness\"]', NULL, NULL, 1),
-(2011, 104, 'validate_readiness', 'Validate Readiness', NULL, NULL, 'Final checks before the new year goes live.', 6, NULL, '[]', NULL, NULL, 1),
 (2012, 105, 'define_criteria', 'Define Criteria', NULL, NULL, 'Set promotion rules, thresholds and the source/target grades; create the promotion batch.', 1, NULL, '[\"identify_candidates\"]', NULL, NULL, 1),
 (2013, 105, 'identify_candidates', 'Identify Candidates', NULL, NULL, 'Query eligible students for the grade/class/stream scope of the batch.', 2, NULL, '[\"validate_eligibility\"]', NULL, NULL, 1),
 (2014, 105, 'validate_eligibility', 'Validate Eligibility', NULL, NULL, 'Check academic performance, attendance and CBC competencies; flag retentions.', 3, NULL, '[\"execute_promotion\"]', NULL, NULL, 1),
@@ -98168,7 +98382,30 @@ INSERT IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `requ
 (2017, 102, 'class_placement', 'Class / Stream Placement', NULL, NULL, 'Assign the admitted student to a class stream after the student record and admission number exist. This also starts academic onboarding.', 7, 'school_administrator', '[\"fees_payment\", \"rejected\"]', '{}', NULL, 1),
 (2018, 102, 'application_applied', 'Application Applied', NULL, NULL, 'Application submitted; required documents are uploaded at this stage.', 1, 'school_administrator', '[\"application_received\", \"rejected\"]', '{}', NULL, 1),
 (2019, 102, 'student_admission_number', 'Student Admission Number', NULL, NULL, 'Create the student record and authoritative admission number after approval.', 6, 'school_administrator', '[\"class_placement\", \"rejected\"]', '{}', NULL, 1),
-(2020, 102, 'final_enrollment', 'Final Enrollment', NULL, NULL, 'Complete the final enrollment after payment and ID generation; boarding is assigned where applicable during onboarding.', 10, 'school_administrator', '[\"enrolled\"]', '{}', NULL, 1);
+(2020, 102, 'final_enrollment', 'Final Enrollment', NULL, NULL, 'Complete the final enrollment after payment and ID generation; boarding is assigned where applicable during onboarding.', 10, 'school_administrator', '[\"enrolled\"]', '{}', NULL, 1),
+(2044, 104, 'confirm_current_year', 'Confirm current academic year', NULL, NULL, 'Verify the outgoing year and its current context.', 1, NULL, '[\"create_next_year\"]', '{\"kind\": \"preflight\"}', NULL, 1),
+(2045, 104, 'create_next_year', 'Create/find immediate next year', NULL, NULL, 'Use the canonical YYYY/YYYY+1 year code.', 2, NULL, '[\"enter_year_term_dates\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2046, 104, 'enter_year_term_dates', 'Enter year and term dates', NULL, NULL, 'Record year, term and optional half-term dates.', 3, NULL, '[\"generate_calendar\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2047, 104, 'generate_calendar', 'Generate calendar', NULL, NULL, 'Derive school weeks and calendar days from the approved dates.', 4, NULL, '[\"configure_classes_streams\"]', '{\"kind\": \"automatic\"}', NULL, 1),
+(2048, 104, 'configure_classes_streams', 'Configure classes and streams', NULL, NULL, 'Prepare target classes and administrator-selected streams.', 5, NULL, '[\"configure_learning_areas\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2049, 104, 'configure_learning_areas', 'Configure learning areas, strands, and substrands', NULL, NULL, 'Prepare CBC curriculum context for the target year.', 6, NULL, '[\"configure_teachers\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2050, 104, 'configure_teachers', 'Configure class and subject teachers', NULL, NULL, 'Assign target-year teacher context.', 7, NULL, '[\"prepare_fee_structures\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2051, 104, 'prepare_fee_structures', 'Prepare fee structures', NULL, NULL, 'Copy fee structures as drafts for the target year.', 8, NULL, '[\"approve_fee_structures\"]', '{\"kind\": \"finance\"}', NULL, 1),
+(2052, 104, 'approve_fee_structures', 'Review and approve fee structures', NULL, NULL, 'Approve the target-year fee matrix before billing.', 9, NULL, '[\"configure_operational_context\"]', '{\"kind\": \"finance\"}', NULL, 1),
+(2053, 104, 'configure_operational_context', 'Configure events, timetable, transport, boarding, and assessments', NULL, NULL, 'Complete target-year operational setup.', 10, NULL, '[\"current_year_readiness\"]', '{\"kind\": \"setup\"}', NULL, 1),
+(2054, 104, 'current_year_readiness', 'Complete current-year readiness checks', NULL, NULL, 'Check teaching, attendance, assessment and finance readiness.', 11, NULL, '[\"close_current_year_terms\"]', '{\"kind\": \"preflight\"}', NULL, 1),
+(2055, 104, 'close_current_year_terms', 'Close current-year terms', NULL, NULL, 'Close all outgoing-year terms before cutover.', 12, NULL, '[\"review_promotion_candidates\"]', '{\"kind\": \"controlled\"}', NULL, 1),
+(2056, 104, 'review_promotion_candidates', 'Review promotion candidates', NULL, NULL, 'Review each continuing learner and target class.', 13, NULL, '[\"assign_promotion_decisions\"]', '{\"kind\": \"promotion\"}', NULL, 1),
+(2057, 104, 'assign_promotion_decisions', 'Assign promotion decisions', NULL, NULL, 'Promote, retain, transfer, graduate or otherwise decide each learner.', 14, NULL, '[\"assign_target_streams\"]', '{\"kind\": \"promotion\"}', NULL, 1),
+(2058, 104, 'assign_target_streams', 'Assign each learner to a target class and stream', NULL, NULL, 'Assign in batches and resume later.', 15, NULL, '[\"create_new_year_enrollments\"]', '{\"kind\": \"promotion\"}', NULL, 1),
+(2059, 104, 'create_new_year_enrollments', 'Create new-year enrollments', NULL, NULL, 'Create target-year enrollments without overwriting history.', 16, NULL, '[\"carry_forward_finances\"]', '{\"kind\": \"automatic\"}', NULL, 1),
+(2060, 104, 'carry_forward_finances', 'Carry forward arrears, credits, and advance payments', NULL, NULL, 'Preserve and map old-year financial positions.', 17, NULL, '[\"generate_obligations\"]', '{\"kind\": \"finance\"}', NULL, 1),
+(2061, 104, 'generate_obligations', 'Generate new-year obligations', NULL, NULL, 'Generate current and future term obligations from approved fees.', 18, NULL, '[\"reconcile_balances\"]', '{\"kind\": \"finance\"}', NULL, 1),
+(2062, 104, 'reconcile_balances', 'Reconcile balances', NULL, NULL, 'Validate payments, arrears, credits and advances.', 19, NULL, '[\"migrate_baselines\"]', '{\"kind\": \"finance\"}', NULL, 1),
+(2063, 104, 'migrate_baselines', 'Migrate competency baselines', NULL, NULL, 'Carry CBC competency baselines into the new year.', 20, NULL, '[\"archive_previous_year\"]', '{\"kind\": \"automatic\"}', NULL, 1),
+(2064, 104, 'archive_previous_year', 'Archive the previous year', NULL, NULL, 'Finalize the outgoing-year history and audit record.', 21, NULL, '[\"activate_new_year_term_one\"]', '{\"kind\": \"controlled\"}', NULL, 1),
+(2065, 104, 'activate_new_year_term_one', 'Activate the new academic year and Term 1', NULL, NULL, 'Perform the final controlled cutover.', 22, NULL, '[\"begin_new_year_operations\"]', '{\"kind\": \"controlled\"}', NULL, 1),
+(2066, 104, 'begin_new_year_operations', 'Begin new-year operations', NULL, NULL, 'Open the new-year operating context.', 23, NULL, '[]', '{\"kind\": \"completion\"}', NULL, 1);
 
 -- --------------------------------------------------------
 
@@ -98176,7 +98413,6 @@ INSERT IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `requ
 -- Table structure for table `workflow_stage_history`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 19, 2026 at 09:54 PM
 --
 
 DROP TABLE IF EXISTS `workflow_stage_history`;
@@ -99174,7 +99410,7 @@ CREATE OR REPLACE VIEW `vw_student_attendance_summary`  AS SELECT `s`.`id` AS `s
 DROP TABLE IF EXISTS `vw_student_fee_balances`;
 
 DROP VIEW IF EXISTS `vw_student_fee_balances`;
-CREATE OR REPLACE VIEW `vw_student_fee_balances`  AS SELECT `sae`.`id` AS `student_academic_enrollment_id`, `sae`.`student_id` AS `student_id`, `ayt`.`id` AS `academic_year_term_id`, `ayt`.`term_id` AS `term_id`, `t`.`code` AS `term_code`, `ay`.`year_code` AS `academic_year`, coalesce(`ob`.`amount_due`,0) AS `amount_due`, coalesce(`dw`.`amount_waived`,0) AS `amount_waived`, coalesce(`pm`.`amount_paid`,0) AS `amount_paid`, greatest(coalesce(`ob`.`amount_due`,0) - coalesce(`dw`.`amount_waived`,0) - coalesce(`pm`.`amount_paid`,0),0) AS `balance`, CASE WHEN coalesce(`ob`.`amount_due`,0) <= 0 THEN 'no_due' WHEN coalesce(`ob`.`amount_due`,0) - coalesce(`dw`.`amount_waived`,0) - coalesce(`pm`.`amount_paid`,0) <= 0 THEN 'paid' WHEN coalesce(`pm`.`amount_paid`,0) > 0 THEN 'partial' ELSE 'pending' END AS `payment_status`, `ob`.`latest_due_date` AS `latest_due_date`, greatest(to_days(curdate()) - to_days(coalesce(`ob`.`latest_due_date`,curdate())),0) AS `days_overdue` FROM ((((((`student_academic_enrollments` `sae` join `academic_years` `ay` on(`ay`.`id` = `sae`.`academic_year_id`)) join `academic_year_terms` `ayt` on(`ayt`.`academic_year_id` = `sae`.`academic_year_id`)) join `terms` `t` on(`t`.`id` = `ayt`.`term_id`)) left join (select `student_fee_obligations`.`student_academic_enrollment_id` AS `student_academic_enrollment_id`,`student_fee_obligations`.`academic_year_term_id` AS `academic_year_term_id`,sum(`student_fee_obligations`.`amount_due`) AS `amount_due`,max(`student_fee_obligations`.`due_date`) AS `latest_due_date` from `student_fee_obligations` group by `student_fee_obligations`.`student_academic_enrollment_id`,`student_fee_obligations`.`academic_year_term_id`) `ob` on(`ob`.`student_academic_enrollment_id` = `sae`.`id` and `ob`.`academic_year_term_id` = `ayt`.`id`)) left join (select `sfo`.`student_academic_enrollment_id` AS `student_academic_enrollment_id`,`sfo`.`academic_year_term_id` AS `academic_year_term_id`,sum(coalesce(`fdw`.`discount_value`,0) + coalesce(`sfo`.`sponsored_waiver_amount`,0)) AS `amount_waived` from (`student_fee_obligations` `sfo` left join `fee_discounts_waivers` `fdw` on(`fdw`.`student_fee_obligation_id` = `sfo`.`id` and `fdw`.`status` = 'approved')) group by `sfo`.`student_academic_enrollment_id`,`sfo`.`academic_year_term_id`) `dw` on(`dw`.`student_academic_enrollment_id` = `sae`.`id` and `dw`.`academic_year_term_id` = `ayt`.`id`)) left join (select `p`.`student_id` AS `student_id`,`ayt2`.`id` AS `academic_year_term_id`,sum(`p`.`amount`) AS `amount_paid` from (`payments` `p` join `academic_year_terms` `ayt2` on(`p`.`payment_date` <= `ayt2`.`closing_date` and !exists(select 1 from (`academic_year_terms` `earlier` join `terms` `earlier_term` on(`earlier_term`.`id` = `earlier`.`term_id`)) where `earlier`.`academic_year_id` = `ayt2`.`academic_year_id` and cast(substr(`earlier_term`.`code`,2) as unsigned) < cast(substr((select `terms`.`code` from `terms` where `terms`.`id` = `ayt2`.`term_id`),2) as unsigned) and `earlier`.`closing_date` >= `p`.`payment_date` limit 1))) where `p`.`status` in ('confirmed','completed','success') and !exists(select 1 from `admission_payments` `ap` where `ap`.`student_id` = `p`.`student_id` and `ap`.`reference_no` = `p`.`reference` and `ap`.`status` in ('recorded','posted') limit 1) group by `p`.`student_id`,`ayt2`.`id`) `pm` on(`pm`.`student_id` = `sae`.`student_id` and `pm`.`academic_year_term_id` = `ayt`.`id`)) WHERE `sae`.`enrollment_status` = 'active' ;
+CREATE OR REPLACE VIEW `vw_student_fee_balances`  AS SELECT `sae`.`id` AS `student_academic_enrollment_id`, `sae`.`student_id` AS `student_id`, `ayt`.`id` AS `academic_year_term_id`, `ayt`.`term_id` AS `term_id`, `t`.`code` AS `term_code`, `ay`.`year_code` AS `academic_year`, coalesce(`ob`.`amount_due`,0) + coalesce(`ms`.`arrears_amount`,0) AS `amount_due`, coalesce(`dw`.`amount_waived`,0) AS `amount_waived`, coalesce(`pm`.`amount_paid`,0) + coalesce(`ms`.`current_term_paid_amount`,0) + coalesce(`ms`.`advance_amount`,0) AS `amount_paid`, greatest(coalesce(`ob`.`amount_due`,0) + coalesce(`ms`.`arrears_amount`,0) - coalesce(`dw`.`amount_waived`,0) - coalesce(`pm`.`amount_paid`,0) - coalesce(`ms`.`current_term_paid_amount`,0) - coalesce(`ms`.`advance_amount`,0),0) AS `balance`, CASE WHEN coalesce(`ob`.`amount_due`,0) + coalesce(`ms`.`arrears_amount`,0) <= 0 THEN 'no_due' WHEN coalesce(`ob`.`amount_due`,0) + coalesce(`ms`.`arrears_amount`,0) - coalesce(`dw`.`amount_waived`,0) - coalesce(`pm`.`amount_paid`,0) - coalesce(`ms`.`current_term_paid_amount`,0) - coalesce(`ms`.`advance_amount`,0) <= 0 THEN 'paid' WHEN coalesce(`pm`.`amount_paid`,0) + coalesce(`ms`.`current_term_paid_amount`,0) + coalesce(`ms`.`advance_amount`,0) > 0 THEN 'partial' ELSE 'pending' END AS `payment_status`, `ob`.`latest_due_date` AS `latest_due_date`, greatest(to_days(curdate()) - to_days(coalesce(`ob`.`latest_due_date`,curdate())),0) AS `days_overdue` FROM (((((((`student_academic_enrollments` `sae` join `academic_years` `ay` on(`ay`.`id` = `sae`.`academic_year_id`)) join `academic_year_terms` `ayt` on(`ayt`.`academic_year_id` = `sae`.`academic_year_id`)) join `terms` `t` on(`t`.`id` = `ayt`.`term_id`)) left join (select `student_fee_obligations`.`student_academic_enrollment_id` AS `student_academic_enrollment_id`,`student_fee_obligations`.`academic_year_term_id` AS `academic_year_term_id`,sum(`student_fee_obligations`.`amount_due`) AS `amount_due`,max(`student_fee_obligations`.`due_date`) AS `latest_due_date` from `student_fee_obligations` group by `student_fee_obligations`.`student_academic_enrollment_id`,`student_fee_obligations`.`academic_year_term_id`) `ob` on(`ob`.`student_academic_enrollment_id` = `sae`.`id` and `ob`.`academic_year_term_id` = `ayt`.`id`)) left join (select `sfo`.`student_academic_enrollment_id` AS `student_academic_enrollment_id`,`sfo`.`academic_year_term_id` AS `academic_year_term_id`,sum(coalesce(`fdw`.`discount_value`,0) + coalesce(`sfo`.`sponsored_waiver_amount`,0)) AS `amount_waived` from (`student_fee_obligations` `sfo` left join `fee_discounts_waivers` `fdw` on(`fdw`.`student_fee_obligation_id` = `sfo`.`id` and `fdw`.`status` = 'approved')) group by `sfo`.`student_academic_enrollment_id`,`sfo`.`academic_year_term_id`) `dw` on(`dw`.`student_academic_enrollment_id` = `sae`.`id` and `dw`.`academic_year_term_id` = `ayt`.`id`)) left join (select `p`.`student_id` AS `student_id`,`ayt2`.`id` AS `academic_year_term_id`,sum(`p`.`amount`) AS `amount_paid` from (`payments` `p` join `academic_year_terms` `ayt2` on(`p`.`payment_date` <= `ayt2`.`closing_date` and !exists(select 1 from (`academic_year_terms` `earlier` join `terms` `earlier_term` on(`earlier_term`.`id` = `earlier`.`term_id`)) where `earlier`.`academic_year_id` = `ayt2`.`academic_year_id` and cast(substr(`earlier_term`.`code`,2) as unsigned) < cast(substr((select `terms`.`code` from `terms` where `terms`.`id` = `ayt2`.`term_id`),2) as unsigned) and `earlier`.`closing_date` >= `p`.`payment_date` limit 1))) where `p`.`status` in ('confirmed','completed','success') and !exists(select 1 from `admission_payments` `ap` where `ap`.`student_id` = `p`.`student_id` and `ap`.`reference_no` = `p`.`reference` and `ap`.`status` in ('recorded','posted') limit 1) group by `p`.`student_id`,`ayt2`.`id`) `pm` on(`pm`.`student_id` = `sae`.`student_id` and `pm`.`academic_year_term_id` = `ayt`.`id`)) left join `student_fee_migration_snapshots` `ms` on(`ms`.`student_id` = `sae`.`student_id` and `ms`.`academic_year_id` = `sae`.`academic_year_id` and (`ms`.`academic_year_term_id` = `ayt`.`id` or `ms`.`academic_year_term_id` is null))) WHERE `sae`.`enrollment_status` = 'active' ;
 
 -- --------------------------------------------------------
 
@@ -99663,6 +99899,20 @@ ALTER TABLE `external_inbound_messages`
   ADD CONSTRAINT `fk_external_inbound_thread` FOREIGN KEY (`thread_id`) REFERENCES `communication_threads` (`id`) ON DELETE SET NULL;
 
 --
+-- Constraints for table `extra_charges`
+--
+ALTER TABLE `extra_charges`
+  ADD CONSTRAINT `fk_ec_academic_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`),
+  ADD CONSTRAINT `fk_ec_class` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`),
+  ADD CONSTRAINT `fk_ec_student_type` FOREIGN KEY (`student_type_id`) REFERENCES `student_types` (`id`);
+
+--
+-- Constraints for table `extra_charge_review_log`
+--
+ALTER TABLE `extra_charge_review_log`
+  ADD CONSTRAINT `fk_ecrl_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `financial_statement_imports`
 --
 ALTER TABLE `financial_statement_imports`
@@ -99881,6 +100131,14 @@ ALTER TABLE `statutory_remittance_attempts`
 ALTER TABLE `statutory_remittance_items`
   ADD CONSTRAINT `fk_remittance_items_payslip` FOREIGN KEY (`payslip_id`) REFERENCES `payslips` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_remittance_items_remittance` FOREIGN KEY (`remittance_id`) REFERENCES `statutory_remittances` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `student_fee_migration_snapshots`
+--
+ALTER TABLE `student_fee_migration_snapshots`
+  ADD CONSTRAINT `fk_student_fee_migration_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`),
+  ADD CONSTRAINT `fk_student_fee_migration_term` FOREIGN KEY (`academic_year_term_id`) REFERENCES `academic_year_terms` (`id`),
+  ADD CONSTRAINT `fk_student_fee_migration_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`);
 
 --
 -- Constraints for table `student_fund_transfers`

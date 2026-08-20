@@ -3313,4 +3313,48 @@ class FinanceAPI extends BaseAPI
     {
         return $this->feeManager->getClassBillingReport($classId, $academicYearId, $termId);
     }
+
+    // =========================================================================
+    // EXTRA CHARGES
+    // =========================================================================
+
+    public function getExtraCharges(array $filters = [])
+    {
+        return $this->feeManager->getExtraCharges($filters);
+    }
+
+    public function getExtraCharge(int $id)
+    {
+        return $this->feeManager->getExtraCharge($id);
+    }
+
+    public function createExtraCharge(array $data, int $userId)
+    {
+        return $this->feeManager->createExtraCharge($data, $userId);
+    }
+
+    public function updateExtraCharge(int $id, array $data, int $userId)
+    {
+        return $this->feeManager->updateExtraCharge($id, $data, $userId);
+    }
+
+    public function deleteExtraCharge(int $id, int $userId)
+    {
+        return $this->feeManager->deleteExtraCharge($id, $userId);
+    }
+
+    public function submitExtraCharge(int $id, int $userId)
+    {
+        return $this->feeManager->submitExtraCharge($id, $userId);
+    }
+
+    public function approveExtraCharge(int $id, int $userId, string $notes = '')
+    {
+        return $this->feeManager->approveExtraCharge($id, $userId, $notes);
+    }
+
+    public function rejectExtraCharge(int $id, int $userId, string $notes = '')
+    {
+        return $this->feeManager->rejectExtraCharge($id, $userId, $notes);
+    }
 }
