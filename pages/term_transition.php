@@ -5,20 +5,20 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 gap-3">
     <div>
       <h3 class="mb-1"><i class="bi bi-arrow-right-circle-fill me-2 text-primary"></i>Term Transition</h3>
-      <p class="text-muted mb-0 small">Close the current term, roll over the timetable, and activate the next term.</p>
+      <p class="text-muted mb-0 small">Review and prepare the next term, then close the current term and activate the next term in one final atomic action.</p>
     </div>
     <span class="badge bg-warning fs-6 align-self-center" id="ttCurrentTermBadge">Loading…</span>
   </div>
 
   <!-- Step bar -->
   <div class="d-flex align-items-center mb-4 gap-0" id="ttStepBar">
-    <div class="tt-step active" data-step="1"><span class="tt-num">1</span><span class="tt-lbl">Review Term 1</span></div>
+    <div class="tt-step active" data-step="1"><span class="tt-num">1</span><span class="tt-lbl" id="ttStepLbl1">Review Current Term</span></div>
     <div class="tt-connector"></div>
     <div class="tt-step" data-step="2"><span class="tt-num">2</span><span class="tt-lbl">Close Term</span></div>
     <div class="tt-connector"></div>
     <div class="tt-step" data-step="3"><span class="tt-num">3</span><span class="tt-lbl">Rollover Timetable</span></div>
     <div class="tt-connector"></div>
-    <div class="tt-step" data-step="4"><span class="tt-num">4</span><span class="tt-lbl">Setup Term 2</span></div>
+    <div class="tt-step" data-step="4"><span class="tt-num">4</span><span class="tt-lbl" id="ttStepLbl4">Setup Next Term</span></div>
     <div class="tt-connector"></div>
     <div class="tt-step" data-step="5"><span class="tt-num">5</span><span class="tt-lbl">Activate</span></div>
   </div>
@@ -61,13 +61,12 @@
   <div id="ttStep2" style="display:none;">
     <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
       <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-lock-fill text-danger me-2"></i>Close Current Term</h5>
-        <p class="text-muted">This will mark <strong id="ttCurrentTermName"></strong> as <span class="badge bg-secondary">Completed</span>.
-          Lesson plans, attendance, and results will be locked from further edits.</p>
+        <h5 class="fw-semibold mb-3"><i class="bi bi-lock-fill text-danger me-2"></i>Prepare Current Term for Closure</h5>
+        <p class="text-muted">Confirm that <strong id="ttCurrentTermName"></strong> is ready to be closed. The database will only mark it <span class="badge bg-secondary">Completed</span> during final activation.</p>
         <div class="form-check mb-3">
           <input class="form-check-input" type="checkbox" id="ttConfirmClose">
           <label class="form-check-label fw-semibold" for="ttConfirmClose">
-            I confirm that all term 1 data (results, attendance, lesson plans) has been finalised
+            I confirm that all <span id="ttConfirmTermName">current term</span> data (results, attendance, lesson plans) has been finalised
           </label>
         </div>
         <div id="ttCloseError" class="alert alert-danger d-none"></div>
@@ -77,8 +76,8 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(1)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()">
-        <i class="bi bi-lock me-1"></i> Close Term 1
+        <button class="btn btn-danger ms-auto" id="ttCloseTermBtn" onclick="termTransitionController.closeTerm()">
+        <i class="bi bi-arrow-right me-1"></i> Confirm and Continue
       </button>
     </div>
   </div>
@@ -88,7 +87,7 @@
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <h5 class="fw-semibold mb-3"><i class="bi bi-arrow-repeat text-primary me-2"></i>Roll Over Timetable</h5>
-        <p class="text-muted">Copy the Term 1 class timetable to Term 2. You can edit individual slots after activation.</p>
+        <p class="text-muted">Prepare to copy the current term's class timetable to the next term. The copy occurs only during final activation; you can edit individual slots afterward.</p>
 
         <div class="row g-3 mb-3" id="ttTimetableStats">
           <div class="col-md-3">
@@ -132,8 +131,8 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(2)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-primary ms-auto" onclick="termTransitionController.rolloverTimetable()">
-        <i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable to Term 2
+      <button class="btn btn-primary ms-auto" id="ttRolloverBtn" onclick="termTransitionController.rolloverTimetable()">
+        <i class="bi bi-arrow-repeat me-1"></i> Roll Over Timetable to Next Term
       </button>
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(4)">
         Skip (no timetable yet) <i class="bi bi-arrow-right ms-1"></i>
@@ -145,14 +144,14 @@
   <div id="ttStep4" style="display:none;">
     <div class="card border-0 shadow-sm mb-4">
       <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-calendar2-check text-info me-2"></i>Term 2 Setup</h5>
+        <h5 class="fw-semibold mb-3"><i class="bi bi-calendar2-check text-info me-2"></i><span id="ttNextTermHeader">Next Term Setup</span></h5>
         <div class="row g-3" id="ttNextTermDetails">
           <div class="col-md-4">
-            <label class="form-label fw-semibold">Term 2 Start Date</label>
+            <label class="form-label fw-semibold" id="ttNextTermStartLabel">Next Term Start Date</label>
             <input type="date" id="ttTerm2Start" class="form-control">
           </div>
           <div class="col-md-4">
-            <label class="form-label fw-semibold">Term 2 End Date</label>
+            <label class="form-label fw-semibold" id="ttNextTermEndLabel">Next Term End Date</label>
             <input type="date" id="ttTerm2End" class="form-control">
           </div>
           <div class="col-md-4">
@@ -165,7 +164,7 @@
           </div>
         </div>
         <div class="mt-3">
-          <h6 class="fw-semibold">Term 2 Checklist</h6>
+          <h6 class="fw-semibold" id="ttNextTermChecklistTitle">Next Term Checklist</h6>
           <div id="ttSetupChecklist" class="row g-2 mt-1"></div>
         </div>
         <div id="ttSetupError" class="alert alert-danger mt-3 d-none"></div>
@@ -175,8 +174,8 @@
       <button class="btn btn-outline-secondary" onclick="termTransitionController.goStep(3)">
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
-      <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()">
-        Save Term 2 Setup <i class="bi bi-arrow-right ms-1"></i>
+        <button class="btn btn-success ms-auto" onclick="termTransitionController.saveTerm2Setup()">
+        Save Setup and Review Activation <i class="bi bi-arrow-right ms-1"></i>
       </button>
     </div>
   </div>
@@ -185,16 +184,16 @@
   <div id="ttStep5" style="display:none;">
     <div class="card border-0 shadow-sm mb-4 border-start border-success border-3">
       <div class="card-body">
-        <h5 class="fw-semibold mb-3"><i class="bi bi-play-fill text-success me-2"></i>Activate Term 2</h5>
+        <h5 class="fw-semibold mb-3"><i class="bi bi-play-fill text-success me-2"></i><span id="ttActivateHeader">Activate Next Term</span></h5>
         <div id="ttActivateSummary" class="row g-3 mb-3"></div>
         <div class="alert alert-success mb-0">
           <i class="bi bi-check-circle me-2"></i>
-          Activating Term 2 will:
+          Final activation will:
           <ul class="mb-0 mt-1">
-            <li>Set Term 2 status to <strong>Current</strong></li>
-            <li>Mark Term 1 as <strong>Completed</strong> (if not already done)</li>
-            <li>Enable lesson planning for Term 2</li>
-            <li>Make Term 2 timetable active across all teacher views</li>
+            <li>Set the next term status to <strong>Current</strong></li>
+            <li>Mark the previous term as <strong>Completed</strong> (if not already done)</li>
+            <li>Enable lesson planning for the next term</li>
+            <li>Make the next term timetable active across all teacher views</li>
           </ul>
         </div>
         <div id="ttActivateError" class="alert alert-danger mt-3 d-none"></div>
@@ -205,7 +204,7 @@
         <i class="bi bi-arrow-left me-1"></i> Back
       </button>
       <button class="btn btn-success ms-auto btn-lg" id="ttActivateBtn" onclick="termTransitionController.activateTerm2()">
-        <i class="bi bi-play-fill me-1"></i> Activate Term 2 Now
+        <i class="bi bi-play-fill me-1"></i> Close Current &amp; Activate Next Term
       </button>
     </div>
   </div>
@@ -215,7 +214,7 @@
     <div class="card border-0 shadow-sm text-center py-5">
       <div class="card-body">
         <i class="bi bi-check-circle-fill text-success fs-1 mb-3 d-block"></i>
-        <h4 class="fw-bold text-success">Term 2 is Now Active!</h4>
+        <h4 class="fw-bold text-success" id="ttDoneTitle">Next Term is Now Active!</h4>
         <p class="text-muted">All systems have been updated. Teachers can now start creating lesson plans and the timetable is live.</p>
         <div class="d-flex justify-content-center gap-3 mt-3">
           <a href="<?= $appBase ?>/home.php?route=manage_timetable" class="btn btn-primary">
@@ -246,5 +245,5 @@
 .tt-step.done .tt-lbl { color:#198754; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/term_transition.js"></script>
+<?php asset_script($appBase, 'js/pages/term_transition.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => termTransitionController.init());</script>

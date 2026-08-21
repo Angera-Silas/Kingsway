@@ -13,13 +13,13 @@
  *   - Capacity status (available/limited/full/over_capacity/setup_required/...).
  *
  * Design decisions grounded in the live DB:
- *   - classes.academic_year is YEAR(4); academic_years.id is the FK used everywhere else.
- *     We bridge via academic_years.year_code / year_name.
+ *   - Classes are linked to academic years via academic_year_classes (class_id ->
+ *     academic_year_id). We bridge via academic_years.year_code / year_name.
  *   - Progression is stored per-class in academic_class_progression
  *     (source_class_id -> target_class_id). A level-hierarchy fallback
  *     (school_levels.id order) is used when no explicit row exists.
- *   - Enrollment counts come from students JOIN class_streams (NOT a hard dependency
- *     on a view that may not exist in every environment).
+ *   - Enrollment counts come from student_academic_enrollments JOIN
+ *     academic_year_class_streams / academic_year_classes (per academic year).
  *   - academic_capacity_config holds the status thresholds (DB-driven, configurable).
  *
  * One shared calculation is used by: admissions placement, class capacity,
@@ -57,9 +57,9 @@ class AcademicCohortProjectionService extends BaseAPI
      * Project capacity for a specific target period/class.
      *
      * @param int      $targetAcademicYearId  academic_years.id
-     * @param int|null $targetTermId          academic_terms.id (optional)
+     * @param int|null $targetTermId          academic_year_terms.id (optional)
      * @param int      $targetClassId         classes.id
-     * @param int|null $targetStreamId        class_streams.id (optional -> only that stream)
+     * @param int|null $targetStreamId        streams.id (optional -> only that stream)
      * @param int|null $appliedYearValue      the YEAR(4) the applicant applied for
      *                                        (used to decide current vs future cohort)
      * @return array normalized response
@@ -99,7 +99,14 @@ class AcademicCohortProjectionService extends BaseAPI
             $periodResult = $this->classifyPeriod($now, $year, $term, $appliedYearValue);
 
             // ---- 4. Capacity source ----------------------------------------
-            $capacity = (int) ($class['capacity'] ?? 0);
+            // Class capacity is derived from its streams' capacities.
+            $capacity = (int) $this->fetchValue(
+                "SELECT COALESCE(SUM(st.capacity), 0) FROM streams st
+                 JOIN academic_year_class_streams aycs ON aycs.stream_id = st.id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 WHERE ayc.class_id = ?",
+                [$targetClassId]
+            );
 
             $source = $this->resolveCohortSource($now, $year, $class, $periodResult);
 
@@ -142,7 +149,8 @@ class AcademicCohortProjectionService extends BaseAPI
 
             return $this->successResponse($payload, 'Capacity projected.');
         } catch (Exception $e) {
-            return $this->errorResponse('Projection failed: ' . $e->getMessage(), 500);
+            error_log('[AcademicCohortProjectionService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -211,7 +219,7 @@ class AcademicCohortProjectionService extends BaseAPI
         $term = null;
         if ($year) {
             $term = $this->fetchRow(
-                "SELECT * FROM academic_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1",
+                "SELECT * FROM academic_year_terms WHERE academic_year_id = ? AND status = 'current' LIMIT 1",
                 [$year['id']]
             );
         }
@@ -329,8 +337,7 @@ class AcademicCohortProjectionService extends BaseAPI
             return null;
         }
         return $this->fetchRow(
-            "SELECT * FROM classes WHERE name = ? AND status = 'active'
-             ORDER BY academic_year DESC LIMIT 1",
+            "SELECT * FROM classes WHERE name = ? ORDER BY id LIMIT 1",
             [$prevName]
         ) ?: null;
     }
@@ -350,10 +357,11 @@ class AcademicCohortProjectionService extends BaseAPI
             : $baseEnrollment;
 
         // Reservations against the TARGET class (confirmed + provisional).
+        // Reservations live in academic_capacity_reservations (per application).
         $res = $this->fetchRow(
             "SELECT
-                COALESCE(SUM(CASE WHEN reservation_status IN ('confirmed') THEN 1 ELSE 0 END),0) AS confirmed,
-                COALESCE(SUM(CASE WHEN reservation_status IN ('provisional') THEN 1 ELSE 0 END),0) AS provisional
+                COALESCE(SUM(CASE WHEN reservation_status = 'confirmed' THEN 1 ELSE 0 END),0) AS confirmed,
+                COALESCE(SUM(CASE WHEN reservation_status = 'provisional' THEN 1 ELSE 0 END),0) AS provisional
              FROM academic_capacity_reservations
              WHERE class_id = ? AND reservation_status IN ('confirmed','provisional')",
             [$targetClassId]
@@ -361,15 +369,9 @@ class AcademicCohortProjectionService extends BaseAPI
         $confirmedReservations = (int) ($res['confirmed'] ?? 0);
         $provisionalReservations = (int) ($res['provisional'] ?? 0);
 
-        // Approved admissions already reserving space (admission_placements approved/recommended
-        // for this class, not yet enrolled).
-        $approvedAdmissions = (int) $this->fetchValue(
-            "SELECT COUNT(*) FROM admission_placements ap
-             JOIN admission_applications aa ON aa.id = ap.application_id
-             WHERE ap.final_class_id = ? AND ap.placement_status IN ('recommended','approved')
-               AND aa.enrolled_student_id IS NULL",
-            [$targetClassId]
-        );
+        // Approved admissions already reserving space are captured by the confirmed
+        // reservations above (no separate admission_placements table in this schema).
+        $approvedAdmissions = 0;
 
         $confirmedNewAdmissions = $confirmedReservations + $approvedAdmissions;
 
@@ -392,15 +394,12 @@ class AcademicCohortProjectionService extends BaseAPI
 
         if ($targetStreamId) {
             // Single-stream projection
-            $stream = $this->fetchRow(
-                "SELECT * FROM class_streams WHERE id = ? AND class_id = ?",
-                [$targetStreamId, $targetClassId]
-            );
+            $stream = $this->fetchRow("SELECT * FROM streams WHERE id = ? LIMIT 1", [$targetStreamId]);
             $streamCap = $stream ? (int) ($stream['capacity'] ?? 0) : 0;
-            $streamOcc = $stream ? (int) ($stream['current_students'] ?? 0) : 0;
+            $streamOcc = $stream ? $this->countStreamEnrollment($targetStreamId, (int) ($year['id'] ?? 0)) : 0;
             $streams = [[
                 'id' => $targetStreamId,
-                'name' => $stream['stream_name'] ?? null,
+                'name' => $stream['name'] ?? null,
                 'capacity' => $streamCap,
                 'projected_occupancy' => $streamOcc,
                 'vacancies' => max($streamCap - $streamOcc, 0),
@@ -408,8 +407,14 @@ class AcademicCohortProjectionService extends BaseAPI
             $recommendedStreamId = $targetStreamId;
         } else {
             // Whole-class: compute per-stream then class totals.
+            // List streams linked to this class (any academic year), with occupancy
+            // scoped to the target academic year.
             $streamRows = $this->fetchAll(
-                "SELECT * FROM class_streams WHERE class_id = ? AND status = 'active' ORDER BY id",
+                "SELECT DISTINCT st.* FROM streams st
+                 JOIN academic_year_class_streams aycs ON aycs.stream_id = st.id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 WHERE ayc.class_id = ?
+                 ORDER BY st.id",
                 [$targetClassId]
             );
             $streams = [];
@@ -417,12 +422,13 @@ class AcademicCohortProjectionService extends BaseAPI
             $bestVacancies = -1;
             $classProjected = 0;
             foreach ($streamRows as $s) {
+                $sId = (int) $s['id'];
                 $sCap = (int) ($s['capacity'] ?? 0);
-                $sOcc = (int) ($s['current_students'] ?? 0);
+                $sOcc = $this->countStreamEnrollment($sId, (int) ($year['id'] ?? 0));
                 $vac = max($sCap - $sOcc, 0);
                 $streams[] = [
-                    'id' => (int) $s['id'],
-                    'name' => $s['stream_name'],
+                    'id' => $sId,
+                    'name' => $s['name'],
                     'capacity' => $sCap,
                     'projected_occupancy' => $sOcc,
                     'vacancies' => $vac,
@@ -431,7 +437,7 @@ class AcademicCohortProjectionService extends BaseAPI
                 $classProjected += ($source['type'] === 'current_class_enrollment') ? $sOcc : 0;
                 if ($vac > $bestVacancies) {
                     $bestVacancies = $vac;
-                    $recommendedStreamId = (int) $s['id'];
+                    $recommendedStreamId = $sId;
                 }
             }
             // For a future class, projected occupancy is class-level (set above), not stream sums.
@@ -526,16 +532,20 @@ class AcademicCohortProjectionService extends BaseAPI
         // names are 'Grade 1'..'Grade 9' (with space). Normalize to the class name.
         $className = preg_replace('/^Grade(\d+)$/', 'Grade $1', (string) $grade);
         $className = str_replace('Playground', 'Playgroup', $className);
-        // exact: name + academic_year; fallback: active class with that name.
+        // exact: name + academic year value; fallback: any class with that name.
         $row = $this->fetchRow(
-            "SELECT id FROM classes WHERE name = ? AND CAST(academic_year AS UNSIGNED) = ? AND status = 'active' LIMIT 1",
+            "SELECT c.id FROM classes c
+             JOIN academic_year_classes ayc ON ayc.class_id = c.id
+             JOIN academic_years ay ON ay.id = ayc.academic_year_id
+             WHERE c.name = ? AND CAST(ay.year_code AS UNSIGNED) = ?
+             ORDER BY ayc.id LIMIT 1",
             [$className, $yearVal]
         );
         if ($row) {
             return (int) $row['id'];
         }
         $row = $this->fetchRow(
-            "SELECT id FROM classes WHERE name = ? AND status = 'active' ORDER BY academic_year DESC LIMIT 1",
+            "SELECT id FROM classes WHERE name = ? ORDER BY id LIMIT 1",
             [$className]
         );
         return $row ? (int) $row['id'] : null;
@@ -559,7 +569,7 @@ class AcademicCohortProjectionService extends BaseAPI
 
     private function fetchTerm(int $id): ?array
     {
-        return $this->fetchRow("SELECT * FROM academic_terms WHERE id = ? LIMIT 1", [$id]);
+        return $this->fetchRow("SELECT * FROM academic_year_terms WHERE id = ? LIMIT 1", [$id]);
     }
 
     private function fetchClass(int $id): ?array
@@ -570,10 +580,24 @@ class AcademicCohortProjectionService extends BaseAPI
     private function countActiveEnrollment(int $classId): int
     {
         return (int) $this->fetchValue(
-            "SELECT COUNT(*) FROM students s
-             JOIN class_streams cs ON cs.id = s.stream_id
-             WHERE cs.class_id = ? AND s.status = 'active'",
+            "SELECT COUNT(DISTINCT s.id) FROM students s
+             JOIN student_academic_enrollments sae ON sae.student_id = s.id
+                AND sae.enrollment_status IN ('pending', 'active')
+             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE ayc.class_id = ? AND s.status = 'active'",
             [$classId]
+        );
+    }
+
+    private function countStreamEnrollment(int $streamId, int $yearId): int
+    {
+        return (int) $this->fetchValue(
+            "SELECT COUNT(*) FROM student_academic_enrollments sae
+             JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             WHERE aycs.stream_id = ? AND sae.academic_year_id = ?
+               AND sae.enrollment_status IN ('pending', 'active')",
+            [$streamId, $yearId]
         );
     }
 

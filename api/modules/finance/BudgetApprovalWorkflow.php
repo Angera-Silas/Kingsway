@@ -46,7 +46,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
 
             // Verify budget exists
             $stmt = $this->db->prepare("
-                SELECT id, name, total_amount, fiscal_year, department 
+                SELECT id, name, total_amount, academic_year 
                 FROM budgets 
                 WHERE id = ?
             ");
@@ -61,11 +61,11 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             // Check for existing active workflow
             $stmt = $this->db->prepare("
                 SELECT wi.* FROM workflow_instances wi
-                WHERE wi.workflow_type = 'budget_approval'
+                WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
-                AND JSON_EXTRACT(wi.workflow_data, '$.budget_id') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.budget_id') = ?
             ");
-            $stmt->execute([$budgetId]);
+            $stmt->execute([$this->workflow_id, $budgetId]);
 
             if ($stmt->fetch()) {
                 $this->db->rollBack();
@@ -74,7 +74,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
 
             // Get budget line items count
             $stmt = $this->db->prepare("
-                SELECT COUNT(*) as item_count, SUM(amount) as total_amount
+                SELECT COUNT(*) as item_count, SUM(allocated_amount) as total_amount
                 FROM budget_line_items
                 WHERE budget_id = ?
             ");
@@ -86,8 +86,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 'budget_id' => $budgetId,
                 'budget_name' => $budget['name'],
                 'total_amount' => $budget['total_amount'],
-                'fiscal_year' => $budget['fiscal_year'],
-                'department' => $budget['department'],
+                'fiscal_year' => $budget['academic_year'],
                 'line_items_count' => $lineItems['item_count'],
                 'initiated_by' => $userId,
                 'initiated_at' => date('Y-m-d H:i:s')
@@ -104,16 +103,15 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Failed to create workflow instance');
             }
 
-            // Advance to departmental review if department specified, otherwise finance review
-            $nextStage = $budget['department'] ? 'departmental_review' : 'finance_review';
-            $this->advanceStage($instanceId, $nextStage, 'submitted_for_review', [
+            // Advance to finance review
+            $this->advanceStage($instanceId, 'finance_review', 'submitted_for_review', [
                 'notes' => $data['notes'] ?? 'Budget submitted for review'
             ]);
 
             // Update budget status
             $stmt = $this->db->prepare("
                 UPDATE budgets 
-                SET status = 'pending_approval'
+                SET status = 'submitted'
                 WHERE id = ?
             ");
             $stmt->execute([$budgetId]);
@@ -129,7 +127,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -175,7 +174,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by department head');
 
                 // Update budget status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE budgets 
                     SET status = 'rejected'
@@ -195,7 +194,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -241,7 +241,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by finance team');
 
                 // Update budget status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE budgets 
                     SET status = 'rejected'
@@ -261,7 +261,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -294,7 +295,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
 
             if ($action === 'approve') {
                 // Approve budget
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE budgets 
                     SET status = 'approved',
@@ -320,7 +321,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by director');
 
                 // Update budget status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE budgets 
                     SET status = 'rejected'
@@ -340,7 +341,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -357,14 +359,14 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                        b.name as budget_name,
                        b.status as budget_status
                 FROM workflow_instances wi
-                INNER JOIN budgets b ON JSON_EXTRACT(wi.workflow_data, '$.budget_id') = b.id
-                WHERE wi.workflow_type = 'budget_approval'
-                AND JSON_EXTRACT(wi.workflow_data, '$.budget_id') = ?
-                ORDER BY wi.created_at DESC
+                INNER JOIN budgets b ON JSON_EXTRACT(wi.data_json, '$.budget_id') = b.id
+                WHERE wi.workflow_id = ?
+                AND JSON_EXTRACT(wi.data_json, '$.budget_id') = ?
+                ORDER BY wi.started_at DESC
                 LIMIT 1
             ");
 
-            $stmt->execute([$budgetId]);
+            $stmt->execute([$this->workflow_id, $budgetId]);
             $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$workflow) {
@@ -375,7 +377,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 SELECT * FROM workflow_stage_history
                 WHERE instance_id = ?
-                ORDER BY created_at ASC
+                ORDER BY processed_at ASC
             ");
             $stmt->execute([$workflow['id']]);
             $workflow['stage_history'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -383,7 +385,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -426,7 +429,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->departmentalReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at departmental level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -450,7 +454,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->financeReview($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at finance level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -474,7 +479,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve at director level: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -516,7 +522,8 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['message' => 'Budget rejected']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject budget: ' . $e->getMessage());
+            error_log('[BudgetApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -531,14 +538,13 @@ class BudgetApprovalWorkflow extends WorkflowHandler
         try {
             $stmt = $this->db->prepare("
                 SELECT id FROM workflow_instances
-                WHERE workflow_type = 'budget_approval'
-                AND JSON_EXTRACT(workflow_data, '$.budget_id') = ?
-                AND current_stage != 'completed'
-                AND current_stage != 'rejected'
-                ORDER BY created_at DESC
+                WHERE workflow_id = ?
+                AND JSON_EXTRACT(data_json, '$.budget_id') = ?
+                AND status IN ('pending', 'in_progress')
+                ORDER BY started_at DESC
                 LIMIT 1
             ");
-            $stmt->execute([$budgetId]);
+            $stmt->execute([$this->workflow_id, $budgetId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $result ? $result['id'] : null;
@@ -600,17 +606,17 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             // Stage-specific actions
             if ($stage === 'departmental_review') {
                 if (!empty($data['budget_id'])) {
-                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'pending_departmental_review' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'submitted' WHERE id = ?");
                     $stmt->execute([$data['budget_id']]);
                 }
             } elseif ($stage === 'finance_review') {
                 if (!empty($data['budget_id'])) {
-                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'pending_finance_review' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'under_review' WHERE id = ?");
                     $stmt->execute([$data['budget_id']]);
                 }
             } elseif ($stage === 'director_approval') {
                 if (!empty($data['budget_id'])) {
-                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'pending_director_approval' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE budgets SET status = 'under_review' WHERE id = ?");
                     $stmt->execute([$data['budget_id']]);
                 }
             } elseif ($stage === 'completed') {

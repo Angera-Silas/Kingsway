@@ -41,19 +41,22 @@ class SchoolAdminAnalyticsService
     public function getActiveStudentsStats(): array
     {
         try {
-            // Total active students - use stream_id which references class_streams
+            // Total active students - from student_academic_enrollments + persons for gender
             $query = "SELECT 
-                        COUNT(*) as total_students,
-                        COUNT(DISTINCT stream_id) as active_streams,
-                        SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) as male,
-                        SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) as female
-                      FROM students 
-                      WHERE status = 'active'";
+                        COUNT(DISTINCT sae.student_id) as total_students,
+                        COUNT(DISTINCT aycs.id) as active_streams,
+                        SUM(CASE WHEN LOWER(p.gender) = 'male' THEN 1 ELSE 0 END) as male,
+                        SUM(CASE WHEN LOWER(p.gender) = 'female' THEN 1 ELSE 0 END) as female
+                      FROM student_academic_enrollments sae
+                      JOIN students st ON st.id = sae.student_id
+                      LEFT JOIN persons p ON p.id = st.person_id
+                      LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                      WHERE sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            // Get total active classes from classes table
-            $classQuery = "SELECT COUNT(*) as total FROM classes WHERE status = 'active'";
+            // Get total active classes from academic_year_classes table
+            $classQuery = "SELECT COUNT(*) as total FROM academic_year_classes WHERE status = 'active'";
             $classStmt = $this->db->query($classQuery);
             $classResult = $classStmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -151,9 +154,9 @@ class SchoolAdminAnalyticsService
             // Pending class assignments (if table exists)
             $assignmentsCount = 0;
             try {
-                $assignQuery = "SELECT COUNT(*) as pending 
-                                FROM staff_class_assignments 
-                                WHERE status = 'pending' OR status IS NULL";
+                $assignQuery = "SELECT COUNT(DISTINCT aycla.id) as pending 
+                                FROM academic_year_class_learning_area_teachers aycla
+                                WHERE aycla.role = 'subject_teacher' AND aycla.id NOT IN (SELECT id FROM academic_year_class_learning_area_teachers WHERE staff_id IS NOT NULL)";
                 $assignStmt = $this->db->query($assignQuery);
                 $assignResult = $assignStmt->fetch(\PDO::FETCH_ASSOC);
                 $assignmentsCount = (int) ($assignResult['pending'] ?? 0);
@@ -181,18 +184,17 @@ class SchoolAdminAnalyticsService
         try {
             // Active class schedules this week
             $query = "SELECT 
-                        COUNT(DISTINCT class_id) as active_timetables,
+                        COUNT(DISTINCT academic_year_class_stream_id) as active_timetables,
                         COUNT(*) as total_periods
-                      FROM class_schedules 
-                      WHERE status = 'active'";
+                      FROM vw_timetable_entries 
+                      WHERE status = 'scheduled'";
             $stmt = $this->db->query($query);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
             // Classes per week
             $weeklyQuery = "SELECT COUNT(*) as classes_this_week 
-                            FROM class_schedules 
-                            WHERE status = 'active'
-                              AND DAYOFWEEK(CURDATE()) BETWEEN 2 AND 6";
+                            FROM vw_timetable_entries 
+                            WHERE status = 'scheduled'";
             $weeklyStmt = $this->db->query($weeklyQuery);
             $weeklyResult = $weeklyStmt->fetch(\PDO::FETCH_ASSOC);
 
@@ -230,7 +232,9 @@ class SchoolAdminAnalyticsService
 
             // If no attendance today, get total active students as baseline
             if ($total === 0) {
-                $studentsQuery = "SELECT COUNT(*) as total FROM students WHERE status = 'active'";
+                $studentsQuery = "SELECT COUNT(DISTINCT sae.student_id) as total 
+                                  FROM student_academic_enrollments sae 
+                                  WHERE sae.enrollment_status = 'active'";
                 $studentsStmt = $this->db->query($studentsQuery);
                 $studentsResult = $studentsStmt->fetch(\PDO::FETCH_ASSOC);
                 $total = (int) ($studentsResult['total'] ?? 0);
@@ -404,15 +408,15 @@ class SchoolAdminAnalyticsService
     public function getClassDistributionStats(): array
     {
         try {
-            // Join students via stream_id → class_streams → classes
+           // Join students via student_academic_enrollments → academic_year_class_streams → classes
             $query = "SELECT 
                         c.id,
                         c.name as class_name,
-                        COUNT(st.id) as student_count
+                        COUNT(DISTINCT sae.student_id) as student_count
                       FROM classes c
-                      LEFT JOIN class_streams cs ON cs.class_id = c.id AND cs.status = 'active'
-                      LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
-                      WHERE c.status = 'active'
+                      JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
+                      LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
                       GROUP BY c.id, c.name
                       ORDER BY c.name";
             $stmt = $this->db->query($query);
@@ -456,15 +460,9 @@ class SchoolAdminAnalyticsService
             // Get last error log (if any recent errors)
             $recentErrors = 0;
             try {
-                $errorQuery = "SELECT COUNT(*) as errors 
-                               FROM system_logs 
-                               WHERE log_level IN ('error', 'critical') 
-                                 AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
-                $errorStmt = $this->db->query($errorQuery);
-                $errorResult = $errorStmt->fetch(\PDO::FETCH_ASSOC);
-                $recentErrors = (int) ($errorResult['errors'] ?? 0);
+                $recentErrors = count(\App\API\Includes\FileLogger::recent('errors', 1000));
             } catch (Exception $e) {
-                // system_logs table might not exist
+                // error log file might not exist yet
             }
 
             $status = $dbHealthy && $recentErrors < 10 ? 'Operational' : 'Degraded';
@@ -499,6 +497,7 @@ class SchoolAdminAnalyticsService
                 $weekStart = date('Y-m-d', strtotime("-{$i} weeks Monday"));
                 $weekEnd = date('Y-m-d', strtotime("-{$i} weeks Friday"));
 
+                // Attendance stored in student_attendance table with (student_academic_enrollment_id, date, status)
                 $query = "SELECT 
                             COUNT(*) as total,
                             SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present
@@ -533,14 +532,14 @@ class SchoolAdminAnalyticsService
     public function getClassDistributionChart(string $filter = 'all'): array
     {
         try {
-            // Join students via stream_id → class_streams → classes
+            // Join students via student_academic_enrollments → academic_year_class_streams → classes
             $query = "SELECT 
                         c.name as class_name,
-                        COUNT(st.id) as student_count
+                        COUNT(DISTINCT sae.student_id) as student_count
                       FROM classes c
-                      LEFT JOIN class_streams cs ON cs.class_id = c.id AND cs.status = 'active'
-                      LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
-                      WHERE c.status = 'active'";
+                      JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
+                      LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                      LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'";
 
             $params = [];
             if ($filter !== 'all') {
@@ -588,7 +587,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Admission',
-                    'icon' => 'fas fa-user-plus',
+                    'icon' => 'bi bi-person-plus',
                     'description' => 'Admission Applications In Pipeline',
                     'count' => (int) $result['count'],
                     'priority' => 'high',
@@ -604,7 +603,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Leave Request',
-                    'icon' => 'fas fa-calendar-times',
+                    'icon' => 'bi bi-calendar-times',
                     'description' => 'Staff Leave Requests Pending',
                     'count' => (int) $result['count'],
                     'priority' => 'medium',
@@ -615,7 +614,7 @@ class SchoolAdminAnalyticsService
 
             // Unmarked attendance today
             $activeStudents = $this->getActiveStudentsStats()['total_students'];
-            $attendanceQuery = "SELECT COUNT(DISTINCT student_id) as marked FROM student_attendance WHERE date = CURDATE()";
+            $attendanceQuery = "SELECT COUNT(DISTINCT student_academic_enrollment_id) as marked FROM student_attendance WHERE date = CURDATE()";
             $stmt = $this->db->query($attendanceQuery);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
             $marked = (int) ($result['marked'] ?? 0);
@@ -623,7 +622,7 @@ class SchoolAdminAnalyticsService
             if ($unmarked > 0) {
                 $items[] = [
                     'type' => 'Attendance',
-                    'icon' => 'fas fa-clipboard-check',
+                    'icon' => 'bi bi-clipboard-check',
                     'description' => 'Students Attendance Not Marked',
                     'count' => $unmarked,
                     'priority' => $unmarked > ($activeStudents / 2) ? 'high' : 'medium',
@@ -643,7 +642,7 @@ class SchoolAdminAnalyticsService
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Announcement',
-                    'icon' => 'fas fa-bullhorn',
+                    'icon' => 'bi bi-megaphone',
                     'description' => 'Announcements Expiring Soon',
                     'count' => (int) $result['count'],
                     'priority' => 'low',
@@ -672,22 +671,20 @@ class SchoolAdminAnalyticsService
             $dayNames = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday'];
             $today = $dayNames[$dayOfWeek] ?? 'Monday';
 
-            // Class schedules for today (without subjects table)
+            // Class schedules for today
             $query = "SELECT 
                         cs.start_time,
                         cs.end_time,
-                        c.name as class_name,
+                        cs.class_name,
                         cs.subject_id,
-                        CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                        cs.teacher_name,
                         'Class' as event_type
-                      FROM class_schedules cs
-                      JOIN classes c ON cs.class_id = c.id
-                      LEFT JOIN staff s ON cs.teacher_id = s.id
+                      FROM vw_timetable_entries cs
                       WHERE cs.day_of_week = ?
-                        AND cs.status = 'active'
+                        AND cs.status = 'scheduled'
                       ORDER BY cs.start_time
                       LIMIT 15";
-            $stmt = $this->db->query($query, [$today]);
+            $stmt = $this->db->query($query, [$dayOfWeek]);
             $classes = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
             foreach ($classes as $class) {
@@ -730,10 +727,10 @@ class SchoolAdminAnalyticsService
         try {
             $query = "SELECT 
                         s.id,
-                        CONCAT(s.first_name, ' ', s.last_name) as name,
+                        CONCAT(p.first_name, ' ', p.last_name) as name,
                         s.position,
                         COALESCE(d.name, 'General') as department,
-                        u.email as contact,
+                        p.email as contact,
                         CASE 
                             WHEN EXISTS (
                                 SELECT 1 FROM staff_leaves sl 
@@ -751,20 +748,21 @@ class SchoolAdminAnalyticsService
                             ELSE 'Unknown'
                         END as status
                       FROM staff s
-                      LEFT JOIN departments d ON s.department_id = d.id
-                      LEFT JOIN users u ON s.user_id = u.id
+                      LEFT JOIN persons p ON p.id = s.person_id
+                      LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                      LEFT JOIN departments d ON d.id = sep.department_id
                       WHERE s.status = 'active'";
 
             $params = [];
             if (!empty($search)) {
-                $query .= " AND (s.first_name LIKE ? 
-                             OR s.last_name LIKE ? 
+                $query .= " AND (p.first_name LIKE ? 
+                             OR p.last_name LIKE ? 
                              OR s.position LIKE ? 
                              OR d.name LIKE ?)";
                 $params = ["%{$search}%", "%{$search}%", "%{$search}%", "%{$search}%"];
             }
 
-            $query .= " ORDER BY s.first_name, s.last_name LIMIT 50";
+            $query .= " ORDER BY p.first_name, p.last_name LIMIT 50";
 
             $stmt = $this->db->query($query, $params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);

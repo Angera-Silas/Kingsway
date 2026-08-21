@@ -85,14 +85,14 @@
             <table class="table table-hover table-striped" id="schemesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Subject</th>
-                        <th>Class</th>
-                        <th>Term</th>
-                        <th>Status</th>
-                        <th>Progress</th>
-                        <th>Last Updated</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Term</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Progress</th>
+                        <th scope="col">Last Updated</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -110,4 +110,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/my_schemes_of_work.js"></script>
+<?php asset_script($appBase, 'js/pages/my_schemes_of_work.js'); ?>

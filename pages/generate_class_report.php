@@ -75,13 +75,13 @@
                             <table class="table table-hover" id="reportsTable">
                                 <thead>
                                     <tr>
-                                        <th>Report Type</th>
-                                        <th>Class</th>
-                                        <th>Year</th>
-                                        <th>Term</th>
-                                        <th>Generated Date</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Report Type</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Year</th>
+                                        <th scope="col">Term</th>
+                                        <th scope="col">Generated Date</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="reportsTableBody">
@@ -100,4 +100,4 @@
     </div>
 </div>
 
-<script src="js/pages/generate_class_report.js"></script>
+<?php asset_script($appBase, 'js/pages/generate_class_report.js'); ?>

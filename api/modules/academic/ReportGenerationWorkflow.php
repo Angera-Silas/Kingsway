@@ -44,6 +44,72 @@ class ReportGenerationWorkflow extends WorkflowHandler {
     }
 
     /**
+     * Resolve an academic year id from a scope value.
+     * Accepts either the academic_years.id or the numeric year_code; falls back
+     * to the latest non-archived year.
+     */
+    private function resolveYearId($value): int
+    {
+        $value = (int)$value;
+        if ($value > 0) {
+            $stmt = $this->db->prepare("SELECT id FROM academic_years WHERE id = ? OR year_code = ? ORDER BY id DESC LIMIT 1");
+            $stmt->execute([$value, (string)$value]);
+            $id = $stmt->fetchColumn();
+            if ($id) {
+                return (int)$id;
+            }
+        }
+        $stmt = $this->db->query("SELECT id FROM academic_years WHERE status <> 'archived' ORDER BY id DESC LIMIT 1");
+        $id = $stmt->fetchColumn();
+        return $id ? (int)$id : 0;
+    }
+
+    /**
+     * Resolve report term context.
+     * The frontend term_id refers to academic_year_terms.id while
+     * term_subject_scores.term_id uses terms.id and learner_* tables use the
+     * numeric year value.
+     *
+     * @return array{ayt_id:int, term_id:int, academic_year_id:int, year_value:int, term_number:int}
+     */
+    private function resolveReportTermContext(int $termId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT ayt.id AS ayt_id, ayt.term_id, ayt.academic_year_id,
+                   CAST(ay.year_code AS UNSIGNED) AS year_value,
+                   CAST(SUBSTRING(t.code, 2) AS UNSIGNED) AS term_number
+            FROM academic_year_terms ayt
+            JOIN terms t ON t.id = ayt.term_id
+            JOIN academic_years ay ON ay.id = ayt.academic_year_id
+            WHERE ayt.id = ?
+        ");
+        $stmt->execute([$termId]);
+        $ctx = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$ctx) {
+            $stmt = $this->db->prepare("SELECT id AS term_id, CAST(SUBSTRING(code, 2) AS UNSIGNED) AS term_number FROM terms WHERE id = ?");
+            $stmt->execute([$termId]);
+            $ctx = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$ctx) {
+                return ['ayt_id' => 0, 'term_id' => 0, 'academic_year_id' => 0, 'year_value' => 0, 'term_number' => 0];
+            }
+            return [
+                'ayt_id' => 0,
+                'term_id' => (int)$ctx['term_id'],
+                'academic_year_id' => 0,
+                'year_value' => 0,
+                'term_number' => (int)$ctx['term_number'],
+            ];
+        }
+        return [
+            'ayt_id' => (int)$ctx['ayt_id'],
+            'term_id' => (int)$ctx['term_id'],
+            'academic_year_id' => (int)$ctx['academic_year_id'],
+            'year_value' => (int)$ctx['year_value'],
+            'term_number' => (int)$ctx['term_number'],
+        ];
+    }
+
+    /**
      * Stage 1: Define report scope
      * 
      * @param array $scope {
@@ -82,13 +148,23 @@ class ReportGenerationWorkflow extends WorkflowHandler {
             if (!empty($scope['student_ids'])) {
                 $studentIds = $scope['student_ids'];
             } elseif (!empty($scope['class_id'])) {
-                // Get all active students in class
+                // Get all active students in class/stream for the academic year
+                $termCtx = $this->resolveReportTermContext((int)($scope['term_id'] ?? 0));
+                $yearId = $termCtx['academic_year_id'] > 0
+                    ? $termCtx['academic_year_id']
+                    : $this->resolveYearId($scope['academic_year'] ?? 0);
+
                 $stmt = $this->db->prepare(
-                    "SELECT s.id FROM students s
-                    INNER JOIN class_streams cs ON s.stream_id = cs.id
-                    WHERE cs.class_id = :class_id AND s.status = 'active'"
+                    "SELECT DISTINCT s.id FROM students s
+                    INNER JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.academic_year_id = :year_id
+                        AND sae.enrollment_status IN ('pending', 'active')
+                    INNER JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    WHERE (ayc.class_id = :class_id OR aycs.id = :class_id)
+                    AND s.status = 'active'"
                 );
-                $stmt->execute(['class_id' => (int)$scope['class_id']]);
+                $stmt->execute(['year_id' => $yearId, 'class_id' => (int)$scope['class_id']]);
                 $studentIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
             } else {
                 return formatResponse(false, null, 'Either class_id or student_ids must be provided');
@@ -163,18 +239,29 @@ class ReportGenerationWorkflow extends WorkflowHandler {
             $includeValues = $data['include_values'] ?? true;
             $includeAttendance = $data['include_attendance'] ?? true;
 
+            $termCtx = $this->resolveReportTermContext($termId);
+            $tssTermId = $termCtx['term_id'];
+            $yearValue = $termCtx['year_value'] > 0 ? $termCtx['year_value'] : $academicYear;
+            $yearId = $termCtx['academic_year_id'];
+
             $compiledData = [];
 
             foreach ($studentIds as $studentId) {
                 $studentId = (int)$studentId;
-                
+
                 // Get student info
                 $studentStmt = $this->db->prepare(
-                    "SELECT s.*, c.class_name, cs.stream_name,
-                        CONCAT(s.first_name, ' ', s.last_name) as full_name
+                    "SELECT s.*, p.first_name, p.last_name, p.gender, p.photo_url,
+                        CONCAT(p.first_name, ' ', p.last_name) as full_name,
+                        c.name as class_name, st.name as stream_name
                     FROM students s
-                    LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                    LEFT JOIN classes c ON cs.class_id = c.id
+                    INNER JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.enrollment_status IN ('pending', 'active')
+                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    LEFT JOIN classes c ON c.id = ayc.class_id
+                    LEFT JOIN streams st ON st.id = aycs.stream_id
                     WHERE s.id = :id"
                 );
                 $studentStmt->execute(['id' => $studentId]);
@@ -186,15 +273,15 @@ class ReportGenerationWorkflow extends WorkflowHandler {
 
                 // Get academic scores
                 $scoresStmt = $this->db->prepare(
-                    "SELECT tss.*, sub.name as subject_name, sub.code as subject_code
+                    "SELECT tss.*, la.name as subject_name, la.code as subject_code
                     FROM term_subject_scores tss
-                    INNER JOIN subjects sub ON tss.subject_id = sub.id
+                    INNER JOIN learning_areas la ON tss.subject_id = la.id
                     WHERE tss.student_id = :student_id
                     AND tss.term_id = :term_id"
                 );
                 $scoresStmt->execute([
                     'student_id' => $studentId,
-                    'term_id' => $termId,
+                    'term_id' => $tssTermId,
                 ]);
                 $scores = $scoresStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -214,8 +301,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     );
                     $compStmt->execute([
                         'student_id' => $studentId,
-                        'term_id' => $termId,
-                        'year' => $academicYear,
+                        'term_id' => $tssTermId,
+                        'year' => $yearValue,
                     ]);
                     $competencies = $compStmt->fetchAll(PDO::FETCH_ASSOC);
                 }
@@ -234,8 +321,8 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                     );
                     $valuesStmt->execute([
                         'student_id' => $studentId,
-                        'term_id' => $termId,
-                        'year' => $academicYear,
+                        'term_id' => $tssTermId,
+                        'year' => $yearValue,
                     ]);
                     $values = $valuesStmt->fetchAll(PDO::FETCH_ASSOC);
                 }
@@ -244,18 +331,21 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                 $attendance = [];
                 if ($includeAttendance) {
                     $attendanceStmt = $this->db->prepare(
-                        "SELECT 
-                            COUNT(*) as total_days,
-                            SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as days_present,
-                            SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
-                            SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
-                        FROM student_attendance
+                        "SELECT
+                            days_marked AS total_days,
+                            present_marks AS days_present,
+                            unexcused_marks + excused_marks AS days_absent,
+                            late_marks AS days_late,
+                            attendance_rate_pct
+                        FROM vw_student_attendance_analytics
                         WHERE student_id = :student_id
-                        AND term_id = :term_id"
+                        AND academic_year = :year
+                        AND term_number = :term_number"
                     );
                     $attendanceStmt->execute([
                         'student_id' => $studentId,
-                        'term_id' => $termId,
+                        'year' => $yearValue,
+                        'term_number' => $termCtx['term_number'] > 0 ? $termCtx['term_number'] : 1,
                     ]);
                     $attendance = $attendanceStmt->fetch(PDO::FETCH_ASSOC);
                 }

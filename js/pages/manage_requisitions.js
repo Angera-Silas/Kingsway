@@ -55,7 +55,8 @@
     // ── Controller ────────────────────────────────────────────────────────────
     const ManageRequisitionsController = {
 
-        init() {
+        init: async function() {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
@@ -405,14 +406,14 @@
         async approveRequisition(id) {
             const targetId = id || currentRequisition?.id;
             if (!targetId) return;
-            if (!confirm("Approve this requisition?")) return;
+            if (!(await window.confirmAction('Confirm', "Approve this requisition?"))) return;
             await this._updateStatus(targetId, "approved");
         },
 
         async rejectRequisition(id) {
             const targetId = id || currentRequisition?.id;
             if (!targetId) return;
-            const reason = prompt("Reason for rejection (optional):");
+            const reason = await window.promptAction('Input', "Reason for rejection (optional):");
             if (reason === null) return; // user cancelled
             await this._updateStatus(targetId, "rejected", reason);
         },

@@ -7,7 +7,7 @@
 
 // Ensure $appBase is available for script loading
 if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.' || $appBase === '/') {
         $appBase = '';
     }
@@ -41,6 +41,13 @@ if (!isset($appBase)) {
         </div>
 
         <div class="card-body">
+
+            <div id="promotionRolloverBanner" class="alert alert-info d-none">
+                <div class="d-flex justify-content-between align-items-center gap-3">
+                    <div><strong>Academic-year rollover in progress.</strong><br><span class="small">Stream placement is being controlled from the resumable Year Rollover assignment board. Use that board so learners are not placed automatically or twice.</span></div>
+                    <a class="btn btn-primary btn-sm text-nowrap" href="<?php echo $appBase; ?>/home.php?route=year_rollover"><i class="bi bi-arrow-right-circle me-1"></i>Open Year Rollover</a>
+                </div>
+            </div>
 
             <!-- Promotion Setup Card -->
             <div class="card border-0 bg-light mb-4">
@@ -118,7 +125,7 @@ if (!isset($appBase)) {
                 </div>
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-success w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
             </div>
@@ -130,7 +137,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Candidates</small>
@@ -146,7 +153,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-check-circle"></i>
+                                    <i class="bi bi-check-lg-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Selected</small>
@@ -162,7 +169,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-arrow-repeat"></i>
+                                    <i class="bi bi-arrow-repeat"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Retain</small>
@@ -178,7 +185,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-exclamation-circle"></i>
+                                    <i class="bi bi-exclamation-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Needs Review</small>
@@ -194,7 +201,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Fee Issues</small>
@@ -210,7 +217,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-gavel"></i>
+                                    <i class="bi bi-gavel"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Discipline</small>
@@ -224,20 +231,20 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="candidatesLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading promotion candidates...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading promotion candidates...
             </div>
 
             <div id="candidatesError" class="alert alert-danger d-none"></div>
 
             <div id="candidatesEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No candidates found. Select promotion settings and load students.
+                <i class="bi bi-info-circle me-2"></i> No candidates found. Select promotion settings and load students.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="candidatesCard">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <strong>
-                        <i class="fas fa-list me-2 text-success"></i>
+                        <i class="bi bi-list-ul me-2 text-success"></i>
                         Promotion Candidates
                     </strong>
                     <div>
@@ -254,15 +261,15 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th><input type="checkbox" id="selectAllCandidates"></th>
-                                <th>Adm No</th>
-                                <th>Student Name</th>
-                                <th>Current Class</th>
-                                <th>Current Stream</th>
-                                <th>Academic Year</th>
-                                <th>Recommended</th>
-                                <th>Final Action</th>
-                                <th>Notes</th>
+                                <th scope="col"><input type="checkbox" id="selectAllCandidates"></th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Current Class</th>
+                                <th scope="col">Current Stream</th>
+                                <th scope="col">Academic Year</th>
+                                <th scope="col">Recommended</th>
+                                <th scope="col">Final Action</th>
+                                <th scope="col">Notes</th>
                             </tr>
                         </thead>
                         <tbody id="candidatesTableBody">
@@ -301,7 +308,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="historyLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading promotion history...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading promotion history...
                 </div>
 
                 <div id="historyError" class="alert alert-danger d-none"></div>
@@ -310,13 +317,13 @@ if (!isset($appBase)) {
                     <table class="table table-hover">
                         <thead class="table-light">
                             <tr>
-                                <th>Batch ID</th>
-                                <th>From Year</th>
-                                <th>To Year</th>
-                                <th>Status</th>
-                                <th>Students</th>
-                                <th>Promoted</th>
-                                <th>Created Date</th>
+                                <th scope="col">Batch ID</th>
+                                <th scope="col">From Year</th>
+                                <th scope="col">To Year</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Promoted</th>
+                                <th scope="col">Created Date</th>
                             </tr>
                         </thead>
                         <tbody id="historyTableBody">

@@ -17,6 +17,21 @@ const transportController = {
      * Initialize controller
      */
     init: async function() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
+        if (
+            !window.AuthContext?.hasAnyPermission?.(['transport_view', 'transport_manage', 'transport_read', 'transport.view', 'transport.manage', 'transport.read'])
+        ) {
+            const container = document.querySelector(".container-fluid");
+            if (container) {
+                container.innerHTML =
+                    '<div class="alert alert-warning border-0 shadow-sm">' +
+                    '<i class="bi bi-shield-lock me-2"></i>' +
+                    "You do not have permission to view transport management." +
+                    "</div>";
+            }
+            return;
+        }
+
         try {
             showNotification('Loading transport data...', 'info');
             await Promise.all([
@@ -139,11 +154,12 @@ const transportController = {
     createRoute: async function() {
         try {
             const data = {
-                route_name: prompt('Route Name:'),
-                route_code: prompt('Route Code:'),
-                capacity: parseInt(prompt('Capacity:')),
-                description: prompt('Description (optional):')
+                route_name: await window.promptAction('Route', 'Route Name:'),
+                route_code: await window.promptAction('Route', 'Route Code:'),
+                capacity: parseInt(await window.promptAction('Route', 'Capacity:')),
+                description: await window.promptAction('Route', 'Description (optional):')
             };
+            if (!data.route_name) { showNotification('Route name is required', 'warning'); return; }
 
             await API.transport.createRoute(data);
             showNotification('Route created successfully', 'success');
@@ -161,8 +177,8 @@ const transportController = {
         try {
             const route = await API.transport.getRoute(routeId);
             const students = await API.transport.getStudentsByRoute(routeId);
-            
-            alert(`Route Details:\n\nName: ${route.route_name}\nCode: ${route.route_code}\nStops: ${route.stop_count || 0}\nStudents: ${students.length || 0}\nCapacity: ${route.capacity}\nStatus: ${route.status}`);
+
+            await window.infoDialog('Route Details', `Route Details:\n\nName: ${route.route_name}\nCode: ${route.route_code}\nStops: ${route.stop_count || 0}\nStudents: ${students.length || 0}\nCapacity: ${route.capacity}\nStatus: ${route.status}`);
         } catch (error) {
             console.error('Error loading route:', error);
             showNotification('Failed to load route details', 'error');
@@ -173,14 +189,13 @@ const transportController = {
      * Edit route
      */
     editRoute: function(routeId) {
-        console.log('Edit route feature coming soon');
     },
 
     /**
      * Delete route
      */
     deleteRoute: async function(routeId) {
-        if (!confirm('Are you sure you want to delete this route?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this route?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await API.transport.deleteRoute(routeId);
@@ -207,8 +222,8 @@ const transportController = {
             } else {
                 message += 'No students assigned to this route.';
             }
-            
-            alert(message);
+
+            await window.infoDialog('Students on Route', message);
         } catch (error) {
             console.error('Error loading students:', error);
             showNotification('Failed to load students', 'error');
@@ -238,11 +253,12 @@ const transportController = {
     createStop: async function() {
         try {
             const data = {
-                stop_name: prompt('Stop Name:'),
-                location: prompt('Location:'),
-                coordinates: prompt('Coordinates (optional):'),
-                route_id: prompt('Route ID:')
+                stop_name: await window.promptAction('Stop', 'Stop Name:'),
+                location: await window.promptAction('Stop', 'Location:'),
+                coordinates: await window.promptAction('Stop', 'Coordinates (optional):'),
+                route_id: await window.promptAction('Stop', 'Route ID:')
             };
+            if (!data.stop_name) { showNotification('Stop name is required', 'warning'); return; }
 
             await API.transport.createStop(data);
             showNotification('Stop created successfully', 'success');
@@ -257,7 +273,7 @@ const transportController = {
      * Delete stop
      */
     deleteStop: async function(stopId) {
-        if (!confirm('Delete this stop?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this stop?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await API.transport.deleteStop(stopId);
@@ -292,12 +308,13 @@ const transportController = {
     createDriver: async function() {
         try {
             const data = {
-                first_name: prompt('First Name:'),
-                last_name: prompt('Last Name:'),
-                license_number: prompt('License Number:'),
-                phone: prompt('Phone:'),
-                email: prompt('Email (optional):')
+                first_name: await window.promptAction('Driver', 'First Name:'),
+                last_name: await window.promptAction('Driver', 'Last Name:'),
+                license_number: await window.promptAction('Driver', 'License Number:'),
+                phone: await window.promptAction('Driver', 'Phone:'),
+                email: await window.promptAction('Driver', 'Email (optional):')
             };
+            if (!data.first_name || !data.last_name) { showNotification('Driver name is required', 'warning'); return; }
 
             await API.transport.createDriver(data);
             showNotification('Driver created successfully', 'success');
@@ -312,9 +329,8 @@ const transportController = {
      * Assign driver to route
      */
     assignDriver: async function() {
-        const routeId = prompt('Route ID:');
-        const driverId = prompt('Driver ID:');
-        
+        const routeId = await window.promptAction('Assign Driver', 'Route ID:');
+        const driverId = await window.promptAction('Assign Driver', 'Driver ID:');
         if (!routeId || !driverId) return;
 
         try {
@@ -334,7 +350,7 @@ const transportController = {
      * Delete driver
      */
     deleteDriver: async function(driverId) {
-        if (!confirm('Delete this driver?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this driver?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await API.transport.deleteDriver(driverId);
@@ -356,11 +372,12 @@ const transportController = {
     assignStudent: async function() {
         try {
             const data = {
-                student_id: prompt('Student ID:'),
-                route_id: prompt('Route ID:'),
-                stop_id: prompt('Stop ID:'),
-                pickup_time: prompt('Pickup Time (HH:MM):')
+                student_id: await window.promptAction('Assign Student', 'Student ID:'),
+                route_id: await window.promptAction('Assign Student', 'Route ID:'),
+                stop_id: await window.promptAction('Assign Student', 'Stop ID:'),
+                pickup_time: await window.promptAction('Assign Student', 'Pickup Time (HH:MM):')
             };
+            if (!data.student_id || !data.route_id) { showNotification('Student ID and Route ID are required', 'warning'); return; }
 
             await API.transport.assignStudent(data);
             showNotification('Student assigned to route successfully', 'success');
@@ -374,7 +391,7 @@ const transportController = {
      * Withdraw student assignment
      */
     withdrawAssignment: async function(studentId) {
-        if (!confirm('Withdraw this student from transport?')) return;
+        if (!(await window.confirmAction('Confirm Withdrawal', 'Withdraw this student from transport?', { confirmText: 'Withdraw', danger: true }))) return;
 
         try {
             await API.transport.withdrawAssignment({ student_id: studentId });
@@ -389,7 +406,7 @@ const transportController = {
      * Verify student
      */
     verifyStudent: async function() {
-        const studentId = prompt('Enter Student ID or scan QR code:');
+        const studentId = await window.promptAction('Verify Student', 'Enter Student ID or scan QR code:');
         if (!studentId) return;
 
         try {
@@ -416,12 +433,13 @@ const transportController = {
     recordPayment: async function() {
         try {
             const data = {
-                student_id: prompt('Student ID:'),
-                amount: parseFloat(prompt('Amount:')),
-                payment_method: prompt('Payment Method (Cash/M-Pesa/Bank):'),
-                reference_no: prompt('Reference Number:'),
-                period: prompt('Period (e.g., Term 1 2025):')
+                student_id: await window.promptAction('Record Payment', 'Student ID:'),
+                amount: parseFloat(await window.promptAction('Record Payment', 'Amount:')),
+                payment_method: await window.promptAction('Record Payment', 'Payment Method (Cash/M-Pesa/Bank):'),
+                reference_no: await window.promptAction('Record Payment', 'Reference Number:'),
+                period: await window.promptAction('Record Payment', 'Period (e.g., Term 1 2025):')
             };
+            if (!data.student_id || !data.amount) { showNotification('Student ID and Amount are required', 'warning'); return; }
 
             await API.transport.recordPayment(data);
             showNotification('Payment recorded successfully', 'success');
@@ -437,13 +455,13 @@ const transportController = {
     viewPaymentSummary: async function(studentId) {
         try {
             const summary = await API.transport.getPaymentSummary(studentId);
-            
+
             let message = 'Transport Payment Summary:\n\n';
             message += `Total Paid: KES ${summary.total_paid || 0}\n`;
             message += `Outstanding: KES ${summary.outstanding || 0}\n`;
             message += `Last Payment: ${summary.last_payment_date || 'N/A'}\n`;
-            
-            alert(message);
+
+            await window.infoDialog('Payment Summary', message);
         } catch (error) {
             console.error('Error loading payment summary:', error);
             showNotification('Failed to load payment summary', 'error');
@@ -458,12 +476,9 @@ const transportController = {
      * Check user permissions
      */
     checkUserPermissions: function() {
-        const currentUser = AuthContext.getUser();
-        if (!currentUser || !currentUser.permissions) return;
-
         document.querySelectorAll('[data-permission]').forEach(btn => {
             const requiredPerm = btn.getAttribute('data-permission');
-            if (!currentUser.permissions.includes(requiredPerm)) {
+            if (!window.AuthContext?.hasPermission?.(requiredPerm)) {
                 btn.style.display = 'none';
             }
         });
@@ -473,7 +488,7 @@ const transportController = {
      * Show quick actions
      */
     showQuickActions: function() {
-        alert('Quick Actions:\n1. Add Route\n2. Add Stop\n3. Add Driver\n4. Assign Student\n5. Verify Student\n6. Record Payment');
+        window.infoDialog('Quick Actions', 'Quick Actions:\n1. Add Route\n2. Add Stop\n3. Add Driver\n4. Assign Student\n5. Verify Student\n6. Record Payment');
     },
 
     /**

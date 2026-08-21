@@ -39,19 +39,19 @@ const GradingStatusController = (() => {
       .replace(/>/g, "&gt;");
   }
 
-  function showSuccess(message) {
+  async function showSuccess(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   }
 
-  function showError(message) {
+  async function showError(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog('Notice', "Error: " + message);
     }
   }
 
@@ -420,6 +420,7 @@ const GradingStatusController = (() => {
   // ---- Initialization ----
 
   async function init() {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -429,7 +430,6 @@ const GradingStatusController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in grading_status:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload grading status when academic year or term changes
           loadData();

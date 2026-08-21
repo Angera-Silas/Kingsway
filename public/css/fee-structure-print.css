@@ -1,0 +1,193 @@
+/* =====================================================
+   FEE STRUCTURE PRINT — Kingsway Preparatory School
+   Shared styles for all fee structure PDF variants.
+   Loaded by fee_structure_simple.php and its partials.
+   ===================================================== */
+
+/* ── Design Tokens ─────────────────────────────────── */
+:root {
+    --fs-green-dark: #07552f;
+    --fs-green: #0b6b3a;
+    --fs-green-light: #eaf4ed;
+    --fs-gold-dark: #a87908;
+    --fs-gold: #c99a24;
+    --fs-gold-light: #f8efd3;
+    --fs-cream: #fffdf6;
+    --fs-cream-dark: #f8f4e7;
+    --fs-white: #ffffff;
+    --fs-text-dark: #20251f;
+    --fs-border: #d8d3c4;
+}
+
+/* ── Page ──────────────────────────────────────────── */
+@page { size: A4 portrait; margin: 8mm; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 0; background: #fff; color: var(--fs-text-dark); font-family: 'Montserrat', Arial, sans-serif; }
+
+.fs-document { width: 100%; max-width: 800px; margin: auto; background: var(--fs-cream); overflow: hidden; position: relative; }
+
+/* ── Watermark ─────────────────────────────────────── */
+.fs-watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; z-index: 0; pointer-events: none; }
+.fs-watermark img { max-width: 350px; max-height: 350px; object-fit: contain; }
+
+/* ── Header ────────────────────────────────────────── */
+.fs-header { padding: 35px 45px 25px; background: var(--fs-white); position: relative; }
+.fs-header::before { content: ""; position: absolute; top: 0; right: 0; width: 180px; height: 8px; background: var(--fs-gold); }
+.fs-header::after  { content: ""; position: absolute; top: 0; right: 0; width: 90px; height: 100px; background: var(--fs-green-dark); clip-path: polygon(100% 0, 100% 100%, 0 0); opacity: .95; }
+.fs-logo-frame { width: 150px; height: 150px; display: flex; justify-content: center; align-items: center; }
+.fs-logo-frame img { max-width: 140px; max-height: 140px; object-fit: contain; }
+.fs-school-name { color: var(--fs-green-dark); font-size: 32px; font-weight: 800; letter-spacing: 1px; margin-bottom: 8px; }
+.fs-school-meta { font-size: 14px; color: #444; margin-bottom: 4px; }
+.fs-school-meta i { color: var(--fs-gold-dark); margin-right: 6px; }
+.fs-motto { font-family: 'Playfair Display', serif; font-size: 24px; font-style: italic; color: var(--fs-green); margin-top: 10px; }
+.fs-header-rule { height: 4px; background: linear-gradient(to right, var(--fs-green-dark), var(--fs-gold), var(--fs-green-dark)); margin-top: 22px; position: relative; }
+.fs-header-rule::after { content: "\25C6"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--fs-gold); background: white; padding: 0 12px; font-size: 13px; }
+
+/* ── Title ─────────────────────────────────────────── */
+.fs-title-block { text-align: center; padding: 28px 20px 22px; background: var(--fs-white); }
+.fs-title-block h1 { margin: 0; font-size: 38px; font-weight: 800; letter-spacing: 1px; color: var(--fs-green-dark); }
+.fs-subtitle { display: inline-block; margin-top: 12px; padding: 8px 35px; background: var(--fs-green); color: white; font-size: 17px; font-weight: 700; letter-spacing: 1px; position: relative; }
+.fs-subtitle::before, .fs-subtitle::after { content: ""; position: absolute; top: 50%; width: 90px; height: 2px; background: var(--fs-gold); }
+.fs-subtitle::before { right: 100%; margin-right: 15px; }
+.fs-subtitle::after  { left: 100%; margin-left: 15px; }
+
+/* ── Content ───────────────────────────────────────── */
+.fs-content { padding: 0 35px 35px; }
+
+/* ── Section Header ────────────────────────────────── */
+.fs-section-header { background: var(--fs-green-dark); color: white; text-align: center; padding: 11px 15px; font-size: 21px; font-weight: 800; letter-spacing: 1px; border-radius: 8px 8px 0 0; }
+
+/* ── Category Title ────────────────────────────────── */
+.fs-category { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; margin-bottom: 10px; color: var(--fs-green-dark); }
+.fs-category i { font-size: 22px; color: var(--fs-gold-dark); }
+
+/* ── Fee Table ─────────────────────────────────────── */
+.fs-card { border: 1px solid var(--fs-border); background: white; border-radius: 0 0 8px 8px; overflow: hidden; margin-bottom: 20px; }
+.fs-table { margin: 0; width: 100%; border-collapse: collapse; }
+.fs-table thead th { background: var(--fs-green); color: white; text-align: center; padding: 10px 6px; font-size: 12px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
+.fs-table thead th:first-child { text-align: left; padding-left: 12px; }
+.fs-table tbody td { padding: 8px 7px; border: 1px solid var(--fs-border); font-size: 13px; text-align: center; white-space: nowrap; }
+.fs-table tbody td:first-child { text-align: left; font-weight: 600; color: #30352f; }
+.fs-table tbody tr:nth-child(even) { background: var(--fs-cream); }
+.fs-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
+
+/* ── Boarder variant ───────────────────────────────── */
+.fs-card--boarder .fs-table thead th { background: var(--fs-green-dark); }
+
+/* ── Junior variant ────────────────────────────────── */
+.fs-table--junior thead th { background: var(--fs-gold-dark); }
+.fs-table--junior .fs-total { color: var(--fs-green-dark); }
+
+/* ── Info Card ─────────────────────────────────────── */
+.fs-info-card { border: 1px solid var(--fs-border); border-radius: 10px; overflow: hidden; height: 100%; background: white; }
+.fs-info-card-header { background: var(--fs-green-dark); color: white; padding: 11px 16px; font-weight: 800; font-size: 17px; display: flex; align-items: center; gap: 9px; }
+.fs-info-card-header i { color: var(--fs-gold); font-size: 21px; }
+.fs-info-card-body { padding: 20px; }
+
+/* ── Charge Row ────────────────────────────────────── */
+.fs-charge { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #c8c1ac; padding: 10px 0; font-size: 14px; }
+.fs-charge:last-child { border-bottom: none; }
+.fs-charge-name { font-weight: 500; }
+.fs-charge-amount { font-size: 16px; font-weight: 800; color: var(--fs-green-dark); }
+
+/* ── Payment Box ───────────────────────────────────── */
+.fs-pay-box { border: 1px solid #d7d2c5; border-radius: 8px; padding: 16px; height: 100%; text-align: center; background: var(--fs-cream); }
+.fs-pay-icon { font-size: 32px; color: var(--fs-green); margin-bottom: 4px; }
+.fs-pay-title { color: var(--fs-green-dark); font-size: 16px; font-weight: 800; margin-bottom: 12px; }
+.fs-pay-label { font-size: 11px; text-transform: uppercase; font-weight: 600; color: #555; margin-top: 8px; }
+.fs-pay-value { font-size: 18px; font-weight: 800; color: var(--fs-green-dark); }
+.fs-pay-value--sm { font-size: 15px; }
+.fs-pay-divider { height: 1px; background: var(--fs-gold); opacity: .6; margin: 10px 0; }
+
+/* ── Important Notes ───────────────────────────────── */
+.fs-important { margin-top: 20px; border: 1px solid var(--fs-gold); border-radius: 10px; background: #fffaf0; overflow: hidden; }
+.fs-important-header { background: var(--fs-gold-light); color: #805b00; padding: 13px 18px; font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+.fs-important-header i { font-size: 25px; }
+.fs-important-list { margin: 0; padding: 15px 25px 15px 45px; list-style: none; }
+.fs-important-list li { padding: 7px 0; font-size: 13px; border-bottom: 1px dashed #ded4bb; }
+.fs-important-list li:last-child { border-bottom: none; }
+
+/* ── Footer ────────────────────────────────────────── */
+.fs-footer { background: var(--fs-green-dark); border-top: 5px solid var(--fs-gold); color: white; text-align: center; padding: 17px; }
+.fs-footer-motto { font-family: 'Playfair Display', serif; font-style: italic; font-size: 17px; }
+
+/* ── Grade Card (per_class_fees_table) ──────────────── */
+.fs-grade-card { border: 2px solid var(--fs-green-dark); border-radius: 10px; overflow: hidden; margin-bottom: 24px; background: white; position: relative; z-index: 1; }
+.fs-grade-card-header { background: var(--fs-green-dark); color: white; text-align: center; padding: 12px 15px; }
+.fs-grade-card-header h3 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 1px; }
+.fs-grade-card-header small { font-size: 12px; font-weight: 600; opacity: 0.85; }
+.fs-grade-card-body { padding: 16px 20px; }
+.fs-student-type-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; margin-bottom: 8px; margin-top: 14px; }
+.fs-student-type-label:first-child { margin-top: 0; }
+.fs-student-type-label .fs-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.fs-student-type-label .fs-dot--day { background: var(--fs-green); }
+.fs-student-type-label .fs-dot--boarder { background: #2563eb; }
+.fs-grade-card-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+.fs-grade-card-table th { background: var(--fs-green); color: white; text-align: center; padding: 8px 6px; font-size: 11px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
+.fs-grade-card-table th:first-child { text-align: left; padding-left: 10px; }
+.fs-grade-card-table td { padding: 6px 7px; border: 1px solid var(--fs-border); font-size: 12px; text-align: center; white-space: nowrap; }
+.fs-grade-card-table td:first-child { text-align: left; font-weight: 600; }
+.fs-grade-card-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
+.fs-grade-card-table--boarder th { background: #1e40af; }
+
+/* ── Student Type Section (per_student_type, day_only, boarding_only) ── */
+.fs-student-section { margin-bottom: 24px; position: relative; z-index: 1; }
+.fs-student-section-header { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; color: var(--fs-green-dark); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--fs-gold); }
+.fs-student-section-header i { font-size: 18px; color: var(--fs-gold-dark); }
+.fs-student-section-header .fs-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.fs-student-section-header .fs-dot--day { background: var(--fs-green); }
+.fs-student-section-header .fs-dot--boarder { background: #2563eb; }
+.fs-student-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 1px solid var(--fs-border); }
+.fs-student-table th { background: var(--fs-green); color: white; text-align: center; padding: 10px 6px; font-size: 12px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
+.fs-student-table th:first-child { text-align: left; padding-left: 12px; }
+.fs-student-table td { padding: 8px 7px; border: 1px solid var(--fs-border); font-size: 13px; text-align: center; white-space: nowrap; }
+.fs-student-table td:first-child { text-align: left; font-weight: 600; color: #30352f; }
+.fs-student-table tbody tr:nth-child(even) { background: var(--fs-cream); }
+.fs-student-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
+.fs-student-table--boarder th { background: #1e40af; }
+
+/* ── Print Overrides ───────────────────────────────── */
+@media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .fs-document { max-width: none; width: 100%; box-shadow: none; border-radius: 0; }
+    .fs-header { padding: 18px 25px 15px; }
+    .fs-logo-frame { width: 110px; height: 110px; }
+    .fs-logo-frame img { max-width: 100px; max-height: 100px; }
+    .fs-school-name { font-size: 25px; }
+    .fs-title-block { padding: 15px 10px; }
+    .fs-title-block h1 { font-size: 30px; }
+    .fs-subtitle { font-size: 14px; padding: 6px 25px; }
+    .fs-content { padding: 0 20px 20px; }
+    .fs-section-header { font-size: 17px; padding: 8px; }
+    .fs-category { font-size: 14px; margin-bottom: 6px; }
+    .fs-table thead th { padding: 6px 4px; font-size: 10px; }
+    .fs-table tbody td { padding: 5px 4px; font-size: 10px; }
+    .fs-card { margin-bottom: 10px; }
+    .fs-info-card-header { font-size: 13px; padding: 7px 10px; }
+    .fs-info-card-body { padding: 10px; }
+    .fs-charge { padding: 6px 0; font-size: 10px; }
+    .fs-charge-amount { font-size: 12px; }
+    .fs-pay-box { padding: 8px; }
+    .fs-pay-title { font-size: 12px; margin-bottom: 6px; }
+    .fs-pay-label { font-size: 8px; margin-top: 4px; }
+    .fs-pay-value { font-size: 13px; }
+    .fs-pay-value--sm { font-size: 10px; }
+    .fs-important-header { padding: 7px 10px; font-size: 12px; }
+    .fs-important-list { padding: 7px 15px 7px 30px; }
+    .fs-important-list li { padding: 3px 0; font-size: 9px; }
+    .fs-footer { padding: 8px; }
+    .fs-footer-motto { font-size: 12px; }
+    .fs-watermark { opacity: 0.08; }
+    .fs-watermark img { max-width: 280px; max-height: 280px; }
+    .fs-grade-card { margin-bottom: 16px; }
+    .fs-grade-card-header { padding: 8px 12px; }
+    .fs-grade-card-header h3 { font-size: 16px; }
+    .fs-grade-card-body { padding: 10px 14px; }
+    .fs-grade-card-table th { padding: 5px 4px; font-size: 9px; }
+    .fs-grade-card-table td { padding: 4px 4px; font-size: 10px; }
+    .fs-student-section { margin-bottom: 16px; }
+    .fs-student-section-header { font-size: 13px; }
+    .fs-student-table th { padding: 6px 4px; font-size: 10px; }
+    .fs-student-table td { padding: 5px 4px; font-size: 10px; }
+    tr, .fs-info-card, .fs-important, .fs-grade-card, .fs-student-section { page-break-inside: avoid; }
+}

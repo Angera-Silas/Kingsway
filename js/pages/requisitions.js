@@ -7,6 +7,7 @@ const requisitionsController = {
   _data: [], _filtered: [], _page: 1, _perPage: 20, _modal: null, _itemCount: 0,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._modal = new bootstrap.Modal(document.getElementById('requisitionModal'));
     this._bindEvents();
@@ -141,7 +142,7 @@ const requisitionsController = {
   },
 
   approve: async function(id) {
-    if (!confirm('Approve this requisition?')) return;
+    if (!(await window.confirmAction('Confirm', 'Approve this requisition?'))) return;
     try {
       await callAPI('/inventory/requisitions/'+id,'PUT',{status:'approved'});
       showNotification('Requisition approved.','success');
@@ -150,7 +151,7 @@ const requisitionsController = {
   },
 
   reject: async function(id) {
-    const reason=prompt('Reason for rejection:'); if (!reason) return;
+    const reason=await window.promptAction('Input', 'Reason for rejection:'); if (!reason) return;
     try {
       await callAPI('/inventory/requisitions/'+id,'PUT',{status:'rejected',rejection_reason:reason});
       showNotification('Requisition rejected.','warning');
@@ -158,9 +159,9 @@ const requisitionsController = {
     } catch(e) { showNotification(e.message||'Failed.','danger'); }
   },
 
-  view: function(id) {
+  view: async function(id) {
     const r=this._data.find(r=>r.id==id);
-    if (r) alert(JSON.stringify(r,null,2)); // Placeholder — replace with a view modal if needed
+    if (r) await window.infoDialog('Notice', JSON.stringify(r,null,2)); // Placeholder — replace with a view modal if needed
   },
 
   exportCSV: function () {

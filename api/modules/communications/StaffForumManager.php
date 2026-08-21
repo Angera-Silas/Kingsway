@@ -31,6 +31,9 @@ class StaffForumManager
 
     public function updateForumTopic($id, $data)
     {
+        if (empty($data['title'])) {
+            throw new \InvalidArgumentException('title is required');
+        }
         $sql = "UPDATE forum_threads SET title = :title, updated_at = NOW() WHERE id = :id AND forum_type = 'staff'";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
@@ -63,12 +66,12 @@ class StaffForumManager
 
     public function createForumPost($topicId, $data)
     {
-        $sql = "INSERT INTO forum_posts (thread_id, content, created_by, status, created_at) VALUES (:thread_id, :content, :created_by, 'visible', NOW())";
+        $sql = "INSERT INTO forum_posts (thread_id, author_id, author_type, body, reply_to_id, created_at) VALUES (:thread_id, :author_id, 'staff', :body, NULL, NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':thread_id' => $topicId,
-            ':content' => $data['content'],
-            ':created_by' => $data['created_by']
+            ':author_id' => $data['created_by'],
+            ':body' => $data['content']
         ]);
         return $this->db->lastInsertId();
     }
@@ -82,10 +85,10 @@ class StaffForumManager
 
     public function updateForumPost($id, $data)
     {
-        $sql = "UPDATE forum_posts SET content = :content, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE forum_posts SET body = :body WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':content' => $data['content'],
+            ':body' => $data['content'],
             ':id' => $id
         ]);
         return $stmt->rowCount() > 0;

@@ -81,14 +81,14 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Student</th>
-              <th>Class</th>
-              <th>Sanction Type</th>
-              <th>Reason</th>
-              <th>Start Date</th>
-              <th>End Date</th>
-              <th>Status</th>
-              <th>Issued By</th>
+              <th scope="col">Student</th>
+              <th scope="col">Class</th>
+              <th scope="col">Sanction Type</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Start Date</th>
+              <th scope="col">End Date</th>
+              <th scope="col">Status</th>
+              <th scope="col">Issued By</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -193,5 +193,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/sanctions.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/sanctions.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => sanctionsController.init());</script>

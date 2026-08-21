@@ -47,7 +47,6 @@ final class UploadService
                     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
                     'text/csv',
                     'text/plain',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => 26214400,
             ],
@@ -61,7 +60,6 @@ final class UploadService
                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     'image/jpeg',
                     'image/png',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => self::MAX_DEFAULT_BYTES,
             ],
@@ -75,7 +73,6 @@ final class UploadService
                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     'image/jpeg',
                     'image/png',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => self::MAX_DEFAULT_BYTES,
             ],
@@ -89,13 +86,22 @@ final class UploadService
                     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     'image/jpeg',
                     'image/png',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => self::MAX_DEFAULT_BYTES,
             ],
             'student_photo' => [
                 'root' => (string) STUDENT_IMAGES,
                 'public_segment' => 'students/images',
+                'extensions' => ['jpg', 'jpeg', 'png', 'webp'],
+                'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
+                'max_bytes' => 5242880,
+            ],
+            'uniform_catalog_image' => [
+                'root' => (string) UPLOAD_PATH . '/uniform_catalog',
+                // Keep the browser URL aligned with the physical upload root.
+                // This prevents catalogue images from being stored under one
+                // path while database links point at a different path.
+                'public_segment' => 'uniform_catalog',
                 'extensions' => ['jpg', 'jpeg', 'png', 'webp'],
                 'mime_types' => ['image/jpeg', 'image/png', 'image/webp'],
                 'max_bytes' => 5242880,
@@ -126,7 +132,6 @@ final class UploadService
                     'image/jpeg',
                     'image/png',
                     'application/zip',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => 52428800,
             ],
@@ -143,7 +148,6 @@ final class UploadService
                     'application/vnd.ms-excel',
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     'text/csv',
-                    'application/octet-stream',
                 ],
                 'max_bytes' => 26214400,
             ],
@@ -151,21 +155,21 @@ final class UploadService
                 'root' => (string) UPLOAD_PATH . '/cvs',
                 'public_segment' => null,
                 'extensions' => ['pdf', 'doc', 'docx'],
-                'mime_types' => ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'],
+                'mime_types' => ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
                 'max_bytes' => 10485760,
             ],
             'communication_attachment' => [
                 'root' => (string) UPLOAD_PATH . '/communications',
                 'public_segment' => null,
                 'extensions' => ['pdf','doc','docx','xls','xlsx','csv','txt','jpg','jpeg','png','zip'],
-                'mime_types' => ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','text/csv','text/plain','image/jpeg','image/png','application/zip','application/octet-stream'],
+                'mime_types' => ['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','text/csv','text/plain','image/jpeg','image/png','application/zip'],
                 'max_bytes' => 26214400,
             ],
             'import_file' => [
                 'root' => (string) UPLOAD_PATH . '/imports',
                 'public_segment' => null,
                 'extensions' => ['csv','xls','xlsx'],
-                'mime_types' => ['text/csv','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/octet-stream'],
+                'mime_types' => ['text/csv','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
                 'max_bytes' => 26214400,
             ],
             'system_storage' => [
@@ -341,9 +345,21 @@ final class UploadService
             throw new RuntimeException('Invalid stored upload path.');
         }
 
-        return rtrim((string) UPLOAD_PATH, '/\\')
+        $resolved = rtrim((string) UPLOAD_PATH, '/\\')
             . DIRECTORY_SEPARATOR
             . str_replace('/', DIRECTORY_SEPARATOR, $storedPath);
+
+        $realDestination = realpath(rtrim((string) UPLOAD_PATH, '/\\'));
+        $realTarget = realpath(dirname($resolved));
+        if (
+            $realDestination === false
+            || $realTarget === false
+            || strpos($realTarget, $realDestination) !== 0
+        ) {
+            throw new RuntimeException('Invalid file path');
+        }
+
+        return $resolved;
     }
 
     /** @return array<string,mixed> */
@@ -393,6 +409,20 @@ final class UploadService
         if (!in_array($mime, $policy['mime_types'], true)) {
             throw new RuntimeException(
                 sprintf('File type %s is not allowed.', $mime)
+            );
+        }
+
+        if (
+            $extension !== ''
+            && isset(self::EXTENSION_MIME_MAP[$extension])
+            && self::EXTENSION_MIME_MAP[$extension] !== $mime
+        ) {
+            throw new RuntimeException(
+                sprintf(
+                    'File extension .%s does not match declared type %s.',
+                    $extension,
+                    $mime
+                )
             );
         }
     }
@@ -456,6 +486,26 @@ final class UploadService
 
         return implode('/', $parts);
     }
+
+    /**
+     * @var array<string,string> Map of file extension to expected MIME type.
+     */
+    private const EXTENSION_MIME_MAP = [
+        'pdf' => 'application/pdf',
+        'doc' => 'application/msword',
+        'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls' => 'application/vnd.ms-excel',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt' => 'application/vnd.ms-powerpoint',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'csv' => 'text/csv',
+        'txt' => 'text/plain',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'zip' => 'application/zip',
+    ];
 
     private function detectMimeType(string $path): string
     {
@@ -807,7 +857,16 @@ final class UploadService
         int|string|null $entityId,
         int|string|null $albumId
     ): array {
-        $segments = [$this->safePublicSegment($context)];
+        $segments = [];
+        foreach (explode('/', trim(str_replace('\\', '/', $context), '/')) as $part) {
+            if ($part === '') {
+                continue;
+            }
+            $segments[] = $this->safePublicSegment($part);
+        }
+        if ($segments === []) {
+            throw new RuntimeException('Invalid upload path segment.');
+        }
         if ($entityId !== null && $entityId !== '') {
             $segments[] = $this->safePublicSegment((string) $entityId);
         }

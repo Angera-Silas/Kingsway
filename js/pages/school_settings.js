@@ -62,8 +62,6 @@
         email:                  "schoolEmail",
         phone:                  "schoolPhone",
         address:                "schoolAddress",
-        principal_name:         "principalName",
-        deputy_principal_name:  "deputyPrincipalName",
 
         // Academic Settings
         academic_year:          "academicYear",
@@ -81,14 +79,18 @@
         backup_frequency:       "backupFrequency",
         session_timeout:        "sessionTimeout",
         email_notifications:    "enableNotifications",
-        sms_notifications:      "enableSMS"
+        sms_notifications:      "enableSMS",
+        admission_no_format:    "admissionNoFormat",
+        admission_no_start_sequence: "admissionNoStartSequence",
+        staff_no_format:        "staffNoFormat",
+        staff_no_start_sequence: "staffNoStartSequence"
     };
 
     // Which fields belong to each form (for building the save payload)
     var FORM_FIELDS = {
         generalSettingsForm: [
             "school_name", "school_code", "email", "phone",
-            "address", "principal_name", "deputy_principal_name"
+            "address"
         ],
         academicSettingsForm: [
             "academic_year", "calendar_type", "grading_scale", "pass_mark"
@@ -99,6 +101,12 @@
         systemSettingsForm: [
             "backup_frequency", "session_timeout",
             "email_notifications", "sms_notifications"
+        ],
+        admissionNumberSettingsForm: [
+            "admission_no_format", "admission_no_start_sequence"
+        ],
+        staffNumberSettingsForm: [
+            "staff_no_format", "staff_no_start_sequence"
         ]
     };
 
@@ -108,12 +116,43 @@
         data: {},
 
         init: async function () {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
             }
             this.bindForms();
             await this.loadData();
+            await this.loadAdmissionNumberSettings();
+            await this.loadStaffNumberSettings();
+        },
+
+        loadAdmissionNumberSettings: async function () {
+            try {
+                var response = await window.API.apiCall("/website/settings", "GET");
+                var items = response?.data?.items || response?.items || [];
+                var values = {};
+                items.forEach(function (item) { values[item.setting_key] = item.setting_value; });
+                setVal("admissionNoFormat", values.admission_no_format || "KPS{seq}");
+                setVal("admissionNoStartSequence", values.admission_no_start_sequence || "1");
+            } catch (err) {
+                console.error("school_settings: admission number settings error", err);
+                showToast("Admission number settings could not be loaded.", "error");
+            }
+        },
+
+        loadStaffNumberSettings: async function () {
+            try {
+                var response = await window.API.apiCall("/website/settings", "GET");
+                var items = response?.data?.items || response?.items || [];
+                var values = {};
+                items.forEach(function (item) { values[item.setting_key] = item.setting_value; });
+                setVal("staffNoFormat", values.staff_no_format || "KPST#{seq}");
+                setVal("staffNoStartSequence", values.staff_no_start_sequence || "1");
+            } catch (err) {
+                console.error("school_settings: staff number settings error", err);
+                showToast("Staff number settings could not be loaded.", "error");
+            }
         },
 
         bindForms: function () {
@@ -180,10 +219,42 @@
                 }
             });
 
+            if (formId === "admissionNumberSettingsForm") {
+                var format = String(payload.admission_no_format || "").trim();
+                if (!format || format.length > 40 || !format.includes("{seq")) {
+                    showToast("Format must contain {seq} or {seq:NN}.", "error");
+                    return;
+                }
+            }
+
+            if (formId === "staffNumberSettingsForm") {
+                var staffFormat = String(payload.staff_no_format || "").trim();
+                if (!staffFormat || staffFormat.length > 40 || !staffFormat.includes("{seq")) {
+                    showToast("Format must contain {seq} or {seq:NN}.", "error");
+                    return;
+                }
+            }
+
             showSpinner(formId, true);
 
             try {
-                await window.API.system.updateSchoolConfig(payload);
+                if (formId === "admissionNumberSettingsForm") {
+                    await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_format", value: payload.admission_no_format});
+                    await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_start_sequence", value: payload.admission_no_start_sequence});
+                } else if (formId === "staffNumberSettingsForm") {
+                    await window.API.apiCall("/website/settings", "PUT", {key: "staff_no_format", value: payload.staff_no_format});
+                    await window.API.apiCall("/website/settings", "PUT", {key: "staff_no_start_sequence", value: payload.staff_no_start_sequence});
+                } else if (formId === "generalSettingsForm") {
+                    // General settings go to school_profile
+                    await window.API.system.updateSchoolConfig(payload);
+                } else {
+                    // Academic/fees/system settings go to school_settings as key-value pairs
+                    for (var key in payload) {
+                        if (payload.hasOwnProperty(key)) {
+                            await window.API.apiCall("/website/settings", "PUT", {key: key, value: payload[key]});
+                        }
+                    }
+                }
                 // Merge saved values back into local cache
                 Object.assign(self.data, payload);
                 showToast("Settings saved successfully", "success");

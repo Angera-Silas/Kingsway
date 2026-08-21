@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Controllers\BaseController;
+use App\API\Modules\students\PortfolioManager;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -20,6 +21,21 @@ use function App\API\Includes\formatResponse;
  */
 class PrintController extends BaseController
 {
+    private $portfolioManager;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->portfolioManager = new PortfolioManager($this->db->getConnection());
+    }
+
+    private function guardPrint(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
     
     /**
      * Generate PDF from table data
@@ -43,6 +59,7 @@ class PrintController extends BaseController
      */
     public function postTable($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -78,7 +95,8 @@ class PrintController extends BaseController
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
-            return formatResponse(false, null, 'Error generating PDF: ' . $e->getMessage());
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
     
@@ -108,6 +126,7 @@ class PrintController extends BaseController
      */
     public function postRecord($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -139,7 +158,8 @@ class PrintController extends BaseController
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
-            return formatResponse(false, null, 'Error generating PDF: ' . $e->getMessage());
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
     
@@ -162,6 +182,7 @@ class PrintController extends BaseController
      */
     public function postCertificate($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -197,10 +218,382 @@ class PrintController extends BaseController
             ], 'Certificate generated successfully');
             
         } catch (\Exception $e) {
-            return formatResponse(false, null, 'Error generating certificate: ' . $e->getMessage());
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
     
+    /**
+     * Generate a student portfolio PDF using the portfolio template.
+     *
+     * POST /api/print/portfolio
+     *
+     * Fetches cumulative portfolio data for the student and renders the
+     * portfolio_main.php template as a PDF.
+     *
+     * Request body: { "student_id": 123 }
+     *
+     * @return array Response with PDF URL
+     */
+    public function postPortfolio($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $studentId = (int)($data['student_id'] ?? ($id ?: 0));
+            if (!$studentId) {
+                return formatResponse(false, null, 'Student ID is required');
+            }
+
+            $portfolioData = $this->portfolioManager->getStudentPortfolioData($studentId);
+            if (!$portfolioData) {
+                return formatResponse(false, null, 'Student not found');
+            }
+
+            $pdfPath = $this->prints()->printPortfolio($portfolioData, $data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+
+            return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
+                'pdf_url' => $pdfUrl,
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
+            ], 'Portfolio PDF generated successfully');
+
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate a CBC report card PDF for the given level.
+     *
+     * POST /api/print/report-card
+     *
+     * Request body:
+     * {
+     *   "level": "PP|LowerPrimary|UpperPrimary|JuniorSecondary",
+     *   "student": {...}, "term": {...}, "scores": [...],
+     *   "competencies": [...], "values": [...],
+     *   "attendance": {...}, "comments": {...},
+     *   "filename": "optional-filename"
+     * }
+     *
+     * @return array Response with PDF URL
+     */
+    public function postReportCard($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
+            $level = (string)($data['level'] ?? '');
+            if (!in_array($level, ['PP', 'LowerPrimary', 'UpperPrimary', 'JuniorSecondary'], true)) {
+                return formatResponse(false, null, 'Invalid or missing level. Use: PP, LowerPrimary, UpperPrimary, or JuniorSecondary.');
+            }
+
+            if (empty($data['student'])) {
+                return formatResponse(false, null, 'Student information is required');
+            }
+
+            $pdfPath = $this->prints()->printReportCard($data, $data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+
+            return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
+                'pdf_url' => $pdfUrl,
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
+            ], 'Report card PDF generated successfully');
+
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate academic year calendar PDF.
+     * POST /api/print/academic-calendar
+     */
+    public function postAcademicCalendar($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printAcademicCalendar($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Academic calendar PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate fee structure PDF.
+     * POST /api/print/fee-structure
+     */
+    public function postFeeStructure($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $comparison = !empty($data['comparison']);
+            $pdfPath = $comparison
+                ? $this->prints()->printFeeStructureComparison($data)
+                : $this->prints()->printFeeStructure($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Fee structure PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate simple-mode fee structure PDF (per-grade × per-term).
+     * POST /api/print/fee-structure-simple
+     */
+    public function postFeeStructureSimple($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printSimpleFeeStructure($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Simple fee structure PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] postFeeStructureSimple: ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate P9 tax form PDF.
+     * POST /api/print/p9-form
+     */
+    public function postP9Form($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printP9Form($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'P9 form PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate payslip PDF.
+     * POST /api/print/payslip
+     */
+    public function postPayslip($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printPayslip($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Payslip PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate student fee statement PDF.
+     * POST /api/print/fee-statement
+     */
+    public function postFeeStatement($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printFeeStatement($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Fee statement PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate receipt PDF using dedicated receipt template.
+     * POST /api/print/receipt-template
+     */
+    public function postReceiptTemplate($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printReceiptTemplate($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Receipt PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate invoice PDF.
+     * POST /api/print/invoice
+     */
+    public function postInvoice($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $pdfPath = $this->prints()->printInvoice($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Invoice PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate personal timetable PDF.
+     * POST /api/print/timetable
+     */
+    public function postTimetable($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $master = !empty($data['master']);
+            $pdfPath = $master
+                ? $this->prints()->printMasterTimetable($data)
+                : $this->prints()->printPersonalTimetable($data);
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+            return formatResponse(true, [
+                'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],
+                'files' => [['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl]],
+                'pdf_url' => $pdfUrl, 'download_url' => $pdfUrl, 'filename' => basename($pdfPath),
+            ], 'Timetable PDF generated');
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage());
+            return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Generate PDF from arbitrary HTML content.
+     *
+     * POST /api/print/html
+     *
+     * Request body:
+     * {
+     *   "html": "<div>...</div>",
+     *   "isFullDocument": false,
+     *   "orientation": "portrait",
+     *   "paperSize": "A4",
+     *   "filename": "report_cards_bulk",
+     *   "title": "Report Cards"
+     * }
+     *
+     * @return array Response with PDF URL
+     */
+    public function postHtml($id = null, $data = [])
+    {
+        if ($guard = $this->guardPrint()) return $guard;
+        try {
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
+            if (empty($data['html'])) {
+                return formatResponse(false, null, 'No HTML content provided');
+            }
+
+            $pdfPath = $this->prints()->printHtml($data, $data);
+
+            $pdfUrl = $this->getPrintUrl($pdfPath);
+
+            return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
+                'pdf_url' => $pdfUrl,
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
+            ], 'PDF generated successfully');
+
+        } catch (\Exception $e) {
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
     /**
      * Export data to CSV (server-side)
      * 
@@ -216,6 +609,7 @@ class PrintController extends BaseController
      */
     public function postExportCsv($id = null, $data = [])
     {
+        if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
 
@@ -248,7 +642,8 @@ class PrintController extends BaseController
             ], 'CSV exported successfully');
             
         } catch (\Exception $e) {
-            return formatResponse(false, null, 'Error exporting CSV: ' . $e->getMessage());
+            error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
     

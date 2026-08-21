@@ -99,12 +99,12 @@
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>Class</th>
+              <th scope="col">Class</th>
               <th class="text-center">Enrolled</th>
               <th class="text-center">Present Today</th>
               <th class="text-center">Absent Today</th>
               <th class="text-center">Term Rate</th>
-              <th>Action</th>
+              <th scope="col">Action</th>
             </tr>
           </thead>
           <tbody id="arClassTableBody">
@@ -122,13 +122,13 @@
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>Student</th>
-              <th>Adm. No.</th>
-              <th>Class</th>
+              <th scope="col">Student</th>
+              <th scope="col">Adm. No.</th>
+              <th scope="col">Class</th>
               <th class="text-center">Days Present</th>
               <th class="text-center">Days Absent</th>
               <th class="text-center">Rate</th>
-              <th>Status</th>
+              <th scope="col">Status</th>
             </tr>
           </thead>
           <tbody id="arChronicTableBody">
@@ -147,4 +147,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/attendance_reports.js"></script>
+<?php asset_script($appBase, 'js/pages/attendance_reports.js'); ?>

@@ -101,7 +101,7 @@ class InventoryAPI extends BaseAPI
 
     public function getLowStockItems($threshold = null)
     {
-        return $this->itemsManager->getLowStockItems($threshold);
+        return $this->itemsManager->getLowStock($threshold);
     }
 
     public function getStockValuation()
@@ -188,6 +188,11 @@ class InventoryAPI extends BaseAPI
     public function deleteSupplier($id, $userId)
     {
         return $this->suppliersManager->deleteSupplier($id, $userId);
+    }
+
+    public function getOutstandingLiabilities()
+    {
+        return $this->suppliersManager->getOutstandingLiabilities();
     }
 
     // ==================== PURCHASE ORDERS ====================
@@ -447,83 +452,77 @@ class InventoryAPI extends BaseAPI
     public function getDashboard()
     {
         try {
-            // Total items and value
-            $sql = "
-                SELECT 
-                    COUNT(*) as total_items,
-                    SUM(quantity_on_hand) as total_quantity,
-                    SUM(quantity_on_hand * unit_cost) as total_value,
-                    COUNT(CASE WHEN quantity_on_hand <= reorder_level THEN 1 END) as low_stock_count,
-                    COUNT(CASE WHEN quantity_on_hand = 0 THEN 1 END) as out_of_stock_count
-                FROM inventory_items
-                WHERE status = 'active'
-            ";
-            $stmt = $this->db->query($sql);
-            $summary = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $summaryStmt = $this->db->query(
+                "SELECT
+                    COUNT(*) AS active_items,
+                    COALESCE(SUM(current_quantity), 0) AS total_quantity,
+                    COALESCE(SUM(inventory_value), 0) AS inventory_value,
+                    SUM(stock_status IN ('REORDER', 'LOW STOCK')) AS low_stock,
+                    SUM(stock_status = 'OUT OF STOCK') AS out_of_stock
+                 FROM vw_inventory_health
+                 WHERE status = 'active'"
+            );
+            $summary = $summaryStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
 
-            // Recent movements (last 7 days)
-            $sql = "
-                SELECT 
-                    DATE(transaction_date) as date,
-                    transaction_type,
-                    COUNT(*) as count,
-                    SUM(total_cost) as value
-                FROM inventory_transactions
-                WHERE transaction_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                GROUP BY DATE(transaction_date), transaction_type
-                ORDER BY date DESC
-            ";
-            $stmt = $this->db->query($sql);
-            $recentMovements = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $categoryStmt = $this->db->query(
+                "SELECT COALESCE(category, 'Uncategorised') AS category,
+                        COUNT(*) AS item_count,
+                        COALESCE(SUM(inventory_value), 0) AS inventory_value
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                 GROUP BY category
+                 ORDER BY inventory_value DESC, category"
+            );
 
-            // Active workflows
-            $sql = "
-                SELECT 
-                    wd.name as workflow_name,
-                    wi.current_stage,
-                    COUNT(*) as count
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-                WHERE wi.status IN ('pending', 'in_progress')
-                    AND wd.workflow_type IN ('stock_procurement', 'asset_disposal', 'stock_transfer', 'stock_audit')
-                GROUP BY wd.name, wi.current_stage
-            ";
-            $stmt = $this->db->query($sql);
-            $activeWorkflows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $healthStmt = $this->db->query(
+                "SELECT stock_status, COUNT(*) AS item_count
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                 GROUP BY stock_status
+                 ORDER BY FIELD(
+                    stock_status,
+                    'OUT OF STOCK', 'REORDER', 'LOW STOCK', 'ADEQUATE'
+                 )"
+            );
 
-            // Pending requisitions
-            $sql = "
-                SELECT COUNT(*) as pending_requisitions
-                FROM inventory_requisitions
-                WHERE status = 'pending'
-            ";
-            $stmt = $this->db->query($sql);
-            $pendingRequisitions = $stmt->fetchColumn();
+            $lowStockStmt = $this->db->query(
+                "SELECT id, name, code, category, current_quantity,
+                        minimum_quantity, reorder_level, stock_status,
+                        expiry_status, expiry_date, location, unit_cost,
+                        inventory_value, updated_at
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                   AND stock_status IN ('OUT OF STOCK', 'REORDER', 'LOW STOCK')
+                 ORDER BY FIELD(
+                    stock_status,
+                    'OUT OF STOCK', 'REORDER', 'LOW STOCK'
+                 ), current_quantity, name
+                 LIMIT 25"
+            );
 
-            // Top categories by value
-            $sql = "
-                SELECT 
-                    c.category_name,
-                    COUNT(i.id) as item_count,
-                    SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM categories c
-                LEFT JOIN inventory_items i ON c.id = i.category_id
-                WHERE i.status = 'active'
-                GROUP BY c.id
-                ORDER BY total_value DESC
-                LIMIT 5
-            ";
-            $stmt = $this->db->query($sql);
-            $topCategories = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $requisitionStmt = $this->db->query(
+                "SELECT id, requisition_number, department, status, priority,
+                        requisition_date, required_date, item_count,
+                        total_quantity_requested, created_at
+                 FROM vw_pending_requisitions
+                 ORDER BY FIELD(priority, 'urgent', 'high', 'normal', 'low'),
+                          required_date, created_at DESC
+                 LIMIT 25"
+            );
 
             return formatResponse(true, [
-                'summary' => $summary,
-                'recent_movements' => $recentMovements,
-                'active_workflows' => $activeWorkflows,
-                'pending_requisitions' => $pendingRequisitions,
-                'top_categories' => $topCategories
-            ]);
-
+                'summary' => [
+                    'active_items' => (int) ($summary['active_items'] ?? 0),
+                    'total_quantity' => (int) ($summary['total_quantity'] ?? 0),
+                    'inventory_value' => (float) ($summary['inventory_value'] ?? 0),
+                    'low_stock' => (int) ($summary['low_stock'] ?? 0),
+                    'out_of_stock' => (int) ($summary['out_of_stock'] ?? 0),
+                ],
+                'by_category' => $categoryStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'stock_health' => $healthStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'low_stock_items' => $lowStockStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'pending_requisitions' => $requisitionStmt->fetchAll(\PDO::FETCH_ASSOC),
+            ], 'Inventory overview retrieved');
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -539,11 +538,11 @@ class InventoryAPI extends BaseAPI
                 SELECT 
                     wi.*,
                     wd.name as workflow_name,
-                    wd.workflow_type,
+                    wd.code as workflow_type,
                     u.username as initiated_by_name
                 FROM workflow_instances wi
                 JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-                LEFT JOIN users u ON wi.initiated_by = u.id
+                LEFT JOIN users u ON wi.started_by = u.id
                 WHERE wi.id = ?
             ";
 
@@ -560,10 +559,10 @@ class InventoryAPI extends BaseAPI
                 SELECT 
                     wh.*,
                     u.username as performed_by_name
-                FROM workflow_history wh
-                LEFT JOIN users u ON wh.performed_by = u.id
-                WHERE wh.workflow_instance_id = ?
-                ORDER BY wh.created_at ASC
+                FROM workflow_stage_history wh
+                LEFT JOIN users u ON wh.processed_by = u.id
+                WHERE wh.instance_id = ?
+                ORDER BY wh.processed_at ASC
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$workflowId]);
@@ -571,6 +570,347 @@ class InventoryAPI extends BaseAPI
 
             return formatResponse(true, $workflow);
 
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ==================== UNIFORM SALES ====================
+
+    /**
+     * Record a (partial) payment against a uniform sale.
+     * Live schema: uniform_sales has no amount_paid/balance columns; payments
+     * live in uniform_payment_records and totals are unit_price * quantity.
+     */
+    public function recordUniformSalePayment($saleId, $data = [], $userId = null)
+    {
+        try {
+            $amount = (float)($data['amount_paid'] ?? 0);
+            $method = $data['payment_method'] ?? 'cash';
+            $reference = $data['reference_no'] ?? null;
+            $notes = $data['notes'] ?? null;
+            if ($amount <= 0) {
+                return formatResponse(false, null, 'amount_paid must be positive', 400);
+            }
+
+            $stmt = $this->db->prepare("SELECT * FROM uniform_sales WHERE id = ? LIMIT 1");
+            $stmt->execute([$saleId]);
+            $sale = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$sale) {
+                return formatResponse(false, null, 'Sale not found', 404);
+            }
+
+            $totalAmount = (float)$sale['unit_price'] * (float)$sale['quantity'];
+
+            $payStmt = $this->db->prepare(
+                "INSERT INTO uniform_payment_records (sale_id, amount, payment_date, payment_method, reference_no, recorded_by, notes)
+                 VALUES (?, ?, NOW(), ?, ?, ?, ?)"
+            );
+            $payStmt->execute([$saleId, $amount, $method, $reference, $userId, $notes]);
+
+            $sumStmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) FROM uniform_payment_records WHERE sale_id = ?"
+            );
+            $sumStmt->execute([$saleId]);
+            $newPaid = (float)$sumStmt->fetchColumn();
+            $newBalance = $totalAmount - $newPaid;
+            $newStatus = $newBalance <= 0 ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
+
+            $updStmt = $this->db->prepare("UPDATE uniform_sales SET payment_status = ?, updated_at = NOW() WHERE id = ?");
+            $updStmt->execute([$newStatus, $saleId]);
+
+            return formatResponse(true, [
+                'sale_id' => (int)$saleId,
+                'amount_paid' => round($newPaid, 2),
+                'balance' => max(0.0, round($newBalance, 2)),
+                'payment_status' => $newStatus,
+            ], 'Payment recorded');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * All uniform purchases for a student with running balances.
+     */
+    public function getUniformSalesStudentInvoice($studentId)
+    {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT us.*, ii.name AS item_name, ii.code AS item_code,
+                        (us.unit_price * us.quantity) AS total_amount,
+                        COALESCE((SELECT SUM(up.amount) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0) AS amount_paid,
+                        (us.unit_price * us.quantity)
+                            - COALESCE((SELECT SUM(up.amount) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0) AS outstanding
+                 FROM uniform_sales us
+                 LEFT JOIN inventory_items ii ON us.item_id = ii.id
+                 WHERE us.student_id = ?
+                 ORDER BY us.sale_date DESC"
+            );
+            $stmt->execute([$studentId]);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $totalBilled = array_sum(array_map('floatval', array_column($rows, 'total_amount')));
+            $totalPaid = array_sum(array_map('floatval', array_column($rows, 'amount_paid')));
+            $totalOwed = array_sum(array_map('floatval', array_column($rows, 'outstanding')));
+
+            return formatResponse(true, [
+                'student_id' => (int)$studentId,
+                'items' => $rows,
+                'total_billed' => round($totalBilled, 2),
+                'total_paid' => round($totalPaid, 2),
+                'total_owed' => round($totalOwed, 2),
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Overall + per-item uniform sales summary.
+     */
+    public function getUniformSalesSummary($filters = [])
+    {
+        try {
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($filters['from_date'])) { $where[] = 'us.sale_date >= ?'; $params[] = $filters['from_date']; }
+            if (!empty($filters['to_date']))   { $where[] = 'us.sale_date <= ?'; $params[] = $filters['to_date']; }
+            if (!empty($filters['status']))    { $where[] = 'us.payment_status = ?'; $params[] = $filters['status']; }
+            $ws = implode(' AND ', $where);
+
+            $stmt = $this->db->prepare(
+                "SELECT COUNT(*) AS total_sales,
+                        SUM(us.unit_price * us.quantity) AS total_revenue,
+                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id)), 0) AS total_collected,
+                        SUM((us.unit_price * us.quantity)
+                            - COALESCE((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id), 0)) AS total_outstanding
+                 FROM uniform_sales us WHERE {$ws}"
+            );
+            foreach ($params as $i => $v) $stmt->bindValue($i + 1, $v);
+            $stmt->execute();
+            $totals = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            $stmt2 = $this->db->prepare(
+                "SELECT ii.name AS item_name, ii.code AS item_code,
+                        COUNT(*) AS qty_sold, SUM(us.quantity) AS units_sold,
+                        SUM(us.unit_price * us.quantity) AS revenue,
+                        COALESCE(SUM((SELECT COALESCE(SUM(up.amount),0) FROM uniform_payment_records up WHERE up.sale_id = us.id)), 0) AS collected
+                 FROM uniform_sales us
+                 LEFT JOIN inventory_items ii ON us.item_id = ii.id
+                 WHERE {$ws}
+                 GROUP BY us.item_id, ii.name, ii.code ORDER BY revenue DESC"
+            );
+            foreach ($params as $i => $v) $stmt2->bindValue($i + 1, $v);
+            $stmt2->execute();
+
+            return formatResponse(true, [
+                'totals' => $totals,
+                'by_item' => $stmt2->fetchAll(\PDO::FETCH_ASSOC),
+                'filters' => [
+                    'from_date' => $filters['from_date'] ?? null,
+                    'to_date' => $filters['to_date'] ?? null,
+                    'status' => $filters['status'] ?? null,
+                ],
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ==================== FIXED ASSETS & DEPRECIATION ====================
+
+    public function getAssets($id = null, $filters = [])
+    {
+        try {
+            if ($id) {
+                $stmt = $this->db->prepare(
+                    "SELECT fa.*, ac.name AS category_name, ac.depreciation_method, ac.useful_life_years AS cat_life,
+                            CONCAT(p.first_name, ' ', p.last_name) AS added_by_name
+                     FROM fixed_assets fa
+                     LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+                     LEFT JOIN users u ON u.id = fa.added_by
+                     LEFT JOIN persons p ON p.id = u.person_id
+                     WHERE fa.id = ? AND fa.deleted_at IS NULL"
+                );
+                $stmt->execute([$id]);
+                $asset = $stmt->fetch(\PDO::FETCH_ASSOC);
+                return $asset
+                    ? formatResponse(true, $asset)
+                    : formatResponse(false, null, 'Asset not found', 404);
+            }
+
+            $where = ['fa.deleted_at IS NULL'];
+            $params = [];
+            if (!empty($filters['category_id'])) { $where[] = 'fa.category_id = ?'; $params[] = $filters['category_id']; }
+            if (!empty($filters['status']))      { $where[] = 'fa.status = ?';      $params[] = $filters['status']; }
+            if (!empty($filters['search'])) {
+                $where[] = '(fa.name LIKE ? OR fa.asset_code LIKE ? OR fa.serial_number LIKE ?)';
+                $s = '%' . $filters['search'] . '%';
+                array_push($params, $s, $s, $s);
+            }
+
+            $stmt = $this->db->prepare(
+                "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life,
+                        sup.name AS supplier_name
+                 FROM fixed_assets fa
+                 LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+                 LEFT JOIN suppliers sup ON sup.id = fa.supplier_id
+                 WHERE " . implode(' AND ', $where) . " ORDER BY fa.purchase_date DESC LIMIT 500"
+            );
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $stats = $this->db->query(
+                "SELECT COUNT(*) AS total_assets, COALESCE(SUM(purchase_price),0) AS total_cost,
+                        COALESCE(SUM(current_book_value),0) AS total_book_value,
+                        COALESCE(SUM(accumulated_depr),0) AS total_accumulated_depr,
+                        COUNT(CASE WHEN YEAR(purchase_date)=YEAR(CURDATE()) THEN 1 END) AS acquired_this_year,
+                        COUNT(CASE WHEN status='under_repair' THEN 1 END) AS under_repair
+                 FROM fixed_assets WHERE deleted_at IS NULL AND status NOT IN ('disposed','written_off')"
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['assets' => $rows, 'stats' => $stats]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function createAsset($data, $userId = null)
+    {
+        try {
+            $cat = $this->db->prepare("SELECT * FROM asset_categories WHERE id = ?");
+            $cat->execute([$data['category_id']]);
+            $catRow = $cat->fetch(\PDO::FETCH_ASSOC);
+            if (!$catRow) {
+                return formatResponse(false, null, 'Invalid category', 400);
+            }
+
+            $assetCode = 'AST-' . strtoupper(substr($catRow['code'], 0, 3)) . '-' . date('Y') . '-' . strtoupper(substr(uniqid(), -4));
+            $method = $data['depreciation_method'] ?? $catRow['depreciation_method'];
+            $life = $data['useful_life_years'] ?? $catRow['useful_life_years'];
+            $residual = $data['residual_value'] ?? (($catRow['residual_value_pct'] / 100) * $data['purchase_price']);
+            $bookValue = $data['purchase_price'] - $residual;
+
+            $stmt = $this->db->prepare(
+                "INSERT INTO fixed_assets (asset_code, name, category_id, description, serial_number, model, brand,
+                  location, purchase_date, purchase_price, supplier_id, invoice_number, warranty_expiry, `condition`,
+                  status, acquisition_type, depreciation_method, useful_life_years, residual_value, current_book_value,
+                  accumulated_depr, added_by)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)"
+            );
+            $stmt->execute([
+                $assetCode, $data['name'], $data['category_id'], $data['description'] ?? null,
+                $data['serial_number'] ?? null, $data['model'] ?? null, $data['brand'] ?? null,
+                $data['location'] ?? null, $data['purchase_date'], $data['purchase_price'],
+                $data['supplier_id'] ?? null, $data['invoice_number'] ?? null, $data['warranty_expiry'] ?? null,
+                $data['condition'] ?? 'good', $data['status'] ?? 'active',
+                $data['acquisition_type'] ?? 'purchase', $method, $life, $residual, $bookValue, $userId
+            ]);
+
+            return formatResponse(true, ['id' => $this->db->lastInsertId(), 'asset_code' => $assetCode], 'Asset registered', 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateAsset($id, $data, $userId = null)
+    {
+        try {
+            if (!empty($data['dispose'])) {
+                $stmt = $this->db->prepare("SELECT * FROM fixed_assets WHERE id = ?");
+                $stmt->execute([$id]);
+                $asset = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if (!$asset) {
+                    return formatResponse(false, null, 'Asset not found', 404);
+                }
+                $this->db->prepare(
+                    "INSERT INTO asset_disposals (asset_id, disposal_date, disposal_type, book_value_at_disposal, proceeds, reason, authorised_by)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)"
+                )->execute([
+                    $id, $data['disposal_date'] ?? date('Y-m-d'), $data['disposal_type'] ?? 'write_off',
+                    $asset['current_book_value'], $data['proceeds'] ?? 0, $data['reason'] ?? 'Disposed', $userId
+                ]);
+                $this->db->prepare("UPDATE fixed_assets SET status = ?, deleted_at = NOW() WHERE id = ?")
+                    ->execute([$data['disposal_type'] ?? 'disposed', $id]);
+                return formatResponse(true, null, 'Asset disposed');
+            }
+
+            $fields = [];
+            $params = [];
+            $allowed = ['name','description','serial_number','model','brand','location','condition','status','warranty_expiry','category_id','supplier_id','purchase_date','purchase_price','invoice_number'];
+            foreach ($allowed as $f) {
+                if (array_key_exists($f, $data)) {
+                    $fields[] = "$f = ?";
+                    $params[] = $data[$f];
+                }
+            }
+            if (empty($fields)) {
+                return formatResponse(false, null, 'Nothing to update', 400);
+            }
+            $fields[] = 'updated_at = NOW()';
+            $params[] = $id;
+            $this->db->prepare("UPDATE fixed_assets SET " . implode(',', $fields) . " WHERE id = ?")->execute($params);
+
+            return formatResponse(true, null, 'Asset updated');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getAssetCategories()
+    {
+        try {
+            $rows = $this->db->query("SELECT * FROM asset_categories WHERE status = 'active' ORDER BY name")
+                ->fetchAll(\PDO::FETCH_ASSOC);
+            return formatResponse(true, $rows);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getDepreciationSchedule($year = null, $categoryId = null)
+    {
+        try {
+            $year = $year ?: date('Y');
+            $where = ['fa.deleted_at IS NULL', "fa.status NOT IN ('disposed','written_off')"];
+            $params = [];
+            if ($categoryId) {
+                $where[] = 'fa.category_id = ?';
+                $params[] = $categoryId;
+            }
+            $stmt = $this->db->prepare(
+                "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
+                 FROM fixed_assets fa
+                 LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+                 WHERE " . implode(' AND ', $where) . " ORDER BY ac.name, fa.name"
+            );
+            $stmt->execute($params);
+            $assets = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $schedule = [];
+            foreach ($assets as $a) {
+                $cost = (float)$a['purchase_price'];
+                $residual = (float)$a['residual_value'];
+                $depreciable = $cost - $residual;
+                $life = (int)($a['useful_life_years'] ?: $a['cat_life'] ?: 5);
+                $rate = $life > 0 ? (100 / $life) : 20;
+                $annualDepr = $life > 0 ? ($depreciable / $life) : 0;
+                $startYear = (int)date('Y', strtotime($a['purchase_date']));
+                $yearsUsed = max(0, (int)$year - $startYear + 1);
+                $accumulated = min($depreciable, $annualDepr * $yearsUsed);
+                $bookValue = max($residual, $cost - $accumulated);
+                $schedule[] = array_merge($a, [
+                    'financial_year' => $year,
+                    'annual_depreciation' => round($annualDepr, 2),
+                    'accumulated_depr' => round($accumulated, 2),
+                    'current_book_value' => round($bookValue, 2),
+                    'depreciation_rate_pct' => round($rate, 2),
+                    'pct_remaining' => $cost > 0 ? round(($bookValue / $cost) * 100, 1) : 0,
+                ]);
+            }
+
+            return formatResponse(true, $schedule);
         } catch (Exception $e) {
             return $this->handleException($e);
         }

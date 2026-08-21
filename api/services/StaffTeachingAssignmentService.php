@@ -5,6 +5,19 @@ use App\Database\Database;
 use PDO;
 use RuntimeException;
 
+/**
+ * Teaching-assignment service — 3NF/4NF schema.
+ *
+ * Legacy `staff_class_assignments` (one denormalized row carrying class+stream+subject+year+role)
+ * is split in the new schema:
+ *   - subject_teacher  -> row in `academic_year_class_learning_area_teachers`
+ *                         (bound to a learning-area-in-class-in-year context + term)
+ *   - class_teacher    -> `academic_year_class_streams.class_teacher_id` (a column on the stream-in-year row)
+ *
+ * Reads use the shipped view `vw_staff_assignments_detailed` (subject teachers, flattened to the
+ * legacy column shape) and a direct stream query (class teachers). Writes resolve the year-scoped
+ * context rows and REQUIRE them to already exist (academic setup owns their creation).
+ */
 final class StaffTeachingAssignmentService
 {
     private $db;
@@ -12,82 +25,231 @@ final class StaffTeachingAssignmentService
 
     private function teacher(int $staffId): array
     {
-        $row = $this->db->query("SELECT s.id,s.first_name,s.last_name,s.status,s.tsc_no,st.name staff_type
-            FROM staff s LEFT JOIN staff_types st ON st.id=s.staff_type_id WHERE s.id=? LIMIT 1",[$staffId])->fetch(PDO::FETCH_ASSOC);
-        if (!$row || $row['status'] !== 'active') throw new RuntimeException('Active teacher not found',422);
-        if (empty($row['tsc_no']) && stripos((string)$row['staff_type'],'teach') === false) throw new RuntimeException('Selected staff member is not teaching staff',422);
+        $row = $this->db->query(
+            "SELECT s.id, p.first_name, p.last_name, s.status, st.name staff_type
+               FROM staff s
+               JOIN persons p ON p.id = s.person_id
+               LEFT JOIN staff_types st ON st.id = s.staff_type_id
+              WHERE s.id = ? LIMIT 1",
+            [$staffId]
+        )->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['status'] !== 'active') throw new RuntimeException('Active teacher not found', 422);
+        if (stripos((string)$row['staff_type'], 'teach') === false) {
+            throw new RuntimeException('Selected staff member is not teaching staff', 422);
+        }
         return $row;
     }
 
     private function currentYearId(): int
     {
-        $id=(int)$this->db->query("SELECT id FROM academic_years WHERE is_current=1 OR status='active' ORDER BY is_current DESC,id DESC LIMIT 1")->fetchColumn();
-        if (!$id) throw new RuntimeException('No active academic year configured',422);
+        $id = (int)$this->db->query(
+            "SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1"
+        )->fetchColumn();
+        if (!$id) throw new RuntimeException('No active academic year configured', 422);
         return $id;
     }
 
-    public function listClassTeachers(array $filters=[]): array
+    /** Current term-in-year instance; falls back to the latest defined term for the year. */
+    private function currentTermId(int $yearId): int
     {
-        $where=["sca.role='class_teacher'","sca.status='active'"]; $params=[];
-        if (!empty($filters['academic_year_id'])) {$where[]='sca.academic_year_id=?';$params[]=(int)$filters['academic_year_id'];}
-        if (!empty($filters['teacher_id'])) {$where[]='sca.staff_id=?';$params[]=(int)$filters['teacher_id'];}
-        return $this->db->query("SELECT sca.id,sca.staff_id teacher_id,sca.class_id,sca.stream_id,sca.class_stream_id,sca.academic_year_id,
-            sca.start_date assigned_date,sca.status,c.name class_name,cs.stream_name,
-            CONCAT(s.first_name,' ',s.last_name) teacher_name,u.email teacher_email
-            FROM staff_class_assignments sca JOIN staff s ON s.id=sca.staff_id
-            JOIN classes c ON c.id=sca.class_id LEFT JOIN class_streams cs ON cs.id=COALESCE(sca.class_stream_id,sca.stream_id)
-            LEFT JOIN users u ON u.id=s.user_id WHERE ".implode(' AND ',$where)." ORDER BY c.name,cs.stream_name",$params)->fetchAll(PDO::FETCH_ASSOC);
+        $id = (int)$this->db->query(
+            "SELECT id FROM academic_year_terms
+              WHERE academic_year_id = ?
+              ORDER BY (status = 'current') DESC, id DESC LIMIT 1",
+            [$yearId]
+        )->fetchColumn();
+        if (!$id) throw new RuntimeException('No term configured for the selected academic year', 422);
+        return $id;
+    }
+
+    /** Resolve an existing class-in-year context row (never auto-created). */
+    private function resolveYearClassId(int $yearId, int $classId): int
+    {
+        $id = (int)$this->db->query(
+            "SELECT id FROM academic_year_classes WHERE academic_year_id = ? AND class_id = ? LIMIT 1",
+            [$yearId, $classId]
+        )->fetchColumn();
+        if (!$id) throw new RuntimeException('This class is not set up for the selected academic year', 422);
+        return $id;
+    }
+
+    /** Manual-id tables: next id is max+1 (no auto_increment on the target tables). */
+    private function nextId(string $table): int
+    {
+        $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
+        return (int)$this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM `$table`")->fetchColumn();
+    }
+
+    // ---------------------------------------------------------------------
+    // Class teachers  (academic_year_class_streams.class_teacher_id)
+    // The row id exposed to callers is the academic_year_class_streams id.
+    // ---------------------------------------------------------------------
+
+    public function listClassTeachers(array $filters = []): array
+    {
+        $where = ['aycs.class_teacher_id IS NOT NULL']; $params = [];
+        if (!empty($filters['academic_year_id'])) { $where[] = 'ayc.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
+        if (!empty($filters['teacher_id']))       { $where[] = 'aycs.class_teacher_id = ?'; $params[] = (int)$filters['teacher_id']; }
+        return $this->db->query(
+            "SELECT aycs.id, aycs.class_teacher_id teacher_id, ayc.class_id, aycs.stream_id,
+                    aycs.id class_stream_id, ayc.academic_year_id, aycs.status,
+                    c.name class_name, st.name stream_name,
+                    CONCAT(p.first_name,' ',p.last_name) teacher_name, p.email teacher_email
+               FROM academic_year_class_streams aycs
+               JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+               JOIN classes c ON c.id = ayc.class_id
+               LEFT JOIN streams st ON st.id = aycs.stream_id
+               JOIN staff s ON s.id = aycs.class_teacher_id
+               JOIN persons p ON p.id = s.person_id
+              WHERE " . implode(' AND ', $where) . "
+              ORDER BY c.name, st.name",
+            $params
+        )->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function getClassTeacher(int $id): ?array
     {
-        $rows=$this->listClassTeachers([]);
-        foreach($rows as $r) if((int)$r['id']===$id) return $r;
+        foreach ($this->listClassTeachers([]) as $r) if ((int)$r['id'] === $id) return $r;
         return null;
     }
 
-    public function saveClassTeacher(array $data, ?int $id=null, int $userId=0): int
+    public function saveClassTeacher(array $data, ?int $id = null, int $userId = 0): int
     {
-        $staffId=(int)($data['teacher_id']??$data['staff_id']??0); $classId=(int)($data['class_id']??0);
-        $streamId=(int)($data['stream_id']??$data['class_stream_id']??0); $yearId=(int)($data['academic_year_id']??0) ?: $this->currentYearId();
-        if(!$staffId||!$classId) throw new RuntimeException('teacher_id and class_id are required',422);
+        $staffId = (int)($data['teacher_id'] ?? $data['staff_id'] ?? 0);
+        $classId = (int)($data['class_id'] ?? 0);
+        $streamId = (int)($data['stream_id'] ?? $data['class_stream_id'] ?? 0);
+        $yearId = (int)($data['academic_year_id'] ?? 0) ?: $this->currentYearId();
+        if (!$staffId || !$classId) throw new RuntimeException('teacher_id and class_id are required', 422);
         $this->teacher($staffId);
-        if($streamId){$stream=$this->db->query('SELECT id,class_id FROM class_streams WHERE id=? AND status="active"',[$streamId])->fetch(PDO::FETCH_ASSOC);if(!$stream)throw new RuntimeException('Class stream not found',422);$classId=(int)$stream['class_id'];}
-        $conflict=$this->db->query("SELECT id FROM staff_class_assignments WHERE role='class_teacher' AND status='active' AND class_id=? AND COALESCE(class_stream_id,stream_id,0)=? AND academic_year_id=? AND id<>? LIMIT 1",[$classId,$streamId,$yearId,$id??0])->fetchColumn();
-        if($conflict) throw new RuntimeException('This class/stream already has an active class teacher',409);
-        if($id){$this->db->query("UPDATE staff_class_assignments SET staff_id=?,class_id=?,class_stream_id=?,stream_id=?,academic_year_id=?,start_date=COALESCE(?,start_date),updated_at=NOW() WHERE id=? AND role='class_teacher'",[$staffId,$classId,$streamId?:null,$streamId?:null,$yearId,$data['start_date']??null,$id]);return $id;}
-        $this->db->query("INSERT INTO staff_class_assignments(staff_id,class_stream_id,class_id,stream_id,academic_year_id,role,start_date,status,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,'class_teacher',?,'active',?,?,NOW(),NOW())",[$staffId,$streamId?:null,$classId,$streamId?:null,$yearId,$data['start_date']??date('Y-m-d'),$data['notes']??null,$userId?:null]);
-        return (int)$this->db->lastInsertId();
+
+        // When editing, the id IS the academic_year_class_streams row.
+        if ($id) {
+            $aycsId = $id;
+            $exists = $this->db->query("SELECT id FROM academic_year_class_streams WHERE id = ? LIMIT 1", [$aycsId])->fetchColumn();
+            if (!$exists) throw new RuntimeException('Class stream assignment not found', 404);
+        } else {
+            $aycId = $this->resolveYearClassId($yearId, $classId);
+            $aycsId = (int)$this->db->query(
+                "SELECT id FROM academic_year_class_streams WHERE academic_year_class_id = ?" .
+                ($streamId ? " AND stream_id = ?" : "") . " LIMIT 1",
+                $streamId ? [$aycId, $streamId] : [$aycId]
+            )->fetchColumn();
+            if (!$aycsId) throw new RuntimeException('This class/stream is not set up for the selected academic year', 422);
+        }
+
+        $current = $this->db->query("SELECT class_teacher_id FROM academic_year_class_streams WHERE id = ?", [$aycsId])->fetchColumn();
+        if ($current && (int)$current !== $staffId) {
+            throw new RuntimeException('This class/stream already has an active class teacher', 409);
+        }
+        $this->db->query("UPDATE academic_year_class_streams SET class_teacher_id = ? WHERE id = ?", [$staffId, $aycsId]);
+        return (int)$aycsId;
     }
 
-    public function listSubjectAssignments(array $filters=[]): array
+    /** Clear the class-teacher on a stream-in-year row. */
+    public function removeClassTeacher(int $id): void
     {
-        $where=["sca.role='subject_teacher'"]; $params=[];
-        foreach(['teacher_id'=>'staff_id','subject_id'=>'subject_id','class_id'=>'class_id','academic_year_id'=>'academic_year_id','status'=>'status'] as $key=>$col){if(isset($filters[$key])&&$filters[$key]!==''){$where[]="sca.$col=?";$params[]=$filters[$key];}}
-        if(!empty($filters['search'])){$where[]="(CONCAT(s.first_name,' ',s.last_name) LIKE ? OR la.name LIKE ? OR c.name LIKE ?)";$q='%'.$filters['search'].'%';array_push($params,$q,$q,$q);}
-        $page=max(1,(int)($filters['page']??1));$limit=min(200,max(1,(int)($filters['limit']??50)));$offset=($page-1)*$limit;
-        $total=(int)$this->db->query("SELECT COUNT(*) FROM staff_class_assignments sca JOIN staff s ON s.id=sca.staff_id LEFT JOIN learning_areas la ON la.id=sca.subject_id JOIN classes c ON c.id=sca.class_id WHERE ".implode(' AND ',$where),$params)->fetchColumn();
-        $rows=$this->db->query("SELECT sca.id,sca.staff_id teacher_id,sca.subject_id,sca.class_id,sca.stream_id,sca.class_stream_id,sca.academic_year_id,sca.periods_per_week,sca.status,
-            CONCAT(s.first_name,' ',s.last_name) teacher_name,s.first_name,s.last_name,la.name subject_name,c.name class_name,cs.stream_name
-            FROM staff_class_assignments sca JOIN staff s ON s.id=sca.staff_id LEFT JOIN learning_areas la ON la.id=sca.subject_id JOIN classes c ON c.id=sca.class_id
-            LEFT JOIN class_streams cs ON cs.id=COALESCE(sca.class_stream_id,sca.stream_id) WHERE ".implode(' AND ',$where)." ORDER BY teacher_name,subject_name LIMIT $limit OFFSET $offset",$params)->fetchAll(PDO::FETCH_ASSOC);
-        return ['items'=>$rows,'pagination'=>['page'=>$page,'limit'=>$limit,'total'=>$total]];
+        $this->db->query("UPDATE academic_year_class_streams SET class_teacher_id = NULL WHERE id = ?", [$id]);
+    }
+
+    // ---------------------------------------------------------------------
+    // Subject teachers  (academic_year_class_learning_area_teachers)
+    // The row id exposed to callers is the teacher-assignment row id.
+    // ---------------------------------------------------------------------
+
+    public function listSubjectAssignments(array $filters = []): array
+    {
+        $where = ["v.role = 'subject_teacher'"]; $params = [];
+        foreach (['teacher_id'=>'staff_id','subject_id'=>'subject_id','class_id'=>'class_id','academic_year_id'=>'academic_year_id'] as $key=>$col) {
+            if (isset($filters[$key]) && $filters[$key] !== '') { $where[] = "v.$col = ?"; $params[] = $filters[$key]; }
+        }
+        if (!empty($filters['search'])) {
+            $where[] = "(v.staff_name LIKE ? OR v.subject_name LIKE ? OR v.class_name LIKE ?)";
+            $q = '%' . $filters['search'] . '%'; array_push($params, $q, $q, $q);
+        }
+        $page = max(1, (int)($filters['page'] ?? 1));
+        $limit = min(200, max(1, (int)($filters['limit'] ?? 50)));
+        $offset = ($page - 1) * $limit;
+        $whereSql = implode(' AND ', $where);
+
+        $total = (int)$this->db->query("SELECT COUNT(*) FROM vw_staff_assignments_detailed v WHERE $whereSql", $params)->fetchColumn();
+        $rows = $this->db->query(
+            "SELECT v.id, v.staff_id teacher_id, v.subject_id, v.class_id, v.stream_id, v.class_stream_id,
+                    v.academic_year_id, v.staff_name teacher_name, v.subject_name, v.class_name, v.stream_name
+               FROM vw_staff_assignments_detailed v
+              WHERE $whereSql
+              ORDER BY v.staff_name, v.subject_name
+              LIMIT $limit OFFSET $offset",
+            $params
+        )->fetchAll(PDO::FETCH_ASSOC);
+        return ['items' => $rows, 'pagination' => ['page' => $page, 'limit' => $limit, 'total' => $total]];
     }
 
     public function getSubjectAssignment(int $id): ?array
     {
-        $r=$this->listSubjectAssignments(['limit'=>200]);foreach($r['items'] as $row)if((int)$row['id']===$id)return $row;return null;
+        $row = $this->db->query(
+            "SELECT v.id, v.staff_id teacher_id, v.subject_id, v.class_id, v.stream_id, v.class_stream_id,
+                    v.academic_year_id, v.staff_name teacher_name, v.subject_name, v.class_name, v.stream_name
+               FROM vw_staff_assignments_detailed v
+              WHERE v.id = ? AND v.role = 'subject_teacher' LIMIT 1",
+            [$id]
+        )->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
     }
 
-    public function saveSubjectAssignment(array $data, ?int $id=null, int $userId=0): int
+    public function saveSubjectAssignment(array $data, ?int $id = null, int $userId = 0): int
     {
-        $staffId=(int)($data['teacher_id']??$data['staff_id']??0);$subjectId=(int)($data['subject_id']??0);$classId=(int)($data['class_id']??0);$streamId=(int)($data['stream_id']??0);$yearId=(int)($data['academic_year_id']??0)?:$this->currentYearId();
-        if(!$staffId||!$subjectId||!$classId)throw new RuntimeException('teacher_id, subject_id and class_id are required',422);$this->teacher($staffId);
-        $periods=max(1,min(40,(int)($data['periods_per_week']??5)));$status=in_array(($data['status']??'active'),['active','completed','transferred','terminated'],true)?$data['status']:'active';
-        $conflict=$this->db->query("SELECT id FROM staff_class_assignments WHERE role='subject_teacher' AND staff_id=? AND subject_id=? AND class_id=? AND COALESCE(stream_id,0)=? AND academic_year_id=? AND status='active' AND id<>? LIMIT 1",[$staffId,$subjectId,$classId,$streamId,$yearId,$id??0])->fetchColumn();if($conflict)throw new RuntimeException('Duplicate active subject assignment',409);
-        if($id){$this->db->query("UPDATE staff_class_assignments SET staff_id=?,subject_id=?,class_id=?,stream_id=?,class_stream_id=?,academic_year_id=?,periods_per_week=?,status=?,updated_at=NOW() WHERE id=? AND role='subject_teacher'",[$staffId,$subjectId,$classId,$streamId?:null,$streamId?:null,$yearId,$periods,$status,$id]);return $id;}
-        $this->db->query("INSERT INTO staff_class_assignments(staff_id,class_stream_id,class_id,stream_id,academic_year_id,role,subject_id,periods_per_week,start_date,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,'subject_teacher',?,?,? ,?,?,NOW(),NOW())",[$staffId,$streamId?:null,$classId,$streamId?:null,$yearId,$subjectId,$periods,$data['start_date']??date('Y-m-d'),$status,$userId?:null]);return (int)$this->db->lastInsertId();
+        $staffId = (int)($data['teacher_id'] ?? $data['staff_id'] ?? 0);
+        $subjectId = (int)($data['subject_id'] ?? 0);
+        $classId = (int)($data['class_id'] ?? 0);
+        $yearId = (int)($data['academic_year_id'] ?? 0) ?: $this->currentYearId();
+        if (!$staffId || !$subjectId || !$classId) throw new RuntimeException('teacher_id, subject_id and class_id are required', 422);
+        $this->teacher($staffId);
+
+        $role = in_array(($data['role'] ?? 'subject_teacher'), ['subject_teacher','assistant','hod'], true) ? $data['role'] : 'subject_teacher';
+        $termId = $this->currentTermId($yearId);
+
+        // Resolve the learning-area-in-class-in-year context (must already exist).
+        $aycId = $this->resolveYearClassId($yearId, $classId);
+        $areaId = (int)$this->db->query(
+            "SELECT id FROM academic_year_class_learning_areas WHERE academic_year_class_id = ? AND learning_area_id = ? LIMIT 1",
+            [$aycId, $subjectId]
+        )->fetchColumn();
+        if (!$areaId) throw new RuntimeException('This learning area is not set up for the class in the selected academic year', 422);
+
+        if ($id) {
+            $this->db->query(
+                "UPDATE academic_year_class_learning_area_teachers
+                    SET academic_year_class_learning_area_id = ?, academic_year_term_id = ?, staff_id = ?, role = ?
+                  WHERE id = ?",
+                [$areaId, $termId, $staffId, $role, $id]
+            );
+            return $id;
+        }
+
+        // UNIQUE(area, term, staff, role) — surface a clean 409 instead of a driver error.
+        $conflict = $this->db->query(
+            "SELECT id FROM academic_year_class_learning_area_teachers
+              WHERE academic_year_class_learning_area_id = ? AND academic_year_term_id = ? AND staff_id = ? AND role = ? LIMIT 1",
+            [$areaId, $termId, $staffId, $role]
+        )->fetchColumn();
+        if ($conflict) throw new RuntimeException('Duplicate active subject assignment', 409);
+
+        $newId = $this->nextId('academic_year_class_learning_area_teachers');
+        $this->db->query(
+            "INSERT INTO academic_year_class_learning_area_teachers
+                (id, academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
+             VALUES (?, ?, ?, ?, ?)",
+            [$newId, $areaId, $termId, $staffId, $role]
+        );
+        return (int)$newId;
     }
 
-    public function remove(int $id): void { $this->db->query("UPDATE staff_class_assignments SET status='completed',end_date=CURDATE(),updated_at=NOW() WHERE id=?",[$id]); }
+    /** Remove a subject-teacher assignment row (no soft-delete column exists on the target table). */
+    public function removeSubjectAssignment(int $id): void
+    {
+        $this->db->query("DELETE FROM academic_year_class_learning_area_teachers WHERE id = ?", [$id]);
+    }
+
+    /** @deprecated legacy single-table remove; routes to the subject-teacher table. */
+    public function remove(int $id): void { $this->removeSubjectAssignment($id); }
 }

@@ -96,33 +96,37 @@ class ExternalInboundManager
     // Workflow methods
     public function classifyInbound($id, $classification)
     {
-        $sql = "UPDATE external_inbound_messages SET classification = :classification, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE external_inbound_messages SET processing_notes = :notes WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([':classification' => $classification, ':id' => $id]);
+        $stmt->execute([':notes' => json_encode(['classification' => $classification]), ':id' => $id]);
         return $stmt->rowCount() > 0;
     }
 
     public function processInbound($id, $action)
     {
-        $sql = "UPDATE external_inbound_messages SET status = :action, processed_at = NOW() WHERE id = :id";
+        $sql = "UPDATE external_inbound_messages SET status = :action, processing_notes = :notes WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([':action' => $action, ':id' => $id]);
+        $stmt->execute([
+            ':action' => $action,
+            ':notes' => json_encode(['processed_action' => $action, 'processed_at' => date('Y-m-d H:i:s')]),
+            ':id' => $id
+        ]);
         // Optionally: trigger notification
         return $stmt->rowCount() > 0;
     }
 
     public function escalateInbound($id, $notes)
     {
-        $sql = "UPDATE external_inbound_messages SET status = 'escalated', escalation_notes = :notes, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE external_inbound_messages SET status = 'processed', processing_notes = :notes WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([':notes' => $notes, ':id' => $id]);
+        $stmt->execute([':notes' => json_encode(['escalation_notes' => $notes]), ':id' => $id]);
         // Optionally: trigger escalation notification
         return $stmt->rowCount() > 0;
     }
 
     public function archiveInbound($id)
     {
-        $sql = "UPDATE external_inbound_messages SET status = 'archived', archived_at = NOW() WHERE id = :id";
+        $sql = "UPDATE external_inbound_messages SET status = 'archived' WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $id]);
         return $stmt->rowCount() > 0;

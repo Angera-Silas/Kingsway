@@ -85,37 +85,29 @@ class StockTransferWorkflow extends WorkflowHandler
             }
 
             // Generate transfer number
-            $transferNumber = 'TR-' . date('Y') . '-' . str_pad($this->db->query("SELECT COUNT(*) + 1 FROM inventory_transfers")->fetchColumn(), 6, '0', STR_PAD_LEFT);
+            $transferNumber = 'TR-' . date('Y') . '-' . str_pad($this->db->query("SELECT COUNT(*) + 1 FROM inventory_transactions WHERE reference_type = 'transfer'")->fetchColumn(), 6, '0', STR_PAD_LEFT);
 
-            // Create transfer record
-            $stmt = $this->db->prepare("
-                INSERT INTO inventory_transfers (
-                    transfer_number, source_location_id, destination_location_id,
-                    requested_by, transfer_date, transfer_reason, status, created_at
-                ) VALUES (?, ?, ?, ?, NOW(), ?, 'pending', NOW())
+            // Transfer ledger: one 'out' transaction per item at the source location.
+            // The transfer id is shared as reference_id so the receiving side can post 'in' rows.
+            $transferId = $this->nextId('inventory_transactions');
+            $outStmt = $this->db->prepare("
+                INSERT INTO inventory_transactions (
+                    item_id, transaction_type, quantity, transaction_date,
+                    reference_type, reference_id, notes
+                ) VALUES (?, 'out', ?, CURDATE(), 'transfer', ?, ?)
             ");
-            $stmt->execute([
-                $transferNumber,
-                $data['source_location_id'],
-                $data['destination_location_id'],
-                $userId,
-                $data['transfer_reason']
-            ]);
-
-            $transferId = $this->db->lastInsertId();
-
-            // Create transfer items
+            $decStmt = $this->db->prepare(
+                "UPDATE inventory_items SET current_quantity = current_quantity - ? WHERE id = ?"
+            );
             foreach ($data['items'] as $index => $itemId) {
-                $stmt = $this->db->prepare("
-                    INSERT INTO inventory_transfer_items (
-                        transfer_id, item_id, quantity_requested
-                    ) VALUES (?, ?, ?)
-                ");
-                $stmt->execute([
-                    $transferId,
+                $quantity = $data['quantities'][$index];
+                $outStmt->execute([
                     $itemId,
-                    $data['quantities'][$index]
+                    $quantity,
+                    $transferId,
+                    'Transfer ' . $transferNumber . ' from ' . $data['source_location_id'] . ' to ' . $data['destination_location_id']
                 ]);
+                $decStmt->execute([$quantity, $itemId]);
             }
 
             // Start workflow
@@ -137,14 +129,6 @@ class StockTransferWorkflow extends WorkflowHandler
                 $this->db->rollBack();
                 return $result;
             }
-
-            // Update transfer with workflow ID
-            $stmt = $this->db->prepare("
-                UPDATE inventory_transfers 
-                SET workflow_instance_id = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$result['data']['workflow_id'], $transferId]);
 
             $this->db->commit();
             $this->logAction('create', $result['data']['workflow_id'], "Initiated transfer workflow {$transferNumber}");
@@ -186,20 +170,7 @@ class StockTransferWorkflow extends WorkflowHandler
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
-            // Update transfer record
-            $stmt = $this->db->prepare("
-                UPDATE inventory_transfers 
-                SET status = 'approved', approved_by = ?, approved_at = NOW(),
-                    approval_notes = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $userId,
-                $data['approval_notes'] ?? null,
-                $workflowData['transfer_id']
-            ]);
-
-            // Update workflow data
+            // Record approval in the workflow data; ledger rows were posted at initiation.
             $workflowData['transfer_approval'] = [
                 'approved_by' => $userId,
                 'approved_at' => date('Y-m-d H:i:s'),
@@ -246,30 +217,6 @@ class StockTransferWorkflow extends WorkflowHandler
             $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
-            $transferId = $workflowData['transfer_id'];
-
-            // Update picked quantities
-            foreach ($data['picked_quantities'] as $itemId => $pickedQty) {
-                $stmt = $this->db->prepare("
-                    UPDATE inventory_transfer_items 
-                    SET quantity_picked = ?, picked_by = ?, picked_at = NOW()
-                    WHERE transfer_id = ? AND item_id = ?
-                ");
-                $stmt->execute([
-                    $pickedQty,
-                    $userId,
-                    $transferId,
-                    $itemId
-                ]);
-            }
-
-            // Update transfer status
-            $stmt = $this->db->prepare("
-                UPDATE inventory_transfers 
-                SET picking_date = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([$transferId]);
 
             // Update workflow data
             $workflowData['stock_picking'] = [
@@ -371,20 +318,6 @@ class StockTransferWorkflow extends WorkflowHandler
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
-            // Update transfer record
-            $stmt = $this->db->prepare("
-                UPDATE inventory_transfers 
-                SET status = 'dispatched', dispatch_date = NOW(),
-                    dispatched_by = ?, carrier_info = ?, tracking_number = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $userId,
-                $data['carrier_info'] ?? null,
-                $data['tracking_number'] ?? null,
-                $workflowData['transfer_id']
-            ]);
-
             // Update workflow data
             $workflowData['dispatch'] = [
                 'dispatched_by' => $userId,
@@ -436,28 +369,28 @@ class StockTransferWorkflow extends WorkflowHandler
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $transferId = $workflowData['transfer_id'];
 
-            // Update received quantities
-            foreach ($data['received_quantities'] as $itemId => $receivedQty) {
-                $stmt = $this->db->prepare("
-                    UPDATE inventory_transfer_items 
-                    SET quantity_received = ?, received_by = ?, received_at = NOW()
-                    WHERE transfer_id = ? AND item_id = ?
-                ");
-                $stmt->execute([
-                    $receivedQty,
-                    $userId,
-                    $transferId,
-                    $itemId
-                ]);
-            }
-
-            // Update transfer status
-            $stmt = $this->db->prepare("
-                UPDATE inventory_transfers 
-                SET status = 'received', received_date = NOW()
-                WHERE id = ?
+            // Post 'in' transactions at the destination and move the item location
+            $inStmt = $this->db->prepare("
+                INSERT INTO inventory_transactions (
+                    item_id, transaction_type, quantity, transaction_date,
+                    reference_type, reference_id, notes
+                ) VALUES (?, 'in', ?, CURDATE(), 'transfer', ?, ?)
             ");
-            $stmt->execute([$transferId]);
+            $incStmt = $this->db->prepare(
+                "UPDATE inventory_items
+                 SET current_quantity = current_quantity + ?,
+                     location_id = ?
+                 WHERE id = ?"
+            );
+            foreach ($data['received_quantities'] as $itemId => $receivedQty) {
+                $inStmt->execute([
+                    $itemId,
+                    $receivedQty,
+                    $transferId,
+                    'Transfer received at ' . $workflowData['destination_location_id']
+                ]);
+                $incStmt->execute([$receivedQty, $workflowData['destination_location_id'], $itemId]);
+            }
 
             // Update workflow data
             $workflowData['goods_receipt'] = [
@@ -656,7 +589,15 @@ class StockTransferWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            error_log('[StockTransferWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
+    }
+
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `{$table}`");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
     }
 }

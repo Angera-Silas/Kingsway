@@ -1,9 +1,5 @@
 // Chart.js configuration for the dashboard
-import Chart from 'chart.js/auto';
-// Ensure Chart.js is available globally
-if (typeof window !== 'undefined') {
-    window.Chart = Chart;
-}
+// Chart.js is loaded via CDN in home.php — Chart is already on window
 document.addEventListener("DOMContentLoaded", () => {
     // Bar Chart
     new Chart(document.getElementById('barChart'), {

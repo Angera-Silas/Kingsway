@@ -11,35 +11,49 @@ class StopManager
         $this->db = $db;
     }
 
-    // CRUD for stops
+    // CRUD for stops — transport_stops uses `sequence` + `location` (no lat/lng columns)
     public function createStop($data)
     {
-        $sql = "INSERT INTO transport_stops (name, route_id, stop_order, latitude, longitude, status) VALUES (?, ?, ?, ?, ?, ?)";
+        if (empty($data['name'])) {
+            throw new \InvalidArgumentException('name is required');
+        }
+        $sql = "INSERT INTO transport_stops (name, route_id, sequence, location, status) VALUES (?, ?, ?, ?, ?)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['name'],
-            $data['route_id'],
-            $data['stop_order'],
-            $data['latitude'],
-            $data['longitude'],
+            $data['route_id'] ?? null,
+            $data['stop_order'] ?? $data['sequence'] ?? 0,
+            $this->serializeLocation($data),
             $data['status'] ?? 'active'
         ]);
         return $this->db->lastInsertId();
     }
     public function updateStop($id, $data)
     {
-        $sql = "UPDATE transport_stops SET name=?, route_id=?, stop_order=?, latitude=?, longitude=?, status=? WHERE id=?";
+        if (empty($data['name'])) {
+            throw new \InvalidArgumentException('name is required');
+        }
+        $sql = "UPDATE transport_stops SET name=?, route_id=?, sequence=?, location=?, status=? WHERE id=?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['name'],
-            $data['route_id'],
-            $data['stop_order'],
-            $data['latitude'],
-            $data['longitude'],
-            $data['status'],
+            $data['route_id'] ?? null,
+            $data['stop_order'] ?? $data['sequence'] ?? 0,
+            $this->serializeLocation($data),
+            $data['status'] ?? 'active',
             $id
         ]);
         return $stmt->rowCount() > 0;
+    }
+    private function serializeLocation($data)
+    {
+        if (!empty($data['location'])) {
+            return $data['location'];
+        }
+        if (!empty($data['latitude']) && !empty($data['longitude'])) {
+            return $data['latitude'] . ',' . $data['longitude'];
+        }
+        return null;
     }
     public function deactivateStop($id)
     {

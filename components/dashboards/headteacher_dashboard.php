@@ -22,6 +22,9 @@
         </div>
     </div>
 
+    <!-- Period Selector -->
+    <?php $rootId = 'headteacherDashboard'; require __DIR__ . '/partials/period_selector.php'; ?>
+
     <!-- KPI Cards Row 1 -->
     <div class="row g-3 mb-3">
         <div class="col-xl-3 col-md-6">
@@ -133,7 +136,7 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light"><tr><th>Name</th><th>Class</th><th>Date</th><th>Status</th></tr></thead>
+                        <thead class="table-light"><tr><th scope="col">Name</th><th scope="col">Class</th><th scope="col">Date</th><th scope="col">Status</th></tr></thead>
                         <tbody id="admissionsTableBody">
                             <tr><td colspan="4" class="text-center text-muted py-4">
                                 <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading...
@@ -154,7 +157,7 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
-                        <thead class="table-light"><tr><th>Student</th><th>Class</th><th>Issue</th><th>Status</th></tr></thead>
+                        <thead class="table-light"><tr><th scope="col">Student</th><th scope="col">Class</th><th scope="col">Issue</th><th scope="col">Status</th></tr></thead>
                         <tbody id="disciplineTableBody">
                             <tr><td colspan="4" class="text-center text-muted py-4">
                                 <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading...
@@ -233,7 +236,8 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/dashboards/headteacher_dashboard.js"></script>
+<?php asset_script($appBase, 'js/components/academic_events.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/headteacher_dashboard.js'); ?>
 <script>
     (function () {
         const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;

@@ -3,47 +3,10 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Contact Us';
 $activePage = 'contact';
+$pageScript = 'contact';
+// Contact info, social links, map URL and department cards are rendered by
+// js/pages/public/contact.js via /api/website/{settings,departments}.
 require_once __DIR__ . '/public/layout/public_data.php';
-
-/* ── Handle form POST ── */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    $name    = trim($_POST['cf_name'] ?? '');
-    $email   = filter_var(trim($_POST['cf_email'] ?? ''), FILTER_VALIDATE_EMAIL);
-    $phone   = trim($_POST['cf_phone'] ?? '');
-    $subject = trim($_POST['cf_subject'] ?? '');
-    $message = trim($_POST['cf_message'] ?? '');
-
-    if (!$name || !$email || !$message) {
-        echo json_encode(['success'=>false,'message'=>'Please fill in your name, email and message.']); exit;
-    }
-
-    $ok = kw_save_contact([
-        'name'=>$name, 'email'=>$email, 'phone'=>$phone,
-        'subject'=>$subject, 'message'=>$message,
-        'ip'=>$_SERVER['REMOTE_ADDR'] ?? null
-    ]);
-
-    echo json_encode(['success'=>$ok, 'message'=>$ok
-        ? 'Thank you for your message! We will respond within 24 hours on working days.'
-        : 'Submission failed. Please try again or email us directly.']);
-    exit;
-}
-
-$address    = kw_school_stat('school_address_physical', 'Londiani – Kericho Road, Londiani Town, Kenya');
-$postal     = kw_school_stat('school_address_postal',   'P.O BOX 203-20203, Londiani, Kericho County');
-$phoneMain  = kw_school_stat('school_phone_main',       '+254 720 113 030');
-$phoneAlt   = kw_school_stat('school_phone_alt',        '+254 720 113 031');
-$emailMain  = kw_school_stat('school_email_main',       'info@kingswaypreparatoryschool.sc.ke');
-$hoursWkd   = kw_school_stat('office_hours_weekday',    'Monday – Friday: 7:30 AM – 5:00 PM');
-$hoursSat   = kw_school_stat('office_hours_saturday',   'Saturday: 9:00 AM – 1:00 PM');
-$fbUrl      = kw_school_stat('social_facebook',         'https://www.facebook.com/kingswayprepschool');
-$twUrl      = kw_school_stat('social_twitter',          'https://twitter.com/kingswayprepschool');
-$igUrl      = kw_school_stat('social_instagram',        'https://www.instagram.com/kingswayprepschool');
-$waNum      = kw_school_stat('social_whatsapp',         '254720113030');
-$ytUrl      = kw_school_stat('social_youtube',          'https://www.youtube.com/@kingswayprepschool');
-$mapsUrl    = kw_school_stat('google_maps_url',         'https://www.google.com/maps/search/Kingsway+Preparatory+School+Londiani');
-$departments = kw_departments();
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -73,50 +36,41 @@ $departments = kw_departments();
             <div class="ci-icon"><i class="bi bi-geo-alt-fill"></i></div>
             <div>
               <div class="ci-label">Physical Address</div>
-              <div class="ci-value">Kingsway Preparatory School<br><?= nl2br(htmlspecialchars($address)) ?></div>
+              <div class="ci-value">Kingsway Preparatory School<br id="ci-address"></div>
             </div>
           </div>
           <div class="contact-info-item">
             <div class="ci-icon"><i class="bi bi-envelope-fill"></i></div>
             <div>
               <div class="ci-label">Postal Address</div>
-              <div class="ci-value"><?= nl2br(htmlspecialchars($postal)) ?></div>
+              <div class="ci-value" id="ci-postal"></div>
             </div>
           </div>
           <div class="contact-info-item">
             <div class="ci-icon"><i class="bi bi-telephone-fill"></i></div>
             <div>
               <div class="ci-label">Phone Numbers</div>
-              <div class="ci-value">
-                <a href="tel:<?= preg_replace('/\s+/','',$phoneMain) ?>" class="ci-value"><?= htmlspecialchars($phoneMain) ?></a>
-                <?php if ($phoneAlt): ?><br><a href="tel:<?= preg_replace('/\s+/','',$phoneAlt) ?>" class="ci-value"><?= htmlspecialchars($phoneAlt) ?></a><?php endif; ?>
-              </div>
+              <div class="ci-value" id="ci-phone"></div>
             </div>
           </div>
           <div class="contact-info-item">
             <div class="ci-icon"><i class="bi bi-at"></i></div>
             <div>
               <div class="ci-label">Email</div>
-              <div class="ci-value"><a href="mailto:<?= htmlspecialchars($emailMain) ?>" class="ci-value"><?= htmlspecialchars($emailMain) ?></a></div>
+              <div class="ci-value" id="ci-email"></div>
             </div>
           </div>
           <div class="contact-info-item">
             <div class="ci-icon"><i class="bi bi-clock-fill"></i></div>
             <div>
               <div class="ci-label">Office Hours</div>
-              <div class="ci-value"><?= htmlspecialchars($hoursWkd) ?><?php if ($hoursSat): ?><br><?= htmlspecialchars($hoursSat) ?><?php endif; ?></div>
+              <div class="ci-value" id="ci-hours"></div>
             </div>
           </div>
 
           <hr style="border-color:rgba(255,255,255,.2)" class="my-4">
           <div class="ci-label mb-3">Follow Us</div>
-          <div class="social-links">
-            <?php if ($fbUrl): ?><a href="<?= htmlspecialchars($fbUrl) ?>" aria-label="Facebook" target="_blank"><i class="bi bi-facebook"></i></a><?php endif; ?>
-            <?php if ($twUrl): ?><a href="<?= htmlspecialchars($twUrl) ?>" aria-label="Twitter" target="_blank"><i class="bi bi-twitter-x"></i></a><?php endif; ?>
-            <?php if ($igUrl): ?><a href="<?= htmlspecialchars($igUrl) ?>" aria-label="Instagram" target="_blank"><i class="bi bi-instagram"></i></a><?php endif; ?>
-            <?php if ($waNum): ?><a href="https://wa.me/<?= htmlspecialchars($waNum) ?>" aria-label="WhatsApp" target="_blank"><i class="bi bi-whatsapp"></i></a><?php endif; ?>
-            <?php if ($ytUrl): ?><a href="<?= htmlspecialchars($ytUrl) ?>" aria-label="YouTube" target="_blank"><i class="bi bi-youtube"></i></a><?php endif; ?>
-          </div>
+          <div class="social-links" id="ci-social"></div>
         </div>
       </div>
 
@@ -181,7 +135,7 @@ $departments = kw_departments();
         <p class="text-muted small mb-0">Kingsway Preparatory School is located along the Londiani–Kericho Road in Londiani Town, Kericho County.</p>
       </div>
       <div class="col-lg-4 text-lg-end">
-        <a href="<?= htmlspecialchars($mapsUrl) ?>" target="_blank" class="btn-kw-outline" style="font-size:.85rem">
+        <a href="https://www.google.com/maps" id="ci-maps-open" target="_blank" class="btn-kw-outline" style="font-size:.85rem">
           <i class="bi bi-map-fill"></i>Open in Google Maps
         </a>
       </div>
@@ -189,9 +143,9 @@ $departments = kw_departments();
     <div class="rounded-4 overflow-hidden shadow-sm reveal" style="height:360px;background:#e2e8f0;display:flex;align-items:center;justify-content:center">
       <div class="text-center text-muted">
         <i class="bi bi-map fs-1 d-block mb-3 text-success"></i>
-        <p class="mb-2 fw-semibold"><?= htmlspecialchars(kw_school_stat('school_name','Kingsway Preparatory School')) ?></p>
-        <p class="small"><?= htmlspecialchars($address) ?></p>
-        <a href="<?= htmlspecialchars($mapsUrl) ?>" target="_blank" class="btn-kw-primary mt-2" style="padding:8px 20px;font-size:.85rem">
+        <p class="mb-2 fw-semibold" id="ci-school-name">Kingsway Preparatory School</p>
+        <p class="small" id="ci-map-address"></p>
+        <a href="https://www.google.com/maps" id="ci-maps-view" target="_blank" class="btn-kw-primary mt-2" style="padding:8px 20px;font-size:.85rem">
           <i class="bi bi-box-arrow-up-right"></i>View on Google Maps
         </a>
       </div>
@@ -206,24 +160,7 @@ $departments = kw_departments();
       <div class="section-label justify-content-center"><span>Departments</span></div>
       <h2 class="section-title">Direct <span>Department Contacts</span></h2>
     </div>
-    <div class="row g-4">
-      <?php foreach ($departments as $dept): ?>
-      <div class="col-lg-3 col-md-6">
-        <div class="text-center card-modern p-4 h-100 reveal">
-          <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width:64px;height:64px;background:<?= htmlspecialchars($dept['color']) ?>22;">
-            <i class="bi <?= htmlspecialchars($dept['icon']) ?> fs-3" style="color:<?= htmlspecialchars($dept['color']) ?>"></i>
-          </div>
-          <h6 class="fw-bold mb-1"><?= htmlspecialchars($dept['name']) ?></h6>
-          <p class="text-muted small mb-3"><?= htmlspecialchars($dept['description']) ?></p>
-          <?php if (!empty($dept['email'])): ?>
-          <a href="mailto:<?= htmlspecialchars($dept['email']) ?>" class="d-block text-success small mb-1 text-truncate"><?= htmlspecialchars($dept['email']) ?></a>
-          <?php endif; ?>
-          <?php if (!empty($dept['phone'])): ?>
-          <a href="tel:<?= preg_replace('/\s/','',$dept['phone']) ?>" class="d-block text-muted small"><?= htmlspecialchars($dept['phone']) ?></a>
-          <?php endif; ?>
-        </div>
-      </div>
-      <?php endforeach; ?>
+    <div class="row g-4" id="contact-departments">
     </div>
   </div>
 </section>
@@ -237,7 +174,7 @@ document.getElementById('contactForm')?.addEventListener('submit', async functio
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sending…';
   const fd = new FormData(this);
   try {
-    const res = await fetch('<?= $appBase ?>/contact.php', { method:'POST', body:fd });
+    const res = await fetch('<?= $appBase ?>/api/public/inquiries', { method:'POST', body:fd });
     const json = await res.json();
     if (json.success) {
       msg.style.display = 'block';
@@ -252,7 +189,7 @@ document.getElementById('contactForm')?.addEventListener('submit', async functio
   } catch {
     msg.style.display = 'block';
     msg.style.color = '#dc3545';
-    msg.textContent = 'Network error. Please email us at <?= htmlspecialchars($emailMain) ?>';
+    msg.textContent = 'Network error. Please email us at info@kingswaypreparatoryschool.sc.ke';
   }
   btn.disabled = false;
   btn.innerHTML = '<i class="bi bi-send-fill"></i>Send Message';

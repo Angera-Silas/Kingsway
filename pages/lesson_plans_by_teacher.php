@@ -87,14 +87,14 @@
                 <table class="table table-hover table-bordered" id="byTeacherTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Teacher Name</th>
-                            <th>Department</th>
-                            <th>Plans Expected</th>
-                            <th>Submitted</th>
-                            <th>Approved</th>
-                            <th>Pending</th>
-                            <th>Coverage %</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Teacher Name</th>
+                            <th scope="col">Department</th>
+                            <th scope="col">Plans Expected</th>
+                            <th scope="col">Submitted</th>
+                            <th scope="col">Approved</th>
+                            <th scope="col">Pending</th>
+                            <th scope="col">Coverage %</th>
                         </tr>
                     </thead>
                     <tbody id="byTeacherTableBody">

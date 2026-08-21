@@ -8,6 +8,7 @@ const stockController = {
   _stockInModal: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._stockInModal = new bootstrap.Modal(document.getElementById('stockInModal'));
     this._bindEvents();

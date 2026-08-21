@@ -63,10 +63,14 @@ class VehicleManager
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-    // Assign vehicle to route
+    // Assign vehicle to route (link stored in transport_vehicle_routes)
     public function assignVehicleToRoute($vehicleId, $routeId)
     {
-        $stmt = $this->db->prepare("UPDATE transport_routes SET vehicle_id=? WHERE id=?");
+        $stmt = $this->db->prepare(
+            "INSERT INTO transport_vehicle_routes (vehicle_id, route_id, direction, status)
+             VALUES (?, ?, 'pickup', 'active')
+             ON DUPLICATE KEY UPDATE status = 'active'"
+        );
         $stmt->execute([$vehicleId, $routeId]);
         return $stmt->rowCount() > 0;
     }

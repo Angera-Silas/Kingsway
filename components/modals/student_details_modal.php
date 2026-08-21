@@ -31,15 +31,15 @@ function generateStudentDetailsHTML(student) {
                 <h6>Personal Information</h6>
                 <table class="table table-bordered">
                     <tr>
-                        <th>Date of Birth</th>
+                        <th scope="col">Date of Birth</th>
                         <td>${student.date_of_birth}</td>
                     </tr>
                     <tr>
-                        <th>Gender</th>
+                        <th scope="col">Gender</th>
                         <td>${student.gender}</td>
                     </tr>
                     <tr>
-                        <th>Class</th>
+                        <th scope="col">Class</th>
                         <td>${student.class}</td>
                     </tr>
                 </table>
@@ -47,15 +47,15 @@ function generateStudentDetailsHTML(student) {
                 <h6 class="mt-3">Parent/Guardian Information</h6>
                 <table class="table table-bordered">
                     <tr>
-                        <th>Name</th>
+                        <th scope="col">Name</th>
                         <td>${student.parent_name}</td>
                     </tr>
                     <tr>
-                        <th>Contact</th>
+                        <th scope="col">Contact</th>
                         <td>${student.parent_contact}</td>
                     </tr>
                     <tr>
-                        <th>Email</th>
+                        <th scope="col">Email</th>
                         <td>${student.parent_email || 'N/A'}</td>
                     </tr>
                 </table>

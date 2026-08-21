@@ -2,6 +2,7 @@ const ComparativeReportsController = (() => {
     let allData = [];
     let charts = {};
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('finance_view') && !AuthContext.hasPermission('academics_view')) {
             const main = document.querySelector('.main-content') || document.body;
@@ -228,18 +229,7 @@ const ComparativeReportsController = (() => {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
     }
-    function showNotification(msg, type) {
-      const modal = document.getElementById("notificationModal");
-      if (modal) {
-        const m = modal.querySelector(".notification-message"),
-          c = modal.querySelector(".modal-content");
-        if (m) m.textContent = msg;
-        if (c) c.className = "modal-content notification-" + (type || "info");
-        const b = bootstrap.Modal.getOrCreateInstance(modal);
-        b.show();
-        setTimeout(() => b.hide(), 3000);
-      }
-    }
+    function showNotification(message, type) { window.showNotification(message, type); }
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => ComparativeReportsController.init());

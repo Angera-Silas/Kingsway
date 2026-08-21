@@ -425,9 +425,6 @@ a:hover {
     color: var(--text-secondary);
     font-style: italic;
 }
-    font-size: 1.25rem;
-    margin-bottom: var(--spacing-md);
-}
 
 .stat-icon.bg-green {
     background: var(--green-100);

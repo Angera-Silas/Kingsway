@@ -92,15 +92,15 @@
     <table class="admin-data-table" id="routesTable">
         <thead>
             <tr>
-                <th>Route Name</th>
-                <th>Vehicle</th>
-                <th>Driver</th>
-                <th>Stops</th>
-                <th>Students</th>
-                <th>AM Pickup</th>
-                <th>PM Dropoff</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Route Name</th>
+                <th scope="col">Vehicle</th>
+                <th scope="col">Driver</th>
+                <th scope="col">Stops</th>
+                <th scope="col">Students</th>
+                <th scope="col">AM Pickup</th>
+                <th scope="col">PM Dropoff</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="routesTableBody">
@@ -114,13 +114,13 @@
     <table class="admin-data-table">
         <thead>
             <tr>
-                <th>Reg No</th>
-                <th>Make/Model</th>
-                <th>Capacity</th>
-                <th>Year</th>
-                <th>Insurance Expiry</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Reg No</th>
+                <th scope="col">Make/Model</th>
+                <th scope="col">Capacity</th>
+                <th scope="col">Year</th>
+                <th scope="col">Insurance Expiry</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="vehiclesTableBody"></tbody>
@@ -132,13 +132,13 @@
     <table class="admin-data-table">
         <thead>
             <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>License No</th>
-                <th>License Expiry</th>
-                <th>Assigned Vehicle</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Name</th>
+                <th scope="col">Phone</th>
+                <th scope="col">License No</th>
+                <th scope="col">License Expiry</th>
+                <th scope="col">Assigned Vehicle</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="driversTableBody"></tbody>
@@ -167,15 +167,15 @@
     <table class="admin-data-table" id="billingTable">
         <thead>
             <tr>
-                <th>Student</th>
-                <th>Adm No</th>
-                <th>Route</th>
-                <th>Amount Due</th>
-                <th>Amount Paid</th>
-                <th>Balance</th>
-                <th>Status</th>
-                <th>Due Date</th>
-                <th>Actions</th>
+                <th scope="col">Student</th>
+                <th scope="col">Adm No</th>
+                <th scope="col">Route</th>
+                <th scope="col">Amount Due</th>
+                <th scope="col">Amount Paid</th>
+                <th scope="col">Balance</th>
+                <th scope="col">Status</th>
+                <th scope="col">Due Date</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="billingTableBody">

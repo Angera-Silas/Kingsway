@@ -10,6 +10,7 @@ const uploadResourceController = {
   _subjects: [],
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -38,7 +39,7 @@ const uploadResourceController = {
 
   _loadSubjects: async function () {
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const r = await DataStore.fetchPage('subjects', {
         endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'

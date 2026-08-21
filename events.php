@@ -3,20 +3,10 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Events & Calendar';
 $activePage = 'events';
+$pageScript = 'events';
+// Upcoming events, the academic-terms sidebar and the event-type legend are
+// rendered by js/pages/public/events.js via /api/website/{events,terms}.
 require_once __DIR__ . '/public/layout/public_data.php';
-$events = kw_upcoming_events(10);
-$terms  = kw_academic_terms();
-
-/* ── Newsletter subscribe POST ── */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-    if (!$email) { echo json_encode(['success'=>false,'message'=>'Please enter a valid email.']); exit; }
-    $r = kw_save_subscriber($email);
-    $msg = $r === 'exists' ? 'Already subscribed!' : 'Subscribed to event alerts!';
-    echo json_encode(['success'=>true,'message'=>$msg]);
-    exit;
-}
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -31,110 +21,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 </div>
 
-<section class="section">
+<section class="section" style="background:#f5f7fa">
   <div class="container">
     <div class="row g-5">
 
       <!-- Upcoming Events list -->
       <div class="col-lg-8">
-        <div class="section-label mb-2 reveal"><span>What's On</span></div>
-        <h2 class="section-title mb-4 reveal">Upcoming <span>Events</span></h2>
+        <div class="section-label mb-2"><span>Events & Calendar</span></div>
+        <h2 class="section-title mb-4">School <span>Events</span></h2>
 
-        <?php
-        $typeColors = ['Academic'=>['#e3f2fd','#1565c0'],'Ceremony'=>['#fff8e1','#f57f17'],'Sports'=>['#e8f5e9','#2e7d32'],'Meeting'=>['#fce4ec','#b71c1c'],'Community'=>['#f3e5f5','#6a1b9a'],'Cultural'=>['#e0f2f1','#00695c']];
-        foreach ($events as $ev):
-          $evDate = new DateTime($ev['event_date']);
-          $tc = $typeColors[$ev['category'] ?? ''] ?? ['#f5f5f5','#333'];
-          $isPast = $evDate < new DateTime('today');
-        ?>
-        <a href="<?= $appBase ?>/event-detail.php?id=<?= (int)$ev['id'] ?>" class="text-decoration-none">
-          <div class="card-modern mb-4 reveal <?= $isPast?'opacity-50':'' ?>" style="cursor:pointer">
-            <div class="row g-0">
-              <div class="col-auto d-flex">
-                <div class="d-flex flex-column align-items-center justify-content-center px-4 text-white rounded-start-4" style="min-width:90px;background:var(--green-dark)">
-                  <div style="font-size:2rem;font-weight:900;line-height:1"><?= $evDate->format('d') ?></div>
-                  <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;opacity:.9"><?= $evDate->format('M') ?></div>
-                  <div style="font-size:.75rem;opacity:.75"><?= $evDate->format('Y') ?></div>
-                </div>
-              </div>
-              <div class="col p-4">
-                <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
-                  <div>
-                    <span class="event-type mb-2" style="background:<?= $tc[0] ?>;color:<?= $tc[1] ?>">
-                      <?= htmlspecialchars($ev['category']) ?>
-                    </span>
-                    <h5 class="fw-bold mb-2"><?= htmlspecialchars($ev['title']) ?></h5>
-                    <p class="text-muted small mb-2"><?= htmlspecialchars(mb_strimwidth($ev['description'] ?? '',0,120,'…')) ?></p>
-                    <div class="event-meta">
-                      <?php if (!empty($ev['event_time'])): ?>
-                      <span><i class="bi bi-clock text-success"></i><?= date('g:i A',strtotime($ev['event_time'])) ?></span>
-                      <?php endif; ?>
-                      <?php if (!empty($ev['location'])): ?>
-                      <span><i class="bi bi-geo-alt text-success"></i><?= htmlspecialchars($ev['location']) ?></span>
-                      <?php endif; ?>
-                    </div>
-                  </div>
-                  <div class="d-flex flex-column align-items-end gap-1">
-                    <?php if (!$isPast): ?>
-                    <span class="tag bg-success bg-opacity-10 text-success">Upcoming</span>
-                    <?php else: ?>
-                    <span class="tag bg-secondary bg-opacity-10 text-secondary">Past</span>
-                    <?php endif; ?>
-                    <span class="text-muted small"><i class="bi bi-chevron-right"></i>Details</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </a>
-        <?php endforeach; ?>
-
-        <?php if (empty($events)): ?>
-        <div class="text-center py-5">
-          <i class="bi bi-calendar-event fs-1 text-muted d-block mb-3"></i>
-          <p class="text-muted">No upcoming events scheduled. Check back soon!</p>
-        </div>
-        <?php endif; ?>
+        <div id="events-list"></div>
       </div>
 
       <!-- Sidebar: Academic Calendar + Subscribe -->
       <div class="col-lg-4">
 
         <!-- Academic Terms -->
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-5">
           <h5 class="fw-bold mb-3"><i class="bi bi-calendar2-week text-success me-2"></i>Academic Calendar <?= date('Y') ?></h5>
-          <?php if (!empty($terms)): foreach ($terms as $t): ?>
-          <div class="mb-3 pb-3 border-bottom">
-            <div class="fw-semibold small"><?= htmlspecialchars($t['name'] ?? 'Term '.($t['term_number']??'')) ?></div>
-            <div class="text-muted" style="font-size:.8rem">
-              <?= date('d M', strtotime($t['start_date'])) ?> — <?= date('d M Y', strtotime($t['end_date'])) ?>
-            </div>
-          </div>
-          <?php endforeach; else: foreach ([['Term 1','Jan 20','Apr 4'],['Term 2','May 5','Aug 15'],['Term 3','Sep 1','Nov 28']] as $t): ?>
-          <div class="mb-3 pb-3 border-bottom">
-            <div class="fw-semibold small"><?= $t[0] ?> <?= date('Y') ?></div>
-            <div class="text-muted" style="font-size:.8rem"><?= $t[1] ?> — <?= $t[2] ?> <?= date('Y') ?></div>
-          </div>
-          <?php endforeach; endif; ?>
-          <a href="<?= $appBase ?>/downloads.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px">
-            <i class="bi bi-download"></i>Download Calendar PDF
+          <div id="events-terms"></div>
+          <a href="<?= $appBase ?>/calendar_download.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.82rem;padding:8px" download>
+            <i class="bi bi-download"></i>Download Academic Calendar (PDF)
           </a>
         </div>
 
         <!-- Event Categories -->
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-5">
           <h5 class="fw-bold mb-3"><i class="bi bi-tags text-success me-2"></i>Event Categories</h5>
-          <?php foreach ($typeColors as $cat => [$bg,$col]): ?>
-          <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
-            <span class="d-flex align-items-center gap-2">
-              <span class="rounded-2 px-2 py-1" style="background:<?= $bg ?>;color:<?= $col ?>;font-size:.75rem;font-weight:600"><?= $cat ?></span>
-            </span>
-          </div>
-          <?php endforeach; ?>
+          <div id="events-categories"></div>
         </div>
 
         <!-- Newsletter subscribe -->
-        <div class="rounded-4 p-4 reveal" style="background:linear-gradient(135deg,var(--green-dark),var(--green))">
+        <div class="rounded-4 p-4" style="background:linear-gradient(135deg,var(--green-dark),var(--green))">
           <h5 class="fw-bold text-white mb-2"><i class="bi bi-bell-fill text-warning me-2"></i>Get Event Alerts</h5>
           <p class="small mb-3" style="color:rgba(255,255,255,.8)">Subscribe to receive school event reminders via email.</p>
           <form id="subscribeForm">
@@ -160,7 +78,7 @@ document.getElementById('subscribeForm')?.addEventListener('submit', async funct
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Subscribing…';
   const fd = new FormData(this);
   try {
-    const res = await fetch('', { method:'POST', body:fd });
+    const res = await fetch('<?= $appBase ?>/api/public/subscribers', { method:'POST', body:fd });
     const json = await res.json();
     if (json.success) {
       this.style.display = 'none';

@@ -15,11 +15,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-store me-2"></i>Vendors</h4>
+                    <h4 class="mb-1"><i class="bi bi-shop me-2"></i>Vendors</h4>
                     <p class="text-muted mb-0">Manage supplier and vendor records</p>
                 </div>
                 <button class="btn btn-primary" onclick="VendorsController.showAddModal()">
-                    <i class="fas fa-plus me-1"></i> Add Vendor
+                    <i class="bi bi-plus-lg me-1"></i> Add Vendor
                 </button>
             </div>
         </div>
@@ -31,7 +31,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i
-                                class="fas fa-store text-primary fa-lg"></i></div>
+                                class="bi bi-shop text-primary fa-lg"></i></div>
                         <div>
                             <h6 class="text-muted mb-1">Total Vendors</h6>
                             <h4 class="mb-0" id="statTotal">0</h4>
@@ -45,7 +45,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i
-                                class="fas fa-check-circle text-success fa-lg"></i></div>
+                                class="bi bi-check-lg-circle text-success fa-lg"></i></div>
                         <div>
                             <h6 class="text-muted mb-1">Active Vendors</h6>
                             <h4 class="mb-0" id="statActive">0</h4>
@@ -59,7 +59,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3"><i
-                                class="fas fa-money-bill text-warning fa-lg"></i></div>
+                                class="bi bi-cash text-warning fa-lg"></i></div>
                         <div>
                             <h6 class="text-muted mb-1">Total Paid</h6>
                             <h4 class="mb-0" id="statPaid">KES 0</h4>
@@ -73,7 +73,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3"><i
-                                class="fas fa-clock text-danger fa-lg"></i></div>
+                                class="bi bi-clock text-danger fa-lg"></i></div>
                         <div>
                             <h6 class="text-muted mb-1">Pending Payments</h6>
                             <h4 class="mb-0" id="statPending">KES 0</h4>
@@ -103,32 +103,32 @@
                         <option value="inactive">Inactive</option>
                     </select></div>
                 <div class="col-md-2"><button class="btn btn-outline-secondary w-100"
-                        onclick="VendorsController.refresh()"><i class="fas fa-sync-alt"></i></button></div>
+                        onclick="VendorsController.refresh()"><i class="bi bi-arrow-clockwise"></i></button></div>
             </div>
         </div>
     </div>
 
     <div class="card shadow-sm">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h6 class="mb-0"><i class="fas fa-table me-2"></i>Vendor List</h6>
+            <h6 class="mb-0"><i class="bi bi-table me-2"></i>Vendor List</h6>
             <button class="btn btn-sm btn-outline-success" onclick="VendorsController.exportCSV()"><i
-                    class="fas fa-file-csv me-1"></i> Export</button>
+                    class="bi bi-file-csv me-1"></i> Export</button>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Vendor Name</th>
-                            <th>Contact Person</th>
-                            <th>Phone</th>
-                            <th>Email</th>
-                            <th>Category</th>
-                            <th>Total Orders</th>
-                            <th>Balance</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Vendor Name</th>
+                            <th scope="col">Contact Person</th>
+                            <th scope="col">Phone</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Total Orders</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -146,7 +146,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="vendorModalTitle"><i class="fas fa-store me-2"></i>Add Vendor</h5><button
+                <h5 class="modal-title" id="vendorModalTitle"><i class="bi bi-shop me-2"></i>Add Vendor</h5><button
                     type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -189,7 +189,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="VendorsController.saveVendor()"><i
-                        class="fas fa-save me-1"></i> Save</button>
+                        class="bi bi-check-lg me-1"></i> Save</button>
             </div>
         </div>
     </div>
@@ -206,6 +206,17 @@
   <div class="card-body p-0" id="poContainer">
     <div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
   </div>
+</div>
+
+<div class="modal fade" id="vendorAccountsModal" tabindex="-1">
+  <div class="modal-dialog modal-xl"><div class="modal-content">
+    <div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-credit-card me-2"></i><span id="vendorAccountsTitle">Vendor payment accounts</span></h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body"><input type="hidden" id="accountSupplierId">
+      <div class="row g-3"><div class="col-lg-6"><div class="card border-0 bg-light"><div class="card-body"><h6>Bank account</h6><div class="row g-2"><div class="col-md-6"><input id="vaBankName" class="form-control form-control-sm" placeholder="Bank name"></div><div class="col-md-6"><input id="vaBankCode" class="form-control form-control-sm" placeholder="Bank code"></div><div class="col-md-6"><input id="vaBankAccountName" class="form-control form-control-sm" placeholder="Account name"></div><div class="col-md-6"><input id="vaBankAccountNumber" class="form-control form-control-sm" placeholder="Account number"></div></div><button class="btn btn-sm btn-outline-primary mt-2" id="vaSaveBank">Save bank account</button></div></div></div><div class="col-lg-6"><div class="card border-0 bg-light"><div class="card-body"><h6>M-Pesa account</h6><div class="row g-2"><div class="col-md-6"><input id="vaMobileName" class="form-control form-control-sm" placeholder="Account name"></div><div class="col-md-6"><input id="vaMobilePhone" class="form-control form-control-sm" placeholder="2547XXXXXXXX"></div></div><button class="btn btn-sm btn-outline-primary mt-2" id="vaSaveMobile">Save M-Pesa account</button></div></div></div></div>
+      <hr><div class="row g-3"><div class="col-lg-6"><h6>Bank destinations</h6><div class="table-responsive"><table class="table table-sm" id="vaBankTable"><tbody><tr><td class="text-muted">Loading…</td></tr></tbody></table></div></div><div class="col-lg-6"><h6>M-Pesa destinations</h6><div class="table-responsive"><table class="table table-sm" id="vaMobileTable"><tbody><tr><td class="text-muted">Loading…</td></tr></tbody></table></div></div></div>
+      <p class="small text-muted mb-0">New destinations are pending until an authorized finance user verifies them. Only active verified destinations appear in the payment queue.</p>
+    </div>
+  </div></div>
 </div>
 
 <script src="<?= $appBase ?>/js/pages/vendors.js?v=<?php echo time(); ?>"></script>

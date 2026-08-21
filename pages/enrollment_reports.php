@@ -254,13 +254,13 @@ if ($appBase === '.')
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
                             <tr>
-                                <th>Application No</th>
-                                <th>Applicant Name</th>
-                                <th>Grade</th>
-                                <th>Gender</th>
-                                <th>Status</th>
-                                <th>Submitted Date</th>
-                                <th>Current Stage</th>
+                                <th scope="col">Application No</th>
+                                <th scope="col">Applicant Name</th>
+                                <th scope="col">Grade</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Submitted Date</th>
+                                <th scope="col">Current Stage</th>
                             </tr>
                         </thead>
                         <tbody id="reportsTableBody">
@@ -283,7 +283,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/enrollment_reports.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/enrollment_reports.js"
     onload="console.log('enrollment_reports.js script tag loaded successfully')"
     onerror="console.error('FAILED to load enrollment_reports.js. Check path:', this.src)">
 </script>

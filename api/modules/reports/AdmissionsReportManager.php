@@ -6,29 +6,31 @@ class AdmissionsReportManager extends BaseAPI
 {
     public function getAdmissionStats($filters = [])
     {
-        // Get total admissions by year, class, gender
+        // Total admissions by year, class, gender — from admission_applications
+        // (the normalized source of record: gender + grade applying for + academic year).
         try {
-            $where = ["s.status IN ('active','alumni')"];
+            $where = ["a.status = 'enrolled'"];
             $params = [];
             if (!empty($filters['year'])) {
-                $where[] = 'YEAR(s.admission_date) = ?';
+                $where[] = 'a.academic_year = ?';
                 $params[] = $filters['year'];
             }
             if (!empty($filters['class_id'])) {
-                $where[] = 'cs.class_id = ?';
-                $params[] = $filters['class_id'];
+                $gradeName = $this->resolveClassName((int) $filters['class_id']);
+                if ($gradeName !== null) {
+                    $where[] = 'a.grade_applying_for = ?';
+                    $params[] = $gradeName;
+                }
             }
             $sql = "SELECT
-                        YEAR(s.admission_date) AS year,
-                        c.name AS class_name,
-                        s.gender,
+                        a.academic_year AS year,
+                        a.grade_applying_for AS class_name,
+                        a.gender,
                         COUNT(*) AS total
-                    FROM students s
-                    LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                    LEFT JOIN classes c ON c.id = cs.class_id
+                    FROM admission_applications a
                     WHERE " . implode(' AND ', $where) . "
-                    GROUP BY year, c.id, c.name, s.gender
-                    ORDER BY year DESC, c.name";
+                    GROUP BY a.academic_year, a.grade_applying_for, a.gender
+                    ORDER BY year DESC, class_name";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -39,18 +41,18 @@ class AdmissionsReportManager extends BaseAPI
 
     public function getConversionRates($filters = [])
     {
-        // Calculate conversion rate from applicants to admitted students
+        // Conversion rate from applicants to admitted students — admission_applications
+        // carries enrolled_student_id once the applicant is onboarded.
         try {
             $sql = "SELECT
                         COUNT(DISTINCT a.id) AS total_applicants,
-                        COUNT(DISTINCT s.id) AS total_admitted,
+                        COUNT(DISTINCT a.enrolled_student_id) AS total_admitted,
                         ROUND(
-                            COUNT(DISTINCT s.id) / NULLIF(COUNT(DISTINCT a.id), 0) * 100,
+                            COUNT(DISTINCT a.enrolled_student_id) / NULLIF(COUNT(DISTINCT a.id), 0) * 100,
                             2
                         ) AS conversion_rate
-                    FROM admissions_applications a
-                    LEFT JOIN students s ON s.application_id = a.id
-                    WHERE a.status = 'submitted'";
+                    FROM admission_applications a
+                    WHERE a.status <> 'cancelled'";
             $stmt = $this->db->query($sql);
             return $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
@@ -60,27 +62,42 @@ class AdmissionsReportManager extends BaseAPI
 
     public function getAlumniStats($filters = [])
     {
-        // Get alumni count by graduation year and gender
+        // Alumni count by graduation year and gender — graduations are recorded as
+        // transition_type='graduation' rows in student_transitions.
         try {
-            $where = ["s.status = 'alumni'"];
+            $where = ["st.transition_type = 'graduation'"];
             $params = [];
             if (!empty($filters['graduation_year'])) {
-                $where[] = 'YEAR(s.graduation_date) = ?';
+                $where[] = 'YEAR(COALESCE(st.executed_at, st.decided_at)) = ?';
                 $params[] = $filters['graduation_year'];
             }
             $sql = "SELECT
-                        YEAR(s.graduation_date) AS graduation_year,
-                        s.gender,
+                        YEAR(COALESCE(st.executed_at, st.decided_at)) AS graduation_year,
+                        p.gender,
                         COUNT(*) AS alumni_count
-                    FROM students s
+                    FROM student_transitions st
+                    JOIN students s ON s.id = st.student_id
+                    JOIN persons p ON p.id = s.person_id
                     WHERE " . implode(' AND ', $where) . "
-                    GROUP BY graduation_year, s.gender
+                    GROUP BY graduation_year, p.gender
                     ORDER BY graduation_year DESC";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             return [];
+        }
+    }
+
+    private function resolveClassName(int $classId): ?string
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT name FROM classes WHERE id = ?");
+            $stmt->execute([$classId]);
+            $name = $stmt->fetchColumn();
+            return $name === false ? null : (string) $name;
+        } catch (\Exception $e) {
+            return null;
         }
     }
 }

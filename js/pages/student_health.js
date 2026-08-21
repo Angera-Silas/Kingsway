@@ -14,8 +14,8 @@ const StudentHealthController = {
   ui: {},
 
   async init() {
-    console.log("StudentHealthController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -24,11 +24,8 @@ const StudentHealthController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentHealthController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentHealthController: Loading records...");
     await this.loadRecords();
-    console.log("StudentHealthController: Initialization complete");
   },
 
   cacheDom() {
@@ -213,17 +210,17 @@ const StudentHealthController = {
 
         return `
           <tr>
-            <td><small>${this.escape(r.record_code || r.id || "-")}</small></td>
-            <td><strong>${this.escape(r.student_name || "-")}</strong></td>
-            <td>${this.escape(r.admission_no || "-")}</td>
-            <td>${this.escape(r.class_name || "-")}</td>
-            <td>${this.escape(r.stream_name || "-")}</td>
-            <td>${this.escape(r.health_category || "-")}</td>
-            <td>${this.escape(r.alert_type || r.condition_name || r.allergy_name || r.medication_name || "-")}</td>
-            <td><span class="badge bg-${severityColors[r.severity] || "secondary"}">${this.escape(r.severity || "-")}</span></td>
-            <td><span class="badge bg-${statusColors[r.status] || "secondary"}">${this.escape(r.status || "-")}</span></td>
-            <td>${this.escape(r.last_visit || "-")}</td>
-            <td>${this.escape(r.next_review_date || "-")}</td>
+            <td><small>${this.escapeHtml(r.record_code || r.id || "-")}</small></td>
+            <td><strong>${this.escapeHtml(r.student_name || "-")}</strong></td>
+            <td>${this.escapeHtml(r.admission_no || "-")}</td>
+            <td>${this.escapeHtml(r.class_name || "-")}</td>
+            <td>${this.escapeHtml(r.stream_name || "-")}</td>
+            <td>${this.escapeHtml(r.health_category || "-")}</td>
+            <td>${this.escapeHtml(r.alert_type || r.condition_name || r.allergy_name || r.medication_name || "-")}</td>
+            <td><span class="badge bg-${severityColors[r.severity] || "secondary"}">${this.escapeHtml(r.severity || "-")}</span></td>
+            <td><span class="badge bg-${statusColors[r.status] || "secondary"}">${this.escapeHtml(r.status || "-")}</span></td>
+            <td>${this.escapeHtml(r.last_visit || "-")}</td>
+            <td>${this.escapeHtml(r.next_review_date || "-")}</td>
             <td>
               <button class="btn btn-sm btn-outline-danger" onclick="StudentHealthController.viewRecord(${r.id})">
                 <i class="bi bi-eye"></i> View
@@ -287,33 +284,33 @@ const StudentHealthController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Student Profile</h5>
-          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
-          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
-          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
-          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escapeHtml(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escapeHtml(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escapeHtml(data.stream_name || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Health Details</h5>
-          <p><strong>Category:</strong> ${this.escape(data.health_category || "-")}</p>
-          <p><strong>Alert Type:</strong> ${this.escape(data.alert_type || "-")}</p>
-          <p><strong>Condition:</strong> ${this.escape(data.condition_name || "-")}</p>
-          <p><strong>Allergy:</strong> ${this.escape(data.allergy_name || "-")}</p>
-          <p><strong>Medication:</strong> ${this.escape(data.medication_name || "-")}</p>
-          <p><strong>Severity:</strong> ${this.escape(data.severity || "-")}</p>
-          <p><strong>Status:</strong> ${this.escape(data.status || "-")}</p>
+          <p><strong>Category:</strong> ${this.escapeHtml(data.health_category || "-")}</p>
+          <p><strong>Alert Type:</strong> ${this.escapeHtml(data.alert_type || "-")}</p>
+          <p><strong>Condition:</strong> ${this.escapeHtml(data.condition_name || "-")}</p>
+          <p><strong>Allergy:</strong> ${this.escapeHtml(data.allergy_name || "-")}</p>
+          <p><strong>Medication:</strong> ${this.escapeHtml(data.medication_name || "-")}</p>
+          <p><strong>Severity:</strong> ${this.escapeHtml(data.severity || "-")}</p>
+          <p><strong>Status:</strong> ${this.escapeHtml(data.status || "-")}</p>
           <p><strong>Emergency Flag:</strong> ${data.emergency_flag ? 'Yes' : 'No'}</p>
-          <p><strong>Description:</strong> ${this.escape(data.description || "-")}</p>
-          <p><strong>Action Instructions:</strong> ${this.escape(data.action_instructions || "-")}</p>
-          <p><strong>Next Review Date:</strong> ${this.escape(data.next_review_date || "-")}</p>
+          <p><strong>Description:</strong> ${this.escapeHtml(data.description || "-")}</p>
+          <p><strong>Action Instructions:</strong> ${this.escapeHtml(data.action_instructions || "-")}</p>
+          <p><strong>Next Review Date:</strong> ${this.escapeHtml(data.next_review_date || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Emergency Contact</h5>
-          <p><strong>Contact Name:</strong> ${this.escape(data.emergency_contact_name || "-")}</p>
-          <p><strong>Contact Phone:</strong> ${this.escape(data.emergency_contact_phone || "-")}</p>
+          <p><strong>Contact Name:</strong> ${this.escapeHtml(data.emergency_contact_name || "-")}</p>
+          <p><strong>Contact Phone:</strong> ${this.escapeHtml(data.emergency_contact_phone || "-")}</p>
         </div>
       </div>
       <div class="card">
@@ -332,10 +329,10 @@ const StudentHealthController = {
             <tbody>
               ${visits.map(v => `
                 <tr>
-                  <td>${this.escape(v.visit_date || "-")}</td>
-                  <td>${this.escape(v.complaint || "-")}</td>
-                  <td>${this.escape(v.observation || "-")}</td>
-                  <td>${this.escape(v.action_taken || "-")}</td>
+                  <td>${this.escapeHtml(v.visit_date || "-")}</td>
+                  <td>${this.escapeHtml(v.complaint || "-")}</td>
+                  <td>${this.escapeHtml(v.observation || "-")}</td>
+                  <td>${this.escapeHtml(v.action_taken || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -395,7 +392,7 @@ const StudentHealthController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
@@ -416,7 +413,7 @@ const StudentHealthController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -438,7 +435,7 @@ const StudentHealthController = {
     };
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -449,7 +446,7 @@ const StudentHealthController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

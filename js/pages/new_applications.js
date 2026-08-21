@@ -3,7 +3,6 @@
  * Handles the new applications page - receiving, tracking, and creating applications
  */
 
-console.log("new_applications.js loaded successfully");
 
 const newApplicationsController = {
   applications: [],
@@ -17,9 +16,17 @@ const newApplicationsController = {
     if (this.initialized) return;
     this.initialized = true;
 
-    console.log("newApplicationsController: Initializing...");
-
     try {
+      // Wait for AuthContext to finish bootstrapping (restores session
+      // from HttpOnly refresh cookie) before checking auth state.
+      // Without this, isAuthenticated() returns false on page load
+      // because the access token is only kept in memory.
+      if (window.AuthContext?.ready) {
+        await window.AuthContext.ready();
+      } else {
+        console.warn("newApplicationsController: AuthContext not available");
+      }
+
       if (
         window.AuthContext &&
         typeof window.AuthContext.isAuthenticated === "function"
@@ -31,8 +38,6 @@ const newApplicationsController = {
           window.location.href = `${window.APP_BASE || ""}/index.php`;
           return;
         }
-      } else {
-        console.warn("newApplicationsController: AuthContext not available");
       }
 
       // Check for URL parameters that might trigger auto-view
@@ -41,7 +46,6 @@ const newApplicationsController = {
       const viewId = urlParams.get('view');
       
       if (applicationId && !viewId) {
-        console.log("Auto-viewing application from URL parameter:", applicationId);
         // Remove the parameter from URL without triggering page reload
         const newUrl = window.location.pathname + window.location.search.replace(/[?&]application_id=[^&]+/, '').replace(/^&/, '?');
         window.history.replaceState({}, '', newUrl);
@@ -57,7 +61,6 @@ const newApplicationsController = {
       await this.loadMetadata();
       await this.loadApplications();
 
-      console.log("newApplicationsController: Initialization complete");
     } catch (error) {
       console.error("Failed to initialize New Applications Controller:", error);
       this.showError(
@@ -91,6 +94,23 @@ const newApplicationsController = {
 
       parentSelect: document.getElementById("parentSelect"),
       academicYearSelect: document.getElementById("academicYearSelect"),
+      targetTermSelect: document.getElementById("targetTermSelect"),
+      academicYearInput: document.getElementById("academicYearInput"),
+      targetTermInput: document.getElementById("targetTermInput"),
+
+      parentTypeExisting: document.getElementById("parentTypeExisting"),
+      parentTypeNew: document.getElementById("parentTypeNew"),
+      existingParentFields: document.getElementById("existingParentFields"),
+      newParentFields: document.getElementById("newParentFields"),
+      newParentIdField: document.getElementById("newParentIdField"),
+      newParentPhoneField: document.getElementById("newParentPhoneField"),
+      newParentEmailField: document.getElementById("newParentEmailField"),
+      newParentAddressField: document.getElementById("newParentAddressField"),
+      gradeSelect: document.getElementById("gradeSelect"),
+      immunizationDocWrap: document.getElementById("immunizationDocWrap"),
+      schoolReportDocWrap: document.getElementById("schoolReportDocWrap"),
+      medicalDocWrap: document.getElementById("medicalDocWrap"),
+      newParentIdDocWrap: document.getElementById("newParentIdDocWrap"),
 
       newApplicationBtn: document.getElementById("newApplicationBtn"),
       newApplicationModal: document.getElementById("newApplicationModal"),
@@ -150,6 +170,77 @@ const newApplicationsController = {
         this.submitNewApplication(new FormData(this.dom.newApplicationForm));
       });
     }
+
+    if (this.dom.parentTypeExisting && this.dom.parentTypeNew) {
+      this.dom.parentTypeExisting.addEventListener("change", () =>
+        this.toggleParentType(false),
+      );
+      this.dom.parentTypeNew.addEventListener("change", () =>
+        this.toggleParentType(true),
+      );
+    }
+
+    this.safeListen("gradeSelect", "change", () =>
+      this.toggleDocumentRequirements(),
+    );
+
+    this.safeListen("targetTermSelect", "change", () =>
+      this.syncYearFromTerm(),
+    );
+  },
+
+  toggleParentType: function (isNew) {
+    const show = (el) => {
+      if (el) el.style.display = isNew ? "none" : "block";
+    };
+    const showNew = (el) => {
+      if (el) el.style.display = isNew ? "block" : "none";
+    };
+
+    show(this.dom.existingParentFields);
+    ["newParentFields", "newParentIdField", "newParentPhoneField",
+     "newParentEmailField", "newParentAddressField"].forEach((key) =>
+      showNew(this.dom[key]),
+    );
+
+    const parentSelect = this.dom.parentSelect;
+    if (parentSelect) parentSelect.required = !isNew;
+
+    const docParentWrap = this.dom.newParentIdDocWrap;
+    if (docParentWrap) {
+      const input = docParentWrap.querySelector("input");
+      if (input) {
+        if (isNew) input.setAttribute("required", "required");
+        else input.removeAttribute("required");
+      }
+      const mark = docParentWrap.querySelector(".text-danger");
+      if (mark) mark.textContent = isNew ? " *" : "";
+    }
+  },
+
+  isUpperGrade: function (grade) {
+    return /^Grade\s*[4-9]$/i.test(String(grade || "").trim());
+  },
+
+  toggleDocumentRequirements: function () {
+    const grade = String(this.dom.gradeSelect?.value || "").trim();
+    const isUpper = this.isUpperGrade(grade);
+    // With no grade chosen yet, default to the immunization requirement.
+    const showImmunization = !isUpper;
+
+    const setWrap = (wrap, show) => {
+      if (!wrap) return;
+      wrap.style.display = show ? "" : "none";
+      const input = wrap.querySelector("input");
+      if (input) {
+        if (show) input.setAttribute("required", "required");
+        else { input.removeAttribute("required"); input.value = ""; }
+      }
+    };
+
+    setWrap(this.dom.immunizationDocWrap, showImmunization);
+    setWrap(this.dom.schoolReportDocWrap, isUpper);
+    setWrap(this.dom.medicalDocWrap, isUpper);
   },
 
   safeListen: function (id, event, handler) {
@@ -182,10 +273,114 @@ const newApplicationsController = {
 
   loadMetadata: async function () {
     await this.loadParents();
+    await this.loadClasses();
 
-    const currentYear = new Date().getFullYear();
-    this.academicYears = [currentYear, currentYear + 1];
-    this.populateAcademicYearDropdown();
+    // Pull the real academic years and the open intake terms from the API
+    // instead of guessing "this year / next year". The intake term drives the
+    // target_term_id on the application; the year is derived from it.
+    try {
+      const [yearsResponse, termsResponse] = await Promise.all([
+        window.API?.academic?.listYears
+          ? window.API.academic.listYears({ limit: 50 })
+          : Promise.resolve(null),
+        window.API?.admission?.getOpenAdmissionTerms
+          ? window.API.admission.getOpenAdmissionTerms()
+          : Promise.resolve(null),
+      ]);
+
+      const yearsPayload = yearsResponse?.data ?? yearsResponse ?? {};
+      const years = Array.isArray(yearsPayload)
+        ? yearsPayload
+        : yearsPayload.years || yearsPayload.items || [];
+
+      const termsPayload = termsResponse?.data ?? termsResponse ?? {};
+      const terms = Array.isArray(termsPayload)
+        ? termsPayload
+        : termsPayload.terms || termsPayload.items || [];
+
+      this.academicYears = years.map((year) => ({
+        id: year.id,
+        year_code: year.year_code || year.year_name || String(year.id),
+      }));
+
+      if (this.academicYears.length === 0) {
+        // Fallback so the form still works even if the API is unreachable.
+        const currentYear = new Date().getFullYear();
+        const yearCode = `${currentYear}/${currentYear + 1}`;
+        this.academicYears = [{ id: yearCode, year_code: yearCode }];
+      }
+
+      this.populateAcademicYearDropdown();
+      this.populateTargetTermDropdown(terms);
+      this.applyIntakeDefaults(terms);
+    } catch (error) {
+      console.error("Failed to load academic metadata:", error);
+      const currentYear = new Date().getFullYear();
+      const yearCode = `${currentYear}/${currentYear + 1}`;
+      this.academicYears = [{ id: yearCode, year_code: yearCode }];
+      this.populateAcademicYearDropdown();
+      this.populateTargetTermDropdown([]);
+    }
+  },
+
+  applyIntakeDefaults: function (terms) {
+    const intake = Array.isArray(terms) ? terms[0] : null;
+    const category = document.getElementById('admissionCategorySelect');
+    if (category && intake?.default_admission_category) {
+      category.value = intake.default_admission_category;
+      category.disabled = true;
+      let hidden = document.getElementById('admissionCategoryInput');
+      if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden'; hidden.name = 'admission_category'; hidden.id = 'admissionCategoryInput';
+        category.form?.appendChild(hidden);
+      }
+      hidden.value = intake.default_admission_category;
+    }
+    if (intake?.eligible_grades) {
+      let allowed = [];
+      try { allowed = JSON.parse(intake.eligible_grades) || []; } catch (_) {}
+      if (allowed.length && this.dom.gradeSelect) {
+        const current = this.dom.gradeSelect.value;
+        this.dom.gradeSelect.innerHTML = '<option value="">Select Grade</option>' + allowed.map((grade) => `<option value="${this.escapeHtml(grade)}">${this.escapeHtml(grade)}</option>`).join('');
+        if (allowed.includes(current)) this.dom.gradeSelect.value = current;
+      }
+    }
+  },
+
+  loadClasses: async function () {
+    try {
+      let classes = [];
+      if (window.API?.admission?.getPlacementClasses) {
+        const response = await window.API.admission.getPlacementClasses();
+        const payload = response?.data || response || {};
+        classes = payload.classes || (Array.isArray(payload) ? payload : []);
+      }
+      if (!classes.length && window.API?.academic?.listClasses) {
+        const response = await window.API.academic.listClasses({ limit: 200 });
+        const payload = response?.data || response || {};
+        classes = Array.isArray(payload) ? payload : payload.classes || [];
+      }
+      this.populateClassSelects(classes);
+    } catch (error) {
+      console.error('Failed to load classes:', error);
+    }
+  },
+
+  populateClassSelects: function (classes) {
+    ['filterClass', 'gradeSelect'].forEach(selectId => {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      const currentVal = select.value;
+      const firstOption = select.querySelector('option:first-child');
+      const firstLabel = firstOption ? firstOption.textContent : 'All Classes';
+      const firstValue = firstOption ? firstOption.value : '';
+      let html = `<option value="${firstValue}">${firstLabel}</option>`;
+      html += classes.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+      select.innerHTML = html;
+      if (currentVal) select.value = currentVal;
+    });
+    this.toggleDocumentRequirements();
   },
 
   loadParents: async function () {
@@ -196,7 +391,6 @@ const newApplicationsController = {
       this.parents = parents;
       this.populateParentDropdown();
 
-      console.log("Parents loaded:", this.parents.length);
     } catch (error) {
       console.error("Failed to load parents:", error);
       this.parents = [];
@@ -234,15 +428,92 @@ const newApplicationsController = {
     select.innerHTML = '<option value="">Select Year</option>';
 
     this.academicYears.forEach((year) => {
+      const value = this.intakeYearFromCode(year.year_code);
       const option = document.createElement("option");
-      option.value = String(year);
-      option.textContent = String(year);
+      option.value = value;
+      option.textContent = year.year_code;
       select.appendChild(option);
     });
 
-    if (this.academicYears.length > 0) {
-      select.value = String(this.academicYears[0]);
+    // Default to the year of the first term once the term list is loaded;
+    // otherwise pick the first year.
+    if (this.dom.targetTermSelect && this.dom.targetTermSelect.value) {
+      const term = this.openTerms?.find(
+        (t) => String(t.target_term_id) === this.dom.targetTermSelect.value,
+      );
+      if (term) {
+        const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
+        select.value = intakeYear;
+      }
     }
+
+    if (!select.value && this.academicYears.length > 0) {
+      select.value = this.intakeYearFromCode(this.academicYears[0].year_code);
+    }
+  },
+
+  intakeYearFromCode: function (yearCode) {
+    const code = String(yearCode || "");
+    const match = code.match(/\d{4}/g);
+    if (match && match.length > 1) {
+      return match[match.length - 1];
+    }
+    return match ? match[0] : String(new Date().getFullYear());
+  },
+
+  populateTargetTermDropdown: function (terms = []) {
+    this.openTerms = Array.isArray(terms) ? terms : [];
+    const select = this.dom.targetTermSelect;
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Select Term</option>';
+
+    if (this.openTerms.length === 0) {
+      select.innerHTML +=
+        '<option value="" disabled>No intake windows open — ask an administrator to open one.</option>';
+      select.disabled = true;
+      return;
+    }
+
+    this.openTerms.forEach((term) => {
+      const yearLabel = term.year_code || term.year_name || "";
+      const label = `${term.term_name || term.term_number || "Term"} ${yearLabel}`.trim();
+      const option = document.createElement("option");
+      option.value = term.target_term_id ?? term.academic_year_term_id;
+      option.textContent = label;
+      select.appendChild(option);
+    });
+
+    // Default to the first (current/upcoming) open term and sync the year.
+    if (this.openTerms.length > 0) {
+      select.value = String(
+        this.openTerms[0].target_term_id ?? this.openTerms[0].academic_year_term_id,
+      );
+      select.disabled = false;
+      this.syncYearFromTerm();
+    }
+  },
+
+  syncYearFromTerm: function () {
+    const select = this.dom.targetTermSelect;
+    const yearSelect = this.dom.academicYearSelect;
+    if (!select || !yearSelect) return;
+
+    const term = this.openTerms?.find(
+      (t) => String(t.target_term_id ?? t.academic_year_term_id) === select.value,
+    );
+    if (!term) return;
+
+    const intakeYear = this.intakeYearFromCode(term.year_code || term.year_name);
+    if (![...yearSelect.options].some((o) => o.value === intakeYear)) {
+      const option = document.createElement("option");
+      option.value = intakeYear;
+      option.textContent = term.year_code || intakeYear;
+      yearSelect.appendChild(option);
+    }
+    yearSelect.value = intakeYear;
+    if (this.dom.academicYearInput) this.dom.academicYearInput.value = intakeYear;
+    if (this.dom.targetTermInput) this.dom.targetTermInput.value = select.value;
   },
 
   loadApplications: async function () {
@@ -251,9 +522,6 @@ const newApplicationsController = {
     try {
       const response = await this.apiCall("/admission/queues", "GET");
 
-      console.log("Admission queues response:", response);
-      console.log("Response success field:", response.success);
-      console.log("Response structure:", JSON.stringify(response, null, 2));
 
       if (!this.isSuccessfulResponse(response)) {
         throw new Error(response?.message || "Failed to load applications.");
@@ -263,9 +531,6 @@ const newApplicationsController = {
       const queues = payload?.queues || {};
       const summary = payload?.summary || {};
 
-      console.log("Payload:", payload);
-      console.log("Queues:", queues);
-      console.log("Summary:", summary);
 
       const allApplications = [];
 
@@ -284,7 +549,6 @@ const newApplicationsController = {
       this.updateSummaryCards(summary);
       this.applyFilters();
 
-      console.log("Applications loaded:", this.applications.length);
     } catch (error) {
       console.error("Failed to load applications:", error);
       this.applications = [];
@@ -610,27 +874,128 @@ const newApplicationsController = {
         '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
     }
 
+    const docTypeMap = {
+      doc_birth_certificate: "birth_certificate",
+      doc_passport_photo: "passport_photo",
+      doc_parent_id: "parent_id",
+      doc_previous_school_report: "previous_school_report",
+      doc_immunization_card: "immunization_card",
+      doc_progress_report: "progress_report",
+      doc_leaving_certificate: "leaving_certificate",
+      doc_transfer_letter: "transfer_letter",
+      doc_medical_records: "medical_records",
+      doc_other: "other",
+    };
+
+    // Separate file fields from regular fields
     const data = {};
+    const files = [];
     formData.forEach((value, key) => {
-      data[key] = value;
+      if (docTypeMap[key]) {
+        if (value && value.size > 0) {
+          files.push({ fieldName: key, docType: docTypeMap[key], file: value });
+        }
+      } else {
+        data[key] = value;
+      }
     });
 
-    try {
-      console.log("Submitting application data:", data);
+    const isNewParent = data.parent_type === "new";
 
+    // Documents are part of the application — never allow a submission with no
+    // documents (there is no "upload documents later" workflow).
+    const fileSet = new Set(files.map((f) => f.docType));
+    const gradeValue = String(data.grade_applying_for || "").trim();
+    const missing = [];
+    if (!fileSet.has("birth_certificate")) missing.push("Birth Certificate");
+    if (!fileSet.has("passport_photo")) missing.push("Passport Photo");
+    if (isNewParent && !fileSet.has("parent_id")) missing.push("Parent/Guardian ID");
+    if (this.isUpperGrade(gradeValue)) {
+      if (!fileSet.has("previous_school_report")) missing.push("Previous School Report");
+      if (!fileSet.has("medical_records")) missing.push("Medical Test Results");
+    } else {
+      if (!fileSet.has("immunization_card")) missing.push("Immunization Card");
+    }
+    if (missing.length) {
+      this.notify("error", "Missing required documents: " + missing.join(", "));
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-send me-1"></i>Submit Application';
+      }
+      return;
+    }
+
+    try {
+      // 1. Register a new parent/guardian when one was entered manually.
+      if (isNewParent) {
+        const nameParts = String(data.new_parent_name || "").trim().split(/\s+/);
+        const createResp = await this.apiCall("/students/parents/create", "POST", {
+          first_name: nameParts[0] || "",
+          last_name: nameParts.slice(1).join(" ") || nameParts[0] || "",
+          id_number: data.new_parent_id_number || null,
+          phone_1: data.new_parent_phone || "",
+          email: data.new_parent_email || null,
+          address: data.new_parent_address || null,
+        });
+        if (!this.isSuccessfulResponse(createResp)) {
+          throw new Error(createResp?.message || "Failed to create parent record.");
+        }
+        const createPayload = this.unwrapPayload(createResp);
+        data.parent_id = createPayload?.id ?? createPayload?.parent_id ?? createPayload?.parentId;
+        if (!data.parent_id) {
+          throw new Error("New parent record was created but its ID was not returned.");
+        }
+      }
+
+      delete data.parent_type;
+      delete data.new_parent_name;
+      delete data.new_parent_id_number;
+      delete data.new_parent_phone;
+      delete data.new_parent_email;
+      delete data.new_parent_address;
+
+      // 2. Submit the application.
       const response = await this.apiCall(
         "/admission/submit-application",
         "POST",
         data,
       );
 
-      console.log("Submit application response:", response);
-
       if (!this.isSuccessfulResponse(response)) {
         throw new Error(response?.message || "Failed to submit application.");
       }
 
-      this.notify("success", "Application submitted successfully.");
+      const payload = this.unwrapPayload(response);
+      const applicationId = payload?.application_id ?? data.application_id;
+      if (!applicationId) {
+        throw new Error("Application was created but its ID was not returned.");
+      }
+
+      // 3. Upload every submitted document through the upload API — in the same
+      //    submit action, before the application is considered complete.
+      const uploaded = [];
+      for (const { docType, file } of files) {
+        const fd = new FormData();
+        fd.append("application_id", applicationId);
+        fd.append("document_type", docType);
+        fd.append("document", file);
+        try {
+          const uploadResp = window.API?.admission?.uploadDocument
+            ? await window.API.admission.uploadDocument(fd)
+            : await this.apiCall("/admission/upload-document", "POST", fd);
+          if (!this.isSuccessfulResponse(uploadResp)) {
+            throw new Error(uploadResp?.message || "Upload failed");
+          }
+          uploaded.push(docType);
+        } catch (uploadErr) {
+          throw new Error(`Application submitted, but document "${docType}" failed to upload: ${uploadErr?.message || "unknown error"}`);
+        }
+      }
+
+      this.notify(
+        "success",
+        `Application submitted successfully${uploaded.length ? ` with ${uploaded.length} document(s).` : "."}`,
+      );
 
       const modalInstance = bootstrap.Modal.getInstance(
         this.dom.newApplicationModal,
@@ -641,6 +1006,8 @@ const newApplicationsController = {
       }
 
       this.dom.newApplicationForm.reset();
+      this.toggleParentType(false);
+      this.toggleDocumentRequirements();
       await this.loadApplications();
     } catch (error) {
       console.error("Failed to submit application:", error);
@@ -840,7 +1207,7 @@ const newApplicationsController = {
     `;
   },
 
-  notify: function (type, message) {
+  notify: async function (type, message) {
     if (typeof window.showNotification === "function") {
       window.showNotification(type, message);
       return;
@@ -853,12 +1220,12 @@ const newApplicationsController = {
 
     if (type === "error") {
       console.error(message);
-      alert(`Error: ${message}`);
+      await window.infoDialog('Notice', `Error: ${message}`);
       return;
     }
 
     console.log(`${type}: ${message}`);
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 
   isSuccessfulResponse: function (response) {
@@ -866,6 +1233,7 @@ const newApplicationsController = {
 
     if (response.success === true) return true;
     if (response.status === true) return true;
+    if (response.status === "success") return true;
     if (response.ok === true) return true;
 
     if (response.success === false || response.status === false) {
@@ -886,7 +1254,15 @@ const newApplicationsController = {
       return true;
     }
 
-    return response.data !== undefined;
+    if (response.data !== undefined) return true;
+
+    // api.js handleApiResponse unwraps response.data on success —
+    // if we got a non-null object with no wrapper, it's the payload itself
+    if (typeof response === "object" && Object.keys(response).length > 0) {
+      return true;
+    }
+
+    return false;
   },
 
   unwrapPayload: function (response) {

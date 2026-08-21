@@ -16,6 +16,12 @@ const myCatsCtrl = (() => {
         currentTerm: null
     };
 
+    const _esc = (s) => {
+        const d = document.createElement('div');
+        d.textContent = String(s ?? '');
+        return d.innerHTML;
+    };
+
     function toast(msg, type = 'info') {
         const el = document.getElementById('myCatsToast');
         if (!el) {
@@ -51,7 +57,7 @@ const myCatsCtrl = (() => {
     async function loadYears() {
         try {
             const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
+            state.years = response || [];
             const select = document.getElementById('yearFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Years</option>';
@@ -71,7 +77,7 @@ const myCatsCtrl = (() => {
     async function loadTerms() {
         try {
             const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
+            state.terms = response || [];
             const select = document.getElementById('termFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Terms</option>';
@@ -91,7 +97,7 @@ const myCatsCtrl = (() => {
     async function loadClasses() {
         try {
             const response = await apiCall('academic/classes-list');
-            state.classes = response.data || [];
+            state.classes = response || [];
             const select = document.getElementById('classFilter');
             const catClassSelect = document.getElementById('catClass');
             
@@ -100,7 +106,7 @@ const myCatsCtrl = (() => {
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.class_name;
+                    option.textContent = cls.name || cls.class_name || '';
                     select.appendChild(option);
                 });
             }
@@ -110,7 +116,7 @@ const myCatsCtrl = (() => {
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.class_name;
+                    option.textContent = cls.name || cls.class_name || '';
                     catClassSelect.appendChild(option);
                 });
             }
@@ -122,14 +128,14 @@ const myCatsCtrl = (() => {
     async function loadSubjects() {
         try {
             const response = await apiCall('academic/subjects-list');
-            state.subjects = response.data || [];
+            state.subjects = response || [];
             const select = document.getElementById('catSubject');
             if (select) {
                 select.innerHTML = '<option value="">Select Subject</option>';
                 state.subjects.forEach(subject => {
                     const option = document.createElement('option');
                     option.value = subject.id;
-                    option.textContent = subject.subject_name;
+                    option.textContent = subject.name || subject.subject_name;
                     select.appendChild(option);
                 });
             }
@@ -144,14 +150,14 @@ const myCatsCtrl = (() => {
             const termId = document.getElementById('termFilter')?.value || '';
             const classId = document.getElementById('classFilter')?.value || '';
 
-            const response = await apiCall('academic/formative-assessments', 'GET', {
+            const response = await apiCall('academic/formative-assessments', 'GET', null, {
                 year_id: yearId,
                 term_id: termId,
                 class_id: classId,
                 teacher_only: true // Only show CATs for this teacher's classes
             });
 
-            state.cats = response.data || [];
+            state.cats = response || [];
             renderCats();
             updateStats();
         } catch (error) {
@@ -180,13 +186,13 @@ const myCatsCtrl = (() => {
                               cat.status === 'completed' ? 'primary' : 'warning';
             return `
                 <tr>
-                    <td><strong>${cat.name || 'Unnamed CAT'}</strong></td>
-                    <td>${cat.class_name || '—'}</td>
-                    <td>${cat.subject_name || '—'}</td>
-                    <td><span class="badge bg-secondary">${cat.type || '—'}</span></td>
-                    <td>${cat.cat_date || '—'}</td>
-                    <td><span class="badge bg-${statusClass}">${cat.status || 'draft'}</span></td>
-                    <td>${cat.student_count || 0}</td>
+                    <td><strong>${_esc(cat.name) || 'Unnamed CAT'}</strong></td>
+                    <td>${_esc(cat.class_name) || '—'}</td>
+                    <td>${_esc(cat.subject_name) || '—'}</td>
+                    <td><span class="badge bg-secondary">${_esc(cat.type) || '—'}</span></td>
+                    <td>${_esc(cat.cat_date) || '—'}</td>
+                    <td><span class="badge bg-${statusClass}">${_esc(cat.status) || 'draft'}</span></td>
+                    <td>${Number(cat.student_count) || 0}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-primary" onclick="myCatsCtrl.editCat(${cat.id})">
@@ -226,10 +232,15 @@ const myCatsCtrl = (() => {
         if (catId) {
             const cat = state.cats.find(c => c.id === catId);
             if (cat) {
+                const typeName = (cat.type_name || cat.type || '').toString().toLowerCase();
+                const typeSelect = document.getElementById('catType');
+                const typeMatch = typeSelect
+                    ? [...typeSelect.options].find(o => o.text.toLowerCase() === typeName || typeName.includes(o.value))
+                    : null;
                 title.textContent = 'Edit CAT';
                 document.getElementById('catId').value = cat.id;
                 document.getElementById('catName').value = cat.name || '';
-                document.getElementById('catType').value = cat.type || '';
+                document.getElementById('catType').value = typeMatch ? typeMatch.value : (cat.type || '');
                 document.getElementById('catClass').value = cat.class_id || '';
                 document.getElementById('catSubject').value = cat.subject_id || '';
                 document.getElementById('catDate').value = cat.cat_date || '';
@@ -273,7 +284,7 @@ const myCatsCtrl = (() => {
     }
 
     async function deleteCat(catId) {
-        if (!confirm('Are you sure you want to delete this CAT?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this CAT?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await apiCall(`academic/formative-assessments/${catId}`, 'DELETE');
@@ -301,6 +312,7 @@ const myCatsCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -309,7 +321,6 @@ const myCatsCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in my_cats:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

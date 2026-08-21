@@ -821,6 +821,10 @@ const SystemAdministratorDashboardController = {
   },
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-  void SystemAdministratorDashboardController.init();
-});
+if (window.__APP_BOOTED__) {
+  SystemAdministratorDashboardController.init();
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    SystemAdministratorDashboardController.init();
+  }, { once: true });
+}

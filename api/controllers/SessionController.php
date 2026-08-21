@@ -267,15 +267,14 @@ class SessionController extends BaseAPI
                         'permissions' => $permissionCodes,
                         'session_id' => session_id(),
                         'session_expires_at' => $sessionExpiresAt,
-                        'csrf_token' => $csrfToken,
-                        'refresh_token' => $_COOKIE['refresh_token'] ?? null
+                        'csrf_token' => $csrfToken
                     ]
                 ];
                 
             } catch (\Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Invalid token: ' . $e->getMessage()
+                    'message' => 'An internal error occurred.'
                 ];
             }
 
@@ -293,13 +292,11 @@ class SessionController extends BaseAPI
      */
     private function generateCsrfToken($userId)
     {
-        $tokenData = [
-            'user_id' => $userId,
-            'timestamp' => time(),
-            'random' => bin2hex(random_bytes(16))
-        ];
-        
-        return hash_hmac('sha256', json_encode($tokenData), JWT_SECRET);
+        $timestamp = time();
+        $random = bin2hex(random_bytes(16));
+        $plaintext = $userId . ':' . $timestamp . ':' . $random;
+        $signature = hash_hmac('sha256', $plaintext, JWT_SECRET);
+        return base64_encode($plaintext . ':' . $signature);
     }
 
     /**
@@ -307,8 +304,36 @@ class SessionController extends BaseAPI
      */
     private function validateCsrfToken($userId, $token)
     {
-        // For now, accept any non-empty token during transition
-        // TODO: Implement proper CSRF token validation with timestamp check
-        return !empty($token);
+        if (empty($token)) {
+            return false;
+        }
+
+        $decoded = base64_decode($token, true);
+        if ($decoded === false) {
+            return false;
+        }
+
+        $parts = explode(':', $decoded);
+        if (count($parts) !== 4) {
+            return false;
+        }
+
+        $tokenUserId = $parts[0];
+        $timestamp   = $parts[1];
+        $random      = $parts[2];
+        $signature   = $parts[3];
+
+        if ((int) $tokenUserId !== (int) $userId) {
+            return false;
+        }
+
+        $ts = (int) $timestamp;
+        if ($ts < 1 || abs(time() - $ts) > 3600) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', $tokenUserId . ':' . $timestamp . ':' . $random, JWT_SECRET);
+
+        return hash_equals($expected, $signature);
     }
 }

@@ -81,15 +81,15 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Advance #</th>
-              <th>Staff Member</th>
+              <th scope="col">Advance #</th>
+              <th scope="col">Staff Member</th>
               <th class="text-end">Requested</th>
               <th class="text-end">Approved</th>
-              <th>Schedule</th>
-              <th>Start Month</th>
+              <th scope="col">Schedule</th>
+              <th scope="col">Start Month</th>
               <th class="text-end">Deducted</th>
               <th class="text-end">Remaining</th>
-              <th>Status</th>
+              <th scope="col">Status</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -195,5 +195,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/salary_advances.js"></script>
+<?php asset_script($appBase, 'js/pages/salary_advances.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => salaryAdvancesController.init());</script>

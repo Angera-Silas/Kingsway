@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Inventory Page
- * HTML structure only - logic will be in js/pages/inventory.js
+ * HTML structure only - logic in js/pages/manage_inventory.js
  * Embedded in app_layout.php
  * 
  * Role-based access:
@@ -156,14 +156,14 @@
             <table class="table table-hover" id="inventoryTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Item Code</th>
-                        <th>Item Name</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Unit</th>
-                        <th>Location</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Item Code</th>
+                        <th scope="col">Item Name</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Unit</th>
+                        <th scope="col">Location</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -201,4 +201,4 @@
         </a>
     </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/manage_inventory.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_inventory.js'); ?>

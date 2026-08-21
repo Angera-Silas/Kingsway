@@ -17,15 +17,18 @@ class PaymentReconciliationAPI extends BaseAPI {
         try {
             $sql = "
                 SELECT 
-                    st.*,
-                    s.admission_number,
-                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    p.id, p.student_id, p.receipt_no, p.amount, p.payment_date,
+                    p.method AS source, p.reference AS transaction_ref, p.status,
+                    s.admission_no AS admission_number,
+                    CONCAT(pers.first_name, ' ', pers.last_name) AS student_name,
                     u.username as received_by_name
-                FROM school_transactions st
-                LEFT JOIN students s ON st.student_id = s.id
-                LEFT JOIN users u ON st.received_by = u.id
-                WHERE st.id NOT IN (SELECT transaction_id FROM payment_reconciliations)
-                ORDER BY st.transaction_date DESC
+                FROM payments p
+                LEFT JOIN students s ON p.student_id = s.id
+                LEFT JOIN persons pers ON pers.id = s.person_id
+                LEFT JOIN users u ON p.received_by = u.id
+                WHERE p.status = 'confirmed'
+                AND p.id NOT IN (SELECT transaction_id FROM payment_reconciliations)
+                ORDER BY p.payment_date DESC
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -126,15 +129,15 @@ class PaymentReconciliationAPI extends BaseAPI {
 
             $sql = "
                 SELECT 
-                    st.source,
+                    p.method AS source,
                     COUNT(*) as total_transactions,
                     COUNT(pr.id) as reconciled_count,
-                    SUM(st.amount) as total_amount,
-                    SUM(CASE WHEN pr.id IS NOT NULL THEN st.amount ELSE 0 END) as reconciled_amount
-                FROM school_transactions st
-                LEFT JOIN payment_reconciliations pr ON st.id = pr.transaction_id
-                WHERE st.transaction_date BETWEEN ? AND ?
-                GROUP BY st.source
+                    SUM(p.amount) as total_amount,
+                    SUM(CASE WHEN pr.id IS NOT NULL THEN p.amount ELSE 0 END) as reconciled_amount
+                FROM payments p
+                LEFT JOIN payment_reconciliations pr ON p.id = pr.transaction_id
+                WHERE p.payment_date BETWEEN ? AND ?
+                GROUP BY p.method
             ";
 
             $stmt = $this->db->prepare($sql);

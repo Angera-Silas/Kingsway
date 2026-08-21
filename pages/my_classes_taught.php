@@ -82,14 +82,14 @@
             <table class="table table-hover table-striped" id="myClassesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>Students</th>
-                        <th>Subject</th>
-                        <th>Lessons/Week</th>
-                        <th>Class Teacher</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">Students</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Lessons/Week</th>
+                        <th scope="col">Class Teacher</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -107,4 +107,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/my_classes_taught.js"></script>
+<?php asset_script($appBase, 'js/pages/my_classes_taught.js'); ?>

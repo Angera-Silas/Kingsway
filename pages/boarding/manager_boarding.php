@@ -90,13 +90,13 @@ $roleCategory = 'manager';
             <table class="table table-hover table-sm mb-0" id="dormitoryStudentsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Bed No</th>
-                        <th>Student</th>
-                        <th>Class</th>
-                        <th>Status</th>
-                        <th>Health</th>
-                        <th>Last Roll Call</th>
-                        <th>Actions</th>
+                        <th scope="col">Bed No</th>
+                        <th scope="col">Student</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Health</th>
+                        <th scope="col">Last Roll Call</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -197,12 +197,12 @@ $roleCategory = 'manager';
                     <table class="table table-sm" id="leaveRequestsTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Student</th>
-                                <th>Type</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th>Reason</th>
-                                <th>Actions</th>
+                                <th scope="col">Student</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">From</th>
+                                <th scope="col">To</th>
+                                <th scope="col">Reason</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>

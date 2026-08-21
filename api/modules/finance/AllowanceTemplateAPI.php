@@ -13,11 +13,14 @@ use function App\API\Includes\formatResponse;
  * Manages predefined allowance templates that can be bulk-applied to staff
  * based on department, staff type, role, or contract type criteria.
  *
- * Flow: Template created → Preview matching staff → Apply → Creates staff_allowances rows
- *       → Payroll processing reads them automatically via existing allowance queries.
+ * Live home: `staff_allowances`. Templates are stored as rows with the
+ * sentinel `staff_id = 0`; applying a template bulk-creates real
+ * `staff_allowances` rows for matching staff.
  */
 class AllowanceTemplateAPI extends BaseAPI
 {
+    private const TEMPLATE_STAFF_ID = 0;
+
     public function __construct()
     {
         parent::__construct('finance');
@@ -29,43 +32,25 @@ class AllowanceTemplateAPI extends BaseAPI
     public function list($params = [])
     {
         try {
-            $where = "WHERE 1=1";
+            $where = "WHERE sa.staff_id = " . self::TEMPLATE_STAFF_ID;
             $bindings = [];
 
             if (!empty($params['status'])) {
-                $where .= " AND at.status = ?";
+                $where .= " AND sa.status = ?";
                 $bindings[] = $params['status'];
             }
             if (!empty($params['allowance_type'])) {
-                $where .= " AND at.allowance_type = ?";
+                $where .= " AND sa.allowance_type = ?";
                 $bindings[] = $params['allowance_type'];
-            }
-            if (!empty($params['department_id'])) {
-                $where .= " AND at.department_id = ?";
-                $bindings[] = $params['department_id'];
             }
 
             $sql = "SELECT
-                        at.*,
-                        d.name AS department_name,
-                        st.name AS staff_type_name,
-                        r.name AS role_name,
-                        -- Count how many staff currently match this template
-                        (SELECT COUNT(*) FROM staff s
-                         WHERE s.status = 'active'
-                           AND (at.department_id IS NULL OR s.department_id = at.department_id)
-                           AND (at.staff_type_id IS NULL OR s.staff_type_id = at.staff_type_id)
-                           AND (at.contract_type IS NULL OR s.contract_type = at.contract_type)
-                           AND (at.role_id IS NULL OR EXISTS (
-                               SELECT 1 FROM user_roles ur WHERE ur.user_id = s.user_id AND ur.role_id = at.role_id
-                           ))
-                        ) AS matching_staff_count
-                    FROM allowance_templates at
-                    LEFT JOIN departments d ON at.department_id = d.id
-                    LEFT JOIN staff_types st ON at.staff_type_id = st.id
-                    LEFT JOIN roles r ON at.role_id = r.id
+                        sa.id, sa.name, sa.description, sa.allowance_type, sa.amount,
+                        sa.is_taxable, sa.is_recurring, sa.effective_date, sa.start_date,
+                        sa.end_date, sa.status, sa.created_at, sa.updated_at
+                    FROM staff_allowances sa
                     $where
-                    ORDER BY at.created_at DESC";
+                    ORDER BY sa.created_at DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
@@ -83,16 +68,11 @@ class AllowanceTemplateAPI extends BaseAPI
     public function get($id)
     {
         try {
-            $sql = "SELECT
-                        at.*,
-                        d.name AS department_name,
-                        st.name AS staff_type_name,
-                        r.name AS role_name
-                    FROM allowance_templates at
-                    LEFT JOIN departments d ON at.department_id = d.id
-                    LEFT JOIN staff_types st ON at.staff_type_id = st.id
-                    LEFT JOIN roles r ON at.role_id = r.id
-                    WHERE at.id = ?";
+            $sql = "SELECT id, name, description, allowance_type, amount,
+                           is_taxable, is_recurring, effective_date, start_date,
+                           end_date, status, created_at, updated_at
+                    FROM staff_allowances
+                    WHERE id = ? AND staff_id = " . self::TEMPLATE_STAFF_ID;
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
             $template = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -124,22 +104,23 @@ class AllowanceTemplateAPI extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $sql = "INSERT INTO allowance_templates
-                        (name, description, allowance_type, amount, is_taxable,
-                         department_id, staff_type_id, role_id, contract_type, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO staff_allowances
+                        (staff_id, name, description, allowance_type, amount, is_taxable,
+                         is_recurring, effective_date, start_date, end_date, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                self::TEMPLATE_STAFF_ID,
                 $data['name'],
                 $data['description'] ?? null,
-                $data['allowance_type'],
+                $this->mapAllowanceType($data['allowance_type']),
                 $data['amount'],
                 $data['is_taxable'] ?? 1,
-                $data['department_id'] ?? null,
-                $data['staff_type_id'] ?? null,
-                $data['role_id'] ?? null,
-                $data['contract_type'] ?? null,
+                $data['is_recurring'] ?? 1,
+                $data['effective_date'] ?? date('Y-m-d'),
+                $data['start_date'] ?? null,
+                $data['end_date'] ?? null,
                 $data['status'] ?? 'active',
             ]);
 
@@ -163,10 +144,13 @@ class AllowanceTemplateAPI extends BaseAPI
             $bindings = [];
 
             $updatable = ['name', 'description', 'allowance_type', 'amount', 'is_taxable',
-                          'department_id', 'staff_type_id', 'role_id', 'contract_type', 'status'];
+                          'is_recurring', 'effective_date', 'start_date', 'end_date', 'status'];
 
             foreach ($updatable as $field) {
                 if (array_key_exists($field, $data)) {
+                    if ($field === 'allowance_type') {
+                        $data[$field] = $this->mapAllowanceType($data[$field]);
+                    }
                     $fields[] = "$field = ?";
                     $bindings[] = $data[$field];
                 }
@@ -179,7 +163,7 @@ class AllowanceTemplateAPI extends BaseAPI
             $fields[] = "updated_at = NOW()";
             $bindings[] = $id;
 
-            $sql = "UPDATE allowance_templates SET " . implode(', ', $fields) . " WHERE id = ?";
+            $sql = "UPDATE staff_allowances SET " . implode(', ', $fields) . " WHERE id = ? AND staff_id = " . self::TEMPLATE_STAFF_ID;
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
 
@@ -192,12 +176,12 @@ class AllowanceTemplateAPI extends BaseAPI
     }
 
     /**
-     * Soft-delete an allowance template (set status to inactive).
+     * Deactivate an allowance template (status has no 'inactive' — use 'cancelled').
      */
     public function delete($id)
     {
         try {
-            $stmt = $this->db->prepare("UPDATE allowance_templates SET status = 'inactive', updated_at = NOW() WHERE id = ?");
+            $stmt = $this->db->prepare("UPDATE staff_allowances SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND staff_id = " . self::TEMPLATE_STAFF_ID);
             $stmt->execute([$id]);
 
             $this->logAction('delete', $id, "Deactivated allowance template");
@@ -214,7 +198,7 @@ class AllowanceTemplateAPI extends BaseAPI
     public function getApplicableStaff($templateId)
     {
         try {
-            $stmt = $this->db->prepare("SELECT * FROM allowance_templates WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT * FROM staff_allowances WHERE id = ? AND staff_id = " . self::TEMPLATE_STAFF_ID);
             $stmt->execute([$templateId]);
             $template = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -223,38 +207,16 @@ class AllowanceTemplateAPI extends BaseAPI
             }
 
             $sql = "SELECT
-                        s.id, s.staff_no, s.first_name, s.last_name,
-                        d.name AS department_name,
-                        st.name AS staff_type_name,
-                        s.contract_type
+                        s.id, s.staff_no,
+                        CONCAT(p.first_name, ' ', p.last_name) AS full_name,
+                        s.contract_type, s.position
                     FROM staff s
-                    LEFT JOIN departments d ON s.department_id = d.id
-                    LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                    WHERE s.status = 'active'";
-
-            $bindings = [];
-
-            if ($template['department_id']) {
-                $sql .= " AND s.department_id = ?";
-                $bindings[] = $template['department_id'];
-            }
-            if ($template['staff_type_id']) {
-                $sql .= " AND s.staff_type_id = ?";
-                $bindings[] = $template['staff_type_id'];
-            }
-            if ($template['contract_type']) {
-                $sql .= " AND s.contract_type = ?";
-                $bindings[] = $template['contract_type'];
-            }
-            if ($template['role_id']) {
-                $sql .= " AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = s.user_id AND ur.role_id = ?)";
-                $bindings[] = $template['role_id'];
-            }
-
-            $sql .= " ORDER BY s.staff_no";
+                    LEFT JOIN persons p ON p.id = s.person_id
+                    WHERE s.status = 'active'
+                    ORDER BY s.staff_no";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute($bindings);
+            $stmt->execute();
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return formatResponse(true, [
@@ -274,7 +236,7 @@ class AllowanceTemplateAPI extends BaseAPI
     public function applyToStaff($templateId, $staffIds = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT * FROM allowance_templates WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT * FROM staff_allowances WHERE id = ? AND staff_id = " . self::TEMPLATE_STAFF_ID);
             $stmt->execute([$templateId]);
             $template = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -293,23 +255,6 @@ class AllowanceTemplateAPI extends BaseAPI
             } else {
                 $sql = "SELECT id FROM staff WHERE status = 'active'";
                 $bindings = [];
-
-                if ($template['department_id']) {
-                    $sql .= " AND department_id = ?";
-                    $bindings[] = $template['department_id'];
-                }
-                if ($template['staff_type_id']) {
-                    $sql .= " AND staff_type_id = ?";
-                    $bindings[] = $template['staff_type_id'];
-                }
-                if ($template['contract_type']) {
-                    $sql .= " AND contract_type = ?";
-                    $bindings[] = $template['contract_type'];
-                }
-                if ($template['role_id']) {
-                    $sql .= " AND EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = staff.user_id AND ur.role_id = ?)";
-                    $bindings[] = $template['role_id'];
-                }
             }
 
             $stmt = $this->db->prepare($sql);
@@ -329,7 +274,7 @@ class AllowanceTemplateAPI extends BaseAPI
             $insertStmt = $this->db->prepare("
                 INSERT INTO staff_allowances
                     (staff_id, name, description, allowance_type, amount, is_taxable, is_recurring, effective_date, status)
-                VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'active')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ");
 
             foreach ($matchedStaff as $staffId) {
@@ -352,6 +297,7 @@ class AllowanceTemplateAPI extends BaseAPI
                     $template['allowance_type'],
                     $template['amount'],
                     $template['is_taxable'],
+                    $template['is_recurring'],
                     $today,
                 ]);
                 $inserted++;
@@ -373,5 +319,12 @@ class AllowanceTemplateAPI extends BaseAPI
             }
             return $this->handleException($e);
         }
+    }
+
+    private function mapAllowanceType($type)
+    {
+        $valid = ['housing', 'transport', 'medical', 'hardship', 'responsibility', 'overtime', 'bonus', 'other'];
+        $type = strtolower((string) $type);
+        return in_array($type, $valid, true) ? $type : 'other';
     }
 }

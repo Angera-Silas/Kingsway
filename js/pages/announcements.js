@@ -7,6 +7,7 @@ const announcementsController = {
   _data: [], _filtered: [], _page: 1, _perPage: 12, _modal: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE||'')+'/index.php'; return; }
     this._modal = new bootstrap.Modal(document.getElementById('announcementModal'));
     this._bindEvents();
@@ -151,7 +152,7 @@ const announcementsController = {
   },
 
   deleteAnnouncement: async function(id) {
-    if (!confirm('Delete this announcement?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this announcement?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/communications/announcements/'+id,'DELETE');
       showNotification('Deleted.','success');

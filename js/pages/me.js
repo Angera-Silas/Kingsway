@@ -1,48 +1,106 @@
-/**
- * Profile Page Controller
- * Manages user profile display, password change, and login history
- */
 const ProfileController = (() => {
     let userData = null;
+    let staffProfile = null;
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
         userData = AuthContext.getUser();
+        await loadStaffProfile();
         renderProfile();
         renderRoles();
         loadLoginHistory();
+        loadCurrentAcademicYear();
+        loadKpiSummary();
+    }
+
+    async function loadStaffProfile() {
+        try {
+            const resp = await window.API.staff.getProfile();
+            staffProfile = resp?.data || null;
+        } catch (e) {
+            staffProfile = null;
+        }
+    }
+
+    function formatTenure(employmentDate) {
+        if (!employmentDate) return '—';
+        const start = new Date(employmentDate);
+        const now = new Date();
+        let years = now.getFullYear() - start.getFullYear();
+        let months = now.getMonth() - start.getMonth();
+        let days = now.getDate() - start.getDate();
+        if (days < 0) { months--; days += new Date(now.getFullYear(), now.getMonth(), 0).getDate(); }
+        if (months < 0) { years--; months += 12; }
+        if (years < 0) return '—';
+        const parts = [];
+        if (years > 0) parts.push(`${years} year${years > 1 ? 's' : ''}`);
+        if (months > 0) parts.push(`${months} month${months > 1 ? 's' : ''}`);
+        if (days >= 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
+        return parts.join(', ') || '—';
     }
 
     function renderProfile() {
-        if (!userData) return;
+        const s = staffProfile || {};
+        const u = userData || {};
 
-        const name = `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || userData.username || 'User';
+        const name = `${s.first_name || u.first_name || ''} ${s.last_name || u.last_name || ''}`.trim() || u.username || 'User';
         const initials = name.split(' ').map(n => n.charAt(0)).join('').toUpperCase().substring(0, 2);
 
         document.getElementById('profileAvatar').innerHTML = initials;
         document.getElementById('profileName').textContent = name;
-        document.getElementById('profileEmail').textContent = userData.email || '--';
+        document.getElementById('profileEmail').textContent = s.email || u.email || '—';
 
-        const roles = userData.roles || [];
+        const roles = u.roles || [];
         const mainRole = roles.length > 0 ? (typeof roles[0] === 'string' ? roles[0] : roles[0].name) : 'User';
         document.getElementById('profileRole').textContent = mainRole;
 
-        document.getElementById('profileEmployeeId').textContent = userData.employee_id || userData.id || '--';
-        document.getElementById('profilePhone').textContent = userData.phone || '--';
-        document.getElementById('profileDepartment').textContent = userData.department || '--';
-        document.getElementById('profileLastLogin').textContent = userData.last_login ? new Date(userData.last_login).toLocaleDateString() : '--';
+        // Staff number (NOT user ID)
+        document.getElementById('profileEmployeeId').textContent = s.staff_no || '—';
+        document.getElementById('profilePhone').textContent = s.phone || u.phone || '—';
+        document.getElementById('profileDepartment').textContent = s.department_name || '—';
+        document.getElementById('profileLastLogin').textContent = u.last_login ? new Date(u.last_login).toLocaleDateString() : '—';
 
-        // Populate form
-        document.getElementById('firstName').value = userData.first_name || '';
-        document.getElementById('lastName').value = userData.last_name || '';
-        document.getElementById('email').value = userData.email || '';
-        document.getElementById('phone').value = userData.phone || '';
-        document.getElementById('gender').value = userData.gender || '';
-        document.getElementById('dob').value = userData.date_of_birth || '';
-        document.getElementById('address').value = userData.address || '';
+        // Greeting
+        const greetEl = document.getElementById('profileGreeting');
+        if (greetEl) {
+            const hour = new Date().getHours();
+            let greeting = 'Good evening';
+            if (hour < 12) greeting = 'Good morning';
+            else if (hour < 17) greeting = 'Good afternoon';
+            greetEl.textContent = `${greeting}, ${name.split(' ')[0]}`;
+        }
+
+        // Tenure
+        document.getElementById('profileTenure').textContent = formatTenure(s.employment_date);
+
+        // Populate employee info form
+        document.getElementById('firstName').value = s.first_name || u.first_name || '';
+        document.getElementById('lastName').value = s.last_name || u.last_name || '';
+        document.getElementById('email').value = s.email || u.email || '';
+        document.getElementById('phone').value = s.phone || u.phone || '';
+
+        // Employee-specific readonly fields
+        document.getElementById('position').value = s.position || '—';
+        document.getElementById('department').value = s.department_name || '—';
+        document.getElementById('supervisor').value = s.supervisor_name || '—';
+        document.getElementById('contractType').value = s.contract_type || '—';
+        document.getElementById('employmentDate').value = s.employment_date || '—';
+        document.getElementById('gender').value = s.gender || u.gender || '';
+        document.getElementById('dob').value = s.date_of_birth || u.date_of_birth || '—';
+        document.getElementById('address').value = s.address || u.address || '—';
+        document.getElementById('maritalStatus').value = s.marital_status || '—';
+
+        // Financial / confidential fields
+        document.getElementById('bankName').value = s.bank_name || '—';
+        document.getElementById('bankAccount').value = s.bank_account ? '••••' + s.bank_account.slice(-4) : '—';
+        document.getElementById('kraPin').value = s.kra_pin || '—';
+        document.getElementById('nssfNo').value = s.nssf_no || '—';
+        document.getElementById('nhifNo').value = s.nhif_no || '—';
+        document.getElementById('tscNo').value = s.tsc_no || '—';
     }
 
     function renderRoles() {
@@ -52,30 +110,41 @@ const ProfileController = (() => {
             return `<span class="badge bg-primary me-2 mb-2 fs-6">${name}</span>`;
         }).join('') || '<span class="text-muted">No roles assigned</span>';
         document.getElementById('rolesList').innerHTML = rolesHtml;
+    }
 
-        const permissions = AuthContext.getPermissions ? AuthContext.getPermissions() : [];
-        const grouped = {};
-        permissions.forEach(p => {
-            const parts = p.split('_');
-            const entity = parts.slice(0, -1).join('_') || p;
-            if (!grouped[entity]) grouped[entity] = [];
-            grouped[entity].push(parts[parts.length - 1]);
-        });
-
-        let permHtml = '<div class="row g-2">';
-        const entities = Object.keys(grouped).sort();
-        if (entities.length === 0) {
-            permHtml += '<div class="col-12"><span class="text-muted">No permissions data available</span></div>';
-        } else {
-            entities.slice(0, 20).forEach(entity => {
-                permHtml += `<div class="col-md-4"><div class="border rounded p-2"><strong class="text-capitalize">${entity.replace(/_/g, ' ')}</strong><br><small class="text-muted">${grouped[entity].join(', ')}</small></div></div>`;
-            });
-            if (entities.length > 20) {
-                permHtml += `<div class="col-12"><span class="text-muted">...and ${entities.length - 20} more entities</span></div>`;
-            }
+    async function loadCurrentAcademicYear() {
+        const el = document.getElementById('currentAcademicYear');
+        if (!el) return;
+        try {
+            const resp = await window.API.academic.getCurrentAcademicYear?.();
+            const year = resp?.data?.year_code || resp?.data?.name || '';
+            el.textContent = year || '—';
+        } catch (e) {
+            el.textContent = '—';
         }
-        permHtml += '</div>';
-        document.getElementById('permissionsSummary').innerHTML = permHtml;
+    }
+
+    async function loadKpiSummary() {
+        const container = document.getElementById('kpiSummary');
+        if (!container) return;
+        const staffId = staffProfile?.id;
+        if (!staffId) { container.innerHTML = ''; return; }
+        try {
+            const resp = await window.API.staff.getAcademicKPISummary(staffId);
+            const kpis = resp?.data || {};
+            const cards = Object.entries(kpis).filter(([, v]) => v !== null && v !== undefined).slice(0, 6);
+            if (!cards.length) { container.innerHTML = '<p class="text-muted small mb-0">No KPI data available</p>'; return; }
+            container.innerHTML = '<div class="row g-2">' + cards.map(([key, value]) => `
+                <div class="col-md-4 col-6">
+                    <div class="border rounded p-2 text-center">
+                        <strong class="d-block fs-5">${value}</strong>
+                        <small class="text-muted">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</small>
+                    </div>
+                </div>
+            `).join('') + '</div>';
+        } catch (e) {
+            container.innerHTML = '';
+        }
     }
 
     async function loadLoginHistory() {
@@ -106,54 +175,9 @@ const ProfileController = (() => {
         `).join('');
     }
 
-    async function changePassword() {
-        const current = document.getElementById('currentPassword').value;
-        const newPass = document.getElementById('newPassword').value;
-        const confirm = document.getElementById('confirmPassword').value;
+    function showNotification(message, type) { window.showNotification(message, type); }
 
-        if (!current || !newPass || !confirm) {
-            showNotification('Please fill in all password fields', 'warning');
-            return;
-        }
-        if (newPass.length < 8) {
-            showNotification('New password must be at least 8 characters', 'warning');
-            return;
-        }
-        if (newPass !== confirm) {
-            showNotification('New passwords do not match', 'warning');
-            return;
-        }
-
-        try {
-            await window.API.apiCall(`/users/${userData.id}/change-password`, 'POST', {
-                current_password: current,
-                new_password: newPass
-            });
-            showNotification('Password updated successfully', 'success');
-            document.getElementById('passwordForm').reset();
-        } catch (e) {
-            showNotification(e.message || 'Failed to update password', 'danger');
-        }
-    }
-
-    function showNotification(message, type) {
-        const modal = document.getElementById('notificationModal');
-        if (modal) {
-            const msgEl = modal.querySelector('.notification-message');
-            const content = modal.querySelector('.modal-content');
-            if (msgEl) msgEl.textContent = message;
-            if (content) content.className = `modal-content notification-${type || 'info'}`;
-            const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
-            bsModal.show();
-            setTimeout(() => bsModal.hide(), 3000);
-        }
-    }
-
-    return {
-        init,
-        changePassword,
-        refresh: init
-    };
+    return { init, refresh: init };
 })();
 
 document.addEventListener('DOMContentLoaded', () => ProfileController.init());

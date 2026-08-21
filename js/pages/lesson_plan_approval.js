@@ -42,12 +42,12 @@ const LessonPlanApprovalController = (() => {
   async function loadReferenceData() {
     try {
       const [teacherResp, subjectResp] = await Promise.all([
-        // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+        // Reference data: network-first with a 1 h offline fallback (freshness wins).
         DataStore.fetchPage('teachers', {
           endpoint: '/staff/teachers', storeName: 'reference_teachers',
           ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
         }).catch(() => []),
-        // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+        // Reference data: network-first with a 5 min offline fallback (freshness wins).
         DataStore.fetchPage('subjects', {
           endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
@@ -241,7 +241,7 @@ const LessonPlanApprovalController = (() => {
       showNotification("Please select lesson plans to approve", "error");
       return;
     }
-    if (!confirm(`Approve ${selected.length} selected lesson plans?`)) return;
+    if (!(await window.confirmAction('Confirm', `Approve ${selected.length} selected lesson plans?`))) return;
 
     try {
       await window.API.academic.bulkApproveLessonPlans(selected);
@@ -252,11 +252,7 @@ const LessonPlanApprovalController = (() => {
     }
   }
 
-  function showNotification(message, type) {
-    if (window.API?.showNotification)
-      window.API.showNotification(message, type);
-    else alert((type === "error" ? "Error: " : "") + message);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   function attachListeners() {
     document

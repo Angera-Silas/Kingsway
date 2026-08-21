@@ -11,11 +11,28 @@ const libraryController = {
 
   // ── INIT ───────────────────────────────────────────────────────────
 
-  init: function () {
+  init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+
+    if (
+      typeof PageShell !== "undefined" &&
+      !PageShell.hasAny(["library_view", "library.manage", "library.view", "library_create"])
+    ) {
+      const container = document.querySelector(".container-fluid");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to access the library." +
+          "</div>";
+      }
+      return;
+    }
+
     const canManage = AuthContext.hasPermission('library.manage') ||
                       AuthContext.hasPermission('library.issue')  ||
                       AuthContext.hasPermission('library.create');
@@ -265,7 +282,7 @@ const libraryController = {
   },
 
   deleteBook: async function (id, title) {
-    if (!confirm(`Remove "${title}" from the library catalogue?`)) return;
+    if (!(await window.confirmAction('Confirm Deletion', `Remove "${title}" from the library catalogue?`, { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/library/books/' + id, 'DELETE');
       showNotification('Book removed', 'success');
@@ -394,7 +411,7 @@ const libraryController = {
   },
 
   returnBook: async function (issueId, title) {
-    if (!confirm(`Confirm return of "${title}"?`)) return;
+    if (!(await window.confirmAction('Confirm', `Confirm return of "${title}"?`))) return;
     try {
       const r = await callAPI('/library/issues/' + issueId + '/return', 'PUT', {});
       showNotification((r?.message || 'Book returned'), 'success');
@@ -442,7 +459,7 @@ const libraryController = {
   },
 
   payFine: async function (id) {
-    if (!confirm('Mark this fine as paid?')) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this fine as paid?'))) return;
     try {
       await callAPI('/library/fines/' + id + '/pay', 'PUT', {});
       showNotification('Fine marked as paid', 'success');
@@ -451,7 +468,7 @@ const libraryController = {
   },
 
   waiveFine: async function (id) {
-    const reason = prompt('Reason for waiving this fine (optional):') || '';
+    const reason = await window.promptAction('Input', 'Reason for waiving this fine (optional):') || '';
     try {
       await callAPI('/library/fines/' + id + '/waive', 'PUT', { reason });
       showNotification('Fine waived', 'success');

@@ -1,232 +1,215 @@
 <?php
+
 namespace App\API\Services\payments;
 
+use App\Database\Database;
+use PDO;
 use Exception;
 
 /**
  * MpesaB2CService
- * 
- * Handles M-Pesa Business to Customer (B2C) payments
- * Used for: Staff salaries, supplier payments, refunds
+ *
+ * M-Pesa Business-to-Customer (B2C) disbursements — staff salaries,
+ * supplier payments and refunds.
+ *
+ * Rebuilt against the official Daraja spec:
+ *   POST /mpesa/b2c/v1/paymentrequest
+ * and the live KingsWayAcademy schema. Every initiation is recorded into
+ * mpesa_transactions (transaction_type B2C) and disbursement_transactions so
+ * the Result callback can be matched and applied.
  */
 class MpesaB2CService
 {
-    private $consumerKey;
-    private $consumerSecret;
-    private $shortcode;
-    private $initiatorName;
-    private $initiatorPassword;
-    private $securityCredential;
-    private $resultUrl;
-    private $queueTimeoutUrl;
-    private $baseUrl;
+    /** @var PDO|null */
+    private $db;
+
+    /** @var MpesaApiClient */
+    private $client;
 
     public function __construct()
     {
-        $this->consumerKey = MPESA_CONSUMER_KEY;
-        $this->consumerSecret = MPESA_CONSUMER_SECRET;
-        $this->shortcode = MPESA_SHORTCODE;
-        $this->initiatorName = MPESA_INITIATOR_NAME;
-        $this->initiatorPassword = MPESA_INITIATOR_PASSWORD;
-        $this->baseUrl = MPESA_BASE_URL;
+        $this->client = new MpesaApiClient();
+    }
 
-        $this->resultUrl = BASE_URL . '/api/payments/b2c-callback.php';
-        $this->queueTimeoutUrl = BASE_URL . '/api/payments/b2c-timeout.php';
-
-        // Generate security credential (initiator password encrypted with M-Pesa cert)
-        $this->securityCredential = $this->generateSecurityCredential();
+    private function getDb(): PDO
+    {
+        if ($this->db === null) {
+            $this->db = Database::getInstance()->getConnection();
+        }
+        return $this->db;
     }
 
     /**
-     * Send B2C payment
+     * Send a B2C payment.
+     *
+     * @param array $data {
+     *   phone: 254XXXXXXXXX (required),
+     *   amount: float (required),
+     *   command_id: BusinessPayment|SalaryPayment|PromotionPayment (default BusinessPayment),
+     *   remarks: string,
+     *   occasion: string,
+     *   recipient_id / recipient_name / payslip_id / payroll_id / disbursement_type:
+     *     optional metadata recorded for callback matching.
+     * }
+     * @return array {status, message, transaction_ref, originator_conversation_id, response}
      */
     public function sendPayment($data)
     {
         try {
-            $phone = $data['phone'];
-            $amount = $data['amount'];
+            $idempotency = trim((string) ($data['idempotency_reference'] ?? ''));
+            if ($idempotency !== '') {
+                $existing = $this->getDb()->prepare('SELECT status,transaction_ref,request_id,result_description FROM disbursement_transactions WHERE idempotency_reference=? LIMIT 1');
+                $existing->execute([$idempotency]);
+                $row = $existing->fetch(PDO::FETCH_ASSOC);
+                if ($row) return ['status' => in_array($row['status'], ['pending','completed'], true) ? 'pending' : $row['status'], 'message' => 'Existing idempotent disbursement reused.', 'transaction_ref' => $row['transaction_ref'], 'request_id' => $row['request_id']];
+            }
+            $phone = preg_replace('/\D/', '', (string) ($data['phone'] ?? ''));
+            if (strlen($phone) === 9) {
+                $phone = '254' . $phone;
+            } elseif (strlen($phone) === 10 && $phone[0] === '0') {
+                $phone = '254' . substr($phone, 1);
+            }
+            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+                throw new Exception('Invalid phone number. Use 254XXXXXXXXX');
+            }
+
+            $amount = (float) ($data['amount'] ?? 0);
+            if ($amount <= 0) {
+                throw new Exception('Amount must be greater than zero');
+            }
+
+            $commandId = $data['command_id'] ?? 'BusinessPayment';
             $remarks = $data['remarks'] ?? 'Payment';
             $occasion = $data['occasion'] ?? '';
 
-            // Get access token
-            $accessToken = $this->getAccessToken();
-
-            // Prepare B2C request
-            $url = $this->baseUrl . '/mpesa/b2c/v1/paymentrequest';
-
             $payload = [
-                'InitiatorName' => $this->initiatorName,
-                'SecurityCredential' => $this->securityCredential,
-                'CommandID' => 'BusinessPayment', // or 'SalaryPayment', 'PromotionPayment'
-                'Amount' => $amount,
-                'PartyA' => $this->shortcode,
-                'PartyB' => $phone,
-                'Remarks' => $remarks,
-                'QueueTimeOutURL' => $this->queueTimeoutUrl,
-                'ResultURL' => $this->resultUrl,
-                'Occasion' => $occasion
+                'InitiatorName'     => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'         => $commandId,
+                'Amount'            => (int) $amount,
+                'PartyA'            => $this->client->getShortcode(),
+                'PartyB'            => $phone,
+                'Remarks'           => $remarks,
+                'QueueTimeOutURL'   => $this->callbackUrl('/api/payments/mpesa-b2c-timeout'),
+                'ResultURL'         => $this->callbackUrl('/api/payments/mpesa-b2c-callback'),
+                'Occasion'          => $occasion,
             ];
 
-            $response = $this->makeRequest($url, $payload, $accessToken);
+            $response = $this->client->post('/mpesa/b2c/v1/paymentrequest', $payload);
 
-            // Log the request
-            $this->logTransaction($phone, $amount, $response);
+            $originatorId = $response['OriginatorConversationID'] ?? null;
+            $conversationId = $response['ConversationID'] ?? null;
+            $responseCode = $response['ResponseCode'] ?? '1';
 
-            if (isset($response['ResponseCode']) && $response['ResponseCode'] === '0') {
-                return [
-                    'status' => 'success',
-                    'message' => 'Payment request sent successfully',
-                    'transaction_ref' => $response['ConversationID'],
-                    'originator_conversation_id' => $response['OriginatorConversationID'],
-                    'response' => $response
-                ];
-            } else {
-                throw new Exception($response['ResponseDescription'] ?? 'Payment request failed');
+            $this->recordDisbursement($data, $phone, $amount, $commandId, $originatorId, $conversationId, $payload, $response);
+
+            if ($responseCode !== '0') {
+                throw new Exception($response['ResponseDescription'] ?? 'B2C request failed');
             }
 
-        } catch (Exception $e) {
-            $this->logError("B2C Payment failed: " . $e->getMessage());
             return [
-                'status' => 'failed',
-                'message' => $e->getMessage()
+                'status' => 'success',
+                'message' => 'Payment request sent successfully',
+                'transaction_ref' => $conversationId,
+                'originator_conversation_id' => $originatorId,
+                'response' => $response,
+            ];
+        } catch (Exception $e) {
+            error_log('[MpesaB2CService] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'transaction_ref' => null,
+                'originator_conversation_id' => null,
+                'response' => null,
             ];
         }
     }
 
     /**
-     * Check M-Pesa account balance
+     * Ask M-Pesa for the paybill account balance. The actual balance arrives
+     * asynchronously via the Result callback; this only submits the request and
+     * returns whether it was accepted. Callers must not treat this as a
+     * synchronous balance figure.
      */
     public function checkAccountBalance()
     {
         try {
-            $accessToken = $this->getAccessToken();
-
-            $url = $this->baseUrl . '/mpesa/accountbalance/v1/query';
-
             $payload = [
-                'Initiator' => $this->initiatorName,
-                'SecurityCredential' => $this->securityCredential,
-                'CommandID' => 'AccountBalance',
-                'PartyA' => $this->shortcode,
-                'IdentifierType' => '4', // 4 for organization shortcode
-                'Remarks' => 'Balance query',
-                'QueueTimeOutURL' => $this->queueTimeoutUrl,
-                'ResultURL' => BASE_URL . '/api/payments/balance-callback.php'
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'AccountBalance',
+                'PartyA'             => $this->client->getShortcode(),
+                'IdentifierType'     => 4,
+                'Remarks'            => 'Balance check before disbursement',
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
             ];
-
-            $response = $this->makeRequest($url, $payload, $accessToken);
-
-            // Balance will come via callback, return pending status
-            return [
-                'status' => 'pending',
-                'message' => 'Balance query initiated',
-                'conversation_id' => $response['ConversationID'] ?? null
-            ];
-
+            $response = $this->client->post('/mpesa/accountbalance/v1/query', $payload);
+            return ($response['ResponseCode'] ?? '1') === '0';
         } catch (Exception $e) {
-            $this->logError("Balance check failed: " . $e->getMessage());
-            return 0; // Return 0 if can't check balance
+            error_log('[MpesaB2CService] balance check error: ' . $e->getMessage());
+            return false;
         }
     }
 
     /**
-     * Get M-Pesa access token
+     * Record the B2C initiation for callback matching.
      */
-    private function getAccessToken()
+    private function recordDisbursement(array $data, string $phone, float $amount, string $commandId, $originatorId, $conversationId, array $requestPayload, array $response): void
     {
-        $url = $this->baseUrl . '/oauth/v1/generate?grant_type=client_credentials';
+        try {
+            $this->getDb()->prepare(
+                "INSERT INTO disbursement_transactions
+                    (disbursement_type, payroll_id, payslip_id, refund_request_id, recipient_id, recipient_name,
+                     payment_purpose, source_financial_account_id, idempotency_reference, amount, phone_number, channel, conversation_id, originator_conversation_id,
+                     transaction_ref, status, result_description, callback_data, created_at)
+                 VALUES (:dtype, :payroll_id, :payslip_id, :refund_request_id, :recipient_id, :recipient_name,
+                         :purpose, :source_account_id, :idempotency_reference, :amount, :phone, 'mpesa_b2c', :conv, :originator,
+                         :txref, 'pending', :desc, :callback, NOW())"
+            )->execute([
+                'dtype'       => $data['disbursement_type'] ?? 'salary',
+                'payroll_id'  => $data['payroll_id'] ?? null,
+                'payslip_id'  => $data['payslip_id'] ?? null,
+                'refund_request_id' => $data['refund_request_id'] ?? null,
+                'recipient_id' => $data['recipient_id'] ?? null,
+                'recipient_name' => $data['recipient_name'] ?? null,
+                'purpose' => $data['payment_purpose'] ?? ($data['disbursement_type'] ?? 'operations'),
+                'source_account_id' => $data['source_financial_account_id'] ?? null,
+                'idempotency_reference' => $data['idempotency_reference'] ?? null,
+                'amount'      => $amount,
+                'phone'       => $phone,
+                'conv'        => $conversationId,
+                'originator'  => $originatorId,
+                'txref'       => $conversationId,
+                'desc'        => $response['ResponseDescription'] ?? null,
+                'callback'    => json_encode($response),
+            ]);
 
-        $credentials = base64_encode($this->consumerKey . ':' . $this->consumerSecret);
-
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Basic ' . $credentials]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if ($httpCode !== 200) {
-            throw new Exception("Failed to get access token. HTTP Code: $httpCode");
+            $this->getDb()->prepare(
+                "INSERT INTO mpesa_transactions
+                    (mpesa_code, student_id, amount, transaction_date, phone_number,
+                     bill_ref_number, status, transaction_type, raw_callback, webhook_data, created_at)
+                 VALUES (:code, NULL, :amount, NOW(), :phone, :billref, 'pending', 'B2C', :raw, :webhook, NOW())
+                 ON DUPLICATE KEY UPDATE webhook_data = VALUES(webhook_data)"
+            )->execute([
+                'code'    => 'B2C-' . ($originatorId ?: bin2hex(random_bytes(6))),
+                'amount'  => $amount,
+                'phone'   => $phone,
+                'billref' => $data['recipient_name'] ?? 'B2C-' . $commandId,
+                'raw'     => json_encode($requestPayload),
+                'webhook' => json_encode($response),
+            ]);
+        } catch (Exception $e) {
+            error_log('[MpesaB2CService] recordDisbursement error: ' . $e->getMessage());
         }
-
-        $result = json_decode($response, true);
-
-        if (!isset($result['access_token'])) {
-            throw new Exception("Access token not found in response");
-        }
-
-        return $result['access_token'];
     }
 
-    /**
-     * Make API request to M-Pesa
-     */
-    private function makeRequest($url, $payload, $accessToken)
+    private function callbackUrl(string $endpoint): string
     {
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $accessToken
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        $result = json_decode($response, true);
-
-        if ($httpCode !== 200) {
-            throw new Exception("API request failed. HTTP Code: $httpCode. Response: " . ($result['errorMessage'] ?? $response));
-        }
-
-        return $result;
-    }
-
-    /**
-     * Generate security credential (encrypt initiator password)
-     */
-    private function generateSecurityCredential()
-    {
-        // In production, you need M-Pesa public certificate
-        // Download from: https://developer.safaricom.co.ke/Documentation
-
-        $certPath = __DIR__ . '/../../../config/mpesa_production_cert.cer';
-
-        if (!file_exists($certPath)) {
-            // For sandbox, return base64 encoded password
-            return base64_encode($this->initiatorPassword);
-        }
-
-        $publicKey = file_get_contents($certPath);
-        openssl_public_encrypt($this->initiatorPassword, $encrypted, $publicKey, OPENSSL_PKCS1_PADDING);
-
-        return base64_encode($encrypted);
-    }
-
-    /**
-     * Log transaction
-     */
-    private function logTransaction($phone, $amount, $response)
-    {
-        $logFile = __DIR__ . '/../../../logs/mpesa_b2c.log';
-        $timestamp = date('Y-m-d H:i:s');
-        $message = "[$timestamp] B2C Payment - Phone: $phone, Amount: $amount, Response: " . json_encode($response) . "\n";
-        error_log($message, 3, $logFile);
-    }
-
-    /**
-     * Log errors
-     */
-    private function logError($message)
-    {
-        $logFile = __DIR__ . '/../../../logs/mpesa_b2c_errors.log';
-        $timestamp = date('Y-m-d H:i:s');
-        error_log("[$timestamp] $message\n", 3, $logFile);
+        $base = defined('MPESA_CALLBACK_BASE_URL') && MPESA_CALLBACK_BASE_URL !== ''
+            ? MPESA_CALLBACK_BASE_URL
+            : (defined('BASE_URL') ? BASE_URL : '');
+        return $base !== '' ? $base . $endpoint : $endpoint;
     }
 }

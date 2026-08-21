@@ -2,7 +2,69 @@
    Kingsway Public Website — Interactions & Animations
    ============================================================================= */
 
+/* PublicUI — shared scroll-reveal + count-up observers. Public page controllers
+ * render their content asynchronously from the REST API, so after injecting
+ * markup they re-call PublicUI.observeReveals(container) and
+ * PublicUI.observeCounters(container) to wire up the newly added elements. */
+window.PublicUI = (() => {
+  'use strict';
+
+  function observeReveals(root) {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    (root || document).querySelectorAll('.reveal').forEach(el => io.observe(el));
+  }
+
+  function observeCounters(root) {
+    const counterIO = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        const el = e.target;
+        const target = +el.dataset.target;
+        const suffix = el.dataset.suffix || '';
+        const prefix = el.dataset.prefix || '';
+        const duration = 2000;
+        const start = performance.now();
+        counterIO.unobserve(el);
+        const tick = (now) => {
+          const elapsed = Math.min(1, (now - start) / duration);
+          const ease = 1 - Math.pow(1 - elapsed, 4);
+          el.textContent = prefix + Math.round(ease * target).toLocaleString() + suffix;
+          if (elapsed < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    }, { threshold: 0.5 });
+    (root || document).querySelectorAll('[data-target]').forEach(el => counterIO.observe(el));
+  }
+
+  return { observeReveals, observeCounters };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
+
+  // WebAuthn wire-format helpers. The PHP relying-party library returns
+  // base64url values; the browser API requires ArrayBuffers.
+  window.arrayBufferToBase64 = (buffer) => {
+    let binary = ''; const bytes = new Uint8Array(buffer);
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    return btoa(binary);
+  };
+  window.recursiveBase64StrToArrayBuffer = (value, key = '') => {
+    if (Array.isArray(value)) return value.map((v) => window.recursiveBase64StrToArrayBuffer(v, key));
+    if (value && typeof value === 'object') { Object.keys(value).forEach((k) => { value[k] = window.recursiveBase64StrToArrayBuffer(value[k], k); }); return value; }
+    if (typeof value === 'string' && ['challenge', 'id'].includes(key)) {
+      const normalized = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+      const binary = atob(normalized); const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    }
+    return value;
+  };
+
+  window.PublicUI.observeReveals(document);
+  window.PublicUI.observeCounters(document);
 
   /* ── Navbar scroll behaviour ──────────────────────────────────────────────── */
   const nav = document.querySelector('.site-nav');
@@ -12,35 +74,28 @@ document.addEventListener('DOMContentLoaded', () => {
     onScroll();
   }
 
-  /* ── Scroll reveal ────────────────────────────────────────────────────────── */
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
-  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-
-  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
-
-  /* ── Animated counters ────────────────────────────────────────────────────── */
-  const counterIO = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (!e.isIntersecting) return;
-      const el = e.target;
-      const target = +el.dataset.target;
-      const suffix = el.dataset.suffix || '';
-      const prefix = el.dataset.prefix || '';
-      const duration = 2000;
-      const start = performance.now();
-      counterIO.unobserve(el);
-      const tick = (now) => {
-        const elapsed = Math.min(1, (now - start) / duration);
-        const ease = 1 - Math.pow(1 - elapsed, 4);
-        el.textContent = prefix + Math.round(ease * target).toLocaleString() + suffix;
-        if (elapsed < 1) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-  }, { threshold: 0.5 });
-
-  document.querySelectorAll('[data-target]').forEach(el => counterIO.observe(el));
+  /* ── Announcement ticker — render + pause on hover (shared site-wide) ───── */
+  // Markup lives in public/layout/header.php; this fills #site-ticker on every
+  // public page. Items are duplicated so the CSS marquee (translateX(-50%))
+  // loops seamlessly.
+  async function renderSiteTicker() {
+    const track = document.getElementById('site-ticker');
+    if (!track || !window.PublicSite) return;
+    try {
+      const data = await window.PublicSite.get('news', { limit: 3 }, { tier: 'dynamic' });
+      const list = window.PublicSite.items(data).slice(0, 3);
+      if (!list.length) return;
+      const base = String(window.APP_BASE || '').replace(/\/+$/, '');
+      const S = window.PublicSite.escapeHtml;
+      const spans = list.map((n) =>
+        '<span><a href="' + base + '/news-article.php?id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
+      ).join('');
+      track.innerHTML = spans + spans;
+    } catch (err) {
+      if (window.KINGSWAY_DEBUG) console.warn('[ticker] render failed:', err);
+    }
+  }
+  renderSiteTicker();
 
   /* ── Announcement ticker pause on hover ──────────────────────────────────── */
   const ticker = document.querySelector('.ticker-track');
@@ -112,14 +167,271 @@ document.addEventListener('DOMContentLoaded', () => {
       setSpinnerLabel('Verifying credentials…');
       try {
         const res = await API.auth.login(username, password, rememberMe);
+
+        // ── 2FA challenge ─────────────────────────────────────────────
+        if (res && res.requires_2fa) {
+          // Hide login modal, show 2FA modal
+          const loginModal = bootstrap.Modal.getInstance(document.getElementById('loginModal'));
+          loginModal?.hide();
+          await showTFAVerification(res, username, password, rememberMe);
+          return;
+        }
+        // ── end 2FA challenge ──────────────────────────────────────────
+
         if (!res?.token) throw new Error(res?.message || 'Login failed. Check your credentials.');
-        // Token received — keep the spinner visible while the dashboard loads.
-        // The browser unloads this page on redirect, so we don't reset here.
         setSpinnerLabel('Preparing your dashboard…');
       } catch (err) {
         showLoginErr(err.message || 'Login failed. Please try again.');
       }
     });
+  }
+
+  /* ── 2FA Verification ───────────────────────────────────────────────────── */
+  let tfaState = null; // { userId, method, challengeToken, rememberMe }
+
+  window.showTFAVerification = async function (res, username, password, rememberMe) {
+    tfaState = { userId: res.user_id, method: res.method, challengeToken: res.challenge_token, username, password, rememberMe, onComplete: res.onComplete };
+
+    const modalEl = document.getElementById('tfaModal');
+    const methodDesc = document.getElementById('tfaMethodDesc');
+    const codeLabel  = document.getElementById('tfaCodeLabel');
+    const resendRow  = document.getElementById('tfaResend');
+    const resendBtn  = document.getElementById('tfaResendBtn');
+    const tfaRecoveryBtn = document.getElementById('tfaRecoveryBtn');
+    const tfaCode = document.getElementById('tfaCode');
+    const tfaError = document.getElementById('tfaError');
+    const tfaErrorText = document.getElementById('tfaErrorText');
+    const passkeyBtn = document.getElementById('tfaPasskeyBtn');
+    const picker = document.getElementById('tfaMethodPicker');
+    const select = document.getElementById('tfaMethodSelect');
+    const methods = Array.isArray(res.available_methods) ? res.available_methods : [res.method];
+    if (methods.length > 1 && picker && select) {
+      const labels = {totp:'Authenticator app',email:'Email',sms:'SMS',whatsapp:'WhatsApp'};
+      select.innerHTML = methods.map(m => `<option value="${m}" ${m === res.method ? 'selected' : ''}>${labels[m] || m}</option>`).join('');
+      picker.classList.remove('d-none');
+      select.onchange = async () => {
+        tfaState.method = select.value;
+        passkeyBtn?.classList.toggle('d-none', tfaState.method !== 'passkey');
+        tfaCode?.classList.toggle('d-none', tfaState.method === 'passkey');
+        try { await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: tfaState.method }); showTFASuccess('Verification method selected.'); } catch (e) { showTFAError(e.message || 'Unable to select method'); }
+      };
+    } else if (picker) picker.classList.add('d-none');
+    passkeyBtn?.classList.toggle('d-none', res.method !== 'passkey');
+    tfaCode?.classList.toggle('d-none', res.method === 'passkey');
+
+    // Reset
+    tfaCode.value = '';
+    tfaError.classList.add('d-none');
+    hideTFASpinner();
+
+    if (res.method === 'totp') {
+      methodDesc.textContent = 'Enter the 6-digit verification code from your authenticator app.';
+      codeLabel.textContent = 'Authentication Code (from app)';
+      resendRow.classList.add('d-none');
+      tfaRecoveryBtn.classList.remove('d-none');
+    } else if (res.method === 'email') {
+      methodDesc.textContent = 'A verification code has been sent to your email address.';
+      codeLabel.textContent = 'Email Verification Code';
+      resendRow.classList.remove('d-none');
+      tfaRecoveryBtn.classList.add('d-none');
+      startTFACountdown();
+      // Auto-send OTP
+      try {
+        await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
+      } catch (_) { /* ignore — code may already be sent */ }
+    } else if (res.method === 'sms' || res.method === 'whatsapp') {
+      methodDesc.textContent = 'A verification code has been sent to your phone.';
+      codeLabel.textContent = res.method === 'whatsapp' ? 'WhatsApp Verification Code' : 'SMS Verification Code';
+      resendRow.classList.remove('d-none');
+      tfaRecoveryBtn.classList.add('d-none');
+      startTFACountdown();
+      try {
+        await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: res.challenge_token });
+      } catch (_) { /* ignore */ }
+    }
+
+    const tfaModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+    tfaModal.show();
+
+    // Focus the input after modal opens
+    modalEl.addEventListener('shown.bs.modal', () => tfaCode?.focus(), { once: true });
+  };
+
+  // Submit 2FA code
+  document.getElementById('tfaPasskeyBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    try {
+      const start = await window.callAPI?.('/twofactor/challenge', 'POST', { challenge_token: tfaState.challengeToken, method: 'passkey' });
+      const publicKey = start?.public_key || start?.data?.public_key;
+      if (!publicKey || !navigator.credentials?.get) throw new Error('Passkeys are not supported by this browser.');
+      const credential = await navigator.credentials.get({ publicKey: recursiveBase64StrToArrayBuffer(publicKey) });
+      const encoded = {
+        id: credential.id,
+        clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+        authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
+        signature: arrayBufferToBase64(credential.response.signature),
+        userHandle: credential.response.userHandle ? arrayBufferToBase64(credential.response.userHandle) : null,
+      };
+      const verified = await window.callAPI?.('/twofactor/verify', 'POST', { challenge_token: tfaState.challengeToken, method: 'passkey', credential: encoded });
+      if (!verified?.verified) throw new Error('Passkey verification failed.');
+      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe, tfaState.challengeToken);
+      if (!loginRes?.token) throw new Error(loginRes?.message || 'Login failed');
+      if (typeof tfaState.onComplete === 'function') { const done = tfaState.onComplete; tfaState = null; bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide(); done(loginRes); return; }
+      window.location.href = (window.APP_BASE || '') + '/home.php';
+    } catch (e) { showTFAError(e.message || 'Passkey verification failed'); }
+  });
+
+  document.getElementById('tfaSubmitBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    const code = document.getElementById('tfaCode')?.value?.trim();
+    if (!code || code.length < 4) {
+      showTFAError('Please enter a valid verification code.');
+      return;
+    }
+
+    showTFASpinner();
+    try {
+      let currentMethod = document.getElementById('tfaRecoveryBtn')?.classList.contains('d-none')
+        ? tfaState.method : tfaState.method;
+
+      // If the input looks like a backup code (9 chars with dash), use backup method
+      const isBackup = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/i.test(code);
+      const method = isBackup ? 'backup' : currentMethod;
+
+      // Verify the code
+      const verifyRes = await window.callAPI?.('/twofactor/verify', 'POST', {
+        code,
+        challenge_token: tfaState.challengeToken,
+        method,
+      });
+
+      if (!verifyRes?.verified) {
+        showTFAError('Invalid verification code. Please try again.');
+        hideTFASpinner();
+        return;
+      }
+
+      // 2FA passed — complete the login
+      document.getElementById('tfaBtnText').textContent = 'Completing login…';
+      const loginRes = await window.API.auth.complete2FALogin(tfaState.userId, tfaState.rememberMe, tfaState.challengeToken);
+      if (!loginRes?.token) throw new Error(loginRes?.message || 'Login failed');
+
+      if (typeof tfaState.onComplete === 'function') {
+        const complete = tfaState.onComplete;
+        tfaState = null;
+        bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+        complete(loginRes);
+        return;
+      }
+
+      // Close 2FA modal
+      bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+
+      // Redirect to dashboard
+      const dashboardInfo = window.AuthContext?.getDashboardInfo?.();
+      const redirect = dashboardInfo?.key
+        ? (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key
+        : (window.APP_BASE || '') + '/home.php';
+      window.location.href = redirect;
+    } catch (err) {
+      showTFAError(err.message || 'Verification failed. Please try again.');
+      hideTFASpinner();
+    }
+  });
+
+  window.requestTFAForSession = function (res) {
+    return new Promise((resolve, reject) => {
+      window.showTFAVerification({ ...res, onComplete: resolve }, '', '', true).catch(reject);
+    });
+  };
+
+  // Back to login
+  document.getElementById('tfaBackBtn')?.addEventListener('click', () => {
+    bootstrap.Modal.getInstance(document.getElementById('tfaModal'))?.hide();
+    tfaState = null;
+    const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+    loginModal.show();
+    resetLoginBtn();
+  });
+
+  // Recovery code toggle
+  document.getElementById('tfaRecoveryBtn')?.addEventListener('click', () => {
+    const codeInput = document.getElementById('tfaCode');
+    const label  = document.getElementById('tfaCodeLabel');
+    const desc   = document.getElementById('tfaMethodDesc');
+    const btn    = document.getElementById('tfaRecoveryBtn');
+    codeInput.placeholder = 'XXXX-XXXX';
+    codeInput.maxLength = 9;
+    codeInput.inputMode = 'text';
+    label.textContent = 'Recovery Code';
+    desc.textContent = 'Enter one of your backup recovery codes.';
+    btn.classList.add('d-none');
+    document.getElementById('tfaResend')?.classList.add('d-none');
+    codeInput.focus();
+  });
+
+  // Resend code
+  document.getElementById('tfaResendBtn')?.addEventListener('click', async () => {
+    if (!tfaState) return;
+    try {
+      await window.callAPI?.('/twofactor/challenge', 'POST', {
+        challenge_token: tfaState.challengeToken,
+      });
+      startTFACountdown();
+      showTFASuccess('A new code has been sent.');
+    } catch (_) {
+      showTFAError('Failed to resend. Please try again.');
+    }
+  });
+
+  // Enter key submits in the 2FA code field
+  document.getElementById('tfaCode')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('tfaSubmitBtn')?.click();
+  });
+
+  function showTFAError(msg) {
+    const el = document.getElementById('tfaError');
+    const txt = document.getElementById('tfaErrorText');
+    if (el && txt) { el.classList.remove('d-none'); txt.textContent = msg; }
+  }
+
+  function showTFASuccess(msg) {
+    const el = document.getElementById('tfaError');
+    const txt = document.getElementById('tfaErrorText');
+    if (el && txt) { el.classList.remove('d-none'); el.classList.remove('alert-danger'); el.classList.add('alert-success'); txt.textContent = msg; }
+  }
+
+  function showTFASpinner() {
+    document.getElementById('tfaBtnText')?.classList.add('d-none');
+    document.getElementById('tfaSpinner')?.classList.remove('d-none');
+    document.getElementById('tfaSubmitBtn')?.setAttribute('disabled', '');
+  }
+
+  function hideTFASpinner() {
+    document.getElementById('tfaBtnText')?.classList.remove('d-none');
+    document.getElementById('tfaSpinner')?.classList.add('d-none');
+    document.getElementById('tfaSubmitBtn')?.removeAttribute('disabled');
+  }
+
+  function startTFACountdown() {
+    const resendBtn = document.getElementById('tfaResendBtn');
+    const resendTimer = document.getElementById('tfaResendTimer');
+    const countdownEl = document.getElementById('tfaCountdown');
+    if (!resendBtn || !resendTimer || !countdownEl) return;
+
+    resendBtn.classList.add('d-none');
+    resendTimer.classList.remove('d-none');
+    let seconds = 60;
+    countdownEl.textContent = seconds;
+    const interval = setInterval(() => {
+      seconds--;
+      countdownEl.textContent = seconds;
+      if (seconds <= 0) {
+        clearInterval(interval);
+        resendBtn.classList.remove('d-none');
+        resendTimer.classList.add('d-none');
+      }
+    }, 1000);
   }
 
   /* ── Smooth scroll for anchor links ─────────────────────────────────────────── */
@@ -151,130 +463,3 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 });
-
-/* =============================================================================
-   PublicCache — hybrid SSR + web-storage cache
-   -----------------------------------------------------------------------------
-   Public pages are server-rendered (SSR) at request time — great for SEO and
-   for visitors with no JS. On top of that we progressively enhance with the
-   existing js/core DataStore stack (memory + IndexedDB + stale-while-revalidate)
-   already used by the admin SPA, plus the service worker registered in
-   public/layout/footer.php for offline/bfcache.
-
-   Design rule (important): the JS layer NEVER rewrites the rich SSR layout.
-   The news/downloads/jobs pages ship carefully designed cards (featured post,
-   pagination, search, colour tags). Re-painting them from JS would regress the
-   UI. Instead PublicCache:
-     1. PRIMES the cache — fetches each resource through DataStore so revisits
-        and offline reads are instant, and so the service worker can cache it.
-     2. COMPARES the live payload's signature (count + newest id) against the
-        signature cached on the last visit (localStorage — a web-storage
-        primitive the project already uses). When the server has newer content it
-        shows a small non-destructive "Updates available — reload" banner. The
-        user reloads to get fresh SSR. No silent in-place repaint of the
-        curated markup.
-   Static-only tables (leadership, programs, facilities, values, history,
-   benefits, gallery) have no /api/website endpoint, so they are intentionally
-   NOT in RESOURCES — SSR + service-worker cache covers them.
-   ========================================================================== */
-(function () {
-  'use strict';
-
-  // Read-only public showcase resources. Each has a real /api/website/<res> GET
-  // endpoint that now responds to anonymous visitors (AuthMiddleware allows the
-  // GET; WebsiteController opens website_view on read for null users). Writes
-  // remain staff-gated. Keep this list in sync with the publicEndpoints block
-  // in api/middleware/AuthMiddleware.php.
-  const RESOURCES = [
-    'news', 'events', 'downloads', 'jobs',
-    'leadership', 'programs', 'facilities', 'history',
-    'values', 'departments', 'steps', 'benefits',
-    'gallery', 'categories', 'content', 'settings'
-  ];
-
-  // 24h localStorage lifetime for the "last seen signature" per resource.
-  const SIG_TTL = 24 * 60 * 60 * 1000;
-
-  function sigKey(res)   { return 'pc_sig_' + res; }
-  function sigOf(items)   { return (items ? items.length : 0) + ':' + (items && items[0] ? items[0].id : ''); }
-
-  function getStoredSig(res) {
-    try {
-      const raw = localStorage.getItem(sigKey(res));
-      if (!raw) return null;
-      const obj = JSON.parse(raw);
-      if (!obj || Date.now() > obj.expires) { localStorage.removeItem(sigKey(res)); return null; }
-      return obj.sig;
-    } catch (e) { return null; }
-  }
-  function setStoredSig(res, sig) {
-    try { localStorage.setItem(sigKey(res), JSON.stringify({ sig, expires: Date.now() + SIG_TTL })); }
-    catch (e) { /* storage may be unavailable (private mode) — non-fatal */ }
-  }
-
-  function showUpdateBanner() {
-    if (document.getElementById('pc-update-bar')) return;
-    const bar = document.createElement('div');
-    bar.id = 'pc-update-bar';
-    bar.className = 'pc-update-bar';
-    bar.setAttribute('role', 'status');
-    bar.innerHTML =
-      '<span><i class="bi bi-arrow-clockwise me-2"></i>New content is available.</span>' +
-      '<button type="button" class="btn btn-sm btn-light">Reload</button>';
-    bar.querySelector('button').addEventListener('click', () => location.reload());
-    document.body.appendChild(bar);
-  }
-
-  // Per-resource renderers are intentionally OMITTED: we do not overwrite SSR.
-
-  async function fetchPublicResource(res) {
-    const base = String(window.APP_BASE || '').replace(/\/+$/, '');
-    const response = await fetch(`${base}/api/website/${encodeURIComponent(res)}`, {
-      method: 'GET',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Public resource ${res} returned ${response.status}`);
-    }
-
-    const payload = await response.json();
-    if (payload && payload.success === false) {
-      throw new Error(payload.message || `Public resource ${res} failed`);
-    }
-    return payload && payload.data !== undefined ? payload.data : payload;
-  }
-
-  async function hydrate(res) {
-    if (!window.DataStore || !window.DataStore.fetchPage) return; // SSR stays source of truth
-    try {
-      const data = await window.DataStore.fetchPage(res, {
-        fetcher: () => fetchPublicResource(res),
-        storeName: 'public_' + res,
-        ttl: 5 * 60 * 1000,            // 5 min cache
-        strategy: 'stale-while-revalidate'
-      });
-      const items = Array.isArray(data) ? data : (data && data.items) || [];
-      const sig = sigOf(items);
-      const prev = getStoredSig(res);
-      if (prev !== null && prev !== sig) showUpdateBanner();
-      setStoredSig(res, sig); // remember what we've now "seen"
-      document.dispatchEvent(new CustomEvent('public:cache:updated', { detail: { resource: res, count: items.length } }));
-    } catch (e) {
-      // Network/API failure: keep SSR content, do not throw or interrupt login.
-      if (window.console && window.KINGSWAY_DEBUG) console.debug('PublicCache hydration skipped for', res, e);
-    }
-  }
-
-  function init() {
-    RESOURCES.forEach(res => hydrate(res));
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-  window.PublicCache = { init, hydrate, refresh: init, resources: RESOURCES };
-})();

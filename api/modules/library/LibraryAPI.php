@@ -44,7 +44,8 @@ class LibraryAPI extends BaseAPI
                 'pending_fines_kes' => $finesPending,
             ]]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -66,7 +67,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'data' => $rows]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -84,7 +86,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'data' => ['id' => $id], 'message' => 'Category created']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -127,7 +130,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'data' => $books]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -146,7 +150,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'data' => $book]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -183,7 +188,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'data' => ['id' => $id], 'message' => 'Book added successfully']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -215,7 +221,8 @@ class LibraryAPI extends BaseAPI
 
             return $this->response(['status' => 'success', 'message' => 'Book updated']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -231,7 +238,8 @@ class LibraryAPI extends BaseAPI
             $this->db->prepare("UPDATE library_books SET deleted_at=NOW() WHERE id=:id")->execute([':id' => $id]);
             return $this->response(['status' => 'success', 'message' => 'Book removed from library']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -260,8 +268,8 @@ class LibraryAPI extends BaseAPI
             $sql = "SELECT li.*,
                         b.title AS book_title, b.isbn,
                         CASE li.borrower_type
-                            WHEN 'student' THEN CONCAT(s.first_name,' ',s.last_name)
-                            WHEN 'staff'   THEN CONCAT(st.first_name,' ',st.last_name)
+                            WHEN 'student' THEN CONCAT(sp.first_name,' ',sp.last_name)
+                            WHEN 'staff'   THEN CONCAT(stp.first_name,' ',stp.last_name)
                         END AS borrower_name,
                         CASE li.borrower_type
                             WHEN 'student' THEN s.admission_no
@@ -271,7 +279,9 @@ class LibraryAPI extends BaseAPI
                     FROM library_issues li
                     JOIN library_books b ON b.id = li.book_id
                     LEFT JOIN students s  ON li.borrower_type='student' AND s.id=li.borrower_id
+                    LEFT JOIN persons sp  ON sp.id = s.person_id
                     LEFT JOIN staff st    ON li.borrower_type='staff'   AND st.id=li.borrower_id
+                    LEFT JOIN persons stp ON stp.id = st.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY li.issued_date DESC
                     LIMIT 500";
@@ -280,7 +290,8 @@ class LibraryAPI extends BaseAPI
             $stmt->execute($params);
             return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -328,7 +339,8 @@ class LibraryAPI extends BaseAPI
             return $this->response(['status' => 'success', 'data' => ['issue_id' => $issueId], 'message' => 'Book issued successfully']);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -368,7 +380,8 @@ class LibraryAPI extends BaseAPI
             return $this->response(['status' => 'success', 'message' => 'Book returned' . ($daysOverdue > 0 ? " — fine of KES ".number_format($daysOverdue * self::FINE_PER_DAY, 2)." applied" : "")]);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollBack();
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -389,14 +402,16 @@ class LibraryAPI extends BaseAPI
             $sql = "SELECT f.*, li.issued_date, li.due_date, li.returned_date,
                         b.title AS book_title,
                         CASE li.borrower_type
-                            WHEN 'student' THEN CONCAT(s.first_name,' ',s.last_name)
-                            WHEN 'staff'   THEN CONCAT(st.first_name,' ',st.last_name)
+                            WHEN 'student' THEN CONCAT(sp.first_name,' ',sp.last_name)
+                            WHEN 'staff'   THEN CONCAT(stp.first_name,' ',stp.last_name)
                         END AS borrower_name
                     FROM library_fines f
                     JOIN library_issues li ON li.id = f.issue_id
                     JOIN library_books b   ON b.id  = li.book_id
                     LEFT JOIN students s   ON li.borrower_type='student' AND s.id=li.borrower_id
+                    LEFT JOIN persons sp   ON sp.id = s.person_id
                     LEFT JOIN staff st     ON li.borrower_type='staff'   AND st.id=li.borrower_id
+                    LEFT JOIN persons stp  ON stp.id = st.person_id
                     WHERE " . implode(' AND ', $where) . "
                     ORDER BY f.created_at DESC LIMIT 500";
 
@@ -404,7 +419,8 @@ class LibraryAPI extends BaseAPI
             $stmt->execute($params);
             return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -416,7 +432,8 @@ class LibraryAPI extends BaseAPI
             )->execute([':id' => $fineId]);
             return $this->response(['status' => 'success', 'message' => 'Fine marked as paid']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -428,7 +445,8 @@ class LibraryAPI extends BaseAPI
             )->execute([':by' => $data['waived_by'] ?? null, ':reason' => $data['reason'] ?? null, ':id' => $fineId]);
             return $this->response(['status' => 'success', 'message' => 'Fine waived']);
         } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            error_log('[LibraryAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->errorResponse('An internal error occurred.');
         }
     }
 
@@ -436,8 +454,5 @@ class LibraryAPI extends BaseAPI
     // HELPERS
     // ----------------------------------------------------------------
 
-    private function errorResponse(string $msg, int $code = 500): array
-    {
-        return $this->response(['status' => 'error', 'message' => $msg], $code);
-    }
+    // errorResponse() is inherited from BaseAPI (protected, message/status/errors)
 }

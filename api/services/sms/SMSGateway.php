@@ -26,6 +26,10 @@ class SMSGateway
             'sender_id' => defined('SMS_SENDER_ID') ? SMS_SENDER_ID : '',
             'shortcode' => defined('SMS_SHORTCODE') ? SMS_SHORTCODE : '',
             'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
+            'whatsapp_api_url' => defined('SMS_WHATSAPP_API_URL') ? SMS_WHATSAPP_API_URL : 'https://chat.africastalking.com',
+            'account_sid' => defined('TWILIO_ACCOUNT_SID') ? TWILIO_ACCOUNT_SID : '',
+            'auth_token' => defined('TWILIO_AUTH_TOKEN') ? TWILIO_AUTH_TOKEN : '',
+            'from' => defined('TWILIO_FROM') ? TWILIO_FROM : '',
         ];
         $this->config = array_merge($defaults, $config);
         $this->provider = $this->initializeProvider();
@@ -206,30 +210,16 @@ class AfricasTalkingProvider implements SMSProvider
 
             return false;
         } catch (\Exception $e) {
-            $errorMsg = $e->getMessage();
-            $this->logSmsResponse($to, "EXCEPTION: " . $errorMsg);
-
-            // Don't retry on SSL errors - they indicate temporary connection issues
-            // SSL error 35 = SSL handshake error (likely temporary)
-            if (stripos($errorMsg, 'SSL') !== false || stripos($errorMsg, 'ssl3_get_record') !== false) {
-                $this->logSmsResponse($to, "SSL error detected - retrying with different sender ID may help");
-            }
-
+            error_log('[SMSGateway] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return false;
         }
     }
+
     private function logSmsResponse($to, $result)
     {
         $logFile = __DIR__ . '/../../../logs/sms_responses.log';
         $timestamp = date('Y-m-d H:i:s');
-
-        // Handle both objects and arrays
-        if (is_object($result)) {
-            $resultStr = json_encode((array) $result);
-        } else {
-            $resultStr = json_encode($result);
-        }
-
+        $resultStr = is_string($result) ? $result : json_encode($result);
         $logMessage = "[$timestamp] To: $to | Response: " . $resultStr . "\n";
         @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }
@@ -279,7 +269,7 @@ class AfricasTalkingProvider implements SMSProvider
      */
     public function sendWhatsApp($to, $message, $media = null)
     {
-        $url = 'https://chat.africastalking.com/whatsapp/message/send';
+        $url = rtrim((string) ($this->config['whatsapp_api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
         $apiKey = $this->config['api_key'];
         $username = $this->config['username'];
         $waNumber = $this->config['wa_number'] ?? null;

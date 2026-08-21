@@ -221,13 +221,16 @@ class UsersAPI extends BaseAPI
     {
         // Never expose password hashes through the user-management API.
         $stmt = $this->db->prepare(
-            'SELECT u.id, u.username, u.email, u.first_name, u.last_name,
-                    u.role_id, r.name AS role_name, u.status, u.last_login,
+            'SELECT u.id, u.username, p.email, p.first_name, p.last_name,
+                    r.id AS role_id, r.name AS role_name, u.status, u.last_login,
                     u.password_changed_at, u.created_at, u.updated_at,
                     u.failed_login_attempts, u.account_locked_until,
                     u.password_expires_at, u.force_password_change, u.is_test_user
              FROM users u
-             LEFT JOIN roles r ON r.id = u.role_id
+             LEFT JOIN persons p ON p.id = u.person_id
+             LEFT JOIN roles r ON r.id = (
+                 SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
+             )
              WHERE u.id = ?'
         );
         $stmt->execute([$id]);
@@ -241,13 +244,16 @@ class UsersAPI extends BaseAPI
     public function list($data = [])
     {
         // List all users (optionally filter by status, role, etc.)
-        $sql = 'SELECT u.id, u.username, u.email, u.first_name, u.last_name,
-                       u.role_id, r.name AS role_name, u.status, u.last_login,
+        $sql = 'SELECT u.id, u.username, p.email, p.first_name, p.last_name,
+                       r.id AS role_id, r.name AS role_name, u.status, u.last_login,
                        u.password_changed_at, u.created_at, u.updated_at,
                        u.failed_login_attempts, u.account_locked_until,
                        u.password_expires_at, u.force_password_change, u.is_test_user
                 FROM users u
-                LEFT JOIN roles r ON r.id = u.role_id';
+                LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN roles r ON r.id = (
+                    SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
+                )';
         $params = [];
         if (isset($data['status'])) {
             $sql .= ' WHERE u.status = ?';
@@ -328,28 +334,39 @@ class UsersAPI extends BaseAPI
         $this->db->beginTransaction();
 
         try {
-            // STEP 1: Create user record with PRIMARY role only
-            // The primary role goes in users.role_id
             $primaryRoleId = $roleIds[0];
 
-            // Allow optional user fields to be set at creation time
-            $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, last_login, password_changed_at, failed_login_attempts, account_locked_until, password_expires_at, force_password_change, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            // STEP 1: Create the person record (identity: names + email)
+            $personId = $this->nextId('persons');
+            $personStmt = $this->db->prepare(
+                'INSERT INTO persons (id, first_name, middle_name, last_name, email)
+                 VALUES (?, ?, ?, ?, ?)'
+            );
+            $personOk = $personStmt->execute([
+                $personId,
+                $validatedData['first_name'] ?? '',
+                $data['middle_name'] ?? null,
+                $validatedData['last_name'] ?? '',
+                $validatedData['email'] ?? null,
+            ]);
+            if (!$personOk) {
+                throw new Exception('Person creation failed');
+            }
+
+            // STEP 2: Create user record linked to the person (roles via user_roles)
+            $userId = $this->nextId('users');
+            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
+                $userId,
                 $validatedData['username'],
-                $validatedData['email'],
                 password_hash($validatedData['password'], PASSWORD_DEFAULT),
-                $validatedData['first_name'],
-                $validatedData['last_name'],
-                $primaryRoleId,
+                $personId,
                 $validatedData['status'] ?? 'active',
                 $data['last_login'] ?? null,
                 $data['password_changed_at'] ?? null,
-                $data['failed_login_attempts'] ?? 0,
-                $data['account_locked_until'] ?? null,
-                $data['password_expires_at'] ?? null,
                 $data['force_password_change'] ?? 0
             ]);
 
@@ -357,10 +374,9 @@ class UsersAPI extends BaseAPI
                 throw new Exception('User creation failed');
             }
 
-            $userId = $this->db->lastInsertId();
             error_log("User creation: inserted id=$userId");
 
-            // STEP 2: Assign PRIMARY role and copy its permissions
+            // STEP 3: Assign PRIMARY role and copy its permissions
             // Only the primary role is assigned to user_roles (for consistency)
             $rolesAssigned = 0;
             $roleResult = $this->userRoleManager->assignRole($userId, $primaryRoleId);
@@ -371,7 +387,7 @@ class UsersAPI extends BaseAPI
                 throw new Exception('Failed to assign primary role ' . $primaryRoleId);
             }
 
-            // STEP 2b: If there are ADDITIONAL roles beyond the primary, assign them too
+            // STEP 3b: If there are ADDITIONAL roles beyond the primary, assign them too
             if (count($roleIds) > 1) {
                 for ($i = 1; $i < count($roleIds); $i++) {
                     $additionalRoleId = $roleIds[$i];
@@ -387,7 +403,7 @@ class UsersAPI extends BaseAPI
                 }
             }
 
-            // STEP 3: Override permissions if explicitly provided
+            // STEP 4: Override permissions if explicitly provided
             if (isset($data['permissions']) && is_array($data['permissions'])) {
                 foreach ($data['permissions'] as $perm) {
                     $permData = is_array($perm) ? $perm : ['permission_code' => $perm];
@@ -395,7 +411,7 @@ class UsersAPI extends BaseAPI
                 }
             }
 
-            // STEP 4: Add to staff table (only if front-end provided staff_info). Do NOT auto-create staff without explicit data.
+            // STEP 5: Add to staff table (only if front-end provided staff_info). Do NOT auto-create staff without explicit data.
             $isSystemAdmin = $this->isSystemAdmin($roleIds);
             if (!$isSystemAdmin && isset($data['staff_info']) && is_array($data['staff_info'])) {
                 $staffInfo = $data['staff_info'];
@@ -434,7 +450,7 @@ class UsersAPI extends BaseAPI
                 // We don't throw here to allow non-staff users to be created, but we require explicit staff creation when needed.
             }
 
-            // STEP 5: Audit log
+            // STEP 6: Audit log
             $currentUserId = $this->getCurrentUserId();
             $this->auditLogger->logUserCreate($currentUserId, $userId, $validatedData);
 
@@ -457,7 +473,8 @@ class UsersAPI extends BaseAPI
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("User creation error: " . $e->getMessage());
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
         error_log($e->getTraceAsString());
 
@@ -476,7 +493,8 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Failed to add staff record'];
         } catch (Exception $e) {
             $this->db->rollBack();
-            return ['success' => false, 'error' => $e->getMessage()];
+            error_log('[UsersAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
 
@@ -492,7 +510,8 @@ class UsersAPI extends BaseAPI
         $failed = [];
 
         try {
-            $stmt = $this->db->prepare('INSERT INTO users (username, email, password, first_name, last_name, role_id, status, last_login, password_changed_at, failed_login_attempts, account_locked_until, password_expires_at, force_password_change, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+            $personStmt = $this->db->prepare('INSERT INTO persons (id, first_name, middle_name, last_name, email) VALUES (?, ?, ?, ?, ?)');
+            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
                 // Normalize top-level staff fields into staff_info for each user record
@@ -551,20 +570,29 @@ class UsersAPI extends BaseAPI
                 }
 
                 try {
-                    // Create user
-                    $ok = $stmt->execute([
-                        $userData['username'],
-                        $userData['email'],
-                        password_hash($userData['password'], PASSWORD_DEFAULT),
+                    // Create person record
+                    $personId = $this->nextId('persons');
+                    $personOk = $personStmt->execute([
+                        $personId,
                         $userData['first_name'] ?? '',
+                        $userData['middle_name'] ?? null,
                         $userData['last_name'] ?? '',
-                        $roleIds[0] ?? 1,
+                        $userData['email']
+                    ]);
+                    if (!$personOk) {
+                        throw new Exception('Person creation failed');
+                    }
+
+                    // Create user
+                    $userId = $this->nextId('users');
+                    $ok = $stmt->execute([
+                        $userId,
+                        $userData['username'],
+                        password_hash($userData['password'], PASSWORD_DEFAULT),
+                        $personId,
                         $userData['status'] ?? 'active',
                         $userData['last_login'] ?? null,
                         $userData['password_changed_at'] ?? null,
-                        $userData['failed_login_attempts'] ?? 0,
-                        $userData['account_locked_until'] ?? null,
-                        $userData['password_expires_at'] ?? null,
                         $userData['force_password_change'] ?? 0
                     ]);
 
@@ -572,7 +600,6 @@ class UsersAPI extends BaseAPI
                         throw new Exception('User creation failed');
                     }
 
-                    $userId = $this->db->lastInsertId();
                     $rolesAssigned = 0;
 
                     // Assign roles (auto-copies permissions)
@@ -620,7 +647,7 @@ class UsersAPI extends BaseAPI
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -641,7 +668,7 @@ class UsersAPI extends BaseAPI
         } catch (Exception $e) {
             $this->db->rollBack();
             error_log("Bulk user creation error: " . $e->getMessage());
-            return ['success' => false, 'error' => 'Bulk creation failed: ' . $e->getMessage()];
+            return ['success' => false, 'error' => 'An internal error occurred.'];
         }
     }
     public function update($id, $data)
@@ -666,42 +693,66 @@ class UsersAPI extends BaseAPI
 
         $validatedData = $validation['data'];
 
-        // Build update query with validated data
-        $fields = [];
-        $params = [];
+        // Build update queries: user columns on users, identity columns on persons
+        $userFields = [];
+        $userParams = [];
+        $personFields = [];
+        $personParams = [];
 
-        foreach (['username', 'email', 'first_name', 'last_name', 'status', 'role_id'] as $field) {
+        foreach (['username', 'status'] as $field) {
             if (isset($validatedData[$field])) {
-                $fields[] = "$field = ?";
-                $params[] = $validatedData[$field];
+                $userFields[] = "$field = ?";
+                $userParams[] = $validatedData[$field];
+            }
+        }
+
+        foreach (['first_name', 'last_name', 'email'] as $field) {
+            if (isset($validatedData[$field])) {
+                $personFields[] = "$field = ?";
+                $personParams[] = $validatedData[$field];
             }
         }
 
         if (isset($validatedData['password'])) {
-            $fields[] = 'password = ?';
-            $params[] = password_hash($validatedData['password'], PASSWORD_DEFAULT);
+            $userFields[] = 'password_hash = ?';
+            $userParams[] = password_hash($validatedData['password'], PASSWORD_DEFAULT);
         }
-        
-        if (empty($fields)) {
+
+        if (empty($userFields) && empty($personFields) && empty($validatedData['role_ids'])) {
             return ['success' => false, 'error' => 'No fields to update'];
         }
-        
-        $params[] = $id;
-        $sql = 'UPDATE users SET ' . implode(', ', $fields) . ', updated_at = NOW() WHERE id = ?';
 
         try {
-            $stmt = $this->db->prepare($sql);
-            $ok = $stmt->execute($params);
-
-            if ($ok) {
-                // Audit log
-                $currentUserId = $this->getCurrentUserId();
-                $this->auditLogger->logUserUpdate($currentUserId, $id, $oldData, $validatedData);
-
-                return ['success' => true, 'data' => $this->get($id)['data']];
-            } else {
-                return ['success' => false, 'error' => 'User update failed'];
+            if (!empty($userFields)) {
+                $userParams[] = $id;
+                $sql = 'UPDATE users SET ' . implode(', ', $userFields) . ', updated_at = NOW() WHERE id = ?';
+                $stmt = $this->db->prepare($sql);
+                $ok = $stmt->execute($userParams);
+                if (!$ok) {
+                    return ['success' => false, 'error' => 'User update failed'];
+                }
             }
+
+            if (!empty($personFields)) {
+                $personParams[] = $id;
+                $personSql = 'UPDATE persons SET ' . implode(', ', $personFields)
+                    . ' WHERE id = (SELECT person_id FROM users WHERE id = ?)';
+                $stmt = $this->db->prepare($personSql);
+                $stmt->execute($personParams);
+            }
+
+            if (!empty($validatedData['role_ids'])) {
+                $this->db->prepare('DELETE FROM user_roles WHERE user_id = ?')->execute([$id]);
+                foreach ($validatedData['role_ids'] as $rid) {
+                    $this->userRoleManager->assignRole($id, (int) $rid);
+                }
+            }
+
+            // Audit log
+            $currentUserId = $this->getCurrentUserId();
+            $this->auditLogger->logUserUpdate($currentUserId, $id, $oldData, $validatedData);
+
+            return ['success' => true, 'data' => $this->get($id)['data']];
         } catch (Exception $e) {
             error_log("User update error: " . $e->getMessage());
             return ['success' => false, 'error' => 'Database error occurred'];
@@ -872,23 +923,25 @@ class UsersAPI extends BaseAPI
         // Lookup user by username or email
         $stmt = $this->db->prepare(
             'SELECT
-                id,
-                username,
-                email,
-                password,
-                first_name,
-                last_name,
-                role_id,
-                status,
-                account_locked_until,
+                u.id,
+                u.username,
+                p.email,
+                u.password_hash AS password,
+                p.first_name,
+                p.last_name,
+                (SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1) AS role_id,
+                u.status,
+                u.force_password_change,
+                u.account_locked_until,
                 CASE
-                    WHEN account_locked_until IS NOT NULL
-                     AND account_locked_until > NOW()
+                    WHEN u.account_locked_until IS NOT NULL
+                     AND u.account_locked_until > NOW()
                     THEN 1
                     ELSE 0
                 END AS is_locked
-             FROM users
-             WHERE username = ? OR email = ?
+             FROM users u
+             LEFT JOIN persons p ON p.id = u.person_id
+             WHERE u.username = ? OR p.email = ?
              LIMIT 1'
         );
         $stmt->execute([$username, $username]);
@@ -903,18 +956,9 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
-        // Verify password
-        if (!password_verify($password, $user['password'])) {
-            $this->recordAuthenticationAttempt(
-                $username,
-                (int) $user['id'],
-                'failed',
-                'invalid_credentials',
-                true
-            );
-            return ['success' => false, 'error' => 'Invalid username or password'];
-        }
-
+        // Check lockout BEFORE password_verify to prevent timing-based
+        // account enumeration (attacker would otherwise learn an account
+        // exists because password_verify takes longer than the "not found" path).
         if ((int) ($user['is_locked'] ?? 0) === 1) {
             $this->recordAuthenticationAttempt(
                 $username,
@@ -926,6 +970,18 @@ class UsersAPI extends BaseAPI
                 'success' => false,
                 'error' => 'Account is temporarily locked'
             ];
+        }
+
+        // Verify password
+        if (!password_verify($password, $user['password'])) {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'invalid_credentials',
+                true
+            );
+            return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
         if (isset($user['status']) && $user['status'] !== 'active') {
@@ -1018,6 +1074,7 @@ class UsersAPI extends BaseAPI
                     'last_name' => $user['last_name'],
                     'role_id' => $user['role_id'],
                     'status' => $user['status'] ?? null,
+                    'force_password_change' => (int)($user['force_password_change'] ?? 0),
                     'roles' => $roles['data'] ?? [],
                     'permissions' => $permissionCodes  // In response body, NOT in token
                 ]
@@ -1052,6 +1109,12 @@ class UsersAPI extends BaseAPI
                     'UPDATE users
                      SET failed_login_attempts =
                             COALESCE(failed_login_attempts, 0) + 1,
+                         account_locked_until =
+                            CASE
+                                WHEN COALESCE(failed_login_attempts, 0) + 1 >= 5
+                                THEN DATE_ADD(NOW(), INTERVAL 15 MINUTE)
+                                ELSE account_locked_until
+                            END,
                          updated_at = NOW()
                      WHERE id = ?'
                 );
@@ -1061,7 +1124,7 @@ class UsersAPI extends BaseAPI
                     'UPDATE users
                      SET last_login = NOW(),
                          failed_login_attempts = 0,
-                         account_locked_until = NULL,
+                         account_locked_until = DATE_SUB(NOW(), INTERVAL 1 DAY),
                          updated_at = NOW()
                      WHERE id = ?'
                 );
@@ -1077,28 +1140,18 @@ class UsersAPI extends BaseAPI
                 $ipAddress = 'unknown';
             }
 
-            $stmt = $this->db->prepare(
-                'INSERT INTO login_attempts (
-                    username,
-                    user_id,
-                    ip_address,
-                    user_agent,
-                    status,
-                    failure_reason,
-                    created_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, NOW())'
-            );
-            $stmt->execute([
-                substr($identifier, 0, 100),
-                $userId,
-                $ipAddress,
-                substr(
+            \App\API\Includes\FileLogger::write('auth', [
+                'type' => 'login_attempt',
+                'username' => substr($identifier, 0, 100),
+                'user_id' => $userId,
+                'ip' => $ipAddress,
+                'user_agent' => substr(
                     (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
                     0,
                     255
                 ) ?: null,
-                $status,
-                $failureReason === null
+                'status' => $status,
+                'failure_reason' => $failureReason === null
                     ? null
                     : substr($failureReason, 0, 100),
             ]);
@@ -1127,7 +1180,7 @@ class UsersAPI extends BaseAPI
         }
 
         // Fetch user
-        $stmt = $this->db->prepare('SELECT * FROM users WHERE id = ?');
+        $stmt = $this->db->prepare('SELECT id, password_hash AS password FROM users WHERE id = ?');
         $stmt->execute([$userId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
@@ -1138,7 +1191,7 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Old password is incorrect'];
         }
         // Update password
-        $stmt = $this->db->prepare('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?');
+        $stmt = $this->db->prepare('UPDATE users SET password_hash = ?, password_changed_at = NOW(), updated_at = NOW() WHERE id = ?');
         $ok = $stmt->execute([
             password_hash($newPassword, PASSWORD_DEFAULT),
             $userId
@@ -1162,11 +1215,19 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Invalid or expired token'];
         }
 
+        // Resolve the user from the reset email via persons
+        $userStmt = $this->db->prepare('SELECT u.id FROM users u JOIN persons p ON p.id = u.person_id WHERE p.email = ? LIMIT 1');
+        $userStmt->execute([$reset['email']]);
+        $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$user) {
+            return ['success' => false, 'error' => 'Invalid or expired token'];
+        }
+
         // Update user password
-        $stmt = $this->db->prepare('UPDATE users SET password = ? WHERE id = ?');
+        $stmt = $this->db->prepare('UPDATE users SET password_hash = ?, password_changed_at = NOW(), updated_at = NOW() WHERE id = ?');
         $ok = $stmt->execute([
             password_hash($newPassword, PASSWORD_DEFAULT),
-            $reset['user_id']
+            $user['id']
         ]);
         if ($ok) {
             // Mark token as used
@@ -1189,7 +1250,8 @@ class UsersAPI extends BaseAPI
             [
                 'iat' => $issuedAt,
                 'exp' => $expire,
-                'iss' => 'kingsway.ac.ke'
+                'iss' => JWT_ISSUER,
+                'aud' => JWT_AUDIENCE
             ]
         );
 
@@ -1309,19 +1371,19 @@ class UsersAPI extends BaseAPI
     private function addToStaffTable($userId, $staffInfo, $roleIds = [])
     {
         try {
-            // Check if staff record already exists
-            $checkStmt = $this->db->prepare('SELECT id FROM staff WHERE user_id = ?');
+            // Check if staff record already exists (via the shared person)
+            $checkStmt = $this->db->prepare('SELECT id FROM staff WHERE person_id = (SELECT person_id FROM users WHERE id = ?)');
             $checkStmt->execute([$userId]);
             if ($checkStmt->fetch()) {
                 return true;
             }
 
-            // Get user data for basic fields
-            $userStmt = $this->db->prepare('SELECT first_name, last_name, email FROM users WHERE id = ?');
+            // Get user data (identity lives on the person record)
+            $userStmt = $this->db->prepare('SELECT u.person_id, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
             $userStmt->execute([$userId]);
             $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user) {
+            if (!$user || empty($user['person_id'])) {
                 return false;
             }
 
@@ -1369,75 +1431,111 @@ class UsersAPI extends BaseAPI
                 }
             }
 
-            // Generate next KWPS staff number (KWPS001, KWPS002, etc.)
-            // Use a named MySQL GET_LOCK to serialize generation and avoid race conditions or gaps when multiple processes create staff concurrently.
-            $staffNo = $staffInfo['staff_no'] ?? null;
-            if (empty($staffNo)) {
-                $lockRes = $this->db->query("SELECT GET_LOCK('kwps_staff_no', 10) AS got_lock");
-                $gotLock = $lockRes ? (int) $lockRes->fetch(PDO::FETCH_ASSOC)['got_lock'] : 0;
-                if (!$gotLock) {
-                    throw new Exception('Could not acquire lock to generate staff_no');
-                }
-                try {
-                    $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
-                    $maxStmt->execute();
-                    $result = $maxStmt->fetch(PDO::FETCH_ASSOC);
-                    $nextNum = (int) ($result['max_num'] ?? 0) + 1;
-                    $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
-                } finally {
-                    // Always release the lock
-                    $this->db->query("SELECT RELEASE_LOCK('kwps_staff_no')");
-                }
-            } else {
-                // Normalize provided staff_no
-                $staffNo = strtoupper($staffNo);
+            // Generate staff number via the centralized StaffNumberService.
+            $staffNoService = new \App\API\Services\StaffNumberService($this->db);
+            $staffNo = $staffNoService->generate();
+
+            // Update the shared person record with profile fields (phone/gender/dob/photo)
+            $personSets = [];
+            $personParams = [];
+            if (!empty($staffInfo['first_name'])) {
+                $personSets[] = 'first_name = ?';
+                $personParams[] = $staffInfo['first_name'];
+            }
+            if (!empty($staffInfo['last_name'])) {
+                $personSets[] = 'last_name = ?';
+                $personParams[] = $staffInfo['last_name'];
+            }
+            if (!empty($staffInfo['phone'])) {
+                $personSets[] = 'phone = ?';
+                $personParams[] = $staffInfo['phone'];
+            }
+            if (!empty($staffInfo['gender'])) {
+                $personSets[] = 'gender = ?';
+                $personParams[] = $staffInfo['gender'];
+            }
+            if (!empty($staffInfo['date_of_birth'])) {
+                $personSets[] = 'dob = ?';
+                $personParams[] = $staffInfo['date_of_birth'];
+            }
+            if (!empty($staffInfo['profile_pic_url'])) {
+                $personSets[] = 'photo_url = ?';
+                $personParams[] = $staffInfo['profile_pic_url'];
+            }
+            if (!empty($personSets)) {
+                $personParams[] = $user['person_id'];
+                $this->db->prepare('UPDATE persons SET ' . implode(', ', $personSets) . ' WHERE id = ?')->execute($personParams);
             }
 
-            // Insert staff record with all determined fields
-            $sql = 'INSERT INTO staff (user_id, staff_type_id, staff_category_id, staff_no, first_name, last_name, phone, department_id, supervisor_id, position, employment_date, contract_type, nssf_no, kra_pin, nhif_no, bank_name, bank_account, salary, gender, marital_status, tsc_no, address, profile_pic_url, documents_folder, status, date_of_birth, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            // Insert staff record (id is manual, identity via person_id)
+            $staffId = $this->nextId('staff');
+            $sql = 'INSERT INTO staff (id, person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
-                $userId,
+                $staffId,
+                $user['person_id'],
                 $staffInfo['staff_type_id'] ?? $staffTypeId,
                 $staffInfo['staff_category_id'] ?? $staffCategoryId,
                 $staffNo,
-                $staffInfo['first_name'] ?? $user['first_name'],
-                $staffInfo['last_name'] ?? $user['last_name'],
-                $staffInfo['phone'] ?? null,
-                $departmentId,
-                $staffInfo['supervisor_id'] ?? null,
                 $staffInfo['position'] ?? 'Staff',
-                $staffInfo['employment_date'] ?? date('Y-m-d'),
                 $staffInfo['contract_type'] ?? 'permanent',
-                $staffInfo['nssf_no'] ?? null,
-                $staffInfo['kra_pin'] ?? null,
-                $staffInfo['nhif_no'] ?? null,
-                $staffInfo['bank_name'] ?? null,
-                $staffInfo['bank_account'] ?? null,
-                $staffInfo['salary'] ?? null,
-                $staffInfo['gender'] ?? $staffInfo['gender'] ?? null,
-                $staffInfo['marital_status'] ?? null,
-                $staffInfo['tsc_no'] ?? null,
-                $staffInfo['address'] ?? null,
-                $staffInfo['profile_pic_url'] ?? null,
-                $staffInfo['documents_folder'] ?? null,
+                $staffInfo['employment_date'] ?? date('Y-m-d'),
                 $staffInfo['status'] ?? 'active',
-                $staffInfo['date_of_birth'] ?? null
+                $staffInfo['supervisor_id'] ?? null,
+                $staffInfo['salary'] ?? null,
+                $staffInfo['bank_name'] ?? null,
+                $staffInfo['bank_account'] ?? null
             ]);
 
-            if ($ok) {
-                $staffId = $this->db->lastInsertId();
-                return $staffId;
+            if (!$ok) {
+                return false;
             }
 
-            return false;
+            // Department assignment (join table)
+            if (!empty($departmentId)) {
+                $deptCheck = $this->db->prepare('SELECT id FROM staff_department_assignments WHERE staff_id = ? AND department_id = ?');
+                $deptCheck->execute([$staffId, $departmentId]);
+                if (!$deptCheck->fetch()) {
+                    $this->db->prepare('INSERT INTO staff_department_assignments (id, staff_id, department_id, role, effective_from) VALUES (?, ?, ?, ?, ?)')
+                        ->execute([$this->nextId('staff_department_assignments'), $staffId, $departmentId, $staffInfo['position'] ?? null, $staffInfo['employment_date'] ?? date('Y-m-d')]);
+                }
+            }
+
+            // Payroll profile (statutory + payment details)
+            $this->db->prepare('INSERT INTO staff_payroll_profiles (staff_id, basic_salary, bank_name, bank_account, kra_pin, nssf_no, nhif_no, status)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                ON DUPLICATE KEY UPDATE
+                                    basic_salary = VALUES(basic_salary),
+                                    bank_name = VALUES(bank_name),
+                                    bank_account = VALUES(bank_account),
+                                    kra_pin = VALUES(kra_pin),
+                                    nssf_no = VALUES(nssf_no),
+                                    nhif_no = VALUES(nhif_no),
+                                    status = VALUES(status)')
+                ->execute([
+                    $staffId,
+                    $staffInfo['salary'] ?? 0,
+                    $staffInfo['bank_name'] ?? null,
+                    $staffInfo['bank_account'] ?? null,
+                    $staffInfo['kra_pin'] ?? null,
+                    $staffInfo['nssf_no'] ?? null,
+                    $staffInfo['nhif_no'] ?? null,
+                    'active'
+                ]);
+
+            return $staffId;
         } catch (Exception $e) {
             error_log("Error adding staff record: " . $e->getMessage());
             return false;
         }
     }
-    
+
+    private function nextId($table)
+    {
+        return (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM `$table`")->fetchColumn();
+    }
+
 }

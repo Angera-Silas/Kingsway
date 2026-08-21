@@ -49,8 +49,8 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 INSERT INTO activities (
                     title, description, category_id, start_date, end_date,
-                    location, max_participants, status, created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, NOW())
+                    max_participants, status, started_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'planned', ?, NOW())
             ");
             $stmt->execute([
                 $data['title'],
@@ -58,7 +58,6 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                 $data['category_id'],
                 $data['start_date'],
                 $data['end_date'],
-                $data['location'] ?? null,
                 $data['max_participants'] ?? null,
                 $userId
             ]);
@@ -233,16 +232,16 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             foreach ($resources as $resource) {
                 $stmt = $this->db->prepare("
                     INSERT INTO activity_resources (
-                        activity_id, name, type, quantity, cost, notes, created_at
+                        activity_id, resource_name, name, type, quantity, cost, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
                     $workflow['reference_id'],
                     $resource['name'],
+                    $resource['name'],
                     $resource['type'],
                     $resource['quantity'] ?? 1,
-                    $resource['cost'] ?? null,
-                    $resource['notes'] ?? null
+                    $resource['cost'] ?? null
                 ]);
             }
 

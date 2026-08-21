@@ -35,10 +35,7 @@ const academicReportsCtrl = (() => {
     function cbcBand(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
-        if (n >= 80) return 'EE';
-        if (n >= 50) return 'ME';
-        if (n >= 25) return 'AE';
-        return 'BE';
+        return GradingScale.grade(n) || null;
     }
 
     async function apiGet(route, params = {}) {
@@ -355,7 +352,7 @@ const academicReportsCtrl = (() => {
         gradeChart = new Chart(canvas, {
             type: 'doughnut',
             data: {
-                labels: ['EE (≥80%)', 'ME (50-79%)', 'AE (25-49%)', 'BE (<25%)'],
+                labels: ['EE (≥75%)', 'ME (60-74%)', 'AE (40-59%)', 'BE (<40%)'],
                 datasets: [{
                     data: [totals.EE, totals.ME, totals.AE, totals.BE],
                     backgroundColor: ['#1b5e20', '#2e7d32', '#f57c00', '#b71c1c'],
@@ -423,10 +420,12 @@ const academicReportsCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+        await GradingScale.preload();
         if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
             toast('Access denied: insufficient permissions to view academic reports.', 'danger');
             return;
@@ -436,7 +435,6 @@ const academicReportsCtrl = (() => {
         if (window.AcademicContext) {
             // Subscribe to context changes
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in academic_reports:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     // Reload years, terms, and report when academic year or term changes
                     loadYears();

@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-question-circle me-2"></i>Unmatched Payments</h4>
+                    <h4 class="mb-1"><i class="bi bi-question-circle me-2"></i>Unmatched Payments</h4>
                     <p class="text-muted mb-0">Review and match unidentified payments to student accounts</p>
                 </div>
                 <button class="btn btn-success" onclick="UnmatchedPaymentsController.exportCSV()">
-                    <i class="fas fa-file-csv me-1"></i> Export
+                    <i class="bi bi-file-csv me-1"></i> Export
                 </button>
             </div>
         </div>
@@ -32,7 +32,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-exclamation-triangle text-danger fa-lg"></i>
+                            <i class="bi bi-exclamation-triangle text-danger fa-lg"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Unmatched</h6>
@@ -47,7 +47,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-money-bill-wave text-warning fa-lg"></i>
+                            <i class="bi bi-cash-wave text-warning fa-lg"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Unmatched Amount</h6>
@@ -62,7 +62,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-check-circle text-success fa-lg"></i>
+                            <i class="bi bi-check-lg-circle text-success fa-lg"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Matched Today</h6>
@@ -77,7 +77,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-clock text-info fa-lg"></i>
+                            <i class="bi bi-clock text-info fa-lg"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Pending Review</h6>
@@ -117,7 +117,7 @@
                 </div>
                 <div class="col-md-1">
                     <button class="btn btn-outline-secondary w-100" onclick="UnmatchedPaymentsController.refresh()">
-                        <i class="fas fa-sync-alt"></i>
+                        <i class="bi bi-arrow-clockwise"></i>
                     </button>
                 </div>
             </div>
@@ -126,22 +126,22 @@
 
     <div class="card shadow-sm">
         <div class="card-header bg-white">
-            <h6 class="mb-0"><i class="fas fa-table me-2"></i>Unmatched Payments</h6>
+            <h6 class="mb-0"><i class="bi bi-table me-2"></i>Unmatched Payments</h6>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-hover mb-0" id="dataTable">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Transaction ID</th>
-                            <th>Date</th>
-                            <th>Amount (KES)</th>
-                            <th>Source</th>
-                            <th>Payer Name</th>
-                            <th>Reference</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Transaction ID</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Amount (KES)</th>
+                            <th scope="col">Source</th>
+                            <th scope="col">Payer Name</th>
+                            <th scope="col">Reference</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -160,7 +160,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-link me-2"></i>Match Payment to Student</h5>
+                <h5 class="modal-title"><i class="bi bi-link me-2"></i>Match Payment to Student</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -183,7 +183,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="UnmatchedPaymentsController.confirmMatch()">
-                    <i class="fas fa-check me-1"></i> Match Payment
+                    <i class="bi bi-check-lg me-1"></i> Match Payment
                 </button>
             </div>
         </div>

@@ -69,13 +69,13 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>Student</th>
-                <th>Class</th>
-                <th>Attendance %</th>
-                <th>Days Missed</th>
-                <th>Last Absent</th>
-                <th>Parent Notified</th>
-                <th>Action</th>
+                <th scope="col">Student</th>
+                <th scope="col">Class</th>
+                <th scope="col">Attendance %</th>
+                <th scope="col">Days Missed</th>
+                <th scope="col">Last Absent</th>
+                <th scope="col">Parent Notified</th>
+                <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody id="caTableBody"></tbody>
@@ -90,4 +90,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/chronic_absenteeism.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/chronic_absenteeism.js'); ?>

@@ -18,6 +18,7 @@ const ViewSyllabusController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,7 +28,6 @@ const ViewSyllabusController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in view_syllabus:', event, data);
         if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadSyllabus();
         }
@@ -80,16 +80,10 @@ const ViewSyllabusController = {
         params.academic_year_id = this.state.currentAcademicYear;
       }
 
-      const res = await window.API.apiCall('/academic/syllabus', 'GET', params);
-      
-      if (res?.success) {
-        this.state.syllabus = res.data || [];
-        this.renderSyllabusTable();
-        this.updateStats();
-        this.populateLearningAreaFilter();
-      } else {
-        this.showNotification('Failed to load syllabus', 'error');
-      }
+      this.state.syllabus = await window.API.academic.getSyllabus(params) || [];
+      this.renderSyllabusTable();
+      this.updateStats();
+      this.populateLearningAreaFilter();
     } catch (error) {
       console.error('Error loading syllabus:', error);
       this.showNotification('Failed to load syllabus', 'error');
@@ -218,7 +212,7 @@ const ViewSyllabusController = {
       Assessment Criteria: ${entry.assessment_criteria || '--'}
     `;
 
-    alert(details);
+    window.infoDialog && window.infoDialog("Syllabus Entry Details", details);
   },
 
   exportSyllabus() {

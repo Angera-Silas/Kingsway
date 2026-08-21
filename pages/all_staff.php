@@ -18,9 +18,11 @@
 <!-- Container where the correct template will be injected -->
 <div id="staff-list-content" style="display: none;"></div>
 
+<?php asset_script($appBase, 'js/pages/all_staff.js'); ?>
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    PageShell.loadRoleTemplate({
+(function () {
+    function boot() {
+        PageShell.loadRoleTemplate({
         loadingId:   'staff-list-loading',
         contentId:   'staff-list-content',
         templateDir: '/pages/staff/',
@@ -55,6 +57,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
             },
         ],
-    });
-});
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
+    }
+})();
 </script>

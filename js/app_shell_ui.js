@@ -132,6 +132,336 @@
     return true;
   }
 
+  // ----------------------------------------------------------------------
+  // Header notifications
+  // ----------------------------------------------------------------------
+  const NOTIFICATION_ICON_MAP = {
+    message: {
+      icon: "bi-chat-dots",
+      cls: "bg-primary-subtle text-primary",
+    },
+    notification: {
+      icon: "bi-megaphone",
+      cls: "bg-warning-subtle text-warning-emphasis",
+    },
+    event: {
+      icon: "bi-calendar-event",
+      cls: "bg-success-subtle text-success",
+    },
+    reminder: {
+      icon: "bi-alarm",
+      cls: "bg-info-subtle text-info",
+    },
+  };
+
+  function timeAgo(value) {
+    if (!value) {
+      return "";
+    }
+
+    const parsed = new Date(
+      String(value).replace(" ", "T")
+    );
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "";
+    }
+
+    const seconds = Math.floor(
+      (Date.now() - parsed.getTime()) / 1000
+    );
+
+    if (seconds < 60) {
+      return "just now";
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function renderNotifications(data) {
+    const badge = $("#header-notification-count");
+    const list = $("#header-notification-list");
+
+    if (!badge && !list) {
+      return;
+    }
+
+    const items = Array.isArray(data?.items)
+      ? data.items
+      : [];
+    const unread = Number(data?.unread_count) || 0;
+
+    if (badge) {
+      badge.textContent = String(unread);
+      badge.classList.toggle("d-none", unread === 0);
+    }
+
+    if (!list) {
+      return;
+    }
+
+    if (!items.length) {
+      list.innerHTML =
+        '<div class="app-notification-empty">You\'re all caught up.</div>';
+      return;
+    }
+
+    list.innerHTML = items
+      .map((item) => {
+        const meta =
+          NOTIFICATION_ICON_MAP[item.type] ||
+          NOTIFICATION_ICON_MAP.notification;
+        const title = escapeHtml(
+          item.title || "Notification"
+        );
+        const message = escapeHtml(item.message || "");
+        const when = timeAgo(item.created_at);
+        const category = item.category || item.type || "notification";
+        const context = item.context || "";
+        const readCls = item.read
+          ? " app-notification-item--read"
+          : "";
+        const unreadCls = item.unread
+          ? " app-notification-item--unread"
+          : "";
+        const pill =
+          item.badge && item.badge > 0
+            ? `<span class="app-notification-pill">${Number(
+                item.badge
+              )}</span>`
+            : "";
+        const metaLine = [
+          when,
+          context,
+          category,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
+        const action = item.action_url || "";
+        const notificationId = String(item.id || "").replace("notification-", "");
+        const stateButton = item.type === "notification" && notificationId
+          ? `<button type="button" class="app-notification-state" data-notification-id="${notificationId}" data-read="${item.unread ? "true" : "false"}" aria-label="${item.unread ? "Mark as read" : "Mark as unread"}">${item.unread ? "Mark read" : "Mark unread"}</button>`
+          : "";
+        return `
+          <div class="app-notification-item${unreadCls}${readCls}" ${action ? `data-notification-url="${escapeHtml(action)}" role="link" tabindex="0"` : ""}>
+            <span class="app-notification-icon ${meta.cls}">
+              <i class="bi ${meta.icon}"></i>
+            </span>
+            <div class="app-notification-body">
+              <strong>${title}${pill}</strong>
+              ${message ? `<small>${message}</small>` : ""}
+              <small class="text-muted">${escapeHtml(
+                metaLine
+              )}</small>
+              ${stateButton}
+            </div>
+          </div>`;
+      })
+      .join("");
+  }
+
+  const NOTIFICATIONS_MIN_INTERVAL_MS = 30000;
+  let notificationsFetchInFlight = false;
+  let notificationsLastFetchedAt = 0;
+
+  async function fetchNotifications({ force = false } = {}) {
+    // Notification loading is a protected operation. Every caller (initial
+    // shell boot, authchanged, kingsway:ready, and manual refresh) must wait
+    // for the single AuthContext boot promise before checking the user or
+    // sending the request. This prevents the initial 401 race during silent
+    // refresh-token restoration.
+    try {
+      if (window.AuthContext?.ready) {
+        await window.AuthContext.ready();
+      }
+    } catch (error) {
+      console.warn("[AppShell] AuthContext is not ready for notifications:", error);
+      return;
+    }
+
+    const hasUser = Boolean(
+      window.AuthContext?.getUser?.()
+    );
+
+    if (!hasUser || typeof window.callAPI !== "function") {
+      return;
+    }
+
+    // De-duplicate concurrent callers and rate-limit automatic fetches so
+    // the boot sequence (initialize + authchanged + kingsway:ready) and
+    // token-refresh cycles don't spam the endpoint.
+    const now = Date.now();
+    if (
+      notificationsFetchInFlight ||
+      (!force &&
+        now - notificationsLastFetchedAt <
+          NOTIFICATIONS_MIN_INTERVAL_MS)
+    ) {
+      return;
+    }
+
+    notificationsFetchInFlight = true;
+
+    try {
+      const data = await window.callAPI(
+        "notifications",
+        "GET"
+      );
+      notificationsLastFetchedAt = Date.now();
+      renderNotifications(data);
+    } catch (error) {
+      console.warn(
+        "[AppShell] Failed to load notifications:",
+        error
+      );
+    } finally {
+      notificationsFetchInFlight = false;
+    }
+  }
+
+  async function markAllNotificationsRead() {
+    if (typeof window.callAPI !== "function") {
+      return;
+    }
+
+    try {
+      await window.callAPI(
+        "notifications/mark-all-read",
+        "POST",
+        {}
+      );
+      await fetchNotifications({ force: true });
+    } catch (error) {
+      console.warn(
+        "[AppShell] Failed to mark notifications read:",
+        error
+      );
+    }
+  }
+
+  async function updateNotificationState(id, read) {
+    try {
+      await window.callAPI(`notifications/${encodeURIComponent(id)}`, "PUT", { read });
+      await fetchNotifications({ force: true });
+    } catch (error) {
+      console.warn("[AppShell] Failed to update notification state:", error);
+    }
+  }
+
+  function canBroadcastNotifications() {
+    const user = window.AuthContext?.getUser?.() || {};
+    const role = String(
+      user.role_name || user.role || ""
+    ).toLowerCase();
+
+    if (
+      ["system admin", "director", "school administrator"].includes(
+        role
+      )
+    ) {
+      return true;
+    }
+
+    const permissions =
+      window.AuthContext?.getPermissions?.() || [];
+
+    return [
+      "notifications_push",
+      "notifications_manage",
+      "communications_all_permissions",
+      "communications_manage",
+      "system_admin",
+    ].some((permission) =>
+      permissions.includes(permission)
+    );
+  }
+
+  function initializeNotificationBroadcast() {
+    const toggle = $("#notification-broadcast-toggle");
+    const wrap = $("#notification-broadcast-wrap");
+
+    if (!toggle || !wrap || !canBroadcastNotifications()) {
+      return;
+    }
+
+    toggle.classList.remove("d-none");
+
+    toggle.addEventListener("click", () => {
+      wrap.classList.toggle("d-none");
+    });
+
+    $("#notification-broadcast-form")?.addEventListener(
+      "submit",
+      async (event) => {
+        event.preventDefault();
+
+        const title =
+          $("#nb-title")?.value.trim() || "";
+        const message =
+          $("#nb-message")?.value.trim() || "";
+
+        if (!title || !message) {
+          window.showNotification?.(
+            "Title and message are required",
+            "warning"
+          );
+          return;
+        }
+
+        const payload = {
+          title,
+          message,
+          type: $("#nb-type")?.value || "announcement",
+          audience: $("#nb-audience")?.value || "all_staff",
+        };
+
+        const button = $("#nb-submit");
+        if (button) {
+          button.disabled = true;
+        }
+
+        try {
+          await window.callAPI(
+            "notifications/push",
+            "POST",
+            payload
+          );
+          if ($("#nb-title")) {
+            $("#nb-title").value = "";
+          }
+          if ($("#nb-message")) {
+            $("#nb-message").value = "";
+          }
+          wrap.classList.add("d-none");
+          window.showNotification?.("Broadcast sent", "success");
+          await fetchNotifications();
+        } catch (error) {
+          console.warn("[AppShell] Broadcast failed:", error);
+          window.showNotification?.(
+            error.message || "Broadcast failed",
+            "danger"
+          );
+        } finally {
+          if (button) {
+            button.disabled = false;
+          }
+        }
+      }
+    );
+  }
+
   async function waitForAuthenticatedContext() {
     try {
       if (window.AuthContext?.ready) {
@@ -147,6 +477,7 @@
     }
 
     initializeHeaderUser();
+    void fetchNotifications();
   }
 
   function updateToggleState() {
@@ -481,7 +812,30 @@
       `${window.APP_BASE || ""}/home.php?route=profile`;
   }
 
+  function goToAccountSettings() {
+    window.location.href =
+      `${window.APP_BASE || ""}/home.php?route=account_settings`;
+  }
+
   function handleDocumentClick(event) {
+    const stateButton = event.target.closest(".app-notification-state");
+    if (stateButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      void updateNotificationState(
+        stateButton.dataset.notificationId,
+        stateButton.dataset.read !== "true"
+      );
+      return;
+    }
+
+    const notification = event.target.closest("[data-notification-url]");
+    if (notification) {
+      event.preventDefault();
+      window.location.href = notification.dataset.notificationUrl;
+      return;
+    }
+
     const sidebarToggle = event.target.closest(
       ".sidebar-toggle"
     );
@@ -557,37 +911,34 @@
     );
 
     $("#mark-all-notifications-read")
-      ?.addEventListener("click", () => {
-        const badge = $(
-          "#header-notification-count"
-        );
-
-        if (badge) {
-          badge.textContent = "0";
-          badge.classList.add("d-none");
-        }
-      });
+      ?.addEventListener("click", markAllNotificationsRead);
 
     document.addEventListener(
       "click",
       handleDocumentClick
     );
 
-    document.addEventListener(
-      "authchanged",
-      initializeHeaderUser
+    document.getElementById("account-settings-button")?.addEventListener(
+      "click",
+      goToAccountSettings
     );
 
-    window.addEventListener(
-      "authchanged",
-      initializeHeaderUser
-    );
+    const onAuthReady = () => {
+      initializeHeaderUser();
+      initializeNotificationBroadcast();
+      void fetchNotifications();
+    };
+
+    document.addEventListener("authchanged", onAuthReady);
+
+    window.addEventListener("authchanged", onAuthReady);
 
     window.addEventListener(
       "kingsway:ready",
       () => {
         initializeHeaderUser();
         markActiveRoute();
+        void fetchNotifications();
       }
     );
 
@@ -625,6 +976,8 @@
     initializeHeaderUser();
     markActiveRoute();
     updateToggleState();
+    initializeNotificationBroadcast();
+    void fetchNotifications();
   }
 
   function initialize() {
@@ -669,6 +1022,7 @@
   window.handleLogout = showLogoutModal;
   window.executeLogout = executeLogout;
   window.goToProfile = goToProfile;
+  window.goToAccountSettings = goToAccountSettings;
 
   if (document.readyState === "loading") {
     document.addEventListener(

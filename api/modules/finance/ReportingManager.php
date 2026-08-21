@@ -49,7 +49,7 @@ class ReportingManager extends FileLifecycleBase
             $academicYear = $filters['academic_year'] ?? date('Y');
 
             // Get current term
-            $stmt = $this->db->query("SELECT id, name, term_number FROM academic_terms WHERE status = 'current' LIMIT 1");
+            $stmt = $this->db->query("SELECT ayt.id AS id, t.name AS name, CAST(SUBSTRING(t.code,2) AS UNSIGNED) AS term_number FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id JOIN terms t ON t.id = ayt.term_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1");
             $currentTerm = $stmt->fetch(PDO::FETCH_ASSOC);
             $currentTermId = $currentTerm['id'] ?? null;
             $currentTermName = $currentTerm['name'] ?? 'N/A';
@@ -57,12 +57,12 @@ class ReportingManager extends FileLifecycleBase
             // Get fee structure summary (total fees due and amount paid from obligations) - FULL YEAR
             $stmt = $this->db->prepare(
                 "SELECT 
-                    SUM(sfo.amount_due) as total_fees_due,
-                    SUM(sfo.amount_paid) as total_allocated,
-                    SUM(sfo.balance) as total_balance,
-                    COUNT(DISTINCT sfo.student_id) as total_students
-                FROM student_fee_obligations sfo
-                WHERE sfo.academic_year = ?"
+                    SUM(f.amount_due) as total_fees_due,
+                    SUM(f.amount_paid) as total_allocated,
+                    SUM(f.balance) as total_balance,
+                    COUNT(DISTINCT f.student_id) as total_students
+                FROM vw_student_fee_balances f
+                WHERE f.academic_year = ?"
             );
             $stmt->execute([$academicYear]);
             $feeStructure = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -72,11 +72,11 @@ class ReportingManager extends FileLifecycleBase
             if ($currentTermId) {
                 $stmt = $this->db->prepare(
                     "SELECT 
-                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
-                        COALESCE(SUM(sfo.amount_paid), 0) as total_collected,
-                        COALESCE(SUM(sfo.balance), 0) as outstanding
-                    FROM student_fee_obligations sfo
-                    WHERE sfo.academic_year = ? AND sfo.term_id = ?"
+                        COALESCE(SUM(f.amount_due), 0) as total_due,
+                        COALESCE(SUM(f.amount_paid), 0) as total_collected,
+                        COALESCE(SUM(f.balance), 0) as outstanding
+                    FROM vw_student_fee_balances f
+                    WHERE f.academic_year = ? AND f.academic_year_term_id = ?"
                 );
                 $stmt->execute([$academicYear, $currentTermId]);
                 $termFees = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -85,21 +85,22 @@ class ReportingManager extends FileLifecycleBase
             // Get ACTUAL cash collected from payment_transactions (source of truth for cash received)
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total_cash_collected
-                FROM payment_transactions
-                WHERE status = 'confirmed' 
-                  AND (academic_year = ? OR YEAR(created_at) = ?)"
+                    COALESCE(SUM(p.amount), 0) as total_cash_collected
+                FROM payments p
+                JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
+                WHERE p.status = 'confirmed' 
+                  AND ay.year_code = ?"
             );
-            $stmt->execute([$academicYear, $academicYear]);
+            $stmt->execute([$academicYear]);
             $actualCollected = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // TODAY's collections
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' AND DATE(payment_date) = CURDATE()"
+                FROM payments p
+                WHERE p.status = 'confirmed' AND DATE(p.payment_date) = CURDATE()"
             );
             $stmt->execute();
             $todayCollections = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -107,11 +108,11 @@ class ReportingManager extends FileLifecycleBase
             // THIS WEEK's collections (Monday to Sunday)
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' 
-                  AND YEARWEEK(payment_date, 1) = YEARWEEK(CURDATE(), 1)"
+                FROM payments p
+                WHERE p.status = 'confirmed' 
+                  AND YEARWEEK(p.payment_date, 1) = YEARWEEK(CURDATE(), 1)"
             );
             $stmt->execute();
             $weekCollections = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -119,12 +120,12 @@ class ReportingManager extends FileLifecycleBase
             // THIS MONTH's collections
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' 
-                  AND YEAR(payment_date) = YEAR(CURDATE())
-                  AND MONTH(payment_date) = MONTH(CURDATE())"
+                FROM payments p
+                WHERE p.status = 'confirmed' 
+                  AND YEAR(p.payment_date) = YEAR(CURDATE())
+                  AND MONTH(p.payment_date) = MONTH(CURDATE())"
             );
             $stmt->execute();
             $monthCollections = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -132,10 +133,10 @@ class ReportingManager extends FileLifecycleBase
             // YESTERDAY's collections (for comparison)
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' AND DATE(payment_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)"
+                FROM payments p
+                WHERE p.status = 'confirmed' AND DATE(p.payment_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)"
             );
             $stmt->execute();
             $yesterdayCollections = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -143,11 +144,11 @@ class ReportingManager extends FileLifecycleBase
             // LAST WEEK's collections (for comparison)
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' 
-                  AND YEARWEEK(payment_date, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 1 WEEK), 1)"
+                FROM payments p
+                WHERE p.status = 'confirmed' 
+                  AND YEARWEEK(p.payment_date, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 1 WEEK), 1)"
             );
             $stmt->execute();
             $lastWeekCollections = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -155,21 +156,21 @@ class ReportingManager extends FileLifecycleBase
             // LAST MONTH's collections (for comparison)
             $stmt = $this->db->prepare(
                 "SELECT 
-                    COALESCE(SUM(amount_paid), 0) as total,
+                    COALESCE(SUM(p.amount), 0) as total,
                     COUNT(*) as count
-                FROM payment_transactions
-                WHERE status = 'confirmed' 
-                  AND YEAR(payment_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-                  AND MONTH(payment_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+                FROM payments p
+                WHERE p.status = 'confirmed' 
+                  AND YEAR(p.payment_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                  AND MONTH(p.payment_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
             );
             $stmt->execute();
             $lastMonthCollections = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Fee defaulters count (students with overdue balances)
             $stmt = $this->db->prepare(
-                "SELECT COUNT(DISTINCT student_id) as count
-                FROM student_fee_obligations
-                WHERE academic_year = ? AND balance > 0 AND due_date < CURDATE()"
+                "SELECT COUNT(DISTINCT f.student_id) as count
+                FROM vw_student_fee_balances f
+                WHERE f.academic_year = ? AND f.balance > 0 AND f.latest_due_date < CURDATE()"
             );
             $stmt->execute([$academicYear]);
             $defaulters = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -178,9 +179,9 @@ class ReportingManager extends FileLifecycleBase
             $fullPaymentCount = 0;
             if ($currentTermId) {
                 $stmt = $this->db->prepare(
-                    "SELECT COUNT(DISTINCT student_id) as count
-                    FROM student_fee_obligations
-                    WHERE academic_year = ? AND term_id = ?
+                    "SELECT student_id
+                    FROM vw_student_fee_balances
+                    WHERE academic_year = ? AND academic_year_term_id = ?
                     GROUP BY student_id
                     HAVING SUM(balance) = 0"
                 );
@@ -200,18 +201,19 @@ class ReportingManager extends FileLifecycleBase
             // Get payment statistics (use 'confirmed' which is the actual status in the ENUM)
             $stmt = $this->db->prepare("
                 SELECT 
-                    payment_method,
+                    p.method as payment_method,
                     COUNT(*) as transaction_count,
-                    SUM(amount_paid) as total_amount
-                FROM payment_transactions
-                WHERE academic_year = ? AND status IN ('confirmed', 'completed')
-                GROUP BY payment_method
+                    SUM(p.amount) as total_amount
+                FROM payments p
+                JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
+                WHERE p.status = 'confirmed' AND ay.year_code = ?
+                GROUP BY p.method
             ");
             $stmt->execute([$academicYear]);
             $paymentMethods = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Average payment & counts for reconciliation (include 'confirmed' status)
-            $stmt = $this->db->prepare("SELECT AVG(amount_paid) as avg_amount, COUNT(*) as completed_count FROM payment_transactions WHERE status IN ('confirmed', 'completed') AND academic_year = ?");
+            $stmt = $this->db->prepare("SELECT AVG(p.amount) as avg_amount, COUNT(*) as completed_count FROM payments p JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date WHERE p.status = 'confirmed' AND ay.year_code = ?");
             $stmt->execute([$academicYear]);
             $avgRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -221,8 +223,8 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
                 FROM mpesa_transactions mt
-                LEFT JOIN payment_transactions pt ON mt.mpesa_code = pt.reference_no
-                WHERE pt.reference_no IS NULL 
+                LEFT JOIN payments p ON mt.mpesa_code COLLATE utf8mb4_unicode_ci = p.reference COLLATE utf8mb4_unicode_ci
+                WHERE p.reference IS NULL 
                   AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'matched'))
                   AND mt.transaction_date BETWEEN ? AND ?
             ");
@@ -242,9 +244,9 @@ class ReportingManager extends FileLifecycleBase
                 SELECT 
                     COUNT(*) as total_expenses,
                     SUM(amount) as total_expense_amount,
-                    COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_expenses
+                    COUNT(CASE WHEN status = 'pending_approval' THEN 1 END) as pending_expenses
                 FROM expenses
-                WHERE YEAR(expense_date) = ?
+                WHERE YEAR(expense_date) = ? AND deleted_at IS NULL
             ");
             $stmt->execute([$academicYear]);
             $expenseData = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -253,13 +255,10 @@ class ReportingManager extends FileLifecycleBase
             try {
                 $stmt = $this->db->prepare("
                     SELECT 
-                        SUM(bli.allocated_amount) as total_budget,
-                        SUM(COALESCE(e.amount, 0)) as total_spent
-                    FROM budgets b
-                    INNER JOIN budget_line_items bli ON b.id = bli.budget_id
-                    LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
-                        AND e.status = 'approved'
-                    WHERE b.fiscal_year = ? AND b.status = 'approved'
+                        COALESCE(SUM(v.total_allocated), 0) as total_budget,
+                        COALESCE(SUM(v.total_spent), 0) as total_spent
+                    FROM vw_budget_utilization v
+                    WHERE v.academic_year = ? AND v.budget_status = 'approved'
                 ");
                 $stmt->execute([$academicYear]);
                 $budgetData = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -354,7 +353,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate dashboard: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -368,26 +368,26 @@ class ReportingManager extends FileLifecycleBase
         try {
             // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
             $sql = "SELECT 
-                        DATE_FORMAT(payment_date, '%Y-%m') as month,
+                        DATE_FORMAT(p.payment_date, '%Y-%m') as month,
                         COUNT(*) as transaction_count,
-                        SUM(amount_paid) as total_collected,
-                        AVG(amount_paid) as average_amount
-                    FROM payment_transactions
-                    WHERE status IN ('completed', 'confirmed')";
+                        SUM(p.amount) as total_collected,
+                        AVG(p.amount) as average_amount
+                    FROM payments p
+                    WHERE p.status = 'confirmed'";
 
             $params = [];
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND payment_date >= ?";
+                $sql .= " AND p.payment_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND payment_date <= ?";
+                $sql .= " AND p.payment_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
-            $sql .= " GROUP BY DATE_FORMAT(payment_date, '%Y-%m') ORDER BY month ASC";
+            $sql .= " GROUP BY DATE_FORMAT(p.payment_date, '%Y-%m') ORDER BY month ASC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -396,7 +396,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['trends' => $trends]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get trends: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -410,14 +411,15 @@ class ReportingManager extends FileLifecycleBase
         try {
             $limit = (int) $limit;
             // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
-            $stmt = $this->db->prepare("SELECT pt.id, pt.reference_no as reference, pt.payment_date, pt.payment_method as method, pt.amount_paid as amount, CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,'')) as student_name FROM payment_transactions pt LEFT JOIN students s ON s.id = pt.student_id WHERE pt.status IN ('completed', 'confirmed') ORDER BY pt.payment_date DESC LIMIT ?");
+            $stmt = $this->db->prepare("SELECT p.id, p.reference AS reference, p.payment_date, p.method AS method, p.amount AS amount, CONCAT(COALESCE(pn.first_name,''),' ',COALESCE(pn.last_name,'')) as student_name FROM payments p JOIN students s ON s.id = p.student_id LEFT JOIN persons pn ON s.person_id = pn.id WHERE p.status = 'confirmed' ORDER BY p.payment_date DESC LIMIT ?");
             $stmt->bindValue(1, $limit, PDO::PARAM_INT);
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return formatResponse(true, ['recent_transactions' => $rows]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get recent transactions: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -432,15 +434,15 @@ class ReportingManager extends FileLifecycleBase
             $stmt = $this->db->prepare(
                 "SELECT 
                     CASE 
-                        WHEN DATEDIFF(NOW(), sfo.due_date) <= 30 THEN '0-30 days'
-                        WHEN DATEDIFF(NOW(), sfo.due_date) <= 60 THEN '31-60 days'
-                        WHEN DATEDIFF(NOW(), sfo.due_date) <= 90 THEN '61-90 days'
+                        WHEN DATEDIFF(NOW(), f.latest_due_date) <= 30 THEN '0-30 days'
+                        WHEN DATEDIFF(NOW(), f.latest_due_date) <= 60 THEN '31-60 days'
+                        WHEN DATEDIFF(NOW(), f.latest_due_date) <= 90 THEN '61-90 days'
                         ELSE 'Over 90 days'
                     END as aging_bracket,
-                    COUNT(DISTINCT sfo.student_id) as student_count,
-                    SUM(sfo.balance) as total_outstanding
-                FROM student_fee_obligations sfo
-                WHERE sfo.academic_year = ? AND sfo.balance > 0
+                    COUNT(DISTINCT f.student_id) as student_count,
+                    SUM(f.balance) as total_outstanding
+                FROM vw_student_fee_balances f
+                WHERE f.academic_year = ? AND f.balance > 0
                 GROUP BY aging_bracket
                 ORDER BY 
                     CASE aging_bracket
@@ -457,7 +459,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['aging_report' => $aging]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate aging report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -471,8 +474,8 @@ class ReportingManager extends FileLifecycleBase
         try {
             $stmt = $this->db->prepare("
                 SELECT 
-                    bli.category,
-                    d.name as department,
+                    ec.name as category,
+                    NULL as department,
                     bli.allocated_amount,
                     COALESCE(SUM(e.amount), 0) as actual_spent,
                     (bli.allocated_amount - COALESCE(SUM(e.amount), 0)) as variance,
@@ -487,11 +490,11 @@ class ReportingManager extends FileLifecycleBase
                         ELSE 'Under Budget'
                     END as status
                 FROM budget_line_items bli
-                LEFT JOIN departments d ON bli.department_id = d.id
+                LEFT JOIN expense_categories ec ON bli.category_id = ec.id
                 LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
-                GROUP BY bli.id, bli.category, d.name, bli.allocated_amount
+                GROUP BY bli.id, ec.name, bli.allocated_amount
                 ORDER BY variance DESC
             ");
 
@@ -513,7 +516,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate budget report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -526,30 +530,31 @@ class ReportingManager extends FileLifecycleBase
     {
         try {
             $sql = "SELECT 
-                        expense_category,
+                        ec.name as expense_category,
                         d.name as department,
                         COUNT(*) as transaction_count,
-                        SUM(amount) as total_amount,
-                        AVG(amount) as average_amount,
-                        MIN(amount) as min_amount,
-                        MAX(amount) as max_amount
+                        SUM(e.amount) as total_amount,
+                        AVG(e.amount) as average_amount,
+                        MIN(e.amount) as min_amount,
+                        MAX(e.amount) as max_amount
                     FROM expenses e
+                    LEFT JOIN expense_categories ec ON e.category_id = ec.id
                     LEFT JOIN departments d ON e.department_id = d.id
-                    WHERE status = 'approved'";
+                    WHERE e.status = 'approved' AND e.deleted_at IS NULL";
 
             $params = [];
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND expense_date >= ?";
+                $sql .= " AND e.expense_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND expense_date <= ?";
+                $sql .= " AND e.expense_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
-            $sql .= " GROUP BY expense_category, d.name ORDER BY total_amount DESC";
+            $sql .= " GROUP BY ec.name, d.name ORDER BY total_amount DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -558,7 +563,8 @@ class ReportingManager extends FileLifecycleBase
             return formatResponse(true, ['expense_breakdown' => $breakdown]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate expense breakdown: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -576,11 +582,11 @@ class ReportingManager extends FileLifecycleBase
             // Calculate total inflows (payments received)
             $stmt = $this->db->prepare("
                 SELECT 
-                    SUM(amount_paid) as total_inflow,
+                    SUM(p.amount) as total_inflow,
                     COUNT(*) as inflow_count
-                FROM payment_transactions
-                WHERE payment_date BETWEEN ? AND ?
-                    AND status = 'completed'
+                FROM payments p
+                WHERE p.payment_date BETWEEN ? AND ?
+                    AND p.status = 'confirmed'
             ");
             $stmt->execute([$dateFrom, $dateTo]);
             $inflows = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -618,7 +624,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate cash flow statement: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -645,11 +652,8 @@ class ReportingManager extends FileLifecycleBase
                 'download_url' => $this->generatedDownloadUrl($path),
             ]);
         } catch (Exception $e) {
-            return formatResponse(
-                false,
-                null,
-                'Failed to export report: ' . $e->getMessage()
-            );
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -684,7 +688,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get outstanding fees report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -711,7 +716,8 @@ class ReportingManager extends FileLifecycleBase
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get class fee collection report: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -730,20 +736,22 @@ class ReportingManager extends FileLifecycleBase
                         c.name as class_name,
                         sl.name as level_name,
                         COUNT(DISTINCT s.id) as student_count,
-                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
-                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
-                        COALESCE(SUM(sfo.balance), 0) as balance,
-                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+                        COALESCE(SUM(f.amount_due), 0) as total_due,
+                        COALESCE(SUM(f.amount_paid), 0) as total_paid,
+                        COALESCE(SUM(f.balance), 0) as balance,
+                        ROUND(COALESCE(SUM(f.amount_paid), 0) / NULLIF(COALESCE(SUM(f.amount_due), 0), 0) * 100, 1) as collection_rate
                     FROM students s
-                    JOIN class_streams cs ON s.stream_id = cs.id
-                    JOIN classes c ON cs.class_id = c.id
+                    JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                    JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                    JOIN classes c ON ayc.class_id = c.id
                     JOIN school_levels sl ON c.level_id = sl.id
-                    LEFT JOIN student_fee_obligations sfo ON s.id = sfo.student_id AND sfo.academic_year = ?";
+                    LEFT JOIN vw_student_fee_balances f ON f.student_academic_enrollment_id = sae.id AND f.academic_year = ?";
 
             $params = [$academicYear];
 
             if ($termId) {
-                $sql .= " AND sfo.term_id = ?";
+                $sql .= " AND f.academic_year_term_id = ?";
                 $params[] = $termId;
             }
 
@@ -757,7 +765,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_class' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by class: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -773,24 +782,26 @@ class ReportingManager extends FileLifecycleBase
             $academicYear = $academicYear ?? date('Y');
 
             $sql = "SELECT 
-                        COALESCE(pt.payment_method, 'Unknown') as payment_method,
+                        COALESCE(p.method, 'Unknown') as payment_method,
                         COUNT(*) as transaction_count,
-                        COALESCE(SUM(pt.amount_paid), 0) as total_amount,
-                        ROUND(AVG(pt.amount_paid), 2) as avg_amount,
-                        MIN(pt.amount_paid) as min_amount,
-                        MAX(pt.amount_paid) as max_amount
-                    FROM payment_transactions pt
-                    WHERE pt.status = 'confirmed'
-                      AND (pt.academic_year = ? OR YEAR(pt.created_at) = ?)";
+                        COALESCE(SUM(p.amount), 0) as total_amount,
+                        ROUND(AVG(p.amount), 2) as avg_amount,
+                        MIN(p.amount) as min_amount,
+                        MAX(p.amount) as max_amount
+                    FROM payments p
+                    JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
+                    WHERE p.status = 'confirmed'
+                      AND ay.year_code = ?";
 
-            $params = [$academicYear, $academicYear];
+            $params = [$academicYear];
 
             if ($termId) {
-                $sql .= " AND pt.term_id = ?";
+                $sql .= " AND p.payment_date BETWEEN (SELECT opening_date FROM academic_year_terms WHERE id = ?) AND (SELECT closing_date FROM academic_year_terms WHERE id = ?)";
+                $params[] = $termId;
                 $params[] = $termId;
             }
 
-            $sql .= " GROUP BY pt.payment_method ORDER BY total_amount DESC";
+            $sql .= " GROUP BY p.method ORDER BY total_amount DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -798,7 +809,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_method' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by method: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -816,18 +828,18 @@ class ReportingManager extends FileLifecycleBase
             $sql = "SELECT 
                         st.name as student_type,
                         COUNT(DISTINCT s.id) as student_count,
-                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
-                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
-                        COALESCE(SUM(sfo.balance), 0) as balance,
-                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+                        COALESCE(SUM(f.amount_due), 0) as total_due,
+                        COALESCE(SUM(f.amount_paid), 0) as total_paid,
+                        COALESCE(SUM(f.balance), 0) as balance,
+                        ROUND(COALESCE(SUM(f.amount_paid), 0) / NULLIF(COALESCE(SUM(f.amount_due), 0), 0) * 100, 1) as collection_rate
                     FROM students s
                     JOIN student_types st ON s.student_type_id = st.id
-                    LEFT JOIN student_fee_obligations sfo ON s.id = sfo.student_id AND sfo.academic_year = ?";
+                    LEFT JOIN vw_student_fee_balances f ON f.student_id = s.id AND f.academic_year = ?";
 
             $params = [$academicYear];
 
             if ($termId) {
-                $sql .= " AND sfo.term_id = ?";
+                $sql .= " AND f.academic_year_term_id = ?";
                 $params[] = $termId;
             }
 
@@ -841,7 +853,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_type' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by student type: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -853,24 +866,25 @@ class ReportingManager extends FileLifecycleBase
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT 
-                    DATE(pt.payment_date) as date,
-                    DAYNAME(pt.payment_date) as day_name,
-                    COUNT(*) as transaction_count,
-                    COALESCE(SUM(pt.amount_paid), 0) as total_amount
-                FROM payment_transactions pt
-                WHERE pt.status = 'confirmed'
-                  AND YEAR(pt.payment_date) = YEAR(CURDATE())
-                  AND MONTH(pt.payment_date) = MONTH(CURDATE())
-                GROUP BY DATE(pt.payment_date), DAYNAME(pt.payment_date)
-                ORDER BY date DESC"
-            );
-            $stmt->execute();
+            "SELECT 
+                DATE(p.payment_date) as date,
+                DAYNAME(p.payment_date) as day_name,
+                COUNT(*) as transaction_count,
+                COALESCE(SUM(p.amount), 0) as total_amount
+            FROM payments p
+            WHERE p.status = 'confirmed'
+              AND YEAR(p.payment_date) = YEAR(CURDATE())
+              AND MONTH(p.payment_date) = MONTH(CURDATE())
+            GROUP BY DATE(p.payment_date), DAYNAME(p.payment_date)
+            ORDER BY date DESC"
+        );
+        $stmt->execute();
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return formatResponse(true, ['pivot_daily' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get daily collections: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -885,17 +899,13 @@ class ReportingManager extends FileLifecycleBase
         try {
             $academicYear = $academicYear ?? date('Y');
 
-            $sql = "SELECT 
-                        ft.name as fee_type,
-                        COUNT(DISTINCT sfo.student_id) as student_count,
-                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
-                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
-                        COALESCE(SUM(sfo.balance), 0) as balance,
-                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+$sql = "SELECT 
+                        'School Fees' as fee_type,
+                        COUNT(DISTINCT sfo.student_academic_enrollment_id) as student_count,
+                        COALESCE(SUM(sfo.amount_due), 0) as total_due
                     FROM student_fee_obligations sfo
-                    JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
-                    JOIN fee_types ft ON fsd.fee_type_id = ft.id
-                    WHERE sfo.academic_year = ?";
+                    JOIN academic_year_fee_schedules fsd ON sfo.academic_year_fee_schedule_id = fsd.id
+                    WHERE sfo.academic_year_id = ?";
 
             $params = [$academicYear];
 
@@ -904,7 +914,7 @@ class ReportingManager extends FileLifecycleBase
                 $params[] = $termId;
             }
 
-            $sql .= " GROUP BY ft.id, ft.name ORDER BY total_due DESC";
+            $sql .= " GROUP BY fee_type ORDER BY total_due DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -912,7 +922,8 @@ class ReportingManager extends FileLifecycleBase
 
             return formatResponse(true, ['pivot_by_fee_type' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get pivot by fee type: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -928,53 +939,105 @@ class ReportingManager extends FileLifecycleBase
             $academicYear = $academicYear ?? date('Y');
             $limit = (int) $limit;
 
+            $ayStmt = $this->db->prepare(
+                "SELECT id FROM academic_years WHERE year_code = ? OR YEAR(start_date) = ? LIMIT 1"
+            );
+            $ayStmt->execute([$academicYear, $academicYear]);
+            $academicYearId = (int) $ayStmt->fetchColumn();
+
+            if (!$academicYearId) {
+                return formatResponse(true, ['top_defaulters' => []]);
+            }
+
             $stmt = $this->db->prepare(
                 "SELECT 
                     s.id as student_id,
                     s.admission_no,
-                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    CONCAT(p.first_name, ' ', p.last_name) as student_name,
                     c.name as class_name,
                     st.name as student_type,
                     SUM(sfo.amount_due) as total_due,
-                    SUM(sfo.amount_paid) as total_paid,
-                    SUM(sfo.balance) as balance,
+                    COALESCE(SUM(v.amount_paid), 0) as total_paid,
+                    COALESCE(SUM(sfo.amount_due), 0) - COALESCE(SUM(v.amount_paid), 0) as balance,
                     MIN(sfo.due_date) as oldest_due_date,
                     DATEDIFF(CURDATE(), MIN(sfo.due_date)) as days_overdue,
-                    -- Parent/Guardian contact information
-                    p.id as parent_id,
-                    CONCAT(p.first_name, ' ', p.last_name) as parent_name,
-                    p.phone_1 as parent_phone,
-                    p.phone_2 as parent_phone_alt,
-                    p.email as parent_email,
+                    pn.id as parent_id,
+                    CONCAT(par.first_name, ' ', par.last_name) as parent_name,
+                    par.phone as parent_phone,
+                    NULL as parent_phone_alt,
+                    par.email as parent_email,
                     sp.relationship as parent_relationship,
                     sp.is_primary_contact
                 FROM students s
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
+                JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.academic_year_id = ?
+                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                JOIN classes c ON ayc.class_id = c.id
                 JOIN student_types st ON s.student_type_id = st.id
-                JOIN student_fee_obligations sfo ON s.id = sfo.student_id
-                -- Join with parent information (get primary contact first, then any parent)
+                JOIN student_fee_obligations sfo ON sae.id = sfo.student_academic_enrollment_id
+                JOIN persons p ON s.person_id = p.id
+                LEFT JOIN vw_student_fee_balances v
+                    ON v.student_academic_enrollment_id = sae.id AND v.academic_year_term_id = sfo.academic_year_term_id
                 LEFT JOIN student_parents sp ON s.id = sp.student_id
-                LEFT JOIN parents p ON sp.parent_id = p.id AND p.status = 'active'
+                LEFT JOIN parents pn ON sp.parent_id = pn.id AND pn.status = 'active'
+                LEFT JOIN persons par ON pn.person_id = par.id
                 WHERE s.status = 'active'
-                  AND sfo.academic_year = ?
-                  AND sfo.balance > 0
-                GROUP BY s.id, s.admission_no, s.first_name, s.last_name, c.name, st.name,
-                         p.id, p.first_name, p.last_name, p.phone_1, p.phone_2, p.email,
+                  AND sfo.academic_year_id = ?
+                GROUP BY s.id, s.admission_no, p.first_name, p.last_name, c.name, st.name,
+                         pn.id, par.first_name, par.last_name, par.phone, par.email,
                          sp.relationship, sp.is_primary_contact
-                HAVING balance > 0
-                ORDER BY balance DESC, is_primary_contact DESC
+                HAVING (COALESCE(SUM(sfo.amount_due), 0) - COALESCE(SUM(v.amount_paid), 0)) > 0
+                ORDER BY (COALESCE(SUM(sfo.amount_due), 0) - COALESCE(SUM(v.amount_paid), 0)) DESC, is_primary_contact DESC
                 LIMIT ?"
             );
-            $stmt->bindValue(1, $academicYear, PDO::PARAM_INT);
-            $stmt->bindValue(2, $limit, PDO::PARAM_INT);
-            $stmt->execute();
+            $stmt->execute([$academicYearId, $academicYearId, $limit]);
             $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return formatResponse(true, ['top_defaulters' => $data]);
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get top defaulters: ' . $e->getMessage());
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Summary totals for the reports landing page.
+     */
+    public function getFinancialSummaryReport()
+    {
+        try {
+            $stmt = $this->db->query(
+                "SELECT
+                    (SELECT COALESCE(SUM(amount),0) FROM payments WHERE YEAR(payment_date)=YEAR(CURDATE()) AND status='confirmed') AS total_collected_ytd,
+                    (SELECT COALESCE(SUM(balance),0) FROM vw_student_fee_balances WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
+                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
+                    (SELECT COUNT(*) FROM payments WHERE DATE(payment_date)=CURDATE() AND status='confirmed') AS payments_today"
+            );
+            $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (Exception $e) {
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            $summary = [];
+        }
+
+        return formatResponse(true, [
+            'summary' => $summary,
+            'report_types' => ['collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet']
+        ]);
+    }
+
+    /**
+     * Resolve the current academic year code.
+     */
+    public function getCurrentAcademicYearCode()
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result['year_code'] ?? date('Y');
+        } catch (Exception $e) {
+            error_log('[ReportingManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return date('Y');
         }
     }
 }
-

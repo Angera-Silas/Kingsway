@@ -95,15 +95,15 @@
             <table class="table table-hover" id="foodStoreTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Item Name</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Unit</th>
-                        <th>Reorder Level</th>
-                        <th>Unit Price (KES)</th>
-                        <th>Total Value (KES)</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Item Name</th>
+                        <th scope="col">Category</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">Unit</th>
+                        <th scope="col">Reorder Level</th>
+                        <th scope="col">Unit Price (KES)</th>
+                        <th scope="col">Total Value (KES)</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -256,5 +256,5 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/food_store.js"></script>
+<?php asset_script($appBase, 'js/pages/food_store.js'); ?>
 </script>

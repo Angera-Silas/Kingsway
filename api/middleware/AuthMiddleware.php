@@ -43,7 +43,13 @@ class AuthMiddleware
             'payments/index',
             'payments/mpesa-b2c-callback',
             'payments/mpesa-b2c-timeout',
+            'payments/c2b-validation',
+            'payments/c2b-confirmation',
+            'payments/mpesa-c2b-validation',
             'payments/mpesa-c2b-confirmation',
+            'payments/mpesa-stk-callback',
+            'payments/kcb-mpesa-express-callback',
+            'payments/mpesa-result',
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
             'payments/kcb-notification',
@@ -52,6 +58,10 @@ class AuthMiddleware
             'parent-portal/login',
             'parent-portal/login-otp-request',
             'parent-portal/login-otp-verify',
+            'public/uniform-catalog',
+            // 2FA challenge/verify — called during login before JWT is issued
+            'twofactor/challenge',
+            'twofactor/verify',
             // Public careers intake for candidates who passed recruitment screening
             'staff-appointments/careers-candidate',
             // Client telemetry/error ingestion (reporter sends a periodic fire-and-forget
@@ -93,13 +103,41 @@ class AuthMiddleware
             'website/history',
             'website/values',
             'website/departments',
-            'website/steps',
             'website/benefits',
+            'website/stats',
+            // Intake terms + active grades for the public admissions form.
+            'website/terms',
+            'website/grades',
+            // Public website forms (POST) — anonymous submission endpoints. The
+            // pages are thin shells; they never touch the DB directly. Each
+            // resource is write-only by design, so a bare GET on the controller
+            // has no get* handler and 404s instead of leaking data.
+            'public/job-applications',
+            'public/inquiries',
+            'public/applications',
+            'public/subscribers',
+            // Provider callbacks are authenticated by the webhook secret checked
+            // in CommunicationsController, not by a staff JWT.
+            'communications/sms-delivery-report',
+            'communications/whatsapp-delivery-report',
+            'communications/whatsapp-incoming',
+            'communications/sms-opt-out-callback',
+            'communications/sms-subscription-callback',
+            'communications/process-outbox',
         ];
 
         // Check if current request is to a public endpoint
         foreach ($publicEndpoints as $endpoint) {
             if (strpos($path, $endpoint) !== false) {
+                // 'payments/mpesa-result' (the public C2B result webhook) is a
+                // string prefix of 'payments/mpesa-results' (the authenticated
+                // results reader). The plural reader must NOT be exempted.
+                if (
+                    $endpoint === 'payments/mpesa-result' &&
+                    strpos($path, 'mpesa-results') !== false
+                ) {
+                    continue;
+                }
                 return;
             }
         }
@@ -190,6 +228,13 @@ class AuthMiddleware
                 new Key(JWT_SECRET, 'HS256')
             );
 
+            if (!isset($decoded->iss) || $decoded->iss !== JWT_ISSUER) {
+                self::deny(401, 'Invalid token issuer');
+            }
+            if (!isset($decoded->aud) || $decoded->aud !== JWT_AUDIENCE) {
+                self::deny(401, 'Invalid token audience');
+            }
+
             $authUser = self::normalizeDecodedUser((array) $decoded);
             $userId = (int) (
                 $authUser['user_id'] ?? $authUser['id'] ?? 0
@@ -222,7 +267,7 @@ class AuthMiddleware
             $_SERVER['auth_session_id'] = (int) $session['id'];
 
         } catch (\Exception $e) {
-            self::deny(401, 'Invalid or expired token: ' . $e->getMessage());
+            self::deny(401, 'Invalid or expired token');
         }
     }
 

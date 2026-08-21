@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
+use App\API\Modules\system\SystemAPI;
 use Exception;
 
 /**
@@ -13,6 +14,14 @@ use Exception;
  */
 class ChapelController extends BaseController
 {
+    private $api;
+
+    public function __construct($request = null)
+    {
+        parent::__construct($request);
+        $this->api = new SystemAPI();
+    }
+
     public function index($id = null, $data = [], $segments = [])
     {
         return $this->getServices($id, $data, $segments);
@@ -23,46 +32,17 @@ class ChapelController extends BaseController
      */
     public function getServices($id = null, $data = [], $segments = [])
     {
-        $limit    = min((int)($_GET['limit'] ?? 10), 50);
-        $upcoming = !empty($_GET['upcoming']);
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
 
         try {
-            $db = \App\Database\Database::getInstance();
-
-            // Try chapel_services table first
-            try {
-                $where = $upcoming ? "WHERE service_date >= CURDATE()" : "";
-                $stmt  = $db->prepare(
-                    "SELECT * FROM chapel_services {$where} ORDER BY service_date ASC LIMIT :lim"
-                );
-                $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
-                $stmt->execute();
-                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-                return $this->success($rows ?: []);
-            } catch (\Exception $e) {
-                // Fall back to school_events with type='chapel'
-            }
-
-            $tables = ['school_events', 'calendar_events', 'events'];
-            foreach ($tables as $table) {
-                try {
-                    $dateClause = $upcoming ? "AND date >= CURDATE()" : "";
-                    $stmt = $db->prepare(
-                        "SELECT id, title, date, type, description FROM {$table}
-                         WHERE type IN ('chapel','Chapel','CHAPEL') {$dateClause}
-                         ORDER BY date ASC LIMIT :lim"
-                    );
-                    $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
-                    $stmt->execute();
-                    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-                    return $this->success($rows ?: []);
-                } catch (\Exception $e) {
-                    continue;
-                }
-            }
-
-            return $this->success([]);
-        } catch (\Exception $e) {
+            $limit = min((int)($_GET['limit'] ?? 10), 50);
+            $upcoming = !empty($_GET['upcoming']);
+            $result = $this->api->listChapelServices($limit, $upcoming);
+            return $this->success($result['data'] ?? []);
+        } catch (Exception $e) {
+            error_log('[ChapelController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->success([]);
         }
     }

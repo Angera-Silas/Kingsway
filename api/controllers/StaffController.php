@@ -12,6 +12,7 @@ use App\API\Services\StaffLifecycleService;
 use App\API\Services\StaffRecordsService;
 use RuntimeException;
 use Exception;
+use App\API\Services\payments\StatutoryRemittanceService;
 
 /**
  * StaffController - Explicit REST endpoints for Staff Management
@@ -21,6 +22,65 @@ use Exception;
  */
 class StaffController extends BaseController
 {
+    private const STAFF_DIRECTORY_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_LIFECYCLE_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_APPOINTMENTS_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_ONBOARDING_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_ONBOARDING_MANAGE_ROLES = [
+        'system administrator',
+        'school administrator',
+        'headteacher',
+    ];
+
+    private const STAFF_PERFORMANCE_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
     private $api;
     private $payroll;
     private $idCardGenerator;
@@ -68,7 +128,7 @@ class StaffController extends BaseController
      */
     public function get($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES)) return $denied;
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
             return $this->handleResponse($result);
@@ -147,7 +207,7 @@ class StaffController extends BaseController
      */
     public function getAcademicKPISummary($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         try {
             $params = array_merge($_GET ?? [], $data);
             return $this->handleResponse($this->api->getAcademicKPISummary(
@@ -155,7 +215,8 @@ class StaffController extends BaseController
                 isset($params['academic_year_id']) ? (int)$params['academic_year_id'] : null
             ));
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -172,7 +233,8 @@ class StaffController extends BaseController
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result + ['assigned' => true], 'Role assigned successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -189,7 +251,8 @@ class StaffController extends BaseController
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(['revoked' => true], 'Role revoked successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -200,7 +263,7 @@ class StaffController extends BaseController
      */
     public function getLifecycle($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', self::STAFF_LIFECYCLE_VIEW_ROLES)) return $denied;
         try {
             $params = array_merge($_GET ?? [], $data);
             return $this->success(
@@ -210,7 +273,8 @@ class StaffController extends BaseController
                 'Staff lifecycle records retrieved'
             );
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -224,7 +288,8 @@ class StaffController extends BaseController
             $actionId = $this->lifecycleService->createAction($data, $this->access->userId());
             return $this->created(['id' => $actionId], 'Lifecycle action created successfully');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -233,7 +298,7 @@ class StaffController extends BaseController
      */
     public function getAppointments($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.appointments.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.appointments.view', self::STAFF_APPOINTMENTS_VIEW_ROLES)) return $denied;
         return $this->success($this->recordsService->appointmentSummary(), 'Staff appointments retrieved');
     }
 
@@ -282,7 +347,8 @@ class StaffController extends BaseController
         try {
             $mediaId = $this->api->uploadStaffMedia($staffId, $_FILES['file'], $type, $uploaderId, $description, $tags);
         } catch (\Exception $e) {
-            return $this->serverError('Upload failed: ' . $e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
 
         if (!$mediaId) {
@@ -359,9 +425,17 @@ class StaffController extends BaseController
      */
     public function getProfileGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $result = $this->api->getProfile($staffId);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.directory.view',
+                self::STAFF_DIRECTORY_VIEW_ROLES
+            );
+            return $this->handleResponse($this->api->getProfile($staffId));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -369,9 +443,17 @@ class StaffController extends BaseController
      */
     public function getScheduleGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $result = $this->api->getSchedule($staffId);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.directory.view',
+                self::STAFF_DIRECTORY_VIEW_ROLES
+            );
+            return $this->handleResponse($this->api->getSchedule($staffId));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -553,7 +635,7 @@ class StaffController extends BaseController
         }
         if (!$staffId) return $this->badRequest('Staff ID is required');
         try { $this->access->requireSelfOr('staff.payslip.manage', (int)$staffId, ['system administrator','accountant']); }
-        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+        catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
 
         $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
         return $this->handleResponse($result);
@@ -652,7 +734,7 @@ class StaffController extends BaseController
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { return $this->forbidden($e->getMessage()); }
+        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         $result = $this->api->getAttendance($data);
         return $this->handleResponse($result);
     }
@@ -686,7 +768,14 @@ class StaffController extends BaseController
     public function postLeavesApply($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) { $data['staff_id'] = $this->access->staffId(); }
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) {
+            try {
+                $this->access->require('staff.leave.request');
+            } catch (RuntimeException $error) {
+                return $this->selfServiceError($error);
+            }
+            $data['staff_id'] = $this->access->staffId();
+        }
         if (empty($data['staff_id'])) return $this->forbidden('No staff profile is linked to this account');
         $result = $this->api->applyLeave($data);
         return $this->handleResponse($result);
@@ -729,13 +818,19 @@ class StaffController extends BaseController
      */
     public function getPayrollPayslip($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $month = $data['month'] ?? date('m');
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->viewPayslip($staffId, $month, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $month = $data['month'] ?? $_GET['month'] ?? date('m');
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->viewPayslip($staffId, $month, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -743,13 +838,20 @@ class StaffController extends BaseController
      */
     public function getPayrollHistory($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $startDate = $data['start_date'] ?? null;
-        $endDate = $data['end_date'] ?? null;
-        
-        $result = $this->api->getPayrollHistory($staffId, $startDate, $endDate);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $filters = array_merge($_GET ?? [], is_array($data) ? $data : []);
+            return $this->handleResponse(
+                $this->api->getPayrollHistory($staffId, $filters)
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -812,12 +914,18 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadP9($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->downloadP9Form($staffId, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->downloadP9Form($staffId, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -825,13 +933,19 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadPayslip($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $month = $data['month'] ?? date('m');
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->downloadPayslip($staffId, $month, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $month = $data['month'] ?? $_GET['month'] ?? date('m');
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->downloadPayslip($staffId, $month, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -879,6 +993,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceAcademicKpiSummary($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
@@ -985,7 +1100,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->promotions($data));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -998,7 +1114,8 @@ class StaffController extends BaseController
             $id = $this->recordsService->createPromotion($data, $this->access->userId());
             return $this->created(['id' => $id], 'Promotion submitted for approval');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1014,7 +1131,8 @@ class StaffController extends BaseController
             $this->recordsService->decidePromotion($promotionId, $action, $this->access->userId(), $data['reason'] ?? null);
             return $this->success(null, "Promotion {$action}d");
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1030,7 +1148,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->offboarding($data));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1043,7 +1162,8 @@ class StaffController extends BaseController
             $id = $this->recordsService->createOffboarding($data, $this->access->userId());
             return $this->created(['id' => $id], 'Offboarding initiated');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1058,7 +1178,8 @@ class StaffController extends BaseController
             $this->recordsService->updateOffboarding($offId, $data, $this->access->userId());
             return $this->success(null, 'Offboarding updated');
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1070,7 +1191,8 @@ class StaffController extends BaseController
         try {
             return $this->success($this->recordsService->upcomingRetirements((int)($data['months'] ?? 12)));
         } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -1097,6 +1219,7 @@ class StaffController extends BaseController
      */
     public function getOnboarding($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         $result = $id
             ? $this->onboardingManager->getOnboardingDetail((int)$id)
             : $this->onboardingManager->listOnboardings(array_merge($_GET ?? [], $data));
@@ -1109,6 +1232,7 @@ class StaffController extends BaseController
      */
     public function postOnboarding($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['initiated_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->createOnboarding($data));
     }
@@ -1119,7 +1243,9 @@ class StaffController extends BaseController
      */
     public function putOnboarding($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('onboarding id required');
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
+        if (!$id) error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         return $this->handleResponse($this->onboardingManager->updateOnboarding((int)$id, $data));
     }
 
@@ -1129,7 +1255,9 @@ class StaffController extends BaseController
      */
     public function putOnboardingTask($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('task id required');
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
+        if (!$id) error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         return $this->handleResponse($this->onboardingManager->updateTaskStatus((int)$id, $data));
     }
 
@@ -1139,6 +1267,7 @@ class StaffController extends BaseController
      */
     public function postOnboardingDocument($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['verified_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->recordDocument($data));
     }
@@ -1149,6 +1278,7 @@ class StaffController extends BaseController
      */
     public function postProbationReview($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['reviewer_id'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->recordProbationReview($data));
     }
@@ -1159,6 +1289,7 @@ class StaffController extends BaseController
      */
     public function getOnboardingTemplates($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         return $this->handleResponse($this->onboardingManager->getActiveTemplates());
     }
 
@@ -1168,32 +1299,38 @@ class StaffController extends BaseController
      */
     public function getOnboardingPending($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         return $this->handleResponse($this->onboardingManager->getPendingTasks());
     }
 
     // ========================================================================
-    // STAFF ID CARD ENDPOINTS
+    // STAFF SECURITY-PASS ENDPOINTS
+    //
+    // Compatibility: route and permission identifiers retain id-card naming.
     // ========================================================================
 
     /**
      * POST /api/staff/id-card/generate
-     * Generate staff ID card
+     * Legacy-compatible route for generating one staff security pass.
      */
     public function postIdCardGenerate($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
 
-        $staffId = $data['staff_id'] ?? null;
-        if (!$staffId) {
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
             return $this->badRequest('Staff ID is required');
         }
 
-        $format = $data['format'] ?? 'html';
         $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+        $result = $this->idCardGenerator->generateIDCard(
+            $staffId,
+            'pdf',
+            $side,
+            $printMode
+        );
 
-        $result = $this->idCardGenerator->generateIDCard((int) $staffId, $format, $side);
         return $this->handleResponse($result);
     }
 
@@ -1203,32 +1340,36 @@ class StaffController extends BaseController
      */
     public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
 
         $staffIds = $data['staff_ids'] ?? [];
         if (empty($staffIds) || !is_array($staffIds)) {
             return $this->badRequest('Staff IDs array is required');
         }
 
-        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $printMode = $data['print_mode'] ?? 'a4_pdf';
         $includeFront = $data['include_front'] ?? true;
         $includeBack = $data['include_back'] ?? true;
 
-        $result = $this->idCardGenerator->generateBulkIDCardsPDF($staffIds, $printMode, $includeFront, $includeBack);
+        $result = $this->idCardGenerator->generateBulkIDCardsPDF(
+            $staffIds,
+            $printMode,
+            $includeFront,
+            $includeBack,
+            null,
+            true
+        );
+
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/staff/id-card/print-single
-     * Generate print-ready single card HTML for browser/system printing.
+     * Prepare a print-ready copy of one existing staff security pass.
      */
     public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
 
         $staffId = $data['staff_id'] ?? ($segments[0] ?? null);
         if (!$staffId) {
@@ -1242,15 +1383,90 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** POST /api/staff/id-cards-bulk-generate */
+    public function postIdCardsBulkGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+
+        $staffIds = $data['staff_ids'] ?? [];
+        if (empty($staffIds) || !is_array($staffIds)) {
+            return $this->badRequest('staff_ids array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_pdf';
+        $includeFront = array_key_exists('include_front', $data) ? (bool)$data['include_front'] : true;
+        $includeBack = array_key_exists('include_back', $data) ? (bool)$data['include_back'] : true;
+
+        try {
+            $normalizedStaffIds = array_values(
+                array_unique(
+                    array_filter(
+                        array_map('intval', $staffIds),
+                        static fn (int $staffId): bool => $staffId > 0
+                    )
+                )
+            );
+
+            if ($normalizedStaffIds === []) {
+                return $this->badRequest('staff_ids must contain valid staff IDs');
+            }
+
+            $result = $this->idCardGenerator->generateBulkIDCardsPDF(
+                $normalizedStaffIds,
+                $printMode,
+                $includeFront,
+                $includeBack,
+                null,
+                false
+            );
+
+            if (($result['status'] ?? 'error') !== 'success') {
+                return $this->handleResponse($result);
+            }
+
+            $persisted = $this->recordsService->persistBulkGeneratedIdCards(
+                $normalizedStaffIds,
+                null,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'bulk_generate_staff_security_passes',
+                'staff',
+                null,
+                null,
+                [
+                    'count' => count($persisted),
+                    'print_mode' => $printMode,
+                    'include_front' => $includeFront,
+                    'include_back' => $includeBack,
+                ]
+            );
+
+            return $this->success(
+                [
+                    'document' => $result['data'] ?? null,
+                    'passes' => $persisted,
+                    // Legacy response key retained for existing consumers.
+                    'cards' => $persisted,
+                    'count' => count($persisted),
+                ],
+                'Staff security passes generated successfully'
+            );
+        } catch (\Throwable $e) {
+            return $this->serverError(
+                'Failed to generate staff security passes', 'An internal error occurred.'
+            );
+        }
+    }
+
     /**
      * POST /api/staff/id-card/upload-photo
-     * Upload staff photo for ID card
+     * Upload the portrait used on a staff security pass.
      */
     public function postIdCardUploadPhoto($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
 
         $staffId = $data['staff_id'] ?? null;
         if (!$staffId) {
@@ -1274,11 +1490,7 @@ class StaffController extends BaseController
         try {
             $this->access->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401
-                ? $this->unauthorized($e->getMessage())
-                : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/staff/access-context */
@@ -1293,10 +1505,16 @@ class StaffController extends BaseController
             'permissions' => $this->access->permissions(),
             'roles' => $this->access->roles(),
             'capabilities' => [
-                'staff_directory_view' => $this->access->allows('staff.directory.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_directory_view' => $this->access->allows('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES),
                 'staff_directory_manage' => $this->access->allows('staff.directory.manage', ['system administrator','school administrator']),
                 'teachers_view' => $this->access->allows('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic']),
                 'non_teaching_view' => $this->access->allows('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_lifecycle_view' => $this->access->allows('staff.lifecycle.view', self::STAFF_LIFECYCLE_VIEW_ROLES),
+                'staff_appointments_view' => $this->access->allows('staff.appointments.view', self::STAFF_APPOINTMENTS_VIEW_ROLES),
+                'staff_appointments_approve' => $this->access->allows('staff.appointments.approve', ['director','school administrator']),
+                'staff_appointments_onboard' => $this->access->allows('staff.appointments.onboard', ['system administrator','school administrator','headteacher']),
+                'staff_onboarding_view' => $this->access->allows('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES),
+                'staff_onboarding_manage' => $this->access->allows('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES),
                 'attendance_manage' => $this->access->allows('staff.attendance.manage', ['system administrator','school administrator','headteacher']),
                 'attendance_self' => $this->access->allows('staff.attendance.self', ['staff','class teacher','subject teacher','accountant']),
                 'leave_manage' => $this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher']),
@@ -1307,6 +1525,7 @@ class StaffController extends BaseController
                 'id_cards_manage' => $this->access->allows('staff.id_cards.manage', ['system administrator','school administrator']),
                 'role_assignments_manage' => $this->access->allows('staff.roles.manage', ['system administrator','school administrator']),
                 'teaching_assignments_manage' => $this->access->allows('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'staff_performance_view' => $this->access->allows('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES),
             ],
         ]);
     }
@@ -1323,6 +1542,33 @@ class StaffController extends BaseController
     {
         if ($denied = $this->guardStaffDomain('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         return $this->handleResponse($this->api->listNonTeaching($_GET ?? []));
+    }
+
+    /**
+     * GET /api/staff/key-contacts
+     * Curated leadership/admin contacts for the student/parent staff viewer.
+     * Self-service scoping: staff-view or student/parent-view accounts.
+     */
+    public function getKeyContacts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(
+            ['staff.directory.view', 'staff.view.directory', 'staff.view.contacts', 'staff.view.own',
+             'staff_view_directory', 'staff_view_contacts', 'staff_view_own', 'staff_view',
+             'students_view_own', 'students_view'],
+            [],
+            self::STAFF_DIRECTORY_VIEW_ROLES
+        )) {
+            return $this->forbidden('Access to staff key contacts is not available for this account');
+        }
+        try {
+            return $this->handleResponse($this->api->keyContacts());
+        } catch (\Throwable $e) {
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('Failed to load key contacts', 'An internal error occurred.');
+        }
     }
 
     /** Alias required by all_teachers.js: GET /api/staff/departments */
@@ -1363,7 +1609,8 @@ class StaffController extends BaseController
             $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
             return $this->success($result, 'Role assigned');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1378,43 +1625,115 @@ class StaffController extends BaseController
             $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
             return $this->success(null, 'Role removed');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
-    /** GET /api/staff/id-cards */
+    /** GET /api/staff/id-cards — legacy route name, security-pass registry. */
     public function getIdCards($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         return $this->success($this->recordsService->idCards($_GET ?? []));
     }
 
-    /** POST /api/staff/id-cards/generate */
+    /** POST /api/staff/id-cards/generate — generate and register one pass. */
     public function postIdCardsGenerate($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
-        $staffId = (int)($data['staff_id'] ?? 0);
-        if (!$staffId) return $this->badRequest('staff_id is required');
+
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return $this->badRequest('staff_id is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
         try {
-            $card = $this->idCardGenerator->generateIDCard($staffId, $data['format'] ?? 'html', $data['side'] ?? 'both');
-            $number = 'KWA-S-' . str_pad((string)$staffId, 6, '0', STR_PAD_LEFT);
-            $this->recordsService->persistGeneratedIdCard($staffId, $number, $data['expires_at'] ?? date('Y-m-d', strtotime('+2 years')), $this->access->userId());
-            $this->access->audit('generate_id_card', 'staff', $staffId, null, ['card_number' => $number]);
-            return $this->success(['card_number' => $number, 'document' => $card], 'Staff ID card generated');
+            $result = $this->idCardGenerator->generateIDCard(
+                $staffId,
+                'pdf',
+                $side,
+                $printMode
+            );
+
+            if (($result['status'] ?? 'error') !== 'success') {
+                return $this->handleResponse($result);
+            }
+
+            $passNumber = $this->recordsService
+                ->securityPassNumberForStaff($staffId);
+
+            $this->recordsService->persistGeneratedIdCard(
+                $staffId,
+                $passNumber,
+                null,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'generate_staff_security_pass',
+                'staff',
+                $staffId,
+                null,
+                [
+                    'pass_number' => $passNumber,
+                    // Legacy field retained for audit-query compatibility.
+                    'card_number' => $passNumber,
+                    'print_mode' => $printMode,
+                    'side' => $side,
+                ]
+            );
+
+            return $this->success(
+                [
+                    'pass_number' => $passNumber,
+                    // Legacy response field retained for existing consumers.
+                    'card_number' => $passNumber,
+                    'document' => $result['data'] ?? null,
+                ],
+                'Staff security pass generated successfully'
+            );
         } catch (\Throwable $e) {
-            return $this->serverError('Failed to generate staff ID card', $e->getMessage());
+            return $this->serverError(
+                'Failed to generate staff security pass', 'An internal error occurred.'
+            );
         }
     }
 
-    /** POST /api/staff/id-cards/issue */
+    /** POST /api/staff/id-cards/issue — mark a registered pass as issued. */
     public function postIdCardsIssue($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
-        $staffId = (int)($data['staff_id'] ?? 0);
-        if (!$staffId) return $this->badRequest('staff_id is required');
-        $this->recordsService->issueIdCard($staffId, $this->access->userId());
-        $this->access->audit('issue_id_card', 'staff', $staffId, null, ['status' => 'issued']);
-        return $this->success(null, 'Staff ID card issued');
+
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return $this->badRequest('staff_id is required');
+        }
+
+        try {
+            $this->recordsService->issueIdCard(
+                $staffId,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'issue_staff_security_pass',
+                'staff',
+                $staffId,
+                null,
+                ['status' => 'issued']
+            );
+
+            return $this->success(
+                null,
+                'Staff security pass issued successfully'
+            );
+        } catch (RuntimeException $exception) {
+            error_log('[StaffController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->badRequest('An internal error occurred.');
+        }
     }
 
     /** GET /api/staff/leave-requests — admin scope or own records */
@@ -1426,6 +1745,19 @@ class StaffController extends BaseController
             $filters['staff_id'] = $this->access->staffId();
         }
         return $this->handleResponse($this->leaveManager->getLeaveHistory($filters));
+    }
+
+    /** GET /api/staff/leave-balance — authenticated staff member's own balance. */
+    public function getLeaveBalance($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) {
+            return $this->unauthorized('Authentication required');
+        }
+        $staffId = (int) ($this->access->staffId() ?? 0);
+        if ($staffId <= 0) {
+            return $this->forbidden('No staff profile is linked to this account');
+        }
+        return $this->handleResponse($this->leaveManager->getLeaveBalance($staffId));
     }
 
     /** POST /api/staff/leave-requests */
@@ -1458,12 +1790,12 @@ class StaffController extends BaseController
     /** GET /api/staff/performance-reviews */
     public function getPerformanceReviews($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         try {
             $rows = $this->recordsService->performanceReviews($_GET ?? [], $id ? (int)$id : null);
             if($id) return $rows ? $this->success($rows[0]) : $this->notFound('Performance review not found');
             return $this->success($rows);
-        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews',$e->getMessage());}
+        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews', 'An internal error occurred.');}
     }
 
     /** POST /api/staff/performance-reviews */
@@ -1476,7 +1808,8 @@ class StaffController extends BaseController
             $this->access->audit('create_performance_review','staff_performance_review',$newId,null,$data);
             return $this->created(['id'=>$newId],'Performance review created');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1490,7 +1823,8 @@ class StaffController extends BaseController
             $this->access->audit('update_performance_review','staff_performance_review',(int)$id,$before,$data);
             return $this->success(['id'=>(int)$id],'Performance review updated');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -1504,8 +1838,160 @@ class StaffController extends BaseController
             $this->access->audit('delete_performance_review','staff_performance_review',(int)$id,$before,null);
             return $this->success(null,'Performance review deleted');
         } catch (\Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
+    }
+
+
+    /** GET /api/staff/internal-opportunities */
+    public function getInternalOpportunities($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.opportunities.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            return $this->success(
+                $this->api->listInternalOpportunities($staffId),
+                'Internal opportunities retrieved'
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** POST /api/staff/internal-opportunities/apply */
+    public function postInternalOpportunitiesApply($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.opportunities.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            $result = $this->api->applyForInternalOpportunity(
+                $staffId,
+                $this->access->userId(),
+                $data
+            );
+            $this->access->audit(
+                'apply_internal_opportunity',
+                'job_application',
+                (int) $result['id'],
+                null,
+                $result
+            );
+            return $this->created($result, 'Internal application submitted');
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** GET /api/staff/incidents */
+    public function getIncidents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.incidents.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            return $this->success(
+                $this->api->listIncidentReports($staffId),
+                'Incident reports retrieved'
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** POST /api/staff/incidents */
+    public function postIncidents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.incidents.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            $result = $this->api->createIncidentReport(
+                $staffId,
+                $this->access->userId(),
+                $data
+            );
+            $this->access->audit(
+                'create_incident_report',
+                'staff_incident_report',
+                (int) $result['id'],
+                null,
+                $result
+            );
+            return $this->created($result, 'Incident report submitted');
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    private function resolveSelfOrManagedStaffId(
+        $id,
+        array $data,
+        string $permission,
+        array $fallbackRoles = []
+    ): int {
+        $requestedStaffId = (int) (
+            $id
+            ?? $_GET['staff_id']
+            ?? $data['staff_id']
+            ?? $this->access->staffId()
+            ?? 0
+        );
+
+        if ($requestedStaffId <= 0) {
+            throw new RuntimeException('No staff profile is linked to this account', 403);
+        }
+
+        return $this->access->requireSelfOr(
+            $permission,
+            $requestedStaffId,
+            $fallbackRoles
+        );
+    }
+
+    private function selfServiceError(RuntimeException $error)
+    {
+        $code = (int) $error->getCode();
+        if ($code === 401) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->unauthorized('An internal error occurred.');
+        }
+        if ($code === 403) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->forbidden('An internal error occurred.');
+        }
+        if ($code === 409) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->conflict('An internal error occurred.');
+        }
+        if ($code === 422) {
+            error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+            return $this->unprocessable('An internal error occurred.');
+        }
+        error_log('[StaffController] ' . $error->getMessage() . ' in ' . $error->getFile() . ':' . $error->getLine());
+        return $this->serverError('An internal error occurred.');
     }
 
 
@@ -1531,7 +2017,158 @@ class StaffController extends BaseController
             $staffId=(int)($_GET['staff_id']??$data['staff_id']??$id??0);
             return $this->success($this->recordsService->roleAssignments($staffId));
         } catch (\Throwable $e) {
+            error_log('[StaffController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
+        }
+    }
+
+    /** GET /api/staff/statutory-remittances */
+    public function getStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try {
+            $year = (int)($_GET['year'] ?? date('Y'));
+            $agency = $_GET['agency'] ?? null;
+            $status = $_GET['status'] ?? null;
+            $sql = "SELECT * FROM statutory_remittances WHERE period_year = ?";
+            $params = [$year];
+            if ($agency) { $sql .= " AND agency = ?"; $params[] = $agency; }
+            if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
+            $sql .= " ORDER BY period_year DESC, period_month DESC, agency";
+            $stmt = $this->db->getConnection()->prepare($sql);
+            $stmt->execute($params);
+            $remittances = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            $agencies = ['KRA','NHIF','NSSF','Housing Levy'];
+            $breakdown = [];
+            foreach (range(1, 12) as $m) {
+                $row = ['period_month' => $m, 'kra' => 0, 'nhif' => 0, 'nssf' => 0, 'housing_levy' => 0];
+                foreach ($agencies as $a) {
+                    $key = strtolower(str_replace(' ', '_', str_replace('/', '_', $a)));
+                    foreach ($remittances as $r) {
+                        if ((int)$r['period_month'] === $m && $r['agency'] === $a) {
+                            $row[$key === 'kra_(paye)' ? 'kra' : $key] = (float)$r['total_deducted'];
+                        }
+                    }
+                }
+                $breakdown[] = $row;
+            }
+            $totalDeducted = array_sum(array_column($remittances, 'total_deducted'));
+            $totalRemitted = array_sum(array_column($remittances, 'amount_remitted'));
+            $summary = [
+                'total_deducted' => $totalDeducted,
+                'total_remitted' => $totalRemitted,
+                'outstanding' => $totalDeducted - $totalRemitted,
+                'overdue_count' => count(array_filter($remittances, fn($r) => $r['status'] === 'overdue')),
+            ];
+            return $this->success(['remittances' => $remittances, 'breakdown' => $breakdown, 'summary' => $summary]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] getStatutoryRemittances: ' . $e->getMessage());
+            return $this->badRequest('Failed to load remittances.');
+        }
+    }
+
+    /** POST /api/staff/statutory-remittances */
+    public function postStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        try {
+            $agency = $data['agency'] ?? null;
+            $month = (int)($data['period_month'] ?? 0);
+            $year = (int)($data['period_year'] ?? 0);
+            if (!$agency || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
+            $stmt = $this->db->getConnection()->prepare("INSERT INTO statutory_remittances (agency, period_month, period_year, total_deducted, amount_remitted, status, due_date, remittance_date, filing_reference, notes, filed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $agency, $month, $year,
+                $data['total_deducted'] ?? 0, $data['amount_remitted'] ?? 0,
+                $data['status'] ?? 'pending',
+                $data['due_date'] ?? null, $data['remittance_date'] ?? null,
+                $data['filing_reference'] ?? null, $data['notes'] ?? null,
+                $this->access->staffId()
+            ]);
+            return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Remittance saved');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] createStatutoryRemittance: ' . $e->getMessage());
+            return $this->badRequest('Failed to save remittance.');
+        }
+    }
+
+    /** PUT /api/staff/statutory-remittances/{id} */
+    public function putStatutoryRemittances($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $remId = (int)($id ?? $data['id'] ?? 0);
+        if (!$remId) return $this->badRequest('Remittance ID required');
+        try {
+            $stmt = $this->db->getConnection()->prepare("UPDATE statutory_remittances SET amount_remitted = ?, status = ?, remittance_date = ?, filing_reference = ?, notes = ?, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([
+                $data['amount_remitted'] ?? 0, $data['status'] ?? 'pending',
+                $data['remittance_date'] ?? null, $data['filing_reference'] ?? null,
+                $data['notes'] ?? null, $remId
+            ]);
+            return $this->success(null, 'Remittance updated');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] updateStatutoryRemittance: ' . $e->getMessage());
+            return $this->badRequest('Failed to update remittance.');
+        }
+    }
+
+    /** POST /api/staff/statutory-remittances/{id}/initiate-payment */
+    public function postStatutoryRemittancePayment($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $remittanceId = (int) ($id ?? $data['id'] ?? 0);
+        if (!$remittanceId || empty($data['agency_account_id'])) return $this->badRequest('Remittance ID and agency_account_id are required');
+        try {
+            $result = (new StatutoryRemittanceService($this->db))->initiate($remittanceId, (int) $this->access->staffId(), $data);
+            return $this->success($result, 'Statutory payment submitted for confirmation');
+        } catch (\Throwable $e) {
+            error_log('[StaffController] initiate statutory payment: ' . $e->getMessage());
             return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/statutory-agency-accounts?agency=KRA */
+    public function getStatutoryAgencyAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $agency = $_GET['agency'] ?? $data['agency'] ?? null;
+        if (!$agency) return $this->badRequest('Agency is required');
+        try {
+            $stmt = $this->db->getConnection()->prepare("SELECT id, agency, account_name, account_number, bank_name, bank_code, payment_reference_rule FROM statutory_agency_accounts WHERE agency = ? AND active = 1 ORDER BY account_name, id");
+            $stmt->execute([$agency]);
+            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] statutory agency accounts: ' . $e->getMessage());
+            return $this->badRequest('Failed to load agency accounts.');
+        }
+    }
+
+    /** GET /api/staff/statutory-remittances/calc?agency=X&month=X&year=X */
+    public function getStatutoryRemittancesCalc($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try {
+            $agency = $_GET['agency'] ?? null;
+            $month = (int)($_GET['month'] ?? 0);
+            $year = (int)($_GET['year'] ?? 0);
+            if (!$agency || !$month || !$year) return $this->badRequest('agency, month, year required');
+            $colMap = ['KRA' => 'paye_tax', 'NHIF' => 'nhif_contribution', 'NSSF' => 'nssf_contribution', 'Housing Levy' => 'housing_levy'];
+            $col = $colMap[$agency] ?? null;
+            if (!$col) return $this->badRequest('Unknown agency');
+            $sql = "SELECT p.staff_id, s.staff_no, CONCAT(ps.first_name, ' ', ps.last_name) AS staff_name, p.{$col} AS amount FROM payslips p JOIN staff s ON s.id = p.staff_id JOIN persons ps ON ps.id = s.person_id WHERE p.payroll_month = ? AND p.payroll_year = ? AND p.payslip_status IN ('approved','paid') AND p.{$col} > 0 ORDER BY ps.last_name, ps.first_name";
+            $stmt = $this->db->getConnection()->prepare($sql);
+            $stmt->execute([$month, $year]);
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $total = array_sum(array_column($rows, 'amount'));
+            return $this->success(['total' => $total, 'staff' => $rows]);
+        } catch (\Throwable $e) {
+            error_log('[StaffController] calcStatutoryDeduction: ' . $e->getMessage());
+            return $this->badRequest('Failed to calculate deductions.');
         }
     }
 

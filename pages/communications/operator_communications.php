@@ -46,10 +46,10 @@
     <table class="operator-data-table" id="messagesTable">
         <thead>
             <tr>
-                <th>Recipient</th>
-                <th>Message</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th scope="col">Recipient</th>
+                <th scope="col">Message</th>
+                <th scope="col">Status</th>
+                <th scope="col">Action</th>
             </tr>
         </thead>
         <tbody id="messagesTableBody">
@@ -70,14 +70,14 @@
                 <form id="composeForm">
                     <div class="mb-3">
                         <label class="form-label">Class</label>
-                        <select class="form-select" id="classSelect">
+                        <select class="form-select" id="classSelect" required>
                             <option value="">Select your class</option>
                         </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Message</label>
                         <textarea class="form-control" id="message" rows="4"
-                            placeholder="Type your message to class parents..."></textarea>
+                            placeholder="Type your message to class parents..." required></textarea>
                     </div>
                 </form>
             </div>

@@ -1,64 +1,53 @@
 <?php
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
+use App\API\Includes\FileLogger;
 
 class LogsReportManager extends BaseAPI
 {
     public function getCommunicationLogs($filters = [])
     {
-        try {
-            $sql = "SELECT * FROM communication_logs ORDER BY created_at DESC LIMIT 100";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
-        }
+        $entries = FileLogger::recent('audit', 100, ['entity' => 'communication']);
+        return array_map([$this, 'normalizeEntry'], $entries);
     }
 
     public function getFeeStructureLogs($filters = [])
     {
-        try {
-            $sql = "SELECT * FROM fee_structure_change_log ORDER BY changed_at DESC LIMIT 100";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
-        }
+        $entries = FileLogger::recent('finance', 100);
+        return array_map([$this, 'normalizeEntry'], array_filter($entries, function ($e) {
+            $action = $e['action'] ?? $e['type'] ?? '';
+            return in_array($action, ['fee_structure_create', 'fee_structure_update', 'fee_structure_delete'], true);
+        }));
     }
 
     public function getInventoryLogs($filters = [])
     {
-        try {
-            $sql = "SELECT * FROM inventory_logs ORDER BY created_at DESC LIMIT 100";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
-        }
+        $entries = FileLogger::recent('inventory', 100);
+        return array_map([$this, 'normalizeEntry'], $entries);
     }
 
     public function getSystemLogs($filters = [])
     {
-        try {
-            $limit = (int)($filters['limit'] ?? 100);
-            $sql = "SELECT
-                        sl.id,
-                        sl.user_id,
-                        u.username,
-                        sl.action,
-                        sl.entity_type,
-                        sl.entity_id,
-                        sl.description,
-                        sl.ip_address,
-                        sl.created_at
-                    FROM system_logs sl
-                    LEFT JOIN users u ON u.id = sl.user_id
-                    ORDER BY sl.created_at DESC
-                    LIMIT {$limit}";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
-        }
+        $limit = (int) ($filters['limit'] ?? 100);
+        $entries = FileLogger::recent('audit', max(1, min($limit, 500)));
+        return array_map([$this, 'normalizeEntry'], $entries);
+    }
+
+    private function normalizeEntry(array $entry): array
+    {
+        return [
+            'id' => null,
+            'user_id' => $entry['user_id'] ?? null,
+            'username' => null,
+            'action' => $entry['action'] ?? null,
+            'entity' => $entry['entity'] ?? null,
+            'entity_type' => $entry['entity'] ?? null,
+            'entity_id' => $entry['entity_id'] ?? null,
+            'details' => $entry['details'] ?? null,
+            'description' => $entry['details'] ?? null,
+            'ip_address' => $entry['ip'] ?? $entry['ip_address'] ?? null,
+            'created_at' => $entry['timestamp'] ?? null,
+            'level' => $entry['level'] ?? null,
+        ];
     }
 }

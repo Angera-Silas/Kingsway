@@ -50,14 +50,14 @@
         <table class="table table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>Month</th>
+              <th scope="col">Month</th>
               <th class="text-end">Gross Pay</th>
               <th class="text-end">PAYE</th>
-              <th class="text-end">NHIF</th>
+              <th class="text-end">SHIF</th>
               <th class="text-end">NSSF</th>
               <th class="text-end">Net Pay</th>
-              <th>Status</th>
-              <th></th>
+              <th scope="col">Status</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody id="psTableBody">
@@ -88,5 +88,5 @@
   </div>
 
 </div>
-<script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/payslips.js"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/payslips.js'); ?>

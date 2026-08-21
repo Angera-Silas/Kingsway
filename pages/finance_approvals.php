@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-clipboard-check"></i> Finance Approvals</h4>
+            <h4 class="mb-0"><i class="bi bi-clipboard-check"></i> Finance Approvals</h4>
             <button class="btn btn-light btn-sm" id="exportBtn">
                 <i class="bi bi-download"></i> Export
             </button>
@@ -91,14 +91,14 @@
             <table class="table table-hover" id="approvalsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>ID</th>
-                        <th>Type</th>
-                        <th>Date</th>
-                        <th>Requested By</th>
-                        <th>Description</th>
-                        <th>Amount (KES)</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">ID</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Requested By</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Amount (KES)</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -173,4 +173,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/finance_approvals.js"></script>
+<?php asset_script($appBase, 'js/pages/finance_approvals.js'); ?>

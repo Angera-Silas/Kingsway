@@ -99,14 +99,14 @@
                     <thead class="table-light">
                         <tr>
                             <th style="width:40px;"><input type="checkbox" id="selectAllApproval"></th>
-                            <th>#</th>
-                            <th>Title</th>
-                            <th>Teacher</th>
-                            <th>Subject</th>
-                            <th>Class</th>
-                            <th>Submitted Date</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Title</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Subject</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Submitted Date</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="approvalTableBody">

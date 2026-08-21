@@ -13,7 +13,7 @@
             </p>
         </div>
         <button type="button" class="btn btn-outline-secondary" id="refreshAccountStatusBtn">
-            <i class="fas fa-sync-alt me-1"></i> Refresh
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
         </button>
     </div>
 
@@ -32,7 +32,7 @@
         <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
             <strong>Account Status</strong>
             <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input
                     class="form-control"
                     id="searchAccountStatus"
@@ -45,7 +45,7 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead id="accountStatusTableHead">
-                    <tr><th>Loading</th></tr>
+                    <tr><th scope="col">Loading</th></tr>
                 </thead>
                 <tbody id="accountStatusTableBody">
                     <tr>

@@ -301,7 +301,7 @@
                 <div class="table-responsive">
                     <table class="table ar-table mb-0" id="detailedTable">
                         <thead>
-                            <tr><th>Class</th><th>Level</th><th>Students</th><th>Streams</th><th>Avg %</th><th>EE</th><th>ME</th><th>AE</th><th>BE</th><th>Pass Rate</th></tr>
+                            <tr><th scope="col">Class</th><th scope="col">Level</th><th scope="col">Students</th><th scope="col">Streams</th><th scope="col">Avg %</th><th scope="col">EE</th><th scope="col">ME</th><th scope="col">AE</th><th scope="col">BE</th><th scope="col">Pass Rate</th></tr>
                         </thead>
                         <tbody id="detailedTbody">
                             <tr><td colspan="10" class="ar-empty"><i class="bi bi-table"></i>Generate a report to see detailed analysis</td></tr>
@@ -334,7 +334,7 @@
                     <div class="card-header"><i class="bi bi-info-circle me-2"></i>CBC Scale Reference</div>
                     <div class="p-3">
                         <table class="table table-sm">
-                            <thead><tr><th>Grade</th><th>Description</th><th>Score Range</th><th>Meaning</th></tr></thead>
+                            <thead><tr><th scope="col">Grade</th><th scope="col">Description</th><th scope="col">Score Range</th><th scope="col">Meaning</th></tr></thead>
                             <tbody>
                                 <tr><td><span class="grade-EE">EE</span></td><td>Exceeds Expectations</td><td>80 – 100%</td><td>Outstanding mastery of learning outcomes</td></tr>
                                 <tr><td><span class="grade-ME">ME</span></td><td>Meets Expectations</td><td>50 – 79%</td><td>Adequate mastery, on track</td></tr>
@@ -357,4 +357,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/academic_reports.js"></script>
+<?php asset_script($appBase, 'js/pages/academic_reports.js'); ?>

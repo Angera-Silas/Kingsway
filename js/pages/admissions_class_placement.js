@@ -13,10 +13,10 @@ const classPlacementController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("classPlacementController: Initializing...");
-
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("classPlacementController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -31,7 +31,6 @@ const classPlacementController = {
             await this.loadClasses();
             await this.loadPlacements();
 
-            console.log("classPlacementController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Class Placement Controller:", error);
             this.showError("classesGrid", error.message || "Failed to initialize class placement page.");
@@ -53,36 +52,6 @@ const classPlacementController = {
         }
 
         throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
-    },
-
-    isSuccessfulResponse: function(response) {
-        // Accept responses with success === true OR responses with data
-        return (response && response.success === true) || (response && (response.data || response.classes || response.queues));
-    },
-
-    unwrapPayload: function(response) {
-        // Handle both response.data and direct response objects
-        if (response && response.data) {
-            return response.data;
-        }
-        return response || {};
-    },
-
-    extractList: function(response) {
-        const payload = this.unwrapPayload(response);
-        if (Array.isArray(payload)) {
-            return payload;
-        }
-        if (payload.data && Array.isArray(payload.data)) {
-            return payload.data;
-        }
-        if (payload.items && Array.isArray(payload.items)) {
-            return payload.items;
-        }
-        if (payload.list && Array.isArray(payload.list)) {
-            return payload.list;
-        }
-        return [];
     },
 
     notify: function(type, message) {
@@ -126,7 +95,6 @@ const classPlacementController = {
             editPlacementForm: document.getElementById("editPlacementForm"),
             editPlacementApplicationId: document.getElementById("editPlacementApplicationId"),
             editPlacementApplicant: document.getElementById("editPlacementApplicant"),
-            editPlacementClass: document.getElementById("editPlacementClass"),
             editPlacementStream: document.getElementById("editPlacementStream"),
             editPlacementRemarks: document.getElementById("editPlacementRemarks"),
         };
@@ -134,20 +102,10 @@ const classPlacementController = {
     
     loadClasses: async function() {
         try {
-            const response = await this.apiCall('/admission/placement-classes', 'GET');
-            console.log("Class placement response:", response);
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load classes.");
-            }
-
-            const payload = this.unwrapPayload(response);
-            // Handle both response.data.classes and response.classes
-            this.classes = payload?.classes || response?.classes || [];
-            console.log("Classes loaded:", this.classes);
+            const result = await this.apiCall('/admission/placement-classes', 'GET');
+            this.classes = result?.classes || [];
 
             this.renderClassesGrid();
-            this.renderCapacityGrid();
             this.updateCapacityCards();
         } catch (error) {
             console.error('Failed to load classes:', error);
@@ -157,31 +115,25 @@ const classPlacementController = {
     
     loadPlacements: async function() {
         try {
-            const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Placements response:", response);
-
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load placements.");
-            }
-
-            const payload = this.unwrapPayload(response);
+            const result = await this.apiCall('/admission/queues', 'GET');
+            const queues = result?.queues || {};
             const placementApplications = [];
-            const queues = payload?.queues || response?.queues || {};
 
             // Get applications from placement and payment queues
             if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
                 queues.placement_pending.forEach(app => {
+                    app._placementQueue = 'placement_pending';
                     placementApplications.push(app);
                 });
             }
             if (queues.payment_pending && Array.isArray(queues.payment_pending)) {
                 queues.payment_pending.forEach(app => {
+                    app._placementQueue = 'payment_pending';
                     placementApplications.push(app);
                 });
             }
 
             this.placements = placementApplications;
-            console.log("Placements loaded:", this.placements);
             this.renderPlacementsTable();
         } catch (error) {
             console.error('Failed to load placements:', error);
@@ -191,8 +143,9 @@ const classPlacementController = {
     
     renderClassesGrid: function() {
         const grid = document.getElementById('classesGrid');
+        const classSummaries = this.getClassSummaries();
         
-        if (this.classes.length === 0) {
+        if (classSummaries.length === 0) {
             grid.innerHTML = `
                 <div class="col-12 text-center py-4">
                     <div class="text-muted">
@@ -204,9 +157,9 @@ const classPlacementController = {
             return;
         }
         
-        grid.innerHTML = this.classes.map(cls => {
-            const capacity = cls.capacity || 30;
-            const studentCount = cls.student_count || 0;
+        grid.innerHTML = classSummaries.map(cls => {
+            const capacity = cls.capacity;
+            const studentCount = cls.student_count;
             const percentage = capacity > 0 ? Math.round((studentCount / capacity) * 100) : 0;
             
             let capacityColor = 'bg-success';
@@ -219,8 +172,8 @@ const classPlacementController = {
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-start mb-3">
                                 <div>
-                                    <h6 class="mb-1">${cls.name || '—'}</h6>
-                                    <small class="text-muted">ID: ${cls.id}</small>
+                                    <h6 class="mb-1">${this.escapeHtml(cls.name || '—')}</h6>
+                                    <small class="text-muted">${cls.streams.map(stream => `<span class="badge bg-light text-dark me-1">${this.escapeHtml(stream.name)}</span>`).join('')}</small>
                                 </div>
                                 <span class="badge ${capacityColor}">${percentage}%</span>
                             </div>
@@ -244,6 +197,37 @@ const classPlacementController = {
                 </div>
             `;
         }).join('');
+    },
+
+    getClassSummaries: function() {
+        const grouped = new Map();
+        this.classes.forEach(row => {
+            const key = String(row.id);
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    id: row.id,
+                    name: row.name,
+                    capacity: 0,
+                    student_count: 0,
+                    streams: []
+                });
+            }
+            const summary = grouped.get(key);
+            const streamKey = String(row.academic_year_class_stream_id || `${row.id}-${row.stream_id}`);
+            if (!summary.streams.some(stream => stream.key === streamKey)) {
+                summary.streams.push({
+                    key: streamKey,
+                    id: row.stream_id,
+                    name: row.stream_name || 'Unnamed stream',
+                    capacity: Number(row.capacity || 0),
+                    student_count: Number(row.student_count || 0)
+                });
+                summary.capacity += Number(row.capacity || 0);
+                summary.student_count += Number(row.student_count || 0);
+            }
+            return summary;
+        });
+        return [...grouped.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
     },
     
     renderCapacityGrid: function() {
@@ -305,7 +289,7 @@ const classPlacementController = {
         if (this.placements.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="text-center py-4">
+                    <td colspan="8" class="text-center py-4">
                         <div class="text-muted">
                             <i class="bi bi-inbox fs-1 d-block mb-2"></i>
                             No placements found
@@ -326,14 +310,19 @@ const classPlacementController = {
                     <td><strong>${app.application_no || '—'}</strong></td>
                     <td>${app.applicant_name || 'Unknown'}</td>
                     <td>${app.grade_applying_for || '—'}</td>
+                    <td>${app.admission_number || '—'}</td>
                     <td>${assignedClass || '—'}</td>
                     <td>${stream || '—'}</td>
                     <td>${statusBadge}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-info" onclick="classPlacementController.editPlacement(${app.id})" title="Edit">
-                                <i class="bi bi-pencil"></i>
-                            </button>
+                            ${app._placementQueue === 'placement_pending' ? `
+                                <button class="btn btn-outline-info" onclick="classPlacementController.editPlacement(${app.id})" title="Assign class stream">
+                                    <i class="bi bi-pencil"></i> Assign stream
+                                </button>
+                            ` : `
+                                <span class="text-muted small">Placement completed — awaiting payment</span>
+                            `}
                         </div>
                     </td>
                 </tr>
@@ -342,6 +331,7 @@ const classPlacementController = {
     },
     
     extractAssignedClass: function(app) {
+        if (app.assigned_class_name) return app.assigned_class_name;
         if (app.data_json) {
             try {
                 const data = JSON.parse(app.data_json);
@@ -354,6 +344,7 @@ const classPlacementController = {
     },
     
     extractStream: function(app) {
+        if (app.assigned_stream_name) return app.assigned_stream_name;
         if (app.data_json) {
             try {
                 const data = JSON.parse(app.data_json);
@@ -375,9 +366,10 @@ const classPlacementController = {
     },
     
     updateCapacityCards: function() {
-        const totalClasses = this.classes.length;
-        const totalStudents = this.classes.reduce((sum, cls) => sum + (cls.student_count || 0), 0);
-        const totalCapacity = this.classes.reduce((sum, cls) => sum + (cls.capacity || 0), 0);
+        const classSummaries = this.getClassSummaries();
+        const totalClasses = classSummaries.length;
+        const totalStudents = classSummaries.reduce((sum, cls) => sum + cls.student_count, 0);
+        const totalCapacity = classSummaries.reduce((sum, cls) => sum + cls.capacity, 0);
         const avgCapacity = totalCapacity > 0 ? Math.round((totalStudents / totalCapacity) * 100) : 0;
         const pendingPlacement = this.placements.filter(app => app.status === 'placement_offered').length;
         
@@ -431,18 +423,18 @@ const classPlacementController = {
         if (this._projectionOptionsLoaded) return;
         try {
             const years = await this.apiCall("/academic/years/list", "GET");
-            if (years && years.success) {
+            if (years) {
                 this.dom.projectionYear.innerHTML =
                     '<option value="">Select Year</option>' +
-                    (years.data || []).map(y =>
+                    (Array.isArray(years) ? years : years.data || []).map(y =>
                         `<option value="${y.id}">${this.escapeHtml(y.year_name || y.year_code || y.id)}</option>`
                     ).join("");
             }
             const classes = await this.apiCall("/academic/classes-list", "GET");
-            if (classes && classes.success) {
+            if (classes) {
                 this.dom.projectionClass.innerHTML =
                     '<option value="">Select Class</option>' +
-                    (classes.data || []).map(c =>
+                    (Array.isArray(classes) ? classes : classes.data || []).map(c =>
                         `<option value="${c.id}">${this.escapeHtml(c.name || c.id)}</option>`
                     ).join("");
             }
@@ -462,8 +454,8 @@ const classPlacementController = {
                 `/academic/streams-list?class_id=${classId}`,
                 "GET"
             );
-            if (res && res.success) {
-                (res.data || []).forEach(s => {
+            if (res) {
+                (Array.isArray(res) ? res : res.data || []).forEach(s => {
                     this.dom.projectionStream.insertAdjacentHTML(
                         "beforeend",
                         `<option value="${s.id}">${this.escapeHtml(s.stream_name || s.name || s.id)}</option>`
@@ -499,11 +491,11 @@ const classPlacementController = {
 
         try {
             const res = await this.apiCall("/academic/cohort-capacity", "GET", null, params);
-            if (!res || !res.success) {
-                this.renderProjectionError(res && res.message ? res.message : "Projection failed.");
+            if (!res) {
+                this.renderProjectionError("Projection failed.");
                 return;
             }
-            this.renderProjection(res.data || res);
+            this.renderProjection(res);
         } catch (err) {
             this.renderProjectionError(err.message || "Projection request failed.");
         } finally {
@@ -586,29 +578,45 @@ const classPlacementController = {
         document.getElementById('editPlacementApplicationId').value = applicationId;
         document.getElementById('editPlacementApplicant').value = application.applicant_name || 'Unknown';
         
-        // Populate class dropdown
-        const classSelect = document.getElementById('editPlacementClass');
-        classSelect.innerHTML = '<option value="">Select Class</option>';
-        this.classes.forEach(cls => {
-            const option = document.createElement('option');
-            option.value = cls.id;
-            option.textContent = cls.name;
-            classSelect.appendChild(option);
-        });
-        
-        // Set current class if available
-        const assignedClass = this.extractAssignedClass(application);
-        if (assignedClass && assignedClass !== '—') {
-            for (let i = 0; i < classSelect.options.length; i++) {
-                if (classSelect.options[i].text === assignedClass) {
-                    classSelect.selectedIndex = i;
-                    break;
-                }
-            }
-        }
+        const currentStreamId = this.extractStreamId(application);
+        this.populatePlacementStreams(currentStreamId);
         
         const modal = new bootstrap.Modal(document.getElementById('editPlacementModal'));
         modal.show();
+    },
+
+    populatePlacementStreams: function(selectedStreamId = '') {
+        const streamSelect = document.getElementById('editPlacementStream');
+        if (!streamSelect) return;
+
+        const streams = this.classes.filter(cls => cls.academic_year_class_stream_id && cls.stream_id);
+        streamSelect.innerHTML = '<option value="">Select placement stream</option>';
+        const seen = new Set();
+        streams.forEach(cls => {
+            const placementId = String(cls.academic_year_class_stream_id);
+            if (seen.has(placementId)) return;
+            seen.add(placementId);
+            const option = document.createElement('option');
+            option.value = placementId;
+            option.dataset.classId = String(cls.id);
+            option.dataset.streamId = String(cls.stream_id);
+            option.textContent = `${cls.name || 'Class'} ${cls.stream_name || ''}`.trim();
+            streamSelect.appendChild(option);
+        });
+        if (selectedStreamId) {
+            const option = [...streamSelect.options].find(item => item.dataset.streamId === String(selectedStreamId));
+            if (option) streamSelect.value = option.value;
+        }
+    },
+
+    extractStreamId: function(app) {
+        if (!app || !app.data_json) return '';
+        try {
+            const data = typeof app.data_json === 'string' ? JSON.parse(app.data_json) : app.data_json;
+            return data.assigned_stream_id || data.stream_id || '';
+        } catch (e) {
+            return '';
+        }
     },
     
     updatePlacement: function() {
@@ -617,25 +625,30 @@ const classPlacementController = {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Updating...';
         
+        const streamSelect = document.getElementById('editPlacementStream');
+        const selectedStream = streamSelect.options[streamSelect.selectedIndex];
+        const classId = Number(selectedStream?.dataset.classId || 0);
+        const streamId = Number(selectedStream?.dataset.streamId || 0);
         const placementData = {
-            assigned_class_id: document.getElementById('editPlacementClass').value,
-            stream: document.getElementById('editPlacementStream').value,
+            application_id: Number(applicationId),
+            class_id: classId,
+            stream_id: streamId || null,
             remarks: document.getElementById('editPlacementRemarks').value
         };
+
+        if (!classId || !streamId) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Update Placement';
+            showNotification('error', 'Select a class before completing placement');
+            return;
+        }
         
-        this.apiCall('/admission/generate-placement-offer', 'POST', {
-            application_id: applicationId,
-            ...placementData
-        })
+        this.apiCall('/admission/complete-enrollment', 'POST', placementData)
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Placement updated successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('editPlacementModal')).hide();
-                    document.getElementById('editPlacementForm').reset();
-                    this.loadPlacements();
-                } else {
-                    showNotification('error', response.message || 'Failed to update placement');
-                }
+                showNotification('success', 'Student placed successfully. Fee obligations and school records were updated.');
+                bootstrap.Modal.getInstance(document.getElementById('editPlacementModal')).hide();
+                document.getElementById('editPlacementForm').reset();
+                this.loadPlacements();
             })
             .catch(error => {
                 console.error('Failed to update placement:', error);
@@ -676,16 +689,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing class placement controller");
         window.classPlacementController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

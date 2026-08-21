@@ -10,6 +10,7 @@ use App\Database\Database;
 use App\API\Services\PermissionContract;
 use App\API\Core\FileLifecycleBase;
 use PDO;
+use PDOStatement;
 use RuntimeException;
 use Exception;
 use finfo;
@@ -59,7 +60,7 @@ class BaseAPI extends FileLifecycleBase
         $this->user_id = $this->getCurrentUserId();
         $this->request_id = uniqid('req_');
         // Canonical log directory (project-root/logs). Keep a single source of truth.
-        $this->logDir = realpath(__DIR__ . '/..') . '/../../logs';
+        $this->logDir = dirname(__DIR__, 2) . '/logs';
 
         // If directory doesn't exist, try to create it but do not let logging failures
         // break the API response flow. Fall back to system temp dir if creation fails.
@@ -150,7 +151,7 @@ class BaseAPI extends FileLifecycleBase
     protected function logAction($action_type, $record_id, $description)
     {
         try {
-            // Log to system activity log file
+            // Log to system activity log file (never database)
             $this->logToFile('system_activity.log', [
                 'request_id' => $this->request_id,
                 'timestamp' => date('Y-m-d H:i:s'),
@@ -160,26 +161,6 @@ class BaseAPI extends FileLifecycleBase
                 'record_id' => $record_id,
                 'user_id' => $this->user_id,
                 'description' => $description
-            ]);
-
-            // Log to database
-            $stmt = $this->db->prepare("
-                INSERT INTO system_logs (
-                    request_id, user_id, action, entity_type, 
-                    entity_id, description, ip_address, created_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, NOW()
-                )
-            ");
-
-            $stmt->execute([
-                $this->request_id,
-                $this->user_id,
-                $action_type,
-                $this->module,
-                $record_id,
-                $description,
-                $_SERVER['REMOTE_ADDR']
             ]);
 
             // For audit logs
@@ -202,7 +183,7 @@ class BaseAPI extends FileLifecycleBase
                 'type' => 'error',
                 'module' => $this->module,
                 'context' => $context,
-                'message' => $e->getMessage(),
+                'message' => 'An internal error occurred.',
                 'code' => $e->getCode(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
@@ -225,6 +206,14 @@ class BaseAPI extends FileLifecycleBase
         }
         // Log to errors.log only (never DB)
         $this->logToFile('errors.log', $errorData);
+
+        // Mirror into the structured FileLogger errors category so health checks
+        // and file-based readers share one source of truth.
+        try {
+            \App\API\Includes\FileLogger::write('errors', $errorData, 'error');
+        } catch (\Throwable $e) {
+            error_log('Failed to mirror error log: ' . $e->getMessage());
+        }
     }
 
     protected function logAudit($action, $record_id, $description)
@@ -272,7 +261,7 @@ class BaseAPI extends FileLifecycleBase
     {
         try {
             // Use the instance logDir (set in constructor). If absent, compute a sane default.
-            $logDir = $this->logDir ?? (realpath(__DIR__ . '/..') . '/../../logs');
+            $logDir = $this->logDir ?? (dirname(__DIR__, 2) . '/logs');
 
             // Ensure directory exists and is writable. Try to create if missing, suppress warnings.
             if (!is_dir($logDir)) {
@@ -338,6 +327,40 @@ class BaseAPI extends FileLifecycleBase
             return $this->db->rollBack();
         }
         throw new Exception('No valid database connection for rollback');
+    }
+
+    /**
+     * Run a parameterized query on the raw PDO connection and return the
+     * statement. Callers may not pass bindings to PDO::query() directly
+     * (its second argument is an int fetch mode), so bindings go through
+     * prepare()/execute() here.
+     *
+     * @param array $params Values to bind (positional placeholders).
+     * @return PDOStatement
+     */
+    protected function runQuery(string $sql, array $params = []): PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+
+    /**
+     * Fetch the first column of the first row for a parameterized query.
+     */
+    protected function queryScalar(string $sql, array $params = [])
+    {
+        $value = $this->runQuery($sql, $params)->fetchColumn();
+        return $value === false ? null : $value;
+    }
+
+    /**
+     * Fetch the first row (associative) for a parameterized query.
+     */
+    protected function queryRow(string $sql, array $params = [])
+    {
+        $row = $this->runQuery($sql, $params)->fetch(PDO::FETCH_ASSOC);
+        return $row === false ? null : $row;
     }
 
     protected function handleException($e)
@@ -430,14 +453,13 @@ class BaseAPI extends FileLifecycleBase
     protected function emitEvent($eventType, array $data = [])
     {
         try {
-            // Prefer stored procedure if available
-            if ($this->routineExists('sp_emit_event', 'PROCEDURE')) {
-                $this->callProcedure('sp_emit_event', [$eventType, json_encode($data)], false);
-                return;
-            }
-            // Fallback direct insert
-            $stmt = $this->db->prepare("INSERT INTO system_events (event_type, event_data, created_at) VALUES (?, ?, NOW())");
-            $stmt->execute([$eventType, json_encode($data)]);
+            // Write events to a file, never the database
+            FileLogger::write('events', [
+                'event' => $eventType,
+                'data' => $data,
+                'module' => $this->module,
+                'user_id' => $this->user_id,
+            ]);
         } catch (Exception $e) {
             // Swallow errors to avoid breaking main flow
             $this->logError($e, 'emitEvent failed');

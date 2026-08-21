@@ -305,7 +305,7 @@ const academicsManager = {
         // Check if year duration is reasonable (between 9-12 months)
         const durationMonths = (endDate - startDate) / (1000 * 60 * 60 * 24 * 30);
         if (durationMonths < 9 || durationMonths > 13) {
-            if (!confirm(`Academic year duration is ${Math.round(durationMonths)} months. Kenyan academic years typically run for 9-12 months. Continue anyway?`)) {
+            if (!(await window.confirmAction('Confirm', `Academic year duration is ${Math.round(durationMonths)} months. Kenyan academic years typically run for 9-12 months. Continue anyway?`))) {
                 return;
             }
         }
@@ -313,7 +313,7 @@ const academicsManager = {
         // Warn if creating year without closing current year
         if (!yearId && this.state.currentYear && this.state.currentYear.status !== 'archived') {
             const currentYearCode = this.state.currentYear.year_code;
-            if (!confirm(`⚠️ WARNING: Current year (${currentYearCode}) is still ${this.state.currentYear.status}.\n\nBest Practice:\n1. Close/archive the current year first\n2. Complete all student promotions\n3. Generate final reports\n4. Then create the new year\n\nContinue creating new year anyway?`)) {
+            if (!(await window.confirmAction('Confirm', `⚠️ WARNING: Current year (${currentYearCode}) is still ${this.state.currentYear.status}.\n\nBest Practice:\n1. Close/archive the current year first\n2. Complete all student promotions\n3. Generate final reports\n4. Then create the new year\n\nContinue creating new year anyway?`))) {
                 return;
             }
         }
@@ -345,7 +345,7 @@ const academicsManager = {
     },
 
     async deleteYear(yearId) {
-        if (!confirm('Are you sure you want to delete this academic year? This action cannot be undone.')) {
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this academic year? This action cannot be undone.', { confirmText: 'Delete', danger: true }))) {
             return;
         }
 
@@ -550,7 +550,7 @@ const academicsManager = {
     },
 
     async deleteTerm(termId) {
-        if (!confirm('Are you sure you want to delete this term?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this term?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             const response = await window.API.academic.deleteTerm(termId);
@@ -850,7 +850,7 @@ const academicsManager = {
     },
 
     async deleteClass(classId) {
-        if (!confirm('Are you sure you want to delete this class?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this class?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             const response = await window.API.academic.deleteClass(classId);
@@ -1056,7 +1056,7 @@ const academicsManager = {
     },
 
     async deleteSubject(subjectId) {
-        if (!confirm('Are you sure you want to delete this learning area?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this learning area?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             const response = await window.API.academic.deleteLearningArea(subjectId);
@@ -1252,7 +1252,7 @@ const academicsManager = {
     },
 
     async deleteStream(streamId) {
-        if (!confirm('Delete this stream? Active students must be reassigned first.')) {
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this stream? Active students must be reassigned first.', { confirmText: 'Delete', danger: true }))) {
             return;
         }
 
@@ -1489,7 +1489,7 @@ const academicsManager = {
     },
 
     async deleteSchedule(scheduleId) {
-        if (!confirm('Delete this timetable slot?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this timetable slot?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.academic.deleteSchedule(scheduleId);
             await this.loadSchedules();
@@ -1896,13 +1896,14 @@ const academicsManager = {
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Wait for AuthContext to be available and token to be set
-    const initWhenReady = () => {
+    const initWhenReady = async () => {
         if (typeof AuthContext === 'undefined') {
             console.warn('AuthContext not loaded yet, waiting...');
             setTimeout(initWhenReady, 100);
             return;
         }
         
+        await window.AuthContext?.ready();
         if (!AuthContext.isAuthenticated()) {
             console.error('User not authenticated - cannot initialize academicsManager');
             return;
@@ -1914,7 +1915,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        console.log('✓ AuthContext ready, token present - initializing academicsManager');
         academicsManager.init();
     };
     

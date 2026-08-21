@@ -153,7 +153,7 @@
         <div class="col-md-6 p-2">
             <div class="table-responsive">
                 <table class="table table-sm">
-                    <thead><tr><th>Subject</th><th>Mean %</th><th>Highest</th><th>Lowest</th><th>Grade</th></tr></thead>
+                    <thead><tr><th scope="col">Subject</th><th scope="col">Mean %</th><th scope="col">Highest</th><th scope="col">Lowest</th><th scope="col">Grade</th></tr></thead>
                     <tbody id="subjectStatsBody"></tbody>
                 </table>
             </div>
@@ -169,4 +169,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/performance_reports.js"></script>
+<?php asset_script($appBase, 'js/pages/performance_reports.js'); ?>

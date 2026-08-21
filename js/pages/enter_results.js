@@ -7,6 +7,7 @@ const enterResultsController = (() => {
   let students = [];
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -191,8 +192,8 @@ const enterResultsController = (() => {
     el("lowestMarks", vals.length ? Math.min(...vals) : "--");
   }
 
-  function fillAll() {
-    const v = prompt("Fill all empty fields with marks (0-100):");
+  async function fillAll() {
+    const v = await window.promptAction('Input', "Fill all empty fields with marks (0-100):");
     if (v === null) return;
     const n = parseFloat(v);
     if (isNaN(n) || n < 0 || n > 100) {
@@ -207,8 +208,8 @@ const enterResultsController = (() => {
     });
   }
 
-  function clearAll() {
-    if (!confirm("Clear all entered marks?")) return;
+  async function clearAll() {
+    if (!(await window.confirmAction('Confirm', "Clear all entered marks?"))) return;
     document.querySelectorAll(".mi").forEach((i) => {
       i.value = "";
     });
@@ -253,7 +254,7 @@ const enterResultsController = (() => {
       notify("Enter marks for at least one student", "warning");
       return;
     }
-    if (!confirm(`Submit results for ${results.length} student(s)?`)) return;
+    if (!(await window.confirmAction('Confirm', `Submit results for ${results.length} student(s)?`))) return;
 
     const btn = e.target.querySelector('[type="submit"]');
     if (btn) {
@@ -294,7 +295,7 @@ const enterResultsController = (() => {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
   }
-  function notify(msg, type) {
+  async function notify(msg, type) {
     const m = document.getElementById("notificationModal");
     if (m) {
       const t = m.querySelector(".notification-message");
@@ -304,7 +305,7 @@ const enterResultsController = (() => {
       const b = bootstrap.Modal.getOrCreateInstance(m);
       b.show();
       setTimeout(() => b.hide(), 3000);
-    } else alert(msg);
+    } else await window.infoDialog('Notice', msg);
   }
 
   return { init, loadStudents, onMark, fillAll, clearAll };

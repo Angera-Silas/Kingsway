@@ -1,20 +1,33 @@
 <?php
 /**
- * Manage Payments Page
+ * Payment Register Page
  * Logic handled in js/pages/manage_payments.js
  * Embedded in app_layout.php
+ *
+ * Role visibility (from role_sidebars.php):
+ *   Director (3), Admin (4), Accountant (10)
+ *
+ * Summary cards: Director sees all, Admin sees all, Accountant sees all
+ *   (different data scopes handled in JS based on role)
+ * Action buttons:
+ *   Record Payment  → finance_create
+ *   Export          → finance_export
+ *   Save Payment    → finance_create
  */
 ?>
 
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-money-bill-wave"></i> Payment Management</h4>
+            <div>
+                <h4 class="mb-0"><i class="bi bi-cash-wave"></i> Payment Register</h4>
+                <small class="opacity-75">Record, filter, export and audit received transactions</small>
+            </div>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="finance_view">
+                <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="finance_create">
                     <i class="bi bi-plus-circle"></i> Record Payment
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="exportPaymentsBtn" data-permission="finance_view">
+                <button class="btn btn-outline-light btn-sm" id="exportPaymentsBtn" data-permission="finance_export">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -22,8 +35,10 @@
     </div>
 
     <div class="card-body">
-        <!-- Payment Overview Cards -->
-        <div class="row mb-4">
+        <div class="alert alert-light border small">This page records financial transactions. Learner balances and statements are available under <strong>Student Fee Accounts</strong>.</div>
+
+        <!-- Payment Register Summary -->
+        <div class="row mb-4" data-role="director,school_administrator,accountant">
             <div class="col-md-3">
                 <div class="card border-success">
                     <div class="card-body text-center">
@@ -43,8 +58,8 @@
             <div class="col-md-3">
                 <div class="card border-danger">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Outstanding</h6>
-                        <h3 class="text-danger mb-0" id="outstandingPayments">KES 0</h3>
+                        <h6 class="text-muted mb-2">Transactions in view</h6>
+                        <h3 class="text-danger mb-0" id="paymentRecordCount">0</h3>
                     </div>
                 </div>
             </div>
@@ -97,13 +112,13 @@
             <table class="table table-hover" id="paymentsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Date</th>
-                        <th>Receipt No.</th>
-                        <th>Student</th>
-                        <th>Amount</th>
-                        <th>Method</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Receipt No.</th>
+                        <th scope="col">Student</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Method</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -177,10 +192,10 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="savePaymentBtn" data-permission="finance_view">Save Payment</button>
+                <button type="button" class="btn btn-primary" id="savePaymentBtn" data-permission="finance_create">Save Payment</button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_payments.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_payments.js'); ?>

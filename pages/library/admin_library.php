@@ -321,3 +321,5 @@
     </div>
   </div>
 </div>
+
+<?php asset_script($appBase, 'js/pages/manage_library.js'); ?>

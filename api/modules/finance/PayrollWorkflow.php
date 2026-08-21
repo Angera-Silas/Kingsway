@@ -26,7 +26,7 @@ class PayrollWorkflow extends WorkflowHandler
 
     public function __construct()
     {
-        parent::__construct('payroll_processing');
+        parent::__construct('PAYROLL');
         $this->payrollManager = new StaffPayrollManager();
     }
 
@@ -39,6 +39,8 @@ class PayrollWorkflow extends WorkflowHandler
      */
     public function initiatePayroll($filters, $userId, $data = [])
     {
+        return formatResponse(false, null, 'Legacy payroll workflow is disabled. Use FinanceAPI payroll draft and deduction processing.');
+
         try {
             $required = ['payroll_month', 'payroll_year'];
             $missing = [];
@@ -58,12 +60,12 @@ class PayrollWorkflow extends WorkflowHandler
             // Check for existing active payroll workflow for this period
             $stmt = $this->db->prepare("
                 SELECT wi.* FROM workflow_instances wi
-                WHERE wi.workflow_type = 'payroll_processing'
+                WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
-                AND JSON_EXTRACT(wi.workflow_data, '$.payroll_month') = ?
-                AND JSON_EXTRACT(wi.workflow_data, '$.payroll_year') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.payroll_month') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.payroll_year') = ?
             ");
-            $stmt->execute([$data['payroll_month'], $data['payroll_year']]);
+            $stmt->execute([$this->workflow_id, $data['payroll_month'], $data['payroll_year']]);
 
             if ($stmt->fetch()) {
                 $this->db->rollBack();
@@ -71,17 +73,20 @@ class PayrollWorkflow extends WorkflowHandler
             }
 
             // Get staff list based on filters
-            $sql = "SELECT s.id, s.staff_no, s.first_name, s.last_name, s.position,
+            $sql = "SELECT s.id, s.staff_no, s.position,
+                           p.first_name, p.last_name,
                            d.name as department_name, st.name as staff_type
                     FROM staff s
-                    LEFT JOIN departments d ON s.department_id = d.id
+                    JOIN persons p ON s.person_id = p.id
+                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                    LEFT JOIN departments d ON sda.department_id = d.id
                     LEFT JOIN staff_types st ON s.staff_type_id = st.id
                     WHERE s.status = 'active'";
 
             $params = [];
 
             if (!empty($filters['department_id'])) {
-                $sql .= " AND s.department_id = ?";
+                $sql .= " AND sda.department_id = ?";
                 $params[] = $filters['department_id'];
             }
 
@@ -133,18 +138,18 @@ class PayrollWorkflow extends WorkflowHandler
             ];
 
             $result = $this->startWorkflow(
-                'payroll_processing',
+                'payroll',
                 0, // No specific reference ID, using month/year as identifier
-                $userId,
-                $workflowData
+                $workflowData,
+                $userId
             );
 
-            if (!$result['success']) {
+            if (!$result) {
                 $this->db->rollBack();
-                return $result;
+                return formatResponse(false, null, 'Failed to create payroll workflow instance');
             }
 
-            $workflowId = $result['data']['workflow_id'];
+            $workflowId = $result;
 
             $totalStaff = count($payrollRecords);
 
@@ -185,11 +190,11 @@ class PayrollWorkflow extends WorkflowHandler
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
-            if (!$workflow['success']) {
-                return $workflow;
+            if (!$workflow) {
+                return formatResponse(false, null, 'Workflow instance not found');
             }
 
-            $currentStage = $workflow['data']['current_stage'];
+            $currentStage = $workflow['current_stage'];
 
             if ($currentStage !== 'calculation' && $currentStage !== 'verification') {
                 return formatResponse(false, null, "Cannot verify payroll. Current stage is: {$currentStage}");
@@ -197,7 +202,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             $this->db->beginTransaction();
 
-            $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
+            $workflowData = $workflow['data'] ?? [];
 
             // Get payroll records for verification
             $payrollIds = $workflowData['payroll_records'] ?? [];
@@ -212,7 +217,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             foreach ($payrollIds as $payrollId) {
                 $stmt = $this->db->prepare("
-                    SELECT * FROM staff_payroll WHERE id = ?
+                    SELECT * FROM payslips WHERE id = ?
                 ");
                 $stmt->execute([$payrollId]);
                 $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -281,11 +286,11 @@ class PayrollWorkflow extends WorkflowHandler
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
-            if (!$workflow['success']) {
-                return $workflow;
+            if (!$workflow) {
+                return formatResponse(false, null, 'Workflow instance not found');
             }
 
-            $currentStage = $workflow['data']['current_stage'];
+            $currentStage = $workflow['current_stage'];
 
             if ($currentStage !== 'approval') {
                 return formatResponse(false, null, "Cannot approve payroll. Current stage is: {$currentStage}");
@@ -293,7 +298,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             $this->db->beginTransaction();
 
-            $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
+            $workflowData = $workflow['data'] ?? [];
 
             $workflowData['approval'] = [
                 'approved_by' => $userId,
@@ -336,11 +341,11 @@ class PayrollWorkflow extends WorkflowHandler
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
-            if (!$workflow['success']) {
-                return $workflow;
+            if (!$workflow) {
+                return formatResponse(false, null, 'Workflow instance not found');
             }
 
-            $currentStage = $workflow['data']['current_stage'];
+            $currentStage = $workflow['current_stage'];
 
             if ($currentStage !== 'payment') {
                 return formatResponse(false, null, "Cannot process payment. Current stage is: {$currentStage}");
@@ -361,7 +366,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             $this->db->beginTransaction();
 
-            $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
+            $workflowData = $workflow['data'] ?? [];
             $payrollIds = $workflowData['payroll_records'] ?? [];
 
             $paymentData = [
@@ -404,14 +409,12 @@ class PayrollWorkflow extends WorkflowHandler
             // Complete workflow
             $result = $this->completeWorkflow(
                 $workflowId,
-                $userId,
-                'Payroll processing completed successfully',
                 $workflowData
             );
 
-            if (!$result['success']) {
+            if (!$result) {
                 $this->db->rollBack();
-                return $result;
+                return formatResponse(false, null, 'Failed to complete payroll workflow');
             }
 
             $this->db->commit();
@@ -443,11 +446,11 @@ class PayrollWorkflow extends WorkflowHandler
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
-            if (!$workflow['success']) {
-                return $workflow;
+            if (!$workflow) {
+                return formatResponse(false, null, 'Workflow instance not found');
             }
 
-            $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
+            $workflowData = $workflow['data'] ?? [];
             $payrollIds = $workflowData['payroll_records'] ?? [];
 
             $report = [
@@ -455,8 +458,8 @@ class PayrollWorkflow extends WorkflowHandler
                 'total_staff' => $workflowData['total_staff'],
                 'total_gross_salary' => $workflowData['total_gross_salary'],
                 'total_net_salary' => $workflowData['total_net_salary'],
-                'workflow_status' => $workflow['data']['status'],
-                'current_stage' => $workflow['data']['current_stage'],
+                'workflow_status' => $workflow['status'],
+                'current_stage' => $workflow['current_stage'],
                 'initiated_at' => $workflowData['initiated_at'],
                 'payroll_details' => []
             ];
@@ -465,13 +468,43 @@ class PayrollWorkflow extends WorkflowHandler
             if (!empty($payrollIds)) {
                 $placeholders = implode(',', array_fill(0, count($payrollIds), '?'));
                 $stmt = $this->db->prepare("
-                    SELECT sp.*, s.staff_no, s.first_name, s.last_name, s.position,
-                           d.name as department_name
-                    FROM staff_payroll sp
-                    JOIN staff s ON sp.staff_id = s.id
-                    LEFT JOIN departments d ON s.department_id = d.id
-                    WHERE sp.id IN ($placeholders)
-                    ORDER BY s.last_name, s.first_name
+                    SELECT ps.id, ps.staff_id, ps.payroll_month, ps.payroll_year,
+                           ps.basic_salary,
+                           ps.allowances_total AS allowances,
+                           ps.gross_salary,
+                           ps.nssf_contribution AS nssf_deduction,
+                           ps.nhif_contribution AS nhif_deduction,
+                           ps.paye_tax,
+                           (ps.other_deductions_total + ps.loan_deduction
+                                + ps.child_fees_deduction + ps.sacco_deduction
+                                + ps.salary_advance_deduction) AS other_deductions,
+                           (ps.gross_salary - ps.net_salary) AS total_deductions,
+                           (ps.other_deductions_total + ps.loan_deduction
+                                + ps.child_fees_deduction + ps.sacco_deduction
+                                + ps.salary_advance_deduction) AS deductions,
+                           ps.net_salary,
+                           ps.payslip_status AS status,
+                           CONCAT(ps.payroll_year, '-', LPAD(ps.payroll_month, 2, '0')) AS payroll_period,
+                           ps.payment_method AS payment_mode,
+                           ps.payment_reference,
+                           ps.payment_date,
+                           ps.paid_at AS approved_at,
+                           ps.signed_by AS approved_by,
+                           ps.payment_status,
+                           ps.created_at,
+                           ps.updated_at,
+                           s.staff_no,
+                           s.position,
+                           p.first_name,
+                           p.last_name,
+                           d.name AS department_name
+                    FROM payslips ps
+                    JOIN staff s ON ps.staff_id = s.id
+                    JOIN persons p ON s.person_id = p.id
+                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                    LEFT JOIN departments d ON d.id = sda.department_id
+                    WHERE ps.id IN ($placeholders)
+                    ORDER BY p.last_name, p.first_name
                 ");
                 $stmt->execute($payrollIds);
                 $report['payroll_details'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -500,16 +533,29 @@ class PayrollWorkflow extends WorkflowHandler
 
             // Delete unpaid payroll records
             $workflow = $this->getWorkflowInstance($workflowId);
-            $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
+
+            if (!$workflow) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Workflow instance not found');
+            }
+
+            $workflowData = $workflow['data'] ?? [];
             $payrollIds = $workflowData['payroll_records'] ?? [];
 
             if (!empty($payrollIds)) {
                 $placeholders = implode(',', array_fill(0, count($payrollIds), '?'));
                 $stmt = $this->db->prepare("
-                    DELETE FROM staff_payroll 
-                    WHERE id IN ($placeholders) AND status = 'pending'
+                    DELETE FROM payslips
+                    WHERE id IN ($placeholders) AND payslip_status IN ('draft', 'approved')
                 ");
                 $stmt->execute($payrollIds);
+
+                // Remove the payroll run for this period if it is not yet paid
+                $stmt = $this->db->prepare("
+                    DELETE FROM payroll_runs
+                    WHERE month = ? AND year = ? AND status != 'paid'
+                ");
+                $stmt->execute([$workflowData['payroll_month'], $workflowData['payroll_year']]);
             }
 
             $this->db->commit();

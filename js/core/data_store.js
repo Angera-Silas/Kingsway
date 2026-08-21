@@ -3,6 +3,27 @@
  *
  * Coordinates memory cache, IndexedDB and authoritative backend fetches.
  * Cache keys are identifiers only; they are never converted into API paths.
+ *
+ * ── Per-key TTL Override ──────────────────────────────────────────────
+ * Controllers can pass a per-call TTL override via the options object:
+ *   DataStore.get('students', { ttl: 300000 })              // 5 minutes
+ *   DataStore.get('attendance', { ttl: 15000, strategy: 'network-first' })
+ *
+ * The default TTL for each key is defined in the `policies` object below
+ * (60 s for volatile data, 24 h for reference data, 7 d for long-lived).
+ * If no policy matches, MEMORY_TTL (60 s) is used.
+ *
+ * ── Real‑time / Cross‑tab Updates ─────────────────────────────────────
+ *  • BroadcastChannel ('kingsway-cache') — when the same origin fires
+ *    CACHE_INVALIDATED, all non‑sending tabs invalidate the listed keys.
+ *  • localStorage fallback (kingsway_cache_invalidation) — the same
+ *    mechanism via the 'storage' event for browsers without BroadcastChannel.
+ *  • Subscriber pattern — controllers can subscribe to keys and react to
+ *    'local' and 'network' source events (see `subscribe()`).
+ *
+ * There is no WebSocket / SSE integration yet. If real‑time push is added,
+ * use the subscriber API to deliver live updates:
+ *   DataStore.subscribe('attendance', ({ key, data, source }) => { … });
  */
 const DataStore = (() => {
   'use strict';
@@ -13,24 +34,37 @@ const DataStore = (() => {
   const MEMORY_LIMIT = 100;
   const MEMORY_TTL = 60000;
 
+  // Stable cache scope for anonymous visitors. Every not-signed-in user (new or
+  // returning, across all tabs) reads and writes public data under this single
+  // sentinel, so the shared public-site cache is reused instead of being per-visit.
+  // -1 is reserved and can never collide with a real users.id (positive integers),
+  // so guests never share rows with authenticated accounts. There is no "guest"
+  // account row in the DB — this is purely a cache-scope identity.
+  const GUEST_USER_ID = -1;
+
+  // Freshness-first defaults for an always-online school administration:
+  // reference lists are re-read from the server on every page load
+  // (network-first), and the TTLs below only bound how long a snapshot may be
+  // reused as an OFFLINE FALLBACK when the network request fails. Values are
+  // short so no view can keep serving day- or week-old data to daily users.
   const DEFAULT_TTL = Object.freeze({
-    REFERENCE: 86400000,
-    LONG: 604800000,
-    DIRECTORY: 300000,
+    REFERENCE: 300000,   // 5 minutes — live lists (classes, subjects, streams, terms)
+    LONG: 3600000,       // 1 hour — slowly changing structures (departments, academic years)
+    DIRECTORY: 300000,   // 5 minutes — student directory
   });
 
   const policies = Object.freeze({
-    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
-    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
+    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
+    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
     students: { ttl: DEFAULT_TTL.DIRECTORY, strategy: 'network-first' },
     staff: { ttl: 1800000, strategy: 'network-first' },
     attendance: { ttl: 60000, strategy: 'network-first' },
     admissions: { ttl: 60000, strategy: 'network-first' },
-    school_profile: { ttl: 3600000, strategy: 'stale-while-revalidate' },
+    school_profile: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
   });
 
   function normalizeOptions(key, options) {
@@ -72,7 +106,11 @@ const DataStore = (() => {
 
   function currentUserId() {
     const auth = window.AuthContext;
-    return auth?.isAuthenticated?.() ? auth.getUser?.()?.id ?? null : null;
+    if (auth?.isAuthenticated?.()) {
+      const id = auth.getUser?.()?.id ?? null;
+      return id ?? GUEST_USER_ID;
+    }
+    return GUEST_USER_ID;
   }
 
   function currentRoleId() {
@@ -195,6 +233,25 @@ const DataStore = (() => {
     }
   }
 
+  /**
+   * Retrieve a cached value (or fetch from network).
+   *
+   * @param {string} key                    Cache key (must match a policy entry).
+   * @param {object} [options]              Options bag.
+   * @param {number} [options.ttl]          Override TTL in ms (default: policy TTL or 60000).
+   * @param {string} [options.strategy]     Cache strategy (stale-while-revalidate, cache-first,
+   *                                        cache-only, network-first).
+   * @param {boolean} [options.forceRefresh] Skip cache and fetch from network.
+   * @param {boolean} [options.bypassCache]  Skip memory + IndexedDB entirely.
+   * @param {string} [options.endpoint]     API path to fetch (if not using fetcher).
+   * @param {function} [options.fetcher]    Async function that returns data.
+   * @param {object} [options.params]       Query params appended to endpoint.
+   * @param {boolean} [options.useMemory]   Default true.
+   * @param {boolean} [options.useIndexedDB] Default true.
+   * @param {boolean} [options.allowStaleOnError] Default true — fall back to stale data
+   *                                              when the network request fails.
+   * @returns {Promise<*|null>}
+   */
   async function get(key, options = {}) {
     const config = normalizeOptions(key, options);
     const cacheKey = generateCacheKey(key, config.params);
@@ -224,7 +281,15 @@ const DataStore = (() => {
 
     if (config.strategy === 'cache-only') return cachedValue ?? null;
 
-    if (config.strategy === 'stale-while-revalidate' && cachedValue !== null && cachedValue !== undefined) {
+    // stale-while-revalidate only serves cached data while it is still fresh
+    // (within TTL); an expired snapshot must not keep rendering old data, so it
+    // falls through to the network below. Offline fallback still applies.
+    if (
+      config.strategy === 'stale-while-revalidate' &&
+      cacheFresh &&
+      cachedValue !== null &&
+      cachedValue !== undefined
+    ) {
       revalidate(key, config);
       return cachedValue;
     }
@@ -247,17 +312,46 @@ const DataStore = (() => {
     if (!config.endpoint && !config.fetcher) {
       throw new TypeError(`DataStore.getOrFetch("${key}") requires endpoint or fetcher.`);
     }
-    const cached = await peek(key, config);
-    if (cached !== null && cached !== undefined && config.strategy === 'stale-while-revalidate' && !config.forceRefresh) {
+    const cacheKey = generateCacheKey(key, config.params);
+
+    // Resolve cached value + freshness the same way get() does. stale-while-
+    // revalidate serves cache only while fresh; everything else goes to the
+    // network so page controllers render current data for daily operations.
+    let cachedValue = null;
+    let cacheFresh = false;
+    const memoryEntry = config.useMemory ? memoryCache.get(cacheKey) : null;
+    if (memoryEntry) {
+      cachedValue = memoryEntry.data;
+      cacheFresh = !isExpired(memoryEntry);
+    }
+    if (cachedValue === null || cachedValue === undefined) {
+      if (config.useIndexedDB) {
+        const record = await readIndexed(config.storeName, cacheKey);
+        const value = unwrap(record);
+        if (value !== null && value !== undefined) {
+          cachedValue = value;
+          cacheFresh = Boolean(record && !isExpired(record));
+          if (config.useMemory) setMemory(cacheKey, value, config.ttl);
+        }
+      }
+    }
+
+    if (
+      cachedValue !== null &&
+      cachedValue !== undefined &&
+      config.strategy === 'stale-while-revalidate' &&
+      !config.forceRefresh &&
+      cacheFresh
+    ) {
       revalidate(key, config);
-      return { data: cached, source: 'cache', stale: true };
+      return { data: cachedValue, source: 'cache', stale: false };
     }
     try {
       const data = await fetchAndCache(key, config);
       return { data, source: 'network', stale: false };
     } catch (networkError) {
-      if (cached !== null && cached !== undefined && config.allowStaleOnError) {
-        return { data: cached, source: 'cache', stale: true, networkError };
+      if (cachedValue !== null && cachedValue !== undefined && config.allowStaleOnError) {
+        return { data: cachedValue, source: 'cache', stale: true, networkError };
       }
       throw networkError;
     }
@@ -280,10 +374,28 @@ const DataStore = (() => {
   async function invalidate(key, options = {}) {
     const config = normalizeOptions(key, options);
     const cacheKey = generateCacheKey(key, config.params);
+
+    // Remove the exact entry plus every parameterised variant of it
+    // (cacheKey:{"..."} — e.g. filtered news lists, per-id detail views). A single
+    // mutation (PUT /api/website/news/5) then refreshes ALL views of that resource,
+    // not just the bare key. Safe: prefix always includes the ':' separator.
+    const prefix = cacheKey + ':';
+    for (const k of [...memoryCache.keys()]) {
+      if (k !== cacheKey && k.startsWith(prefix)) memoryCache.delete(k);
+    }
     memoryCache.delete(cacheKey);
+
     if (window.KingswayDB && config.storeName) {
-      try { await KingswayDB.remove?.(config.storeName, cacheKey); }
-      catch (error) { console.warn('[DataStore] IndexedDB invalidation failed:', error); }
+      try {
+        await KingswayDB.remove?.(config.storeName, cacheKey);
+        const rows = await KingswayDB.getAll?.(config.storeName) || [];
+        for (const row of rows) {
+          const id = row && (row.id ?? row.key);
+          if (id && id !== cacheKey && String(id).startsWith(prefix)) {
+            await KingswayDB.remove(config.storeName, id);
+          }
+        }
+      } catch (error) { console.warn('[DataStore] IndexedDB invalidation failed:', error); }
     }
     emit('INVALIDATED', { key, cacheKey });
   }
@@ -328,6 +440,34 @@ const DataStore = (() => {
     }
     emit('CLEARED', {});
   }
+
+  const CACHE_INVALIDATION_KEY = 'kingsway_cache_invalidation';
+
+  function initCrossTabInvalidation() {
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const channel = new BroadcastChannel('kingsway-cache');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'CACHE_INVALIDATED' && Array.isArray(event.data?.keys)) {
+            event.data.keys.forEach((key) => invalidate(key));
+          }
+        };
+      } catch (_) {}
+    }
+
+    window.addEventListener('storage', (event) => {
+      if (event.key === CACHE_INVALIDATION_KEY && event.newValue) {
+        try {
+          const message = JSON.parse(event.newValue);
+          if (message?.type === 'CACHE_INVALIDATED' && Array.isArray(message?.keys)) {
+            message.keys.filter((k) => typeof k === 'string').forEach((key) => invalidate(key));
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  initCrossTabInvalidation();
 
   return {
     get, getOrFetch, fetchPage, peek, set, invalidate, invalidateMany,

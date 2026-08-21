@@ -227,12 +227,12 @@
             <table class="table table-bordered table-academic">
                 <thead>
                     <tr>
-                        <th>Time</th>
-                        <th>Monday</th>
-                        <th>Tuesday</th>
-                        <th>Wednesday</th>
-                        <th>Thursday</th>
-                        <th>Friday</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Monday</th>
+                        <th scope="col">Tuesday</th>
+                        <th scope="col">Wednesday</th>
+                        <th scope="col">Thursday</th>
+                        <th scope="col">Friday</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -315,4 +315,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_timetable.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_timetable.js'); ?>

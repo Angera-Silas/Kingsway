@@ -116,4 +116,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/learning_goals.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/learning_goals.js'); ?>

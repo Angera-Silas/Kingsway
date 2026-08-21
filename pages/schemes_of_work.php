@@ -19,13 +19,17 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-book-open me-2"></i>Schemes of Work</h4>
+                    <h4 class="mb-1"><i class="bi bi-book-open me-2"></i>Schemes of Work</h4>
                     <p class="text-muted mb-0">Manage and track teaching schemes across all subjects and classes</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary btn-sm" id="uploadSchemeBtn"
                             data-role="class_teacher,subject_teacher,headteacher,admin">
                         <i class="bi bi-upload me-1"></i> Upload Scheme
+                    </button>
+                    <button class="btn btn-success btn-sm" id="generateSchemeBtn"
+                            data-role="class_teacher,subject_teacher,headteacher,admin">
+                        <i class="bi bi-magic me-1"></i> Auto-Generate
                     </button>
                     <button class="btn btn-outline-primary btn-sm" id="exportSchemesBtn"
                             data-role="headteacher,admin">
@@ -118,14 +122,14 @@
                 <table class="table table-hover" id="schemesTable">
                     <thead class="table-light">
                         <tr>
-                            <th>Subject</th>
-                            <th>Class</th>
-                            <th>Teacher</th>
-                            <th>Term</th>
-                            <th>Topic Count</th>
-                            <th>Status</th>
-                            <th>Last Updated</th>
-                            <th>Actions</th>
+                            <th scope="col">Subject</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Term</th>
+                            <th scope="col">Topic Count</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Last Updated</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -216,6 +220,69 @@
     </div>
 </div>
 
+<!-- Auto-Generate Schemes Modal -->
+<div class="modal fade" id="generateSchemeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-magic me-1"></i>Auto-Generate Schemes of Work</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small">
+                    Generates weekly scheme-of-work entries from the CBC curriculum strands and sub-strands.
+                    Existing entries for the same class, subject and term are skipped.
+                </div>
+                <form id="generateSchemeForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Class*</label>
+                            <select class="form-select" id="genClass" required>
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Subject / Learning Area*</label>
+                            <select class="form-select" id="genLearningArea" required>
+                                <option value="">Select Subject</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Term*</label>
+                            <select class="form-select" id="genTerm" required>
+                                <option value="">Select Term</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Strand (optional)</label>
+                            <select class="form-select" id="genStrand">
+                                <option value="">All Strands</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sub-Strand (optional)</label>
+                        <select class="form-select" id="genSubStrand">
+                            <option value="">All Sub-Strands</option>
+                        </select>
+                    </div>
+                    <div class="form-text">
+                        Leave strand and sub-strand empty to generate the full curriculum for the subject.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="confirmGenerateBtn">
+                    <i class="bi bi-magic me-1"></i> Generate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- View Scheme Details Modal -->
 <div class="modal fade" id="viewSchemeModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -267,4 +334,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/schemes_of_work.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/schemes_of_work.js'); ?>

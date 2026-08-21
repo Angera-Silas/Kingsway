@@ -325,7 +325,8 @@ const BoardingRollCall = {
           schoolDay.reason ||
           schoolDay.calendar_event?.event_name ||
           "non-school day";
-        return window.confirm(
+        return await window.confirmAction(
+          'Confirm',
           `${this.formatDate(this.selectedDate)} is marked as "${reason}". Continue with roll call anyway?`,
         );
       }
@@ -573,7 +574,8 @@ const BoardingRollCall = {
     );
 
     if (unmarkedStudents.length) {
-      const proceed = window.confirm(
+      const proceed = await window.confirmAction(
+        'Confirm',
         `${unmarkedStudents.length} students have not been marked. Continue and auto-mark them as absent or permission where applicable?`,
       );
       if (!proceed) {

@@ -21,10 +21,9 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
-                console.log("Initializing MpesaSettlementsController...");
                 await this.loadData();
-                console.log("MpesaSettlementsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing MpesaSettlementsController:", error);
                 this.showNotification("Failed to load M-Pesa settlements", "error");
@@ -36,10 +35,11 @@
          */
         loadData: async function () {
             try {
-                this.data = await API.callAPI("/finance/mpesa-settlements", "GET");
+                var response = await API.payments.getMpesaSettlements();
+                this.data = (response && response.transactions) ? response.transactions : [];
                 if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
-                console.error("Error loading M-Pesa settlements:", error);
+                console.error("Error loading M-Pesa transactions:", error);
                 this.data = [];
             }
 
@@ -62,17 +62,17 @@
         renderStats: function () {
             var totalSettlements = this.data.length;
             var totalAmount = this.data.reduce(function (sum, s) {
-                return sum + (parseFloat(s.net_amount) || parseFloat(s.gross_amount) || 0);
+                return sum + (parseFloat(s.amount) || 0);
             }, 0);
             var pendingAmount = this.data.filter(function (s) {
-                return (s.status || "").toLowerCase() === "pending";
+                return ["pending", "pending_callback"].indexOf((s.settlement_status || s.status || "").toLowerCase()) !== -1;
             }).reduce(function (sum, s) {
-                return sum + (parseFloat(s.net_amount) || parseFloat(s.gross_amount) || 0);
+                return sum + (parseFloat(s.amount) || 0);
             }, 0);
 
             var lastDate = null;
             this.data.forEach(function (s) {
-                var d = new Date(s.settlement_date || s.date || s.created_at);
+                var d = new Date(s.transaction_date || s.created_at);
                 if (!isNaN(d.getTime()) && (!lastDate || d > lastDate)) {
                     lastDate = d;
                 }
@@ -100,7 +100,7 @@
             if (!tbody) return;
 
             if (this.filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4">' +
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4">' +
                     '<i class="fas fa-mobile-alt fa-3x text-muted mb-3 d-block"></i>' +
                     '<p class="text-muted mb-0">No M-Pesa settlements found</p></td></tr>';
                 this.updateTableInfo(0);
@@ -115,23 +115,24 @@
             var html = "";
 
             pageItems.forEach(function (settlement, index) {
-                var statusBadge = self.getStatusBadge(settlement.status);
-                var grossAmount = parseFloat(settlement.gross_amount) || 0;
-                var charges = parseFloat(settlement.charges) || parseFloat(settlement.fees) || 0;
-                var netAmount = parseFloat(settlement.net_amount) || (grossAmount - charges);
+                var statusBadge = self.getStatusBadge(settlement.settlement_status || settlement.status);
+                var grossAmount = parseFloat(settlement.amount) || 0;
+                var netAmount = grossAmount;
 
                 html += '<tr>' +
                     '<td>' + (start + index + 1) + '</td>' +
-                    '<td>' + self.formatDate(settlement.settlement_date || settlement.date || settlement.created_at) + '</td>' +
-                    '<td><code>' + self.escapeHtml(settlement.reference || settlement.settlement_ref || settlement.id) + '</code></td>' +
-                    '<td class="text-center">' + (settlement.transaction_count || settlement.txn_count || 0) + '</td>' +
+                    '<td>' + self.formatDate(settlement.transaction_date || settlement.created_at) + '</td>' +
+                    '<td><code>' + self.escapeHtml(settlement.mpesa_code || settlement.id) + '</code></td>' +
+                    '<td>' + self.escapeHtml(settlement.phone_number || "-") + '</td>' +
+                    '<td class="text-center">1</td>' +
                     '<td class="text-end">KES ' + self.formatCurrency(grossAmount) + '</td>' +
-                    '<td class="text-end text-danger">KES ' + self.formatCurrency(charges) + '</td>' +
                     '<td class="text-end fw-bold text-success">KES ' + self.formatCurrency(netAmount) + '</td>' +
-                    '<td class="text-center">' + statusBadge + '</td>' +
+                    '<td class="text-center">' + statusBadge + '<div class="small text-muted mt-1" title="' + self.escapeHtml(settlement.status_reason || '') + '">' + self.escapeHtml(self.shortReason(settlement.status_reason)) + '</div></td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
                             '<button class="btn btn-outline-primary" onclick="MpesaSettlementsController.viewDetails(' + settlement.id + ')" title="View Details"><i class="fas fa-eye"></i></button>' +
+                            (settlement.can_reconcile ? '<button class="btn btn-outline-warning" onclick="MpesaSettlementsController.openReconciliation()" title="Reconcile / allocate"><i class="fas fa-link"></i></button>' : '') +
+                            (settlement.checkout_request_id && settlement.settlement_status === 'pending_callback' ? '<button class="btn btn-outline-info" onclick="MpesaSettlementsController.queryStatus(' + settlement.id + ')" title="Query provider status"><i class="fas fa-sync"></i></button>' : '') +
                             '<button class="btn btn-outline-secondary" onclick="MpesaSettlementsController.exportSettlement(' + settlement.id + ')" title="Export"><i class="fas fa-download"></i></button>' +
                         '</div>' +
                     '</td>' +
@@ -153,15 +154,15 @@
             var statusFilter = document.getElementById("msStatusFilter")?.value || "";
 
             this.filtered = this.data.filter(function (settlement) {
-                if (statusFilter && (settlement.status || "") !== statusFilter) return false;
+                if (statusFilter && (settlement.settlement_status || settlement.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
 
-                var sDate = settlement.settlement_date || settlement.date || settlement.created_at || "";
+                var sDate = settlement.transaction_date || settlement.created_at || "";
                 if (dateFrom && sDate && new Date(sDate) < new Date(dateFrom)) return false;
                 if (dateTo && sDate && new Date(sDate) > new Date(dateTo)) return false;
 
                 if (search) {
-                    var hay = ((settlement.reference || "") + " " + (settlement.settlement_ref || "") + " " +
-                        (settlement.status || "")).toLowerCase();
+                    var hay = ((settlement.mpesa_code || "") + " " + (settlement.phone_number || "") + " " +
+                        (settlement.settlement_status || settlement.status || "") + " " + (settlement.status_reason || "")).toLowerCase();
                     if (hay.indexOf(search) === -1) return false;
                 }
                 return true;
@@ -195,43 +196,34 @@
             this.currentSettlement = settlement;
 
             // Fill summary
-            document.getElementById("detailRef").textContent = settlement.reference || settlement.settlement_ref || settlement.id;
-            document.getElementById("detailDate").textContent = this.formatDate(settlement.settlement_date || settlement.date);
-            var netAmount = parseFloat(settlement.net_amount) || (parseFloat(settlement.gross_amount || 0) - parseFloat(settlement.charges || settlement.fees || 0));
+            document.getElementById("detailRef").textContent = settlement.mpesa_code || settlement.id;
+            document.getElementById("detailDate").textContent = this.formatDate(settlement.transaction_date || settlement.created_at);
+            var netAmount = parseFloat(settlement.amount) || 0;
             document.getElementById("detailNetAmount").textContent = "KES " + this.formatCurrency(netAmount);
+            var detailStatus = document.getElementById("detailStatus");
+            if (detailStatus) detailStatus.innerHTML = this.getStatusBadge(settlement.settlement_status || settlement.status) + '<div class="small text-muted mt-1">' + this.escapeHtml(settlement.status_reason || "") + '</div>';
+            var detailStudent = document.getElementById("detailStudent");
+            if (detailStudent) detailStudent.textContent = settlement.admission_no ? settlement.admission_no + " — " + ([settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "") : "Not linked";
 
-            // Load transactions for this settlement
+            // Render the single transaction breakdown
             var transBody = document.getElementById("settlementTransactionsBody");
+            var transactions = [settlement];
 
-            try {
-                var transactions = await API.callAPI("/finance/mpesa-settlements/" + id + "/transactions", "GET");
-                if (!Array.isArray(transactions)) transactions = [];
-
-                if (transactions.length === 0) {
-                    // Fallback: use embedded transactions if any
-                    transactions = settlement.transactions || [];
-                }
-
-                if (transactions.length === 0) {
-                    transBody.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-muted">No transaction details available</td></tr>';
-                } else {
-                    var self = this;
-                    var html = "";
-                    transactions.forEach(function (txn, i) {
-                        html += '<tr>' +
-                            '<td>' + (i + 1) + '</td>' +
-                            '<td><code>' + self.escapeHtml(txn.transaction_id || txn.mpesa_receipt || txn.id) + '</code></td>' +
-                            '<td>' + self.escapeHtml(txn.phone_number || txn.phone || txn.msisdn || "-") + '</td>' +
-                            '<td>' + self.escapeHtml(txn.name || txn.sender_name || txn.account_name || "-") + '</td>' +
-                            '<td class="text-end">KES ' + self.formatCurrency(txn.amount) + '</td>' +
-                            '<td>' + self.formatDateTime(txn.transaction_date || txn.date || txn.created_at) + '</td>' +
-                            '</tr>';
-                    });
-                    transBody.innerHTML = html;
-                }
-            } catch (error) {
-                console.error("Error loading settlement transactions:", error);
-                transBody.innerHTML = '<tr><td colspan="6" class="text-center py-3 text-danger">Failed to load transactions</td></tr>';
+            if (transBody) {
+                var self = this;
+                var html = "";
+                transactions.forEach(function (txn, i) {
+                    var name = [txn.first_name, txn.middle_name, txn.last_name].filter(Boolean).join(" ") || "-";
+                    html += '<tr>' +
+                        '<td>' + (i + 1) + '</td>' +
+                        '<td><code>' + self.escapeHtml(txn.mpesa_code || txn.id) + '</code></td>' +
+                        '<td>' + self.escapeHtml(txn.phone_number || "-") + '</td>' +
+                        '<td>' + self.escapeHtml(name) + '</td>' +
+                        '<td class="text-end">KES ' + self.formatCurrency(txn.amount) + '</td>' +
+                        '<td>' + self.formatDateTime(txn.transaction_date || txn.created_at) + '</td>' +
+                        '</tr>';
+                });
+                transBody.innerHTML = html;
             }
 
             var modal = new bootstrap.Modal(document.getElementById("settlementDetailsModal"));
@@ -245,20 +237,19 @@
             var settlement = this.data.find(function (s) { return s.id === id; });
             if (!settlement) return;
 
-            var grossAmount = parseFloat(settlement.gross_amount) || 0;
-            var charges = parseFloat(settlement.charges) || parseFloat(settlement.fees) || 0;
-            var netAmount = parseFloat(settlement.net_amount) || (grossAmount - charges);
+            var grossAmount = parseFloat(settlement.amount) || 0;
+            var name = [settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "-";
 
-            var csv = "Settlement Report\n";
-            csv += "Reference," + (settlement.reference || settlement.settlement_ref || settlement.id) + "\n";
-            csv += "Date," + this.formatDate(settlement.settlement_date || settlement.date) + "\n";
-            csv += "Transaction Count," + (settlement.transaction_count || settlement.txn_count || 0) + "\n";
-            csv += "Gross Amount (KES)," + grossAmount + "\n";
-            csv += "Charges (KES)," + charges + "\n";
-            csv += "Net Amount (KES)," + netAmount + "\n";
-            csv += "Status," + (settlement.status || "-") + "\n";
+            var csv = "M-Pesa Settlement Report\n";
+            csv += "Code," + (settlement.mpesa_code || settlement.id) + "\n";
+            csv += "Date," + this.formatDate(settlement.transaction_date || settlement.created_at) + "\n";
+            csv += "Phone," + (settlement.phone_number || "-") + "\n";
+            csv += "Name," + name + "\n";
+            csv += "Amount (KES)," + grossAmount + "\n";
+            csv += "Status," + (settlement.settlement_status || settlement.status || "-") + "\n";
+            csv += "Reason," + (settlement.status_reason || "-") + "\n";
 
-            KingswayFileLifecycle.exportText(csv, "mpesa_settlement_" + (settlement.reference || settlement.id) + ".csv", "text/csv");
+            KingswayFileLifecycle.exportText(csv, "mpesa_settlement_" + (settlement.mpesa_code || settlement.id) + ".csv", "text/csv");
             this.showNotification("Settlement exported", "success");
         },
 
@@ -272,23 +263,23 @@
             }
 
             const settlement = this.currentSettlement;
-            const gross = Number(settlement.gross_amount || 0);
-            const charges = Number(settlement.charges || settlement.fees || 0);
-            const net = Number(settlement.net_amount || (gross - charges));
+            const gross = Number(settlement.amount || 0);
+            const net = gross;
+            const name = [settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "—";
 
             await window.PrintManager.printRecord({
                 title: "M-Pesa Settlement Report",
-                subtitle: settlement.reference || settlement.settlement_ref || `Settlement ${settlement.id}`,
+                subtitle: settlement.mpesa_code || `Settlement ${settlement.id}`,
                 sections: [{
-                    title: "Settlement Details",
+                    title: "Transaction Details",
                     fields: [
-                        { label: "Settlement Date", value: this.formatDate(settlement.settlement_date || settlement.date || settlement.created_at) },
-                        { label: "Reference", value: settlement.reference || settlement.settlement_ref || settlement.id },
-                        { label: "Transactions", value: settlement.transaction_count || settlement.txn_count || 0 },
-                        { label: "Gross Amount", value: `KSh ${gross.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
-                        { label: "Charges", value: `KSh ${charges.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
-                        { label: "Net Amount", value: `KSh ${net.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
-                        { label: "Status", value: settlement.status || "—" },
+                        { label: "Date", value: this.formatDate(settlement.transaction_date || settlement.created_at) },
+                        { label: "M-Pesa Code", value: settlement.mpesa_code || settlement.id },
+                        { label: "Phone", value: settlement.phone_number || "—" },
+                        { label: "Name", value: name },
+                        { label: "Amount", value: `KSh ${gross.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
+                        { label: "Status", value: settlement.settlement_status || settlement.status || "—" },
+                        { label: "Reason", value: settlement.status_reason || "—" },
                     ],
                 }],
                 reportCode: `MPESA-SETTLEMENT-${settlement.id}`,
@@ -304,22 +295,20 @@
          * Export all settlements as CSV
          */
         exportCSV: function () {
-            var headers = ["#", "Settlement Date", "Reference", "Transaction Count", "Gross Amount (KES)", "Charges (KES)", "Net Amount (KES)", "Status"];
+            var headers = ["#", "Date", "M-Pesa Code", "Phone Number", "Name", "Amount (KES)", "Status", "Reason"];
             var self = this;
             var rows = this.filtered.map(function (s, i) {
-                var grossAmount = parseFloat(s.gross_amount) || 0;
-                var charges = parseFloat(s.charges) || parseFloat(s.fees) || 0;
-                var netAmount = parseFloat(s.net_amount) || (grossAmount - charges);
+                var name = [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(" ") || "";
 
                 return [
                     i + 1,
-                    self.formatDate(s.settlement_date || s.date || s.created_at),
-                    s.reference || s.settlement_ref || s.id,
-                    s.transaction_count || s.txn_count || 0,
-                    grossAmount,
-                    charges,
-                    netAmount,
-                    s.status || ""
+                    self.formatDate(s.transaction_date || s.created_at),
+                    s.mpesa_code || s.id,
+                    s.phone_number || "",
+                    name.replace(/,/g, " "),
+                    s.amount || 0,
+                    s.settlement_status || s.status || "",
+                    s.status_reason || ""
                 ];
             });
 
@@ -386,14 +375,41 @@
         // ====================================================================
 
         getStatusBadge: function (status) {
-            var s = (status || "Pending").toLowerCase();
+            var s = (status || "pending").toLowerCase();
             var map = {
+                reconciled: '<span class="badge bg-success">Reconciled</span>',
+                processed: '<span class="badge bg-success">Processed</span>',
                 settled: '<span class="badge bg-success">Settled</span>',
                 pending: '<span class="badge bg-warning text-dark">Pending</span>',
                 failed: '<span class="badge bg-danger">Failed</span>',
                 processing: '<span class="badge bg-info">Processing</span>'
             };
+            map.posted = '<span class="badge bg-success">Posted</span>';
+            map.received_unallocated = '<span class="badge bg-warning text-dark">Received · Unallocated</span>';
+            map.pending_callback = '<span class="badge bg-warning text-dark">Pending callback</span>';
+            map.pending = '<span class="badge bg-secondary">Pending</span>';
             return map[s] || '<span class="badge bg-secondary">' + (status || "Unknown") + '</span>';
+        },
+
+        shortReason: function (reason) {
+            if (!reason) return "";
+            return reason.length > 42 ? reason.substring(0, 39) + "…" : reason;
+        },
+
+        openReconciliation: function () {
+            window.location.href = (window.APP_BASE || "") + "/home.php?route=mpesa_reconciliation";
+        },
+
+        queryStatus: async function (id) {
+            var row = this.data.find(function (s) { return s.id === id; });
+            if (!row || !row.checkout_request_id) return;
+            try {
+                await API.payments.stkQuery({ checkout_request_id: row.checkout_request_id });
+                this.showNotification("Provider status query sent; refresh shortly for the callback result.", "info");
+                await this.loadData();
+            } catch (error) {
+                this.showNotification(error.message || "Unable to query provider status", "error");
+            }
         },
 
         formatCurrency: function (amount) {
@@ -428,11 +444,11 @@
                 .replace(/'/g, "&#39;");
         },
 
-        showNotification: function (message, type) {
+        showNotification: async function (message, type) {
             if (typeof showNotification === "function") {
                 showNotification(message, type || "info");
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
         },
 
@@ -447,4 +463,10 @@
     };
 
     window.MpesaSettlementsController = MpesaSettlementsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => MpesaSettlementsController.init().catch(() => {}));
+    } else {
+        MpesaSettlementsController.init().catch(() => {});
+    }
 })();

@@ -124,15 +124,15 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Ref #</th>
-              <th>Date</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th>Vendor</th>
+              <th scope="col">Ref #</th>
+              <th scope="col">Date</th>
+              <th scope="col">Category</th>
+              <th scope="col">Description</th>
+              <th scope="col">Vendor</th>
               <th class="text-end">Amount (KES)</th>
-              <th>Method</th>
-              <th>Recorded By</th>
-              <th>Status</th>
+              <th scope="col">Method</th>
+              <th scope="col">Recorded By</th>
+              <th scope="col">Status</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -272,5 +272,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/expenses.js"></script>
+<?php asset_script($appBase, 'js/pages/expenses.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => expensesController.init());</script>

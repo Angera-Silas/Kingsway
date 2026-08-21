@@ -100,13 +100,13 @@
             <table class="table table-hover table-striped" id="subjectsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Subject Name</th>
-                        <th>Code</th>
-                        <th>Type</th>
-                        <th>Levels</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Subject Name</th>
+                        <th scope="col">Code</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Levels</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -358,4 +358,4 @@
 </div>
 
 <!-- Link to Controller -->
-<script src="<?= $appBase ?>/js/pages/manage_subjects.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_subjects.js'); ?>

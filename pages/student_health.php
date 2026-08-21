@@ -7,7 +7,7 @@
 
 // Ensure $appBase is available for script loading
 if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.' || $appBase === '/') {
         $appBase = '';
     }
@@ -105,7 +105,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by student name, admission number, condition, allergy, or medication">
@@ -114,13 +114,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-danger w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -132,7 +132,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-file-medical"></i>
+                                    <i class="bi bi-file-medical"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Records</small>
@@ -148,7 +148,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Active Alerts</small>
@@ -164,7 +164,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-ambulance"></i>
+                                    <i class="bi bi-truck"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Clinic Visits</small>
@@ -180,7 +180,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-allergies"></i>
+                                    <i class="bi bi-person-standing"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Allergies</small>
@@ -196,7 +196,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-pills"></i>
+                                    <i class="bi bi-capsule"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">On Medication</small>
@@ -212,7 +212,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-exclamation-circle"></i>
+                                    <i class="bi bi-exclamation-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Emergency</small>
@@ -226,20 +226,20 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="recordsLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading health records...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading health records...
             </div>
 
             <div id="recordsError" class="alert alert-danger d-none"></div>
 
             <div id="recordsEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No health records found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No health records found for the selected filters.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="recordsCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-danger"></i>
+                        <i class="bi bi-list-ul me-2 text-danger"></i>
                         Health Records
                     </strong>
                 </div>
@@ -248,18 +248,18 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th>Record ID</th>
-                                <th>Student Name</th>
-                                <th>Adm No</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Category</th>
-                                <th>Alert Type</th>
-                                <th>Severity</th>
-                                <th>Status</th>
-                                <th>Last Visit</th>
-                                <th>Next Review</th>
-                                <th>Actions</th>
+                                <th scope="col">Record ID</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Category</th>
+                                <th scope="col">Alert Type</th>
+                                <th scope="col">Severity</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Last Visit</th>
+                                <th scope="col">Next Review</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="recordsTableBody">
@@ -293,7 +293,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading record details...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading record details...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>

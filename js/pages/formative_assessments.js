@@ -11,6 +11,8 @@ const fAssCtrl = {
   _classes:  [],
   _subjects: [],
   _types:    [],
+  _outcomes: [],
+  _strands:  [],
   _assessments: [],
   _currentAcademicYear: null,
   _currentTerm: null,
@@ -18,16 +20,16 @@ const fAssCtrl = {
   // ── INIT ──────────────────────────────────────────────────────────────
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
-    
+    await GradingScale.preload();
     // Initialize Academic Context if available
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in formative_assessments:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload assessments when academic year or term changes
           this.loadAll();
@@ -70,6 +72,11 @@ const fAssCtrl = {
     if (marksTab) {
       marksTab.addEventListener('shown.bs.tab', () => this._populateMarksDropdown());
     }
+    // Wire learning area change in create modal to load outcomes
+    const faSubject = document.getElementById('faSubject');
+    if (faSubject) {
+      faSubject.addEventListener('change', () => this._loadOutcomesForSubject(faSubject.value));
+    }
   },
 
   // ── DROPDOWN LOADERS ──────────────────────────────────────────────────
@@ -92,7 +99,7 @@ const fAssCtrl = {
 
   _loadClasses: async function () {
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const r = await DataStore.fetchPage('classes', {
         endpoint: '/academic/classes-list', storeName: 'reference_classes',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
@@ -140,6 +147,39 @@ const fAssCtrl = {
         });
       });
     } catch (e) { console.warn('Types load failed:', e); }
+  },
+
+  _loadOutcomesForSubject: async function (learningAreaId) {
+    const sel = document.getElementById('faOutcome');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select learning outcome —</option>';
+    if (!learningAreaId) return;
+    try {
+      const r = await callAPI('/academic/learning-outcomes?learning_area_id=' + learningAreaId, 'GET');
+      this._outcomes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      this._outcomes.forEach(o => {
+        sel.insertAdjacentHTML('beforeend', `<option value="${o.id}">${this._esc((o.outcome || '').substring(0, 80))}</option>`);
+      });
+    } catch (e) { console.warn('Outcomes load failed:', e); }
+  },
+
+  _onSubjectFilterChange: async function () {
+    this.loadAll();
+    const areaId = document.getElementById('faSubjectFilter')?.value;
+    const sel = document.getElementById('faStrandFilter');
+    if (sel) {
+      sel.innerHTML = '<option value="">All Strands</option>';
+      if (areaId) {
+        try {
+          const r = await callAPI('/academic/strands?learning_area_id=' + areaId, 'GET');
+          this._strands = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+          this._strands.forEach(st => {
+            sel.insertAdjacentHTML('beforeend', `<option value="${st.id}">${this._esc(st.name)}</option>`);
+          });
+        } catch (e) { console.warn('Strands load failed:', e); }
+      }
+    }
+    this._loadSummary();
   },
 
   // ── ASSESSMENTS LIST ──────────────────────────────────────────────────
@@ -225,6 +265,8 @@ const fAssCtrl = {
     const dateEl = document.getElementById('faDate');
     if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
     document.getElementById('faCreateError')?.classList.add('d-none');
+    const outcomeSel = document.getElementById('faOutcome');
+    if (outcomeSel) outcomeSel.innerHTML = '<option value="">— Select learning outcome —</option>';
     new bootstrap.Modal(document.getElementById('faCreateModal')).show();
   },
 
@@ -245,6 +287,8 @@ const fAssCtrl = {
       return;
     }
 
+    const outcomeId = document.getElementById('faOutcome')?.value;
+
     const payload = {
       title,
       assessment_type_id: parseInt(typeId),
@@ -253,6 +297,7 @@ const fAssCtrl = {
       subject_id:         parseInt(subjectId),
       max_marks:          parseFloat(maxMarks),
       assessment_date:    date,
+      learning_outcome_id: outcomeId ? parseInt(outcomeId) : null,
     };
 
     try {
@@ -398,8 +443,8 @@ const fAssCtrl = {
     }
     input.classList.remove('is-invalid');
     const pct   = Math.round((score / maxMarks) * 100 * 100) / 100;
-    const grade = pct >= 75 ? 'EE' : pct >= 60 ? 'ME' : pct >= 40 ? 'AE' : 'BE';
-    const gc    = pct >= 75 ? 'EE' : pct >= 60 ? 'ME' : pct >= 40 ? 'AE' : 'BE';
+    const grade = GradingScale.grade(pct);
+    const gc    = GradingScale.band(grade);
 
     const pctCell   = row.querySelector('.pct-cell');
     const gradeCell = row.querySelector('.grade-cell');
@@ -464,13 +509,22 @@ const fAssCtrl = {
       return;
     }
 
+    const breakdown = document.getElementById('faSummaryBreakdown')?.value || 'learning_area';
+    const subject   = document.getElementById('faSubjectFilter')?.value;
+    if (breakdown !== 'learning_area' && !subject) {
+      container.innerHTML = '<div class="alert alert-warning text-center"><i class="bi bi-exclamation-triangle me-1"></i>Select a <strong>Learning Area</strong> in the filters above to view the per-strand / per-sub-strand breakdown.</div>';
+      return;
+    }
+
     container.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
     try {
       const params = new URLSearchParams();
       params.set('term_id',  term);
       params.set('class_id', cls);
-      const subject = document.getElementById('faSubjectFilter')?.value;
       if (subject) params.set('subject_id', subject);
+      params.set('group_by', breakdown);
+      const strand = document.getElementById('faStrandFilter')?.value;
+      if (strand && breakdown !== 'learning_area') params.set('strand_id', strand);
       const qs = '?' + params;
 
       const r    = await callAPI('/academic/formative-summary' + qs, 'GET');
@@ -481,66 +535,106 @@ const fAssCtrl = {
         return;
       }
 
-      // Group by student
-      const studentMap = {};
-      const subjects   = new Set();
-      data.forEach(row => {
-        const key = row.student_id;
-        if (!studentMap[key]) {
-          studentMap[key] = { name: row.student_name, admission_no: row.admission_no, averages: {} };
-        }
-        const subjectName = row.subject_name || row.learning_area_name || '—';
-        subjects.add(subjectName);
-        studentMap[key].averages[subjectName] = {
-          avg_pct:    row.avg_percentage ?? row.formative_avg_pct,
-          cbc_grade:  row.overall_cbc_grade ?? row.formative_grade,
-          count:      row.assessment_count,
-        };
-      });
-
-      const subjectList = Array.from(subjects).sort();
-      const headers = subjectList.map(s => `<th class="text-center" style="min-width:100px;">${this._esc(s)}</th>`).join('');
-
-      const rows = Object.values(studentMap).map(student => {
-        const cells = subjectList.map(s => {
-          const entry = student.averages[s];
-          if (!entry) return '<td class="text-center text-muted">—</td>';
-          const gc = entry.cbc_grade || '';
-          return `<td class="text-center">
-            <div>${entry.avg_pct != null ? entry.avg_pct + '%' : '—'}</div>
-            ${gc ? `<span class="grade-${gc}">${gc}</span>` : ''}
-            ${entry.count ? `<small class="text-muted d-block">${entry.count} tasks</small>` : ''}
-          </td>`;
-        }).join('');
-        return `<tr>
-          <td class="fw-semibold">${this._esc(student.name || '—')}</td>
-          <td>${this._esc(student.admission_no || '—')}</td>
-          ${cells}
-        </tr>`;
-      }).join('');
-
-      container.innerHTML = `<div class="table-responsive">
-        <table class="table table-sm table-bordered align-middle">
-          <thead class="table-light">
-            <tr>
-              <th>Student</th><th>Adm No</th>
-              ${headers}
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <p class="text-muted small mt-2">
-        <i class="bi bi-info-circle me-1"></i>
-        Percentages shown are averages across all formative tasks per learning area.
-        <span class="grade-EE">EE</span> ≥75% &nbsp;
-        <span class="grade-ME">ME</span> 60–74% &nbsp;
-        <span class="grade-AE">AE</span> 40–59% &nbsp;
-        <span class="grade-BE">BE</span> 0–39%
-      </p>`;
+      if (breakdown === 'strand') {
+        this._renderGroupedSummary(container, data, 'strand', 'strand_id', 'strand_name', 'learning_area_name');
+      } else if (breakdown === 'sub_strand') {
+        this._renderGroupedSummary(container, data, 'sub_strand', 'sub_strand_id', 'sub_strand_name', 'strand_name');
+      } else {
+        this._renderGroupedSummary(container, data, 'learning_area', 'learning_area_id', 'learning_area_name', null);
+      }
     } catch (e) {
       container.innerHTML = `<div class="alert alert-danger">Failed to load summary: ${this._esc(e.message)}</div>`;
     }
+  },
+
+  _renderGroupedSummary: function (container, data, mode, groupKey, groupNameKey, groupSubKey) {
+    // Column keys preserve sort order of first appearance; group names keyed by group id.
+    const groups   = [];   // [{id, name, sub}]
+    const groupIdx = {};
+    const studentMap = {};
+
+    data.forEach(row => {
+      const gid = row[groupKey];
+      if (gid != null && groupIdx[gid] === undefined) {
+        groupIdx[gid] = groups.length;
+        groups.push({ id: gid, name: row[groupNameKey] || '—', sub: row[groupSubKey] || null });
+      }
+      const sid = row.student_id;
+      if (!studentMap[sid]) {
+        studentMap[sid] = { name: row.student_name, admission_no: row.admission_no, cells: {} };
+      }
+      studentMap[sid].cells[gid] = {
+        avg_pct:   row.formative_avg_pct,
+        cbc_grade: row.formative_grade,
+        count:     row.assessment_count,
+      };
+    });
+
+    // Column header: sub-strand shows strand as sub-label; strand shows area as sub-label.
+    const headers = groups.map(g => {
+      const sub = g.sub
+        ? `<div class="text-muted fw-normal" style="font-size:.72rem;">${this._esc(g.sub)}</div>`
+        : '';
+      return `<th class="text-center" style="min-width:110px;">${this._esc(g.name)}${sub}</th>`;
+    }).join('');
+
+    // Per-student rows
+    const rows = Object.values(studentMap).map(student => {
+      const cells = groups.map(g => {
+        const entry = student.cells[g.id];
+        if (!entry) return '<td class="text-center text-muted">—</td>';
+        const gc = entry.cbc_grade || '';
+        return `<td class="text-center">
+          <div>${entry.avg_pct != null ? entry.avg_pct + '%' : '—'}</div>
+          ${gc ? `<span class="grade-${gc}">${gc}</span>` : ''}
+          ${entry.count ? `<small class="text-muted d-block">${entry.count} task${entry.count === 1 ? '' : 's'}</small>` : ''}
+        </td>`;
+      }).join('');
+      return `<tr>
+        <td class="fw-semibold">${this._esc(student.name || '—')}</td>
+        <td>${this._esc(student.admission_no || '—')}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    // Class-average footer row (mean of assessed students per column).
+    const footer = groups.map(g => {
+      const vals = Object.values(studentMap)
+        .map(st => Number(st.cells[g.id]?.avg_pct))
+        .filter(v => Number.isFinite(v));
+      if (!vals.length) return '<td class="text-center text-muted">—</td>';
+      const avg = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 100) / 100;
+      const code = GradingScale.grade(avg);
+      const gc   = GradingScale.band(code);
+      return `<td class="text-center"><strong>${avg}%</strong> <span class="grade-${gc}">${code}</span></td>`;
+    }).join('');
+
+    const label = mode === 'strand' ? 'Strand' : (mode === 'sub_strand' ? 'Sub-strand' : 'Learning Area');
+    container.innerHTML = `<div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Student</th><th>Adm No</th>
+            ${headers}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr class="table-secondary">
+            <th colspan="2">Class Average</th>
+            ${footer}
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="text-muted small mt-2">
+      <i class="bi bi-info-circle me-1"></i>
+      Percentages are averages across formative tasks per ${label.toLowerCase()}.
+      <span class="grade-EE">EE</span> ≥75% &nbsp;
+      <span class="grade-ME">ME</span> 60–74% &nbsp;
+      <span class="grade-AE">AE</span> 40–59% &nbsp;
+      <span class="grade-BE">BE</span> 0–39%
+    </p>`;
   },
 
   // ── UTILS ──────────────────────────────────────────────────────────────

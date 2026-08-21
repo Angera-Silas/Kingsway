@@ -21,6 +21,7 @@ const expensesController = {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -298,7 +299,7 @@ const expensesController = {
   },
 
   submitForApproval: async function (id) {
-    if (!confirm('Submit this expense for approval?')) return;
+    if (!(await window.confirmAction('Confirm', 'Submit this expense for approval?'))) return;
     try {
       await callAPI('/finance/expenses/' + id, 'PUT', {status: 'pending_approval'});
       showNotification('Expense submitted for approval.', 'success');

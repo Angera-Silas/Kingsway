@@ -12,22 +12,32 @@
 </div>
 <div id="library-content" style="display:none;"></div>
 
-<script src="<?= $appBase ?>/js/pages/manage_library.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_library.js'); ?>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
-      containerId:  'library-content',
-      loadingId:    'library-loading',
-      templateMap: {
-        'library.manage': '<?= $appBase ?>/pages/library/admin_library.php',
-        'library.issue':  '<?= $appBase ?>/pages/library/admin_library.php',
-        'library.create': '<?= $appBase ?>/pages/library/admin_library.php',
-        'library.view':   '<?= $appBase ?>/pages/library/viewer_library.php',
-      },
-      defaultTemplate: '<?= $appBase ?>/pages/library/viewer_library.php',
-      onLoad: function () {
+      loadingId:   'library-loading',
+      contentId:   'library-content',
+      templateDir: '/pages/library/',
+      module:      'Library',
+      levels: [
+        {
+          file: 'admin_library.php',
+          test: function () {
+            return PageShell.hasAny(['library.manage', 'library.issue', 'library.create']);
+          },
+        },
+        {
+          file: 'viewer_library.php',
+          test: function () {
+            return PageShell.hasAny(['library.view', 'library_view']) ||
+                   PageShell.hasRole(['parent', 'student']);
+          },
+        },
+      ],
+      afterLoad: function () {
         if (typeof libraryController !== 'undefined') libraryController.init();
-      }
+      },
     });
   });
 </script>

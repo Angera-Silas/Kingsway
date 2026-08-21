@@ -1,0 +1,73 @@
+/**
+ * stock_reports.js — Stock Reports Controller (standalone page).
+ * Inventory valuation by category + item usage rates.
+ */
+const stockReportsController = {
+  API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
+
+  esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+
+  norm(r) { return Array.isArray(r) ? r : (r?.data || r || []); },
+
+  monthName(m) {
+    return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1] || this.esc(m);
+  },
+
+  async load() {
+    const valBody = document.getElementById('srValBody');
+    const usageBody = document.getElementById('srUsageBody');
+    valBody.innerHTML = '<tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    usageBody.innerHTML = '<tr><td colspan="4" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    try {
+      const [valRes, usageRes] = await Promise.all([
+        this.API('GET', '/inventory/items-stock-valuation').catch(() => null),
+        this.API('GET', '/reports/inventory-usage-rates').catch(() => null),
+      ]);
+
+      const valPayload = valRes?.data ?? valRes ?? {};
+      const byCategory = Array.isArray(valPayload?.by_category) ? valPayload.by_category : [];
+      const grandTotal = Number(valPayload?.grand_total ?? 0);
+
+      const usage = this.norm(usageRes);
+
+      document.getElementById('srGrandTotal').textContent = `KES ${grandTotal.toLocaleString()}`;
+      document.getElementById('srCategoryCount').textContent = byCategory.length;
+      document.getElementById('srTotalQty').textContent = byCategory.reduce((s, c) => s + Number(c.total_quantity ?? 0), 0).toLocaleString();
+
+      if (!byCategory.length) { valBody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No valuation data.</td></tr>'; }
+      else {
+        valBody.innerHTML = byCategory.map(c => `<tr>
+          <td class="small fw-semibold">${this.esc(c.category_name || '\u2014')}</td>
+          <td class="small">${this.esc(c.item_count ?? 0)}</td>
+          <td class="small">${this.esc(Number(c.total_quantity ?? 0).toLocaleString())}</td>
+          <td class="small">KES ${this.esc(Number(c.total_value ?? 0).toLocaleString())}</td>
+        </tr>`).join('');
+      }
+
+      if (!usage.length) { usageBody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">No usage data.</td></tr>'; }
+      else {
+        usageBody.innerHTML = usage.slice(0, 100).map(u => `<tr>
+          <td class="small">${this.esc(u.year)}</td>
+          <td class="small">${this.monthName(u.month)}</td>
+          <td class="small">${this.esc(u.item_id ?? '\u2014')}</td>
+          <td class="small fw-semibold">${this.esc(Number(u.total_used ?? 0).toLocaleString())}</td>
+        </tr>`).join('');
+      }
+    } catch (e) {
+      valBody.innerHTML = `<tr><td colspan="4" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`;
+    }
+  },
+
+  async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    await this.load();
+  },
+};
+
+window.stockReportsController = stockReportsController;
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => stockReportsController.init().catch(() => {}));
+} else {
+  stockReportsController.init().catch(() => {});
+}

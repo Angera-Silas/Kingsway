@@ -7,7 +7,7 @@
 
 // Ensure $appBase is available for script loading
 if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.' || $appBase === '/') {
         $appBase = '';
     }
@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-clipboard-check me-2"></i>
+                        <i class="bi bi-clipboard-check me-2"></i>
                         Passenger Attendance
                     </h4>
                     <small id="scopeSubtitle">Mark pickup, drop-off, absence, and not-riding status for transport passengers</small>
@@ -49,7 +49,7 @@ if (!isset($appBase)) {
             <div class="card shadow-sm mb-4">
                 <div class="card-header bg-white">
                     <h5 class="mb-0">
-                        <i class="fas fa-cog me-2 text-primary"></i>
+                        <i class="bi bi-gear me-2 text-primary"></i>
                         Trip Setup
                     </h5>
                 </div>
@@ -105,7 +105,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-users"></i>
+                                    <i class="bi bi-people"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Expected</small>
@@ -121,7 +121,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-check"></i>
+                                    <i class="bi bi-check-lg"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Marked Present</small>
@@ -137,7 +137,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-arrow-down"></i>
+                                    <i class="bi bi-arrow-down"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Dropped Off</small>
@@ -153,7 +153,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-user-times"></i>
+                                    <i class="bi bi-person-times"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Absent</small>
@@ -169,7 +169,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-ban"></i>
+                                    <i class="bi bi-x-circle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Not Riding</small>
@@ -185,7 +185,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-clock"></i>
+                                    <i class="bi bi-clock"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Pending</small>
@@ -201,7 +201,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Incidents</small>
@@ -215,17 +215,17 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="attendanceLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading passengers...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading passengers...
             </div>
 
             <div id="attendanceError" class="alert alert-danger d-none"></div>
 
             <div id="attendanceForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-exclamation-triangle me-2"></i> You do not have permission to mark transport attendance.
+                <i class="bi bi-exclamation-triangle me-2"></i> You do not have permission to mark transport attendance.
             </div>
 
             <div id="attendanceEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> Select trip details and load passengers to mark attendance.
+                <i class="bi bi-info-circle me-2"></i> Select trip details and load passengers to mark attendance.
             </div>
 
             <!-- Passenger Attendance Table -->
@@ -260,7 +260,7 @@ if (!isset($appBase)) {
                                 <tr>
                                     <th style="width: 50px;"><input type="checkbox" id="selectAll"></th>
                                     <th style="width: 120px;">Adm No</th>
-                                    <th>Student Name</th>
+                                    <th scope="col">Student Name</th>
                                     <th style="width: 100px;">Class</th>
                                     <th style="width: 100px;">Stream</th>
                                     <th style="width: 150px;">Pickup Point</th>

@@ -1,7 +1,7 @@
 /**
  * Purchase Orders Controller
- * Handles purchase order management: create, approve, receive, cancel
- * Integrates with /api/finance/purchase-orders endpoints
+ * Handles purchase order management: create, view
+ * Integrates with /api/vendors/purchase-orders endpoints
  *
  * @package App\JS\Pages
  */
@@ -13,6 +13,7 @@
         // State
         data: [],
         filtered: [],
+        vendors: [],
         currentPage: 1,
         perPage: 15,
         itemRowIndex: 1,
@@ -21,10 +22,9 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
-                console.log("Initializing PurchaseOrdersController...");
-                await this.loadData();
-                console.log("PurchaseOrdersController initialized successfully");
+                await Promise.all([this.loadData(), this.loadVendors()]);
             } catch (error) {
                 console.error("Error initializing PurchaseOrdersController:", error);
                 this.showNotification("Failed to load purchase orders", "error");
@@ -36,7 +36,8 @@
          */
         loadData: async function () {
             try {
-                this.data = await API.callAPI("/finance/purchase-orders", "GET");
+                var response = await API.callAPI("/vendors/purchase-orders", "GET");
+                this.data = (response && response.purchase_orders) ? response.purchase_orders : [];
                 if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading purchase orders:", error);
@@ -47,6 +48,20 @@
             this.renderStats();
             this.renderTable();
             this.populateVendorFilters();
+        },
+
+        /**
+         * Load vendors for the create form
+         */
+        loadVendors: async function () {
+            try {
+                var response = await API.callAPI("/vendors", "GET");
+                this.vendors = (response && response.vendors) ? response.vendors : [];
+                if (!Array.isArray(this.vendors)) this.vendors = [];
+            } catch (error) {
+                console.error("Error loading vendors:", error);
+                this.vendors = [];
+            }
         },
 
         /**
@@ -61,7 +76,7 @@
                 return (po.status || "").toLowerCase() === "approved";
             }).length;
             const totalValue = this.data.reduce(function (sum, po) {
-                return sum + (parseFloat(po.total_amount) || parseFloat(po.total) || 0);
+                return sum + (parseFloat(po.total_amount) || 0);
             }, 0);
 
             var el;
@@ -104,18 +119,16 @@
                 var statusBadge = self.getStatusBadge(po.status);
                 html += '<tr>' +
                     '<td>' + (start + index + 1) + '</td>' +
-                    '<td><strong>' + self.escapeHtml(po.po_number || po.id) + '</strong></td>' +
-                    '<td>' + self.formatDate(po.po_date || po.created_at) + '</td>' +
-                    '<td>' + self.escapeHtml(po.vendor_name || po.vendor || "-") + '</td>' +
-                    '<td>' + self.escapeHtml(po.description || "-") + '</td>' +
-                    '<td class="text-center">' + (po.items_count || po.items?.length || 0) + '</td>' +
-                    '<td class="text-end">KES ' + self.formatCurrency(po.total_amount || po.total || 0) + '</td>' +
+                    '<td><strong>' + self.escapeHtml(po.order_number || po.id) + '</strong></td>' +
+                    '<td>' + self.formatDate(po.order_date || po.created_at) + '</td>' +
+                    '<td>' + self.escapeHtml(po.supplier_name || "-") + '</td>' +
+                    '<td>' + self.escapeHtml(po.remarks || "-") + '</td>' +
+                    '<td class="text-center">' + (po.item_count || 0) + '</td>' +
+                    '<td class="text-end">KES ' + self.formatCurrency(po.total_amount || 0) + '</td>' +
                     '<td class="text-center">' + statusBadge + '</td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
                             '<button class="btn btn-outline-primary" onclick="PurchaseOrdersController.viewPO(' + po.id + ')" title="View"><i class="fas fa-eye"></i></button>' +
-                            '<button class="btn btn-outline-warning" onclick="PurchaseOrdersController.editPO(' + po.id + ')" title="Edit"><i class="fas fa-edit"></i></button>' +
-                            '<button class="btn btn-outline-danger" onclick="PurchaseOrdersController.deletePO(' + po.id + ')" title="Delete"><i class="fas fa-trash"></i></button>' +
                         '</div>' +
                     '</td>' +
                     '</tr>';
@@ -131,26 +144,26 @@
          */
         filterData: function () {
             var search = (document.getElementById("poSearch")?.value || "").toLowerCase();
-            var statusFilter = document.getElementById("poStatusFilter")?.value || "";
+            var statusFilter = (document.getElementById("poStatusFilter")?.value || "").toLowerCase();
             var vendorFilter = document.getElementById("poVendorFilter")?.value || "";
             var dateFrom = document.getElementById("poDateFrom")?.value || "";
             var dateTo = document.getElementById("poDateTo")?.value || "";
 
             this.filtered = this.data.filter(function (po) {
-                if (statusFilter && (po.status || "") !== statusFilter) return false;
-                if (vendorFilter && (po.vendor_name || po.vendor || "") !== vendorFilter) return false;
+                if (statusFilter && (po.status || "").toLowerCase() !== statusFilter) return false;
+                if (vendorFilter && (po.supplier_name || "") !== vendorFilter) return false;
 
                 if (dateFrom) {
-                    var poDate = po.po_date || po.created_at || "";
+                    var poDate = po.order_date || po.created_at || "";
                     if (poDate && new Date(poDate) < new Date(dateFrom)) return false;
                 }
                 if (dateTo) {
-                    var poDate2 = po.po_date || po.created_at || "";
+                    var poDate2 = po.order_date || po.created_at || "";
                     if (poDate2 && new Date(poDate2) > new Date(dateTo)) return false;
                 }
 
                 if (search) {
-                    var hay = ((po.po_number || "") + " " + (po.vendor_name || po.vendor || "") + " " + (po.description || "")).toLowerCase();
+                    var hay = ((po.order_number || "") + " " + (po.supplier_name || "") + " " + (po.remarks || "")).toLowerCase();
                     if (hay.indexOf(search) === -1) return false;
                 }
                 return true;
@@ -175,7 +188,7 @@
         },
 
         /**
-         * Populate vendor filter dropdown
+         * Populate vendor filter dropdown (from PO rows) and the form select (from vendors)
          */
         populateVendorFilters: function () {
             var vendorFilter = document.getElementById("poVendorFilter");
@@ -184,7 +197,7 @@
             var seen = {};
 
             this.data.forEach(function (po) {
-                var name = po.vendor_name || po.vendor || "";
+                var name = po.supplier_name || "";
                 if (name && !seen[name]) {
                     seen[name] = true;
                     vendors.push(name);
@@ -195,16 +208,17 @@
             if (vendorFilter) {
                 var current = vendorFilter.value;
                 vendorFilter.innerHTML = '<option value="">All Vendors</option>';
+                var self = this;
                 vendors.forEach(function (v) {
-                    vendorFilter.innerHTML += '<option value="' + v + '">' + v + '</option>';
+                    vendorFilter.innerHTML += '<option value="' + self.escapeHtml(v) + '">' + self.escapeHtml(v) + '</option>';
                 });
                 vendorFilter.value = current || "";
             }
 
             if (vendorSelect) {
                 vendorSelect.innerHTML = '<option value="">Select Vendor</option>';
-                vendors.forEach(function (v) {
-                    vendorSelect.innerHTML += '<option value="' + v + '">' + v + '</option>';
+                this.vendors.forEach(function (v) {
+                    vendorSelect.innerHTML += '<option value="' + v.id + '">' + self.escapeHtml(v.supplier_name || v.name || "") + '</option>';
                 });
             }
         },
@@ -216,7 +230,6 @@
             document.getElementById("purchaseOrderModalLabel").innerHTML =
                 '<i class="fas fa-file-invoice me-2"></i> New Purchase Order';
             document.getElementById("purchaseOrderForm").reset();
-            document.getElementById("po_id").value = "";
             document.getElementById("po_date").value = new Date().toISOString().split("T")[0];
             document.getElementById("po_grand_total").value = "";
 
@@ -241,10 +254,10 @@
             row.setAttribute("data-index", idx);
             row.innerHTML =
                 '<div class="col-md-4">' +
-                    '<input type="text" class="form-control form-control-sm" placeholder="Item name" name="item_name[]" required>' +
+                    '<input type="text" class="form-control form-control-sm" placeholder="Item name" name="item_name[]">' +
                 '</div>' +
                 '<div class="col-md-2">' +
-                    '<input type="number" class="form-control form-control-sm" placeholder="Qty" name="item_qty[]" min="1" value="1" required onchange="PurchaseOrdersController.recalcTotal()">' +
+                    '<input type="number" class="form-control form-control-sm" placeholder="Qty" name="item_qty[]" min="1" value="1" onchange="PurchaseOrdersController.recalcTotal()">' +
                 '</div>' +
                 '<div class="col-md-3">' +
                     '<input type="number" class="form-control form-control-sm" placeholder="Unit Price" name="item_price[]" step="0.01" min="0" required onchange="PurchaseOrdersController.recalcTotal()">' +
@@ -300,33 +313,42 @@
                 return;
             }
 
-            var items = [];
+            var supplierId = document.getElementById("po_vendor").value;
+            if (!supplierId) {
+                this.showNotification("Please select a vendor", "warning");
+                return;
+            }
+
+            var grandTotal = 0;
             document.querySelectorAll(".po-item-row").forEach(function (row) {
-                items.push({
-                    name: row.querySelector('[name="item_name[]"]').value,
-                    quantity: parseFloat(row.querySelector('[name="item_qty[]"]').value) || 0,
-                    unit_price: parseFloat(row.querySelector('[name="item_price[]"]').value) || 0,
-                    total: parseFloat(row.querySelector('[name="item_total[]"]').value) || 0
-                });
+                var qty = parseFloat(row.querySelector('[name="item_qty[]"]').value) || 0;
+                var price = parseFloat(row.querySelector('[name="item_price[]"]').value) || 0;
+                grandTotal += qty * price;
             });
 
+            if (grandTotal <= 0) {
+                this.showNotification("Enter at least one item with a unit price", "warning");
+                return;
+            }
+
+            var description = document.getElementById("po_description").value;
+            var notes = document.getElementById("po_notes").value;
+            var remarks = description;
+            if (notes) {
+                remarks = description ? (description + " — " + notes) : notes;
+            }
+
             var payload = {
-                id: document.getElementById("po_id").value || null,
-                vendor: document.getElementById("po_vendor").value,
-                po_date: document.getElementById("po_date").value,
-                description: document.getElementById("po_description").value,
-                items: items,
-                notes: document.getElementById("po_notes").value
+                supplier_id: supplierId,
+                total_amount: grandTotal,
+                payment_terms: "Net 30",
+                remarks: remarks
             };
 
             try {
-                var endpoint = "/finance/purchase-orders";
-                var method = payload.id ? "PUT" : "POST";
-                if (payload.id) endpoint += "/" + payload.id;
+                await API.callAPI("/vendors/purchase-orders", "POST", payload);
 
-                await API.callAPI(endpoint, method, payload);
-
-                this.showNotification("Purchase order saved successfully", "success");
+                this.showNotification("Purchase order created successfully", "success");
                 bootstrap.Modal.getInstance(document.getElementById("purchaseOrderModal")).hide();
                 await this.loadData();
             } catch (error) {
@@ -342,69 +364,14 @@
             var po = this.data.find(function (p) { return p.id === id; });
             if (!po) return;
 
-            var msg = "PO: " + (po.po_number || po.id) + "\n" +
-                "Vendor: " + (po.vendor_name || po.vendor || "-") + "\n" +
-                "Date: " + this.formatDate(po.po_date || po.created_at) + "\n" +
-                "Description: " + (po.description || "-") + "\n" +
-                "Total: KES " + this.formatCurrency(po.total_amount || po.total || 0) + "\n" +
+            var msg = "PO: " + (po.order_number || po.id) + "\n" +
+                "Vendor: " + (po.supplier_name || "-") + "\n" +
+                "Date: " + this.formatDate(po.order_date || po.created_at) + "\n" +
+                "Description: " + (po.remarks || "-") + "\n" +
+                "Items: " + (po.item_count || 0) + "\n" +
+                "Total: KES " + this.formatCurrency(po.total_amount || 0) + "\n" +
                 "Status: " + (po.status || "Draft");
-            alert(msg);
-        },
-
-        /**
-         * Edit purchase order
-         */
-        editPO: async function (id) {
-            var po = this.data.find(function (p) { return p.id === id; });
-            if (!po) return;
-
-            document.getElementById("purchaseOrderModalLabel").innerHTML =
-                '<i class="fas fa-file-invoice me-2"></i> Edit Purchase Order';
-            document.getElementById("po_id").value = po.id;
-            document.getElementById("po_vendor").value = po.vendor_name || po.vendor || "";
-            document.getElementById("po_date").value = (po.po_date || po.created_at || "").split("T")[0];
-            document.getElementById("po_description").value = po.description || "";
-            document.getElementById("po_notes").value = po.notes || "";
-
-            // Rebuild items
-            var container = document.getElementById("poItemsContainer");
-            container.innerHTML = "";
-            this.itemRowIndex = 0;
-            var poItems = po.items || [];
-            if (poItems.length === 0) {
-                this.addItemRow();
-            } else {
-                var self = this;
-                poItems.forEach(function (item) {
-                    self.addItemRow();
-                    var rows = container.querySelectorAll(".po-item-row");
-                    var lastRow = rows[rows.length - 1];
-                    lastRow.querySelector('[name="item_name[]"]').value = item.name || item.item_name || "";
-                    lastRow.querySelector('[name="item_qty[]"]').value = item.quantity || item.qty || 1;
-                    lastRow.querySelector('[name="item_price[]"]').value = item.unit_price || item.price || 0;
-                });
-                this.recalcTotal();
-            }
-
-            var modal = new bootstrap.Modal(document.getElementById("purchaseOrderModal"));
-            modal.show();
-        },
-
-        /**
-         * Delete purchase order
-         */
-        deletePO: async function (id) {
-            if (!confirm("Are you sure you want to delete this purchase order?")) return;
-
-            try {
-                await API.callAPI("/finance/purchase-orders/" + id, "DELETE");
-
-                this.showNotification("Purchase order deleted", "success");
-                await this.loadData();
-            } catch (error) {
-                console.error("Error deleting PO:", error);
-                this.showNotification("Failed to delete purchase order", "error");
-            }
+            await window.infoDialog('Notice', msg);
         },
 
         /**
@@ -416,12 +383,12 @@
             var rows = this.filtered.map(function (po, i) {
                 return [
                     i + 1,
-                    po.po_number || po.id,
-                    self.formatDate(po.po_date || po.created_at),
-                    po.vendor_name || po.vendor || "",
-                    (po.description || "").replace(/,/g, " "),
-                    po.items_count || (po.items ? po.items.length : 0),
-                    po.total_amount || po.total || 0,
+                    po.order_number || po.id,
+                    self.formatDate(po.order_date || po.created_at),
+                    po.supplier_name || "",
+                    (po.remarks || "").replace(/,/g, " "),
+                    po.item_count || 0,
+                    po.total_amount || 0,
                     po.status || "Draft"
                 ];
             });
@@ -489,12 +456,13 @@
         // ====================================================================
 
         getStatusBadge: function (status) {
-            var s = (status || "Draft").toLowerCase();
+            var s = (status || "draft").toLowerCase();
             var map = {
                 draft: '<span class="badge bg-secondary">Draft</span>',
                 pending: '<span class="badge bg-warning text-dark">Pending</span>',
                 approved: '<span class="badge bg-success">Approved</span>',
-                received: '<span class="badge bg-primary">Received</span>',
+                ordered: '<span class="badge bg-primary">Ordered</span>',
+                received: '<span class="badge bg-info">Received</span>',
                 cancelled: '<span class="badge bg-danger">Cancelled</span>'
             };
             return map[s] || '<span class="badge bg-secondary">' + status + '</span>';
@@ -524,21 +492,12 @@
                 .replace(/'/g, "&#39;");
         },
 
-        showNotification: function (message, type) {
+        showNotification: async function (message, type) {
             if (typeof showNotification === "function") {
                 showNotification(message, type || "info");
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
-        },
-
-        getHeaders: function () {
-            var headers = { "Content-Type": "application/json" };
-            if (typeof AuthContext !== "undefined") {
-                var token = AuthContext.getToken ? AuthContext.getToken() : null;
-                if (token) headers["Authorization"] = "Bearer " + token;
-            }
-            return headers;
         }
     };
 

@@ -141,11 +141,11 @@ const competencyChecklistController = (() => {
   }
 
   async function init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     // Initialize Academic Context if available
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in competency_checklist:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           load();
         }

@@ -232,11 +232,11 @@ class ValidationHelper
      */
     public static function isEmailUnique(string $email, \PDO $db, $excludeUserId = null): bool
     {
-        $sql = 'SELECT COUNT(*) FROM users WHERE email = ?';
+        $sql = 'SELECT COUNT(*) FROM persons WHERE email = ?';
         $params = [$email];
         
         if ($excludeUserId !== null) {
-            $sql .= ' AND id != ?';
+            $sql .= ' AND id != (SELECT person_id FROM users WHERE id = ?)';
             $params[] = $excludeUserId;
         }
         

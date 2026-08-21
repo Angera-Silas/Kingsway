@@ -4,8 +4,6 @@
  * Integrates with AcademicContext for academic year awareness
  */
 
-console.log("placement_tests.js loaded successfully");
-
 const placementTestsController = {
     tests: [],
     filteredTests: [],
@@ -14,15 +12,17 @@ const placementTestsController = {
     dom: {},
     currentAcademicYear: null,
     currentTerm: null,
+    testsLoading: false,
+    contextReloadEnabled: false,
 
     init: async function() {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("placementTestsController: Initializing...");
-
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("placementTestsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -36,10 +36,9 @@ const placementTestsController = {
             if (window.AcademicContext) {
                 // Subscribe to context changes
                 window.AcademicContext.subscribe((context, event, data) => {
-                    console.log('AcademicContext changed in placement_tests:', event, data);
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload tests when academic year or term changes
-                        this.loadTests();
+                        if (this.contextReloadEnabled) this.loadTests();
                     }
                 });
                 
@@ -57,8 +56,8 @@ const placementTestsController = {
             this.setupEventListeners();
             await this.loadLearningAreas();
             await this.loadTests();
+            this.contextReloadEnabled = true;
 
-            console.log("placementTestsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Placement Tests Controller:", error);
             this.showError("Failed to load placement tests");
@@ -78,8 +77,8 @@ const placementTestsController = {
     },
 
     isSuccessfulResponse: function(response) {
-        // Accept responses with success === true OR responses with data
-        return (response && response.success === true) || (response && (response.data || response.queues));
+        // An empty placement-test list is still a successful response.
+        return Array.isArray(response) || Boolean(response && (response.success === true || response.status === 'success' || response.status === true));
     },
 
     unwrapPayload: function(response) {
@@ -194,7 +193,6 @@ const placementTestsController = {
                 .sort((a, b) => a.name.localeCompare(b.name));
 
             this.learningAreas = learningAreas;
-            console.log("Learning areas loaded:", this.learningAreas);
             this.populateSubjectDropdowns();
         } catch (error) {
             console.error("Failed to load learning areas:", error);
@@ -226,6 +224,8 @@ const placementTestsController = {
     },
 
     loadTests: async function() {
+        if (this.testsLoading) return;
+        this.testsLoading = true;
         if (this.dom.testsGrid) {
             this.dom.testsGrid.innerHTML = `
                 <div class="col-12 text-center py-4">
@@ -236,58 +236,39 @@ const placementTestsController = {
         }
 
         try {
-            // Load placement tests from the database
-            // For now, we'll simulate this with admission applications that require placement tests
-            const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Placement tests response:", response);
+            // Load placement tests from the live admission_placement_tests table
+            const response = await this.apiCall('/admission/placement-tests', 'GET');
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load placement tests.");
             }
 
-            const payload = this.unwrapPayload(response);
-            console.log("Payload:", payload);
+            const rawTests = this.extractList(response);
 
-            // Convert placement queue applications to test records
-            const testRecords = [];
-            const queues = payload?.queues || response?.queues || {};
-
-            if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
-                queues.placement_pending.forEach(app => {
-                    // Check if this application requires a placement test
-                    let workflowData = {};
-                    try {
-                        workflowData = app.data_json ? JSON.parse(app.data_json) : {};
-                    } catch (error) {
-                        console.warn("Invalid placement test data_json for application:", app.id, error);
-                        workflowData = {};
-                    }
-
-                    if (workflowData.placement_test_required || app.grade_applying_for === 'Grade2' || app.grade_applying_for === 'Grade3') {
-                        testRecords.push({
-                            id: app.id,
-                            test_code: `PT-${app.application_no}`,
-                            test_date: app.created_at ? app.created_at.split(' ')[0] : null,
-                            subject_area: 'General',
-                            applicant_name: app.applicant_name,
-                            application_no: app.application_no,
-                            grade_applying_for: app.grade_applying_for,
-                            score: workflowData.placement_test_score || null,
-                            max_score: 100,
-                            recommendation: workflowData.placement_recommendation || null,
-                            status: workflowData.placement_test_score ? 'completed' : 'pending'
-                        });
-                    }
-                });
-            }
+            const testRecords = rawTests.map((test) => ({
+                id: test.id,
+                test_code: test.test_code,
+                test_date: test.test_date ? String(test.test_date).split(' ')[0] : null,
+                subject_area: test.subject_area || 'General',
+                applicant_name: test.applicant_name,
+                application_no: test.application_no,
+                grade_applying_for: test.grade_applying_for,
+                application_id: test.application_id,
+                score: test.score !== null ? Number(test.score) : null,
+                max_score: Number(test.max_score || 100),
+                recommendation: test.recommendation || null,
+                remarks: test.remarks || null,
+                status: test.score !== null ? 'completed' : 'pending'
+            }));
 
             this.tests = testRecords;
-            console.log("Placement tests loaded:", this.tests);
             this.applyFilters();
             this.updateSummaryCards();
         } catch (error) {
             console.error('Failed to load placement tests:', error);
             this.showError('Failed to load placement tests');
+        } finally {
+            this.testsLoading = false;
         }
     },
 
@@ -393,7 +374,26 @@ const placementTestsController = {
         return classes[status] || 'bg-secondary';
     },
 
-    showCreateTestModal: function() {
+    showCreateTestModal: async function() {
+        // Populate the applicant dropdown from the pending placement queue
+        const applicantSel = document.getElementById('applicantId');
+        if (applicantSel && !applicantSel.options.length) {
+            applicantSel.innerHTML = '<option value="">Loading applicants...</option>';
+            try {
+                const response = await this.apiCall('/admission/queues', 'GET');
+                const queues = response?.queues || this.unwrapPayload(response)?.queues || {};
+                const applicants = Array.isArray(queues.placement_pending) ? queues.placement_pending : [];
+                applicantSel.innerHTML = applicants.length
+                    ? applicants.map(app => `
+                        <option value="${app.id}">${this.escapeHtml(app.applicant_name)} (${this.escapeHtml(app.application_no)})</option>`
+                    ).join('')
+                    : '<option value="">No applicants awaiting placement tests</option>';
+            } catch (error) {
+                console.error('Failed to load applicants for placement test:', error);
+                applicantSel.innerHTML = '<option value="">Failed to load applicants</option>';
+            }
+        }
+
         const modal = document.getElementById('createTestModal');
         if (modal) {
             const bsModal = new bootstrap.Modal(modal);
@@ -410,16 +410,29 @@ const placementTestsController = {
 
         try {
             const data = {
-                test_name: formData.get('testName'),
-                test_date: formData.get('testDate'),
-                subject_area: formData.get('subjectArea'),
+                application_id: formData.get('applicantId') || document.getElementById('applicantId')?.value,
+                test_code: formData.get('testCode') || document.getElementById('testCode')?.value,
+                test_date: formData.get('testDate') || document.getElementById('testDate')?.value,
+                subject_area: formData.get('subjectArea') || document.getElementById('subjectArea')?.value,
                 max_score: document.getElementById("createMaxScore")?.value || 100,
             };
 
-            // TODO: Implement actual API endpoint
-            // const response = await this.apiCall('/admission/placement-test', 'POST', data);
+            if (!data.application_id) {
+                this.notify("error", "Please select an applicant for the placement test");
+                return;
+            }
+            if (!data.test_date) {
+                this.notify("error", "Test date is required");
+                return;
+            }
 
-            this.notify("warning", "Placement test creation requires additional API endpoint");
+            const response = await this.apiCall('/admission/placement-test', 'POST', data);
+
+            if (!this.isSuccessfulResponse(response)) {
+                throw new Error(response?.message || "Failed to create placement test.");
+            }
+
+            this.notify("success", "Placement test created successfully");
 
             const modal = document.getElementById('createTestModal');
             if (modal) {
@@ -430,6 +443,8 @@ const placementTestsController = {
             if (this.dom.createTestForm) {
                 this.dom.createTestForm.reset();
             }
+
+            await this.loadTests();
         } catch (error) {
             console.error('Failed to create test:', error);
             this.notify("error", "Failed to create placement test");
@@ -484,15 +499,19 @@ const placementTestsController = {
             const data = {
                 test_id: testId,
                 score: score,
+                max_score: maxScore,
                 percentage: percentage,
                 recommendation: formData.get('testRecommendation'),
-                recommended_class: formData.get('recommendedClass'),
+                remarks: formData.get('recommendedClass'),
             };
 
-            // TODO: Implement actual API endpoint
-            // const response = await this.apiCall(`/admission/placement-test/${testId}/record-results`, 'POST', data);
+            const response = await this.apiCall(`/admission/placement-test/${testId}`, 'PUT', data);
 
-            this.notify("warning", "Placement test results recording requires additional API endpoint");
+            if (!this.isSuccessfulResponse(response)) {
+                throw new Error(response?.message || "Failed to record test results.");
+            }
+
+            this.notify("success", "Placement test results recorded successfully");
 
             const modal = document.getElementById('recordResultsModal');
             if (modal) {
@@ -516,7 +535,7 @@ const placementTestsController = {
         }
     },
 
-    viewTestDetails: function(testId) {
+    viewTestDetails: async function(testId) {
         const test = this.tests.find(t => t.id === testId);
         if (!test) {
             this.notify("error", "Test not found");
@@ -524,7 +543,7 @@ const placementTestsController = {
         }
 
         // For now, just show an alert. In production, this would open a details modal
-        alert(`Test Details:\n\nCode: ${test.test_code}\nApplicant: ${test.applicant_name}\nGrade: ${test.grade_applying_for}\nScore: ${test.score}/${test.max_score}\nStatus: ${test.status}\nRecommendation: ${test.recommendation || 'N/A'}`);
+        await window.infoDialog('Notice', `Test Details:\n\nCode: ${test.test_code}\nApplicant: ${test.applicant_name}\nGrade: ${test.grade_applying_for}\nScore: ${test.score}/${test.max_score}\nStatus: ${test.status}\nRecommendation: ${test.recommendation || 'N/A'}`);
     },
 
     showError: function(message) {
@@ -564,16 +583,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing placement tests controller");
         window.placementTestsController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

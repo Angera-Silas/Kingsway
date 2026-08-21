@@ -306,11 +306,7 @@ const ResultsAnalysisController = (() => {
     }
   }
 
-  function showNotification(message, type) {
-    if (window.API?.showNotification)
-      window.API.showNotification(message, type);
-    else alert((type === "error" ? "Error: " : "") + message);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   function printResults() {
     const table = document.getElementById("resultsTableBody");
@@ -413,7 +409,6 @@ const ResultsAnalysisController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in results_analysis:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload results when academic year or term changes
           loadData();

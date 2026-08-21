@@ -15,8 +15,8 @@ const StudentCounselingController = {
   ui: {},
 
   async init() {
-    console.log("StudentCounselingController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -25,11 +25,8 @@ const StudentCounselingController = {
     this.cacheDom();
     this.attachEvents();
 
-    console.log("StudentCounselingController: Loading metadata...");
     await this.loadMeta();
-    console.log("StudentCounselingController: Loading cases...");
     await this.loadCases();
-    console.log("StudentCounselingController: Initialization complete");
   },
 
   cacheDom() {
@@ -224,17 +221,17 @@ const StudentCounselingController = {
 
         return `
           <tr>
-            <td><small>${this.escape(c.case_code || "-")}</small></td>
-            <td><strong>${this.escape(c.student_name || "-")}</strong></td>
-            <td>${this.escape(c.admission_no || "-")}</td>
-            <td>${this.escape(c.class_name || "-")}</td>
-            <td>${this.escape(c.stream_name || "-")}</td>
-            <td>${this.escape(c.case_type || "-")}</td>
-            <td><span class="badge bg-${priorityColors[c.priority] || "secondary"}">${this.escape(c.priority || "-")}</span></td>
-            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escape(c.status || "-")}</span></td>
-            <td>${this.escape(c.counselor_name || "-")}</td>
-            <td>${this.escape(c.last_session || "-")}</td>
-            <td>${this.escape(c.next_follow_up_at || "-")}</td>
+            <td><small>${this.escapeHtml(c.case_code || "-")}</small></td>
+            <td><strong>${this.escapeHtml(c.student_name || "-")}</strong></td>
+            <td>${this.escapeHtml(c.admission_no || "-")}</td>
+            <td>${this.escapeHtml(c.class_name || "-")}</td>
+            <td>${this.escapeHtml(c.stream_name || "-")}</td>
+            <td>${this.escapeHtml(c.case_type || "-")}</td>
+            <td><span class="badge bg-${priorityColors[c.priority] || "secondary"}">${this.escapeHtml(c.priority || "-")}</span></td>
+            <td><span class="badge bg-${statusColors[c.status] || "secondary"}">${this.escapeHtml(c.status || "-")}</span></td>
+            <td>${this.escapeHtml(c.counselor_name || "-")}</td>
+            <td>${this.escapeHtml(c.last_session || "-")}</td>
+            <td>${this.escapeHtml(c.next_follow_up_at || "-")}</td>
             <td>
               <button class="btn btn-sm btn-outline-info" onclick="StudentCounselingController.viewCase(${c.id})">
                 <i class="bi bi-eye"></i> View
@@ -300,24 +297,24 @@ const StudentCounselingController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Student Profile</h5>
-          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
-          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
-          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
-          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escapeHtml(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escapeHtml(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escapeHtml(data.stream_name || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Case Details</h5>
-          <p><strong>Title:</strong> ${this.escape(data.title || "-")}</p>
-          <p><strong>Case Type:</strong> ${this.escape(data.case_type || "-")}</p>
-          <p><strong>Referral Source:</strong> ${this.escape(data.referral_source || "-")}</p>
-          <p><strong>Priority:</strong> ${this.escape(data.priority || "-")}</p>
-          <p><strong>Status:</strong> ${this.escape(data.status || "-")}</p>
-          <p><strong>Assigned Counselor:</strong> ${this.escape(data.counselor_name || "-")}</p>
-          <p><strong>Opened:</strong> ${this.escape(data.opened_at || "-")}</p>
-          <p><strong>Next Follow-up:</strong> ${this.escape(data.next_follow_up_at || "-")}</p>
-          <p><strong>Description:</strong> ${this.escape(data.description || "-")}</p>
+          <p><strong>Title:</strong> ${this.escapeHtml(data.title || "-")}</p>
+          <p><strong>Case Type:</strong> ${this.escapeHtml(data.case_type || "-")}</p>
+          <p><strong>Referral Source:</strong> ${this.escapeHtml(data.referral_source || "-")}</p>
+          <p><strong>Priority:</strong> ${this.escapeHtml(data.priority || "-")}</p>
+          <p><strong>Status:</strong> ${this.escapeHtml(data.status || "-")}</p>
+          <p><strong>Assigned Counselor:</strong> ${this.escapeHtml(data.counselor_name || "-")}</p>
+          <p><strong>Opened:</strong> ${this.escapeHtml(data.opened_at || "-")}</p>
+          <p><strong>Next Follow-up:</strong> ${this.escapeHtml(data.next_follow_up_at || "-")}</p>
+          <p><strong>Description:</strong> ${this.escapeHtml(data.description || "-")}</p>
         </div>
       </div>
       <div class="card">
@@ -335,9 +332,9 @@ const StudentCounselingController = {
             <tbody>
               ${sessions.map(s => `
                 <tr>
-                  <td>${this.escape(s.session_date || "-")}</td>
-                  <td>${this.escape(s.session_type || "-")}</td>
-                  <td>${this.escape(s.summary || "-")}</td>
+                  <td>${this.escapeHtml(s.session_date || "-")}</td>
+                  <td>${this.escapeHtml(s.session_type || "-")}</td>
+                  <td>${this.escapeHtml(s.summary || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -397,7 +394,7 @@ const StudentCounselingController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
@@ -418,7 +415,7 @@ const StudentCounselingController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -440,7 +437,7 @@ const StudentCounselingController = {
     };
   },
 
-  notify(message, type = "info") {
+  async notify(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -451,7 +448,7 @@ const StudentCounselingController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

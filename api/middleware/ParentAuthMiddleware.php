@@ -7,9 +7,17 @@ use App\Database\Database;
 
 class ParentAuthMiddleware
 {
+    private const SESSION_TTL_DAYS = 7;
+
     /**
-     * Validate Bearer token against parent_portal_sessions.
-     * Sets $_SERVER['parent_auth'] = ['parent_id' => N, 'session_id' => N, 'session_token' => '...']
+     * Validate Bearer token against user_sessions (normalised parent sessions).
+     * The legacy parent_portal_sessions table does not exist; sessions live in
+     * `user_sessions` and the account/person in `users`/`persons`, with the
+     * parent subtype resolved through `parents.person_id`.
+     *
+     * Sets $_SERVER['parent_auth'] = [
+     *   'parent_id' => N, 'user_id' => N, 'session_id' => N, 'session_token' => '...'
+     * ]
      * On failure: returns 401 JSON and exits.
      */
     public static function handle(): void
@@ -34,29 +42,33 @@ class ParentAuthMiddleware
         try {
             $db      = Database::getInstance();
             $session = $db->query(
-                "SELECT id, parent_id, expires_at FROM parent_portal_sessions
-                 WHERE session_token = :token AND status = 'active' AND expires_at > NOW()
+                "SELECT us.id AS session_id, us.user_id, us.session_token,
+                        pr.id AS parent_id, u.status AS user_status
+                 FROM user_sessions us
+                 JOIN users u ON u.id = us.user_id
+                 JOIN persons p ON p.id = u.person_id
+                 JOIN parents pr ON pr.person_id = u.person_id
+                 WHERE us.session_token = :token
+                   AND us.session_status = 'active'
+                   AND us.logout_time IS NULL
+                   AND us.login_time > DATE_SUB(NOW(), INTERVAL " . self::SESSION_TTL_DAYS . " DAY)
                  LIMIT 1",
                 [':token' => $token]
             )->fetch(\PDO::FETCH_ASSOC);
 
-            if (!$session) {
+            if (!$session || ($session['user_status'] ?? '') !== 'active') {
                 self::unauthorized('Invalid or expired session token');
                 return;
             }
 
-            // Update last_login on parents table
-            $db->query(
-                "UPDATE parents SET portal_last_login = NOW() WHERE id = :id",
-                [':id' => $session['parent_id']]
-            );
-
             $_SERVER['parent_auth'] = [
                 'parent_id'     => (int)$session['parent_id'],
-                'session_id'    => (int)$session['id'],
+                'user_id'       => (int)$session['user_id'],
+                'session_id'    => (int)$session['session_id'],
                 'session_token' => $token,
             ];
         } catch (\Exception $e) {
+            error_log('[ParentAuthMiddleware] ' . $e->getMessage());
             self::unauthorized('Authentication service unavailable');
         }
     }

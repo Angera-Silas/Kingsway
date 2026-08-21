@@ -3,70 +3,10 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Careers';
 $activePage = 'careers';
+$pageScript = 'careers';
+// Jobs, benefits, staff headcount and the careers stat cards are rendered by
+// js/pages/public/careers.js via /api/website/{jobs,benefits,departments,stats,settings}.
 require_once __DIR__ . '/public/layout/public_data.php';
-$jobs     = kw_open_jobs();
-$benefits = kw_careers_benefits();
-$staffStats = [
-    [kw_staff_count().'+',                          'Qualified Staff'],
-    [kw_school_stat('careers_stat_experience','15+'), 'Years Avg Experience'],
-    [kw_school_stat('careers_stat_retention','98%'),  'Staff Retention Rate'],
-    [kw_school_stat('careers_stat_cpd','100%'),       'CPD Participation'],
-];
-
-final class PublicCareerUploadAdapter extends \App\API\Includes\BaseAPI
-{
-    public function storeCv(array $file, string $candidateName): ?string
-    {
-        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return null;
-        }
-        $stored = $this->uploadManaged($file, 'career_cv', [
-            'prefix' => 'candidate_cv',
-            'preferred_name' => $candidateName,
-        ]);
-        return (string) $stored['storage_filename'];
-    }
-}
-
-/* ── Handle application POST ── */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['apply_first_name'])) {
-    header('Content-Type: application/json');
-    $first = trim($_POST['apply_first_name'] ?? '');
-    $last  = trim($_POST['apply_last_name']  ?? '');
-    $email = filter_var($_POST['apply_email'] ?? '', FILTER_VALIDATE_EMAIL);
-    $phone = trim($_POST['apply_phone'] ?? '');
-    $tsc   = trim($_POST['apply_tsc'] ?? '');
-    $jobId = (int)($_POST['apply_job_id'] ?? 0);
-
-    // Handle CV upload through the inherited canonical service.
-    $cvFilename = null;
-    if (!empty($_FILES['apply_cv'])) {
-        try {
-            $cvFilename = (new PublicCareerUploadAdapter('careers'))->storeCv(
-                $_FILES['apply_cv'],
-                trim($first . '-' . $last . '-CV')
-            );
-        } catch (\Throwable $exception) {
-            http_response_code(422);
-            echo json_encode([
-                'success' => false,
-                'message' => $exception->getMessage(),
-            ]);
-            exit;
-        }
-    }
-
-    $job = kw_job_by_id($jobId);
-    kw_save_job_application([
-        'job_id'=>$jobId, 'job_title'=>$job['title'] ?? 'General Application',
-        'first_name'=>$first, 'last_name'=>$last, 'email'=>$email,
-        'phone'=>$phone, 'tsc_number'=>$tsc, 'cv_filename'=>$cvFilename,
-        'cover_letter'=>trim($_POST['apply_cover'] ?? ''),
-        'ip'=>$_SERVER['REMOTE_ADDR'] ?? null
-    ]);
-    echo json_encode(['success'=>true,'message'=>'Application submitted! We will be in touch.']);
-    exit;
-}
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -89,30 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['apply_first_name']))
         <div class="section-label"><span>Why Kingsway</span></div>
         <h2 class="section-title">Why Work <span>With Us?</span></h2>
         <p class="section-subtitle mb-4">We believe great teachers make great schools. We invest in our staff and provide an environment where you can thrive professionally and personally.</p>
-        <div class="d-flex flex-column gap-3">
-          <?php foreach ($benefits as $b): ?>
-          <div class="d-flex align-items-start gap-3">
-            <div class="bg-success bg-opacity-10 rounded-2 p-2 flex-shrink-0">
-              <i class="bi <?= htmlspecialchars($b['icon']) ?> text-success fs-5"></i>
-            </div>
-            <div>
-              <div class="fw-semibold small"><?= htmlspecialchars($b['title']) ?></div>
-              <div class="text-muted" style="font-size:.82rem"><?= htmlspecialchars($b['description']) ?></div>
-            </div>
-          </div>
-          <?php endforeach; ?>
+        <div class="d-flex flex-column gap-3" id="careers-benefits">
         </div>
       </div>
       <div class="col-lg-7 reveal reveal-right">
-        <div class="row g-3 text-center">
-          <?php foreach ($staffStats as $s): ?>
-          <div class="col-6">
-            <div class="p-4 bg-white border rounded-4 h-100">
-              <div class="stat-number text-success mb-1"><?= $s[0] ?></div>
-              <div class="text-muted small"><?= $s[1] ?></div>
-            </div>
-          </div>
-          <?php endforeach; ?>
+        <div class="row g-3 text-center" id="careers-stats">
         </div>
       </div>
     </div>
@@ -127,68 +48,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['apply_first_name']))
         <div class="section-label"><span>Open Positions</span></div>
         <h2 class="section-title mb-0">Current <span>Vacancies</span></h2>
       </div>
-      <span class="badge bg-danger fs-6 px-3 py-2"><?= count($jobs) ?> Open</span>
+      <span class="badge bg-danger fs-6 px-3 py-2" id="careers-count">0 Open</span>
     </div>
 
-    <div class="row g-4">
-      <?php foreach ($jobs as $i => $job):
-        $dl = new DateTime($job['deadline']);
-        $req = json_decode($job['requirements'] ?? '[]', true) ?: [];
-      ?>
-      <div class="col-lg-6">
-        <div class="card-modern p-4 h-100 reveal delay-<?= ($i%3)+1 ?>">
-          <div class="d-flex align-items-start gap-3 mb-3">
-            <div class="job-icon" style="background:<?= htmlspecialchars($job['color'] ?? '#198754') ?>">
-              <i class="bi bi-briefcase-fill"></i>
-            </div>
-            <div class="flex-grow-1">
-              <div class="d-flex flex-wrap gap-2 mb-1">
-                <span class="job-type" style="background:<?= htmlspecialchars($job['color'] ?? '#198754') ?>22;color:<?= htmlspecialchars($job['color'] ?? '#198754') ?>"><?= htmlspecialchars($job['job_type']) ?></span>
-                <span class="job-type" style="background:#f1f5f9;color:#64748b"><?= htmlspecialchars($job['department']) ?></span>
-              </div>
-              <h5 class="job-title"><?= htmlspecialchars($job['title']) ?></h5>
-              <div class="job-meta">
-                <span><i class="bi bi-geo-alt text-success"></i><?= htmlspecialchars($job['location']) ?></span>
-                <span><i class="bi bi-calendar-x text-danger"></i>Closes <?= $dl->format('d M Y') ?></span>
-              </div>
-            </div>
-          </div>
-          <p class="text-muted small mb-3"><?= htmlspecialchars(mb_strimwidth(strip_tags($job['description']),0,150,'…')) ?></p>
-          <?php if (!empty($req)): ?>
-          <div class="mb-3">
-            <div class="small fw-semibold mb-2 text-dark">Key Requirements:</div>
-            <ul class="list-unstyled mb-0">
-              <?php foreach (array_slice($req, 0, 3) as $r): ?>
-              <li class="d-flex align-items-start gap-2 small text-muted mb-1">
-                <i class="bi bi-check-circle-fill text-success mt-1 flex-shrink-0"></i><?= htmlspecialchars($r) ?>
-              </li>
-              <?php endforeach; ?>
-              <?php if (count($req) > 3): ?>
-              <li class="small text-muted ms-4">+<?= count($req)-3 ?> more</li>
-              <?php endif; ?>
-            </ul>
-          </div>
-          <?php endif; ?>
-          <div class="mt-auto pt-3 border-top d-flex gap-2">
-            <a href="<?= $appBase ?>/job-detail.php?id=<?= (int)$job['id'] ?>" class="btn-kw-outline flex-grow-1 justify-content-center py-2" style="font-size:.85rem">
-              <i class="bi bi-info-circle"></i>View Details
-            </a>
-            <button class="btn-kw-primary justify-content-center py-2" style="font-size:.85rem"
-              onclick="openApplyModal(<?= (int)$job['id'] ?>, '<?= htmlspecialchars(addslashes($job['title'])) ?>')">
-              <i class="bi bi-send-fill"></i>Apply
-            </button>
-          </div>
-        </div>
-      </div>
-      <?php endforeach; ?>
+    <div class="row g-4" id="careers-jobs">
     </div>
-
-    <?php if (empty($jobs)): ?>
-    <div class="text-center py-5">
-      <i class="bi bi-briefcase fs-1 text-muted d-block mb-3"></i>
-      <p class="text-muted">No open vacancies at the moment. Check back soon!</p>
-    </div>
-    <?php endif; ?>
 
     <!-- General Application -->
     <div class="cta-banner rounded-4 mt-5 p-5 reveal">
@@ -274,7 +138,7 @@ document.getElementById('applyForm')?.addEventListener('submit', async function(
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const fd = new FormData(this);
   try {
-    const res = await fetch('<?= $appBase ?>/careers.php', { method: 'POST', body: fd });
+    const res = await fetch('<?= $appBase ?>/api/public/job-applications', { method: 'POST', body: fd });
     const json = await res.json();
     if (json.success) {
       msg.style.display = 'block';

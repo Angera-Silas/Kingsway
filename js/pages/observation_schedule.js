@@ -11,6 +11,7 @@ const observationScheduleController = {
   _currentTerm: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -20,7 +21,6 @@ const observationScheduleController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in observation_schedule:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           this._load();
         }
@@ -129,7 +129,7 @@ const observationScheduleController = {
   },
 
   markCompleted: async function (id) {
-    if (!confirm('Mark this observation as completed?')) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this observation as completed?'))) return;
     try {
       await callAPI('/staff/observation-schedule/' + id, 'PUT', { status: 'completed' });
       showNotification('Marked as completed.', 'success');

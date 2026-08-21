@@ -73,15 +73,15 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Asset Code</th>
-              <th>Asset Name</th>
-              <th>Category</th>
-              <th>Purchase Date</th>
-              <th>Original Cost</th>
-              <th>Dep. Rate</th>
-              <th>Annual Dep.</th>
-              <th>Book Value</th>
-              <th>% Remaining</th>
+              <th scope="col">Asset Code</th>
+              <th scope="col">Asset Name</th>
+              <th scope="col">Category</th>
+              <th scope="col">Purchase Date</th>
+              <th scope="col">Original Cost</th>
+              <th scope="col">Dep. Rate</th>
+              <th scope="col">Annual Dep.</th>
+              <th scope="col">Book Value</th>
+              <th scope="col">% Remaining</th>
             </tr>
           </thead>
           <tbody id="dpTableBody">
@@ -99,5 +99,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/depreciation.js"></script>
+<?php asset_script($appBase, 'js/pages/depreciation.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => depreciationController.init());</script>

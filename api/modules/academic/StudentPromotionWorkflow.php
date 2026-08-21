@@ -37,6 +37,27 @@ class StudentPromotionWorkflow extends WorkflowHandler {
     }
 
     /**
+     * Resolve an academic_years.id from a numeric year value (year_code).
+     */
+    private function resolveYearIdFromCode(int $yearValue): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
+        $stmt->execute([(string)$yearValue]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve a class name for a school level (used by the promotion stored
+     * procedures which match on classes.name).
+     */
+    private function resolveGradeClassName(int $levelId): string
+    {
+        $stmt = $this->db->prepare("SELECT name FROM classes WHERE level_id = ? ORDER BY id LIMIT 1");
+        $stmt->execute([$levelId]);
+        return (string) ($stmt->fetchColumn() ?: '');
+    }
+
+    /**
      * Stage 1: Define promotion criteria and create batch
      * 
      * @param array $criteria {
@@ -112,17 +133,16 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             ];
 
             // Start workflow
-            $instance = $this->startWorkflow(
+            $instanceId = (int) $this->startWorkflow(
                 'promotion_batch',
                 $batchId,
-                $workflowData,
-                "Promotion batch created: {$criteria['batch_name']}"
+                $workflowData
             );
 
             $this->db->commit();
 
             return formatResponse(true, [
-                'instance_id' => $instance['id'],
+                'instance_id' => $instanceId,
                 'batch_id' => $batchId,
                 'workflow_data' => $workflowData,
             ], 'Promotion criteria defined successfully');
@@ -137,7 +157,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
      * Stage 2: Identify promotion candidates
      * 
      * Queries database for students eligible for promotion based on grade/class.
-     * Uses sp_promote_by_grade_bulk stored procedure to populate student_promotions table.
+     * Uses sp_promote_by_grade_bulk stored procedure to populate student_transitions table.
      * 
      * @param int $instance_id Workflow instance ID
      * @param array $filters Optional filters: class_id, stream_id, student_ids
@@ -159,29 +179,47 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
             $this->db->beginTransaction();
 
-            // Call stored procedure to populate student_promotions
+            // Resolve grade names for the stored procedure (matches classes.name)
+            $fromGradeName = $this->resolveGradeClassName($fromGrade);
+            $toGradeName = $this->resolveGradeClassName($toGrade);
+            if ($fromGradeName === '' || $toGradeName === '') {
+                throw new Exception('Unable to resolve grade name for promotion procedure');
+            }
+
+            // Call stored procedure to populate student_transitions
             $stmt = $this->db->prepare("CALL sp_promote_by_grade_bulk(:batch_id, :from_year, :to_year, :from_grade, :to_grade)");
             $stmt->execute([
                 'batch_id' => $batchId,
                 'from_year' => $fromYear,
                 'to_year' => $toYear,
-                'from_grade' => $fromGrade,
-                'to_grade' => $toGrade,
+                'from_grade' => $fromGradeName,
+                'to_grade' => $toGradeName,
             ]);
 
-            // Retrieve identified candidates
+            // Retrieve identified candidates (the procedure stamps decided_by with the batch id)
             $candidatesStmt = $this->db->prepare(
-                "SELECT sp.*,
-                    s.first_name, s.last_name, s.admission_no,
-                    c_from.name  AS current_class,  cs_from.stream_name AS current_stream,
-                    c_to.name    AS promoted_class,  cs_to.stream_name   AS promoted_stream
-                FROM student_promotions sp
-                INNER JOIN students      s       ON sp.student_id          = s.id
-                INNER JOIN classes       c_from  ON sp.current_class_id    = c_from.id
-                INNER JOIN class_streams cs_from ON sp.current_stream_id   = cs_from.id
-                LEFT  JOIN classes       c_to    ON sp.promoted_to_class_id  = c_to.id
-                LEFT  JOIN class_streams cs_to   ON sp.promoted_to_stream_id = cs_to.id
-                WHERE sp.batch_id = :batch_id"
+                "SELECT st.*,
+                    p.first_name, p.last_name, s.admission_no,
+                    c_from.id  AS current_class_id,  st_from.id AS current_stream_id,
+                    c_to.id    AS promoted_to_class_id,  st_to.id AS promoted_to_stream_id,
+                    c_from.name  AS current_class,  st_from.name AS current_stream,
+                    c_to.name    AS promoted_class,  st_to.name   AS promoted_stream
+                FROM student_transitions st
+                INNER JOIN students      s       ON st.student_id = s.id
+                INNER JOIN persons       p       ON p.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae_from
+                    ON st.from_student_academic_enrollment_id = sae_from.id
+                LEFT JOIN academic_year_class_streams aycs_from ON aycs_from.id = sae_from.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc_from ON ayc_from.id = aycs_from.academic_year_class_id
+                LEFT JOIN classes c_from ON c_from.id = ayc_from.class_id
+                LEFT JOIN streams st_from ON st_from.id = aycs_from.stream_id
+                LEFT JOIN student_academic_enrollments sae_to
+                    ON st.to_student_academic_enrollment_id = sae_to.id
+                LEFT JOIN academic_year_class_streams aycs_to ON aycs_to.id = sae_to.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc_to ON ayc_to.id = aycs_to.academic_year_class_id
+                LEFT JOIN classes c_to ON c_to.id = ayc_to.class_id
+                LEFT JOIN streams st_to ON st_to.id = aycs_to.stream_id
+                WHERE st.decided_by = :batch_id"
             );
             $candidatesStmt->execute(['batch_id' => $batchId]);
             $candidates = $candidatesStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -192,8 +230,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Identified {count($candidates)} candidates for promotion"
+                'identify_candidates',
+                "Identified " . count($candidates) . " candidates for promotion",
+                $data
             );
 
             $this->db->commit();
@@ -201,7 +240,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             return formatResponse(true, [
                 'total_candidates' => count($candidates),
                 'candidates' => $candidates,
-            ], "Successfully identified {count($candidates)} promotion candidates");
+            ], "Successfully identified " . count($candidates) . " promotion candidates");
 
         } catch (Exception $e) {
             $this->db->rollBack();
@@ -251,7 +290,7 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 
                 // Check if in lower primary (PP1, PP2, Grade 1, Grade 2)
                 $gradeStmt = $this->db->prepare(
-                    "SELECT sl.grade_name FROM classes c 
+                    "SELECT sl.name AS grade_name FROM classes c 
                     INNER JOIN school_levels sl ON c.level_id = sl.id 
                     WHERE c.id = :class_id"
                 );
@@ -279,13 +318,14 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                     FROM term_subject_scores 
                     WHERE student_id = :student_id 
                     AND term_id IN (
-                        SELECT id FROM academic_terms 
-                        WHERE academic_year = :year
+                        SELECT ayt.term_id FROM academic_year_terms ayt
+                        INNER JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                        WHERE ay.year_code = :year
                     )"
                 );
                 $scoreStmt->execute([
                     'student_id' => $studentId,
-                    'year' => $fromYear,
+                    'year' => (string)$fromYear,
                 ]);
                 $scoreResult = $scoreStmt->fetch(PDO::FETCH_ASSOC);
                 $overallScore = $scoreResult['avg_score'] ? (float)$scoreResult['avg_score'] : 0;
@@ -293,15 +333,15 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 // Get attendance percentage
                 $attendanceStmt = $this->db->prepare(
                     "SELECT
-                        COUNT(*) as total_days,
-                        SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as attended_days
-                    FROM student_attendance
+                        COALESCE(SUM(days_marked), 0) AS total_days,
+                        COALESCE(SUM(present_marks + late_marks), 0) AS attended_days
+                    FROM vw_student_attendance_analytics
                     WHERE student_id = :student_id
-                    AND YEAR(date) = :year"
+                    AND academic_year = :year"
                 );
                 $attendanceStmt->execute([
                     'student_id' => $studentId,
-                    'year' => $fromYear,
+                    'year' => (string)$fromYear,
                 ]);
                 $attendanceResult = $attendanceStmt->fetch(PDO::FETCH_ASSOC);
                 $totalDays = (int)($attendanceResult['total_days'] ?? 0);
@@ -331,18 +371,14 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                     'attendance_pct' => $attendancePct,
                 ];
 
-                // Update student_promotions record
+                // Update student_transitions record
                 $updateStmt = $this->db->prepare(
-                    "UPDATE student_promotions 
-                    SET promotion_status = :status,
-                        overall_score = :score,
-                        promotion_reason = :reason
-                    WHERE batch_id = :batch_id 
+                    "UPDATE student_transitions 
+                    SET reason = :reason
+                    WHERE decided_by = :batch_id 
                     AND student_id = :student_id"
                 );
                 $updateStmt->execute([
-                    'status' => $status,
-                    'score' => $overallScore,
                     'reason' => $reason,
                     'batch_id' => $batchId,
                     'student_id' => $studentId,
@@ -376,8 +412,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Validated eligibility: {$approvedCount} approved, {$retainedCount} retained"
+                'validate_eligibility',
+                "Validated eligibility: {$approvedCount} approved, {$retainedCount} retained",
+                $data
             );
 
             $this->db->commit();
@@ -396,9 +433,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
     /**
      * Stage 4: Execute promotion
      * 
-     * Applies approved promotions by updating student records:
-     * - Updates students.stream_id to new class/stream
-     * - Sets approval_date and approved_by in student_promotions
+     * Applies approved promotions by updating enrollment records:
+     * - Creates new academic year enrollments for promoted students
+     * - Sets decided_by/decided_at/executed_at in student_transitions
      * - Handles special cases: graduation, transfers
      * 
      * @param int $instance_id Workflow instance ID
@@ -419,16 +456,37 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             $batchId = (int)($data['batch_id'] ?? 0);
             $applyImmediately = $options['apply_immediately'] ?? true;
             $effectiveDate = $options['effective_date'] ?? null;
+            // Admin stream rebalancing: { student_id: target_stream_id (or aycs id via target_aycs_id) }
+            $streamOverrides = $options['stream_overrides'] ?? [];
 
             $this->db->beginTransaction();
 
-            // Get approved promotions
+            // Approved student ids come from the eligibility validation stage
+            $approvedStudentIds = [];
+            foreach (($data['validated_students'] ?? []) as $studentId => $validation) {
+                if (($validation['status'] ?? '') === 'approved') {
+                    $approvedStudentIds[] = (int)$studentId;
+                }
+            }
+
+            $toYearId = $this->resolveYearIdFromCode((int)($data['to_academic_year'] ?? 0));
+
+            // Load transitions for the batch
             $approvedStmt = $this->db->prepare(
-                "SELECT sp.*, s.admission_number, s.first_name, s.last_name
-                FROM student_promotions sp
-                INNER JOIN students s ON sp.student_id = s.id
-                WHERE sp.batch_id = :batch_id 
-                AND sp.promotion_status = 'approved'"
+                "SELECT st.*,
+                    p.first_name, p.last_name, s.admission_no,
+                    c.id AS from_class_id, c.level_id AS from_level_id,
+                    st_from.id AS from_stream_id,
+                    st_from.name AS from_stream_name
+                FROM student_transitions st
+                INNER JOIN students s ON st.student_id = s.id
+                INNER JOIN persons p ON p.id = s.person_id
+                INNER JOIN student_academic_enrollments sae_from ON st.from_student_academic_enrollment_id = sae_from.id
+                INNER JOIN academic_year_class_streams aycs_from ON aycs_from.id = sae_from.academic_year_class_stream_id
+                INNER JOIN academic_year_classes ayc_from ON ayc_from.id = aycs_from.academic_year_class_id
+                INNER JOIN classes c ON c.id = ayc_from.class_id
+                INNER JOIN streams st_from ON st_from.id = aycs_from.stream_id
+                WHERE st.decided_by = :batch_id"
             );
             $approvedStmt->execute(['batch_id' => $batchId]);
             $approved = $approvedStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -438,29 +496,90 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             if ($applyImmediately) {
                 foreach ($approved as $promotion) {
                     $studentId = (int)$promotion['student_id'];
-                    $newStreamId = (int)$promotion['promoted_to_stream_id'];
+                    if (!in_array($studentId, $approvedStudentIds, true)) {
+                        continue;
+                    }
+                    if ((int)$promotion['to_student_academic_enrollment_id'] > 0) {
+                        continue;
+                    }
 
-                    // Update student's current stream
-                    $this->db->prepare(
-                        "UPDATE students 
-                        SET stream_id = :new_stream_id,
-                            updated_at = NOW()
-                        WHERE id = :student_id"
-                    )->execute([
-                        'new_stream_id' => $newStreamId,
-                        'student_id' => $studentId,
+                    // Determine target class/stream in the new academic year through
+                    // the normalized progression ladder (not sequential school_levels.id).
+                    $targetAycsId = 0;
+                    if ($toYearId > 0) {
+                        $progressionStmt = $this->db->prepare(
+                            "SELECT target_class_id
+                             FROM academic_class_progression
+                             WHERE source_class_id = :class_id AND active = 1
+                             ORDER BY id LIMIT 1"
+                        );
+                        $progressionStmt->execute(['class_id' => (int)$promotion['from_class_id']]);
+                        $nextClassId = (int)($progressionStmt->fetchColumn() ?: 0);
+
+                        if ($nextClassId > 0) {
+                            // Prefer the matching stream in the target class
+                            $aycsStmt = $this->db->prepare(
+                                "SELECT aycs.id FROM academic_year_class_streams aycs
+                                 INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                 WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id
+                                   AND aycs.stream_id = :stream_id
+                                 ORDER BY aycs.id LIMIT 1"
+                            );
+                            $aycsStmt->execute([
+                                'year_id' => $toYearId,
+                                'class_id' => $nextClassId,
+                                'stream_id' => (int)$promotion['from_stream_id'],
+                            ]);
+                            $targetAycsId = (int)($aycsStmt->fetchColumn() ?: 0);
+
+                            if ($targetAycsId <= 0) {
+                                $aycsStmt = $this->db->prepare(
+                                    "SELECT aycs.id FROM academic_year_class_streams aycs
+                                     INNER JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                     WHERE ayc.academic_year_id = :year_id AND ayc.class_id = :class_id
+                                     ORDER BY aycs.id LIMIT 1"
+                                );
+                                $aycsStmt->execute([
+                                    'year_id' => $toYearId,
+                                    'class_id' => $nextClassId,
+                                ]);
+                                $targetAycsId = (int)($aycsStmt->fetchColumn() ?: 0);
+                            }
+                        }
+                    }
+
+                    if ($targetAycsId <= 0) {
+                        // No target available — leave transition unexecuted
+                        continue;
+                    }
+
+                    // Create enrollment for the new academic year
+                    $enrollStmt = $this->db->prepare(
+                        "INSERT INTO student_academic_enrollments (
+                            student_id, academic_year_id, academic_year_class_stream_id,
+                            enrollment_status, enrolled_on
+                        ) VALUES (?, ?, ?, 'pending', COALESCE(?, CURRENT_DATE))"
+                    );
+                    $enrollStmt->execute([
+                        $studentId,
+                        $toYearId,
+                        $targetAycsId,
+                        $effectiveDate ?: null,
                     ]);
+                    $newSaeId = (int)$this->db->lastInsertId();
 
-                    // Mark promotion as executed
+                    // Mark transition as executed. The candidate procedures use
+                    // decided_by as the batch marker, so preserve that linkage for
+                    // subsequent queries and reporting.
                     $this->db->prepare(
-                        "UPDATE student_promotions 
-                        SET approved_by = :user_id,
-                            approval_date = NOW(),
-                            approval_notes = 'Auto-approved via workflow'
-                        WHERE id = :promotion_id"
+                        "UPDATE student_transitions
+                         SET to_student_academic_enrollment_id = :sae_id,
+                             decided_at = NOW(),
+                             executed_at = NOW()
+                         WHERE id = :transition_id"
                     )->execute([
-                        'user_id' => $this->user_id,
-                        'promotion_id' => (int)$promotion['id'],
+                        'sae_id' => $newSaeId,
+                        'transition_id' => (int)$promotion['id'],
                     ]);
 
                     $executedCount++;
@@ -470,9 +589,15 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 $this->db->prepare(
                     "UPDATE promotion_batches 
                     SET status = 'completed',
-                        executed_at = NOW()
+                        total_students_processed = :total,
+                        total_promoted = :executed,
+                        completed_at = NOW()
                     WHERE id = :batch_id"
-                )->execute(['batch_id' => $batchId]);
+                )->execute([
+                    'total' => count($approved),
+                    'executed' => $executedCount,
+                    'batch_id' => $batchId,
+                ]);
             }
 
             // Update workflow data
@@ -484,8 +609,9 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
             $this->advanceStage(
                 $instance_id,
-                json_encode($data),
-                "Executed promotion for {$executedCount} students"
+                'execute_promotion',
+                "Executed promotion for {$executedCount} students",
+                $data
             );
 
             $this->db->commit();
@@ -520,15 +646,15 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             $data = json_decode($instance['data_json'], true) ?: [];
             $batchId = (int)($data['batch_id'] ?? 0);
 
-            // Get promotion statistics
+            // Get promotion statistics from student_transitions
             $statsStmt = $this->db->prepare(
                 "SELECT 
-                    promotion_status,
+                    st.transition_type AS promotion_status,
                     COUNT(*) as count,
-                    AVG(overall_score) as avg_score
-                FROM student_promotions
-                WHERE batch_id = :batch_id
-                GROUP BY promotion_status"
+                    ROUND(AVG(CASE WHEN st.to_student_academic_enrollment_id IS NOT NULL THEN 1 ELSE 0 END) * 100, 1) as executed_pct
+                FROM student_transitions st
+                WHERE st.decided_by = :batch_id
+                GROUP BY st.transition_type"
             );
             $statsStmt->execute(['batch_id' => $batchId]);
             $statistics = $statsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -568,12 +694,8 @@ class StudentPromotionWorkflow extends WorkflowHandler {
         try {
             $stmt = $this->db->prepare(
                 "SELECT pb.*,
-                    sl_from.grade_name as from_grade_name,
-                    sl_to.grade_name as to_grade_name,
                     u.username as created_by_name
                 FROM promotion_batches pb
-                LEFT JOIN school_levels sl_from ON pb.from_grade_id = sl_from.id
-                LEFT JOIN school_levels sl_to ON pb.to_grade_id = sl_to.id
                 LEFT JOIN users u ON pb.created_by = u.id
                 WHERE pb.id = :batch_id"
             );

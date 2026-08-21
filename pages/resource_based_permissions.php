@@ -18,21 +18,21 @@
                 class="btn btn-outline-primary"
                 href="<?= htmlspecialchars($appBase) ?>/home.php?route=role_permission_matrix"
             >
-                <i class="fas fa-key me-1"></i> Role matrix
+                <i class="bi bi-key me-1"></i> Role matrix
             </a>
             <button
                 type="button"
                 class="btn btn-outline-secondary"
                 id="refreshResourcePermissionsBtn"
             >
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="createResourcePermissionBtn"
             >
-                <i class="fas fa-plus me-1"></i> Create permission
+                <i class="bi bi-plus-lg me-1"></i> Create permission
             </button>
         </div>
     </div>
@@ -60,7 +60,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -124,12 +124,12 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>Permission code</th>
-                        <th>Resource</th>
-                        <th>Action</th>
-                        <th>Module</th>
-                        <th>Usage</th>
-                        <th>Updated</th>
+                        <th scope="col">Permission code</th>
+                        <th scope="col">Resource</th>
+                        <th scope="col">Action</th>
+                        <th scope="col">Module</th>
+                        <th scope="col">Usage</th>
+                        <th scope="col">Updated</th>
                         <th class="text-end">Actions</th>
                     </tr>
                 </thead>
@@ -157,7 +157,7 @@
                         class="btn btn-outline-secondary"
                         id="resourcePermissionsPreviousPage"
                     >
-                        <i class="fas fa-chevron-left me-1"></i> Previous
+                        <i class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -170,7 +170,7 @@
                         class="btn btn-outline-secondary"
                         id="resourcePermissionsNextPage"
                     >
-                        Next <i class="fas fa-chevron-right ms-1"></i>
+                        Next <i class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

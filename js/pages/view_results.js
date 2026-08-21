@@ -29,10 +29,8 @@ const viewResultsCtrl = (() => {
 
     function cbcGrade(pct) {
         const n = parseFloat(pct);
-        if (n >= 80) return { label: 'EE', cls: 'grade-EE' };
-        if (n >= 50) return { label: 'ME', cls: 'grade-ME' };
-        if (n >= 25) return { label: 'AE', cls: 'grade-AE' };
-        return { label: 'BE', cls: 'grade-BE' };
+        const g = GradingScale.grade(n);
+        return g ? { label: g, cls: 'grade-' + GradingScale.band(g) } : { label: '-', cls: 'grade-BE' };
     }
 
     async function loadTerms() {
@@ -282,16 +280,18 @@ const viewResultsCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+
+        await GradingScale.preload();
         
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             // Subscribe to context changes
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in view_results:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     // Reload terms and classes when academic year or term changes
                     loadTerms();

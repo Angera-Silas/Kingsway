@@ -13,7 +13,7 @@ final class SystemAdministrationService
         'roles' => ['table' => 'roles', 'fields' => ['name','description','scope','is_system','is_active']],
         'permissions' => ['table' => 'permissions', 'fields' => ['code','description','entity','action','module']],
         'settings' => ['table' => 'school_settings', 'fields' => ['setting_key','setting_value','label']],
-        'routes' => ['table' => 'routes', 'fields' => ['name','url','domain','module','description','controller','action','is_active']],
+        'routes' => ['table' => 'routes_registry', 'fields' => ['name','url','domain','module','description','controller','action','is_active']],
         'sidebar-menus' => ['table' => 'sidebar_menu_items', 'fields' => ['name','label','icon','url','route_id','parent_id','menu_type','display_order','domain','is_active']],
         'domain-isolation' => ['table' => 'system_domain_isolation_rules', 'fields' => ['domain_key','resource_pattern','isolation_mode','description','enabled']],
         'time-bound-access' => ['table' => 'system_time_bound_access', 'fields' => ['user_id','role_id','permission_id','starts_at','expires_at','reason','enabled']],
@@ -49,15 +49,13 @@ final class SystemAdministrationService
             'health' => $this->healthSummary(),
             'enabled_users' => $this->scalar("SELECT COUNT(*) FROM users WHERE status='active'"),
             'active_sessions' => $this->scalar("SELECT COUNT(*) FROM user_sessions WHERE session_status='active' AND logout_time IS NULL"),
-            'failed_logins_24h' => $this->scalar("SELECT COUNT(*) FROM login_attempts WHERE status='failed' AND created_at>=DATE_SUB(NOW(),INTERVAL 24 HOUR)"),
+            'failed_logins_24h' => $this->countFileEntries('auth', 5000, function (array $e): bool {
+                return ($e['type'] ?? '') === 'login_attempt' && ($e['status'] ?? '') === 'failed';
+            }),
             'open_incidents' => $this->scalar("SELECT COUNT(*) FROM system_security_incidents WHERE status NOT IN ('resolved','closed')"),
             'pending_jobs' => $this->scalar("SELECT COUNT(*) FROM system_background_jobs WHERE status IN ('queued','retrying')"),
             'api_errors_24h' => $this->scalar("SELECT COUNT(*) FROM system_api_metrics WHERE status_code>=500 AND created_at>=DATE_SUB(NOW(),INTERVAL 24 HOUR)"),
-            'recent_activity' => $this->rows(
-                "SELECT a.id,a.created_at,a.user_id,u.username,a.action,a.entity,a.entity_id,a.status,a.ip_address
-                 FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id
-                 ORDER BY a.created_at DESC LIMIT 15"
-            ),
+            'recent_activity' => $this->recentFileEntries('audit', 15),
         ];
     }
 
@@ -73,13 +71,13 @@ final class SystemAdministrationService
             'failed-logins' => $this->authenticationLogs(true),
             'sessions' => $this->sessions(),
             'health' => [$this->healthSummary()],
-            'error-logs' => $this->rows("SELECT * FROM system_error_logs ORDER BY created_at DESC LIMIT 1000"),
+            'error-logs' => $this->recentFileEntries('errors', 1000),
             'jobs', 'job-inspector' => $this->rows("SELECT * FROM system_background_jobs ORDER BY created_at DESC LIMIT 1000"),
             'api-metrics' => $this->apiMetrics(),
             'backups' => $this->rows("SELECT * FROM system_backups ORDER BY created_at DESC LIMIT 500"),
             'audit-logs' => $this->auditLogs(),
-            'permission-changes' => $this->rows("SELECT * FROM system_permission_changes ORDER BY created_at DESC LIMIT 1000"),
-            'api-explorer' => $this->rows("SELECT id,name,url,domain,module,description,controller,action,is_active FROM routes ORDER BY module,name LIMIT 1000"),
+            'permission-changes' => $this->permissionChanges(),
+            'api-explorer' => $this->rows("SELECT id,name,url,domain,module,description,controller,action,is_active FROM routes_registry ORDER BY module,name LIMIT 1000"),
             'diagnostics' => [$this->diagnostics()],
             default => $this->registryRows($key),
         };
@@ -163,19 +161,30 @@ final class SystemAdministrationService
 
     public function writeAudit(?int $userId, string $action, string $entity, ?int $entityId, array $details, string $status, ?string $ipAddress, ?string $userAgent): void
     {
-        $this->execute(
-            'INSERT INTO audit_logs(action,entity,entity_id,user_id,ip_address,user_agent,details,status,created_at) VALUES(?,?,?,?,?,?,?,?,NOW())',
-            [$action, substr($entity,0,50), $entityId, $userId, $ipAddress, $userAgent, json_encode($details, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES), $status]
-        );
+        \App\API\Includes\FileLogger::write('audit', [
+            'type' => 'audit',
+            'action' => $action,
+            'entity' => substr($entity, 0, 50),
+            'entity_id' => $entityId,
+            'user_id' => $userId,
+            'ip' => $ipAddress,
+            'user_agent' => $userAgent,
+            'details' => $details,
+            'status' => $status,
+        ]);
     }
 
     private function accounts(): array
     {
         return $this->rows(
-            "SELECT u.id,u.username,u.email,u.first_name,u.last_name,u.status,u.last_login,
+            "SELECT u.id,u.username,u.status,u.last_login,
                     u.failed_login_attempts,u.account_locked_until,u.force_password_change,
-                    r.name AS main_role
-             FROM users u LEFT JOIN roles r ON r.id=u.role_id
+                    p.email,p.first_name,p.last_name,
+                    (SELECT r.name FROM user_roles ur
+                     JOIN roles r ON r.id=ur.role_id
+                     WHERE ur.user_id=u.id
+                     ORDER BY ur.role_id LIMIT 1) AS main_role
+             FROM users u LEFT JOIN persons p ON p.id=u.person_id
              ORDER BY u.id DESC LIMIT 1000"
         );
     }
@@ -203,20 +212,37 @@ final class SystemAdministrationService
 
     private function authenticationLogs(bool $failedOnly): array
     {
-        $where = $failedOnly ? "WHERE l.status='failed'" : '';
-        return $this->rows(
-            "SELECT l.id,l.username,l.user_id,u.email,l.ip_address,l.user_agent,l.status,l.failure_reason,l.created_at
-             FROM login_attempts l LEFT JOIN users u ON u.id=l.user_id {$where}
-             ORDER BY l.created_at DESC LIMIT 1000"
-        );
+        $entries = \App\API\Includes\FileLogger::recent('auth', 1000);
+        $rows = [];
+        foreach ($entries as $e) {
+            if (($e['type'] ?? '') !== 'login_attempt') {
+                continue;
+            }
+            if ($failedOnly && ($e['status'] ?? '') !== 'failed') {
+                continue;
+            }
+            $rows[] = [
+                'id' => null,
+                'username' => $e['username'] ?? null,
+                'user_id' => $e['user_id'] ?? null,
+                'email' => null,
+                'ip_address' => $e['ip'] ?? $e['ip_address'] ?? null,
+                'user_agent' => $e['user_agent'] ?? null,
+                'status' => $e['status'] ?? null,
+                'failure_reason' => $e['failure_reason'] ?? null,
+                'created_at' => $e['timestamp'] ?? null,
+            ];
+        }
+        return $rows;
     }
 
     private function sessions(): array
     {
         return $this->rows(
-            "SELECT s.id,s.user_id,u.username,u.email,s.ip_address,s.user_agent,s.login_time,
+            "SELECT s.id,s.user_id,u.username,p.email,s.ip_address,s.user_agent,s.login_time,
                     s.last_activity,s.logout_time,s.session_status,s.created_at
              FROM user_sessions s LEFT JOIN users u ON u.id=s.user_id
+             LEFT JOIN persons p ON p.id=u.person_id
              ORDER BY s.last_activity DESC LIMIT 1000"
         );
     }
@@ -231,10 +257,60 @@ final class SystemAdministrationService
 
     private function auditLogs(): array
     {
-        return $this->rows(
-            "SELECT a.id,a.action,a.entity,a.entity_id,a.user_id,u.username,a.ip_address,a.status,a.details,a.created_at
-             FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 1000"
-        );
+        $rows = [];
+        foreach (\App\API\Includes\FileLogger::recent('audit', 1000) as $e) {
+            $rows[] = [
+                'id' => null,
+                'action' => $e['action'] ?? null,
+                'entity' => $e['entity'] ?? null,
+                'entity_id' => $e['entity_id'] ?? null,
+                'user_id' => $e['user_id'] ?? null,
+                'username' => null,
+                'ip_address' => $e['ip'] ?? $e['ip_address'] ?? null,
+                'status' => $e['status'] ?? null,
+                'details' => isset($e['details']) ? json_encode($e['details']) : null,
+                'created_at' => $e['timestamp'] ?? null,
+            ];
+        }
+        return $rows;
+    }
+
+    private function permissionChanges(): array
+    {
+        $rows = [];
+        foreach (\App\API\Includes\FileLogger::recent('audit', 1000) as $e) {
+            if (!in_array($e['action'] ?? null, ['permission_assigned', 'permission_removed'], true)) {
+                continue;
+            }
+            $rows[] = [
+                'id' => null,
+                'created_at' => $e['timestamp'] ?? null,
+                'user_id' => $e['user_id'] ?? null,
+                'username' => null,
+                'action' => $e['action'] ?? null,
+                'entity' => $e['entity'] ?? null,
+                'entity_id' => $e['entity_id'] ?? null,
+                'details' => isset($e['details']) ? json_encode($e['details']) : null,
+                'status' => $e['status'] ?? null,
+            ];
+        }
+        return $rows;
+    }
+
+    private function recentFileEntries(string $category, int $limit): array
+    {
+        return \App\API\Includes\FileLogger::recent($category, max(1, min($limit, 1000)));
+    }
+
+    private function countFileEntries(string $category, int $max, callable $predicate): int
+    {
+        $count = 0;
+        foreach (\App\API\Includes\FileLogger::recent($category, $max) as $e) {
+            if ($predicate($e)) {
+                $count++;
+            }
+        }
+        return $count;
     }
 
     private function saveRolePermission(array $record, ?int $actorId): array
@@ -243,9 +319,9 @@ final class SystemAdministrationService
         if (!$roleId || !$permissionId) throw new RuntimeException('role_id and permission_id are required');
         $this->execute('INSERT IGNORE INTO role_permissions(role_id,permission_id,created_at) VALUES(?,?,NOW())',[$roleId,$permissionId]);
         $id=(int)$this->db->lastInsertId();
-        if ($this->tableExists('system_permission_changes')) {
-            $this->execute("INSERT INTO system_permission_changes(actor_user_id,target_type,target_id,permission_id,change_type,created_at) VALUES(?,'role',?,?,'assigned',NOW())",[$actorId,$roleId,$permissionId]);
-        }
+        $this->writeAudit($actorId, 'permission_assigned', 'role', $roleId,
+            ['permission_id' => $permissionId], 'success',
+            $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
         return ['id'=>$id,'role_id'=>$roleId,'permission_id'=>$permissionId];
     }
 

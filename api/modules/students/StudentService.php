@@ -137,16 +137,25 @@ class StudentService
             $classes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Get streams
-            $stmt = $db->prepare("SELECT id, stream_name as name, class_id FROM class_streams ORDER BY stream_name");
+            $stmt = $db->prepare("SELECT aycs.id, sm.name as stream_name, ayc.class_id
+                                  FROM academic_year_class_streams aycs
+                                  JOIN streams sm ON sm.id = aycs.stream_id
+                                  JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                  WHERE aycs.status = 'active'
+                                  ORDER BY sm.name");
             $stmt->execute();
             $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get school settings
-            $stmt = $db->prepare("SELECT setting_key, setting_value, label FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature', 'card_expiry_years', 'card_prefix')");
-            $stmt->execute();
-            $settingsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $schoolSettings = [];
-            foreach ($settingsRows as $row) {
+            // Get school profile
+            $stmt = $db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $schoolSettings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Get headteacher from staff table
+            $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $schoolSettings['headteacher_name'] = $hStmt->fetchColumn() ?: '';
+            // Add ID-card-specific settings from school_settings
+            $stmt2 = $db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('authorized_signature', 'card_expiry_years', 'card_prefix')");
+            $stmt2->execute();
+            foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $schoolSettings[$row['setting_key']] = $row['setting_value'];
             }
 
@@ -209,22 +218,22 @@ class StudentService
 
             // Apply filters
             if (!empty($filters['academic_year'])) {
-                $conditions[] = "ce.academic_year_id = ?";
+                $conditions[] = "sae.academic_year_id = ?";
                 $bindings[] = $filters['academic_year'];
             }
 
             if (!empty($filters['class_id'])) {
-                $conditions[] = "ce.class_id = ?";
+                $conditions[] = "ayc.class_id = ?";
                 $bindings[] = $filters['class_id'];
             }
 
             if (!empty($filters['stream_id'])) {
-                $conditions[] = "s.stream_id = ?";
+                $conditions[] = "aycs.stream_id = ?";
                 $bindings[] = $filters['stream_id'];
             }
 
             if (!empty($filters['gender'])) {
-                $conditions[] = "s.gender = ?";
+                $conditions[] = "per.gender = ?";
                 $bindings[] = $filters['gender'];
             }
 
@@ -254,15 +263,15 @@ class StudentService
 
             if (!empty($filters['has_photo'])) {
                 if ($filters['has_photo'] === 'true') {
-                    $conditions[] = "s.photo_url IS NOT NULL AND s.photo_url != ''";
+                    $conditions[] = "per.photo_url IS NOT NULL AND per.photo_url != ''";
                 } else {
-                    $conditions[] = "(s.photo_url IS NULL OR s.photo_url = '')";
+                    $conditions[] = "(per.photo_url IS NULL OR per.photo_url = '')";
                 }
             }
 
             if (!empty($filters['search'])) {
                 $searchTerm = "%" . $filters['search'] . "%";
-                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
+                $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ?)";
                 $bindings = array_merge($bindings, [$searchTerm, $searchTerm, $searchTerm]);
             }
 
@@ -274,10 +283,13 @@ class StudentService
             $offset = ($page - 1) * $limit;
 
             // Get total count
-            $countSql = "SELECT COUNT(DISTINCT s.id) as total 
+            $countSql = "SELECT COUNT(DISTINCT s.id) as total
                         FROM students s
-                        LEFT JOIN class_enrollments ce ON s.id = ce.student_id AND ce.enrollment_status = 'active'
-                        LEFT JOIN student_id_cards sic ON s.id = sic.student_id 
+                        JOIN persons per ON per.id = s.person_id
+                        LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                        LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                        LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                        LEFT JOIN student_id_cards sic ON s.id = sic.student_id
                             AND sic.id = (SELECT id FROM student_id_cards WHERE student_id = s.id ORDER BY created_at DESC LIMIT 1)
                         {$whereClause}";
             $stmt = $db->prepare($countSql);
@@ -285,20 +297,20 @@ class StudentService
             $total = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
             // Get students
-            $sql = "SELECT DISTINCT 
+            $sql = "SELECT DISTINCT
                         s.id,
                         s.admission_no,
-                        s.first_name,
-                        s.last_name,
-                        s.gender,
+                        per.first_name AS first_name,
+                        per.last_name AS last_name,
+                        per.gender,
                         s.status as student_status,
-                        s.photo_url,
-                        s.date_of_birth,
-                        ce.academic_year_id,
-                        ce.class_id,
+                        per.photo_url,
+                        per.dob AS date_of_birth,
+                        sae.academic_year_id,
+                        ayc.class_id,
                         c.name as class_name,
-                        s.stream_id,
-                        cs.stream_name as stream_name,
+                        aycs.stream_id,
+                        st2.name as stream_name,
                         sic.id as card_id,
                         sic.card_number,
                         sic.status as card_status,
@@ -309,13 +321,16 @@ class StudentService
                         sic.printed_at,
                         sic.issued_at
                     FROM students s
-                    LEFT JOIN class_enrollments ce ON s.id = ce.student_id AND ce.enrollment_status = 'active'
-                    LEFT JOIN classes c ON ce.class_id = c.id
-                    LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                    LEFT JOIN student_id_cards sic ON s.id = sic.student_id 
+                    JOIN persons per ON per.id = s.person_id
+                    LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    LEFT JOIN classes c ON c.id = ayc.class_id
+                    LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                    LEFT JOIN student_id_cards sic ON s.id = sic.student_id
                         AND sic.id = (SELECT id FROM student_id_cards WHERE student_id = s.id ORDER BY created_at DESC LIMIT 1)
                     {$whereClause}
-                    ORDER BY s.last_name, s.first_name
+                    ORDER BY per.last_name, per.first_name
                     LIMIT {$limit} OFFSET {$offset}";
 
             $stmt = $db->prepare($sql);
@@ -351,21 +366,21 @@ class StudentService
             $db = $this->repository->getDb();
 
             // Get student with current card
-            $sql = "SELECT 
+            $sql = "SELECT
                         s.id,
                         s.admission_no,
-                        s.first_name,
-                        s.last_name,
-                        s.gender,
-                        s.date_of_birth,
-                        s.photo_url,
+                        per.first_name AS first_name,
+                        per.last_name AS last_name,
+                        per.gender,
+                        per.dob AS date_of_birth,
+                        per.photo_url,
                         s.status as student_status,
-                        ce.academic_year_id,
+                        sae.academic_year_id,
                         ay.year_code as academic_year,
-                        ce.class_id,
+                        ayc.class_id,
                         c.name as class_name,
-                        s.stream_id,
-                        cs.stream_name as stream_name,
+                        aycs.stream_id,
+                        st2.name as stream_name,
                         sic.id as card_id,
                         sic.card_number,
                         sic.status as card_status,
@@ -379,11 +394,14 @@ class StudentService
                         sic.issued_at,
                         sic.notes
                     FROM students s
-                    LEFT JOIN class_enrollments ce ON s.id = ce.student_id AND ce.enrollment_status = 'active'
-                    LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
-                    LEFT JOIN classes c ON ce.class_id = c.id
-                    LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                    LEFT JOIN student_id_cards sic ON s.id = sic.student_id 
+                    JOIN persons per ON per.id = s.person_id
+                    LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                    LEFT JOIN classes c ON c.id = ayc.class_id
+                    LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                    LEFT JOIN student_id_cards sic ON s.id = sic.student_id
                         AND sic.id = (SELECT id FROM student_id_cards WHERE student_id = s.id ORDER BY created_at DESC LIMIT 1)
                     WHERE s.id = ?";
             
@@ -395,14 +413,12 @@ class StudentService
                 return null;
             }
 
-            // Get school settings
-            $stmt = $db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature')");
-            $stmt->execute();
-            $settingsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $schoolSettings = [];
-            foreach ($settingsRows as $row) {
-                $schoolSettings[$row['setting_key']] = $row['setting_value'];
-            }
+            // Get school profile
+            $stmt = $db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $schoolSettings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Get headteacher from staff table
+            $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $schoolSettings['headteacher_name'] = $hStmt->fetchColumn() ?: '';
 
             // Get card history
             $stmt = $db->prepare("SELECT 
@@ -411,10 +427,11 @@ class StudentService
                         h.to_status,
                         h.remarks,
                         h.performed_at,
-                        u.first_name,
-                        u.last_name
+                        up.first_name,
+                        up.last_name
                     FROM student_id_card_history h
                     LEFT JOIN users u ON h.performed_by = u.id
+                    LEFT JOIN persons up ON up.id = u.person_id
                     WHERE h.student_id = ?
                     ORDER BY h.performed_at DESC");
             $stmt->execute([$studentId]);
@@ -442,7 +459,7 @@ class StudentService
             $db->beginTransaction();
 
             // Check if student exists
-            $stmt = $db->prepare("SELECT s.id, s.admission_no, ce.academic_year_id FROM students s LEFT JOIN class_enrollments ce ON s.id = ce.student_id AND ce.enrollment_status = 'active' WHERE s.id = ?");
+            $stmt = $db->prepare("SELECT s.id, s.admission_no, sae.academic_year_id FROM students s LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active' WHERE s.id = ?");
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -520,7 +537,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::generateIdCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to generate ID card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -599,7 +616,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::generateCardQrCode error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to generate QR code: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -632,7 +649,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardPrinted error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as printed: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -665,7 +682,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardIssued error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as issued: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -698,7 +715,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::markCardLost error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to mark card as lost: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -786,7 +803,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::renewCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to renew card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -875,7 +892,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::replaceCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to replace card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -908,7 +925,7 @@ class StudentService
         } catch (Exception $e) {
             $db->rollBack();
             error_log("StudentService::revokeCard error: " . $e->getMessage());
-            return ['success' => false, 'message' => 'Failed to revoke card: ' . $e->getMessage()];
+            return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 
@@ -929,11 +946,12 @@ class StudentService
                         h.remarks,
                         h.performed_at,
                         sic.card_number,
-                        u.first_name as performed_by_first_name,
-                        u.last_name as performed_by_last_name
+                        up.first_name as performed_by_first_name,
+                        up.last_name as performed_by_last_name
                     FROM student_id_card_history h
                     LEFT JOIN student_id_cards sic ON h.card_id = sic.id
                     LEFT JOIN users u ON h.performed_by = u.id
+                    LEFT JOIN persons up ON up.id = u.person_id
                     WHERE h.student_id = ?
                     ORDER BY h.performed_at DESC";
 
@@ -956,7 +974,7 @@ class StudentService
         try {
             $db = $this->repository->getDb();
 
-            $sql = "SELECT 
+            $sql = "SELECT
                         sic.id,
                         sic.card_number,
                         sic.status,
@@ -964,19 +982,22 @@ class StudentService
                         sic.expiry_year,
                         s.id as student_id,
                         s.admission_no,
-                        s.first_name,
-                        s.last_name,
-                        s.gender,
-                        s.photo_url,
+                        per.first_name AS first_name,
+                        per.last_name AS last_name,
+                        per.gender,
+                        per.photo_url,
                         c.name as class_name,
-                        cs.stream_name as stream_name,
+                        st2.name as stream_name,
                         ay.year_code as academic_year
                     FROM student_id_cards sic
                     INNER JOIN students s ON sic.student_id = s.id
-                    LEFT JOIN class_enrollments ce ON s.id = ce.student_id AND ce.enrollment_status = 'active'
-                    LEFT JOIN classes c ON ce.class_id = c.id
-                    LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                    LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
+                    JOIN persons per ON per.id = s.person_id
+                    LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                    LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                    LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    LEFT JOIN classes c ON c.id = ayc.class_id
+                    LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+                    LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
                     WHERE sic.card_number = ?
                     AND sic.status IN ('generated', 'printed', 'issued')
                     ORDER BY sic.created_at DESC

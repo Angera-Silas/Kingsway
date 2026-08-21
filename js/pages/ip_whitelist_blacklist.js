@@ -440,8 +440,10 @@ const IpWhitelistBlacklistController = {
       return;
     }
 
-    const confirmed = window.confirm(
+    const confirmed = await window.confirmAction(
+      'Confirm Deletion',
       `Delete the ${rule.ruleType} rule for ${rule.cidr}?`,
+      { confirmText: 'Delete', danger: true }
     );
     if (!confirmed) return;
 

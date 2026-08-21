@@ -8,837 +8,998 @@ use Exception;
 use function App\API\Includes\formatResponse;
 
 /**
- * M-Pesa Payment Service
- * 
- * Handles M-Pesa Daraja API integration for:
- * - STK Push (Lipa na M-Pesa)
- * - Payment callbacks
- * - Transaction status queries
- * 
- * Uses admission number as account reference for student payments
+ * MpesaPaymentService
+ *
+ * Rebuilt from scratch against the Safaricom Daraja 3.0 official
+ * specification (https://developer.safaricom.co.ke/apis) and the live
+ * KingsWayAcademy schema (mpesa_transactions / payment_webhooks_log).
+ *
+ * Covers the incoming-money surface:
+ *  - STK Push (Lipa Na M-Pesa)          POST /mpesa/stkpush/v1/processrequest
+ *  - STK Query                          POST /mpesa/stkpushquery/v1/query
+ *  - STK callback processing            (Body.stkCallback)
+ *  - C2B register URLs                  POST /mpesa/c2b/v1/registerurl
+ *  - C2B simulate (sandbox only)        POST /mpesa/c2b/v1/simulate
+ *  - C2B validation / confirmation      (callback processing)
+ *  - Transaction Status                 POST /mpesa/transactionstatus/v1/query
+ *  - Account Balance                    POST /mpesa/accountbalance/v1/query
+ *  - Reversal                           POST /mpesa/reversal/v1/request
+ *  - Dynamic QR                         POST /mpesa/qrcode/v1/generate
+ *  - B2B (remittax + paymentrequest)    POST /mpesa/b2b/v1/remittax | paymentrequest
+ *
+ * All HTTP goes through MpesaApiClient (shared token cache). Database access
+ * is lazy so pure-API callers (e.g. the CLI sandbox harness) never require a
+ * live PDO connection just to talk to M-Pesa.
  */
 class MpesaPaymentService
 {
+    /** @var PDO|null Lazily-initialised live schema connection. */
     private $db;
-    private $consumerKey;
-    private $consumerSecret;
-    private $businessShortCode;
-    private $passkey;
-    private $environment; // 'sandbox' or 'production'
+
+    /** @var MpesaApiClient */
+    private $client;
 
     public function __construct()
     {
-        $this->db = Database::getInstance()->getConnection();
-
-        // Load M-Pesa credentials from config
-        $this->consumerKey = MPESA_CONSUMER_KEY ?? '';
-        $this->consumerSecret = MPESA_CONSUMER_SECRET ?? '';
-        $this->businessShortCode = MPESA_SHORTCODE ?? '174379';
-        $this->passkey = MPESA_PASSKEY ?? '';
-        $this->environment = MPESA_ENVIRONMENT ?? 'sandbox';
+        $this->client = new MpesaApiClient();
     }
 
-    /**
-     * Get M-Pesa access token
-     * @return string|null Access token
-     */
-    private function getAccessToken()
+    private function getDb(): PDO
     {
-        try {
-            $url = $this->environment === 'production'
-                ? 'https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
-                : 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials';
-
-            $curl = curl_init($url);
-            curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type:application/json']);
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($curl, CURLOPT_HEADER, false);
-            curl_setopt($curl, CURLOPT_USERPWD, $this->consumerKey . ':' . $this->consumerSecret);
-
-            $result = curl_exec($curl);
-            $status = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-            curl_close($curl);
-
-            if ($status === 200) {
-                $result = json_decode($result);
-                return $result->access_token ?? null;
-            }
-
-            return null;
-
-        } catch (Exception $e) {
-            error_log("M-Pesa Access Token Error: " . $e->getMessage());
-            return null;
+        if ($this->db === null) {
+            $this->db = Database::getInstance()->getConnection();
         }
+        return $this->db;
     }
 
     /**
-     * Initiate STK Push for student fee payment
-     * @param string $admissionNumber Student admission number
-     * @param string $phoneNumber Student/parent phone number (format: 254XXXXXXXXX)
-     * @param float $amount Amount to pay
-     * @param string $description Payment description
-     * @return array Response
+     * Build a response compatible with both formatResponse consumers
+     * (['status'] string) and legacy callers checking ['success'] (bool).
+     */
+    private function respond(bool $success, $data = null, string $message = '', int $code = 0): array
+    {
+        $code = $code ?: ($success ? 200 : 400);
+        return array_merge(
+            formatResponse($success, $data, $message),
+            ['success' => $success, 'code' => $code]
+        );
+    }
+
+    private function callbackUrl(string $endpoint): string
+    {
+        $base = defined('MPESA_CALLBACK_BASE_URL') && MPESA_CALLBACK_BASE_URL !== ''
+            ? MPESA_CALLBACK_BASE_URL
+            : (defined('BASE_URL') ? BASE_URL : '');
+        return $base !== '' ? $base . $endpoint : $endpoint;
+    }
+
+    /**
+     * Normalise a phone number to 254XXXXXXXXX.
+     */
+    private function normalizePhone(string $phone): string
+    {
+        $phone = trim($phone);
+        if (strlen($phone) === 9) {
+            $phone = '254' . $phone;
+        } elseif (strlen($phone) === 10 && $phone[0] === '0') {
+            $phone = '254' . substr($phone, 1);
+        } elseif (strlen($phone) === 12 && strpos($phone, '254') === 0) {
+            // already correct
+        } elseif (strlen($phone) === 13 && strpos($phone, '+254') === 0) {
+            $phone = substr($phone, 1);
+        }
+        return $phone;
+    }
+
+    // =========================================================================
+    // STK PUSH
+    // =========================================================================
+
+    /**
+     * Initiate an STK Push (CustomerPayBillOnline) for a student fee payment.
+     *
+     * @param string $admissionNumber AccountReference / bill reference
+     * @param string $phoneNumber     254XXXXXXXXX (or 07XXXXXXXXX)
+     * @param float  $amount          KES amount
+     * @param string $description     TransactionDesc
+     * @return array
      */
     public function initiateSTKPush($admissionNumber, $phoneNumber, $amount, $description = 'School Fees Payment')
     {
         try {
-            // Validate admission number and get student
-            $stmt = $this->db->prepare("
-                SELECT id, first_name, last_name, current_class_id, academic_year
-                FROM students 
-                WHERE admission_number = ?
-            ");
-            $stmt->execute([$admissionNumber]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$student) {
-                return formatResponse(false, null, 'Invalid admission number');
+            $phone = $this->normalizePhone((string) $phoneNumber);
+            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+                return $this->respond(false, null, 'Invalid phone number format. Use 254XXXXXXXXX');
+            }
+            $amount = (float) $amount;
+            if ($amount <= 0) {
+                return $this->respond(false, null, 'Amount must be greater than zero');
             }
 
-            // Validate phone number format
-            if (!preg_match('/^254[0-9]{9}$/', $phoneNumber)) {
-                return formatResponse(false, null, 'Invalid phone number format. Use 254XXXXXXXXX');
+            // Safaricom/Buni must never receive an STK request for an unknown
+            // account. The account may be either an existing learner's
+            // admission number or an applicant's application number.
+            $account = $this->resolvePaymentAccount((string) $admissionNumber);
+            if (!$account) {
+                return $this->respond(false, null, 'The application or admission account reference was not found');
             }
 
-            // Get access token
-            $accessToken = $this->getAccessToken();
-            if (!$accessToken) {
-                return formatResponse(false, null, 'Failed to get M-Pesa access token');
-            }
+            $studentId = (int) ($account['student_id'] ?? 0) ?: null;
 
-            // Generate timestamp and password
-            date_default_timezone_set('Africa/Nairobi');
-            $timestamp = date('YmdHis');
-            $password = base64_encode($this->businessShortCode . $this->passkey . $timestamp);
-
-            // Callback URL
-            // Use defined()/constant() to ensure we read global constants from the global namespace
-            // and fall back to a sensible default if not set.
-            if (defined('MPESA_CALLBACK_URL')) {
-                $callbackUrl = constant('MPESA_CALLBACK_URL');
-            } elseif (defined('BASE_URL')) {
-                $callbackUrl = constant('BASE_URL') . '/api/payments/mpesa-callback.php';
-            } else {
-                $callbackUrl = '/api/payments/mpesa-callback.php';
-            }
-
-            // Prepare STK Push request
-            $url = $this->environment === 'production'
-                ? 'https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
-                : 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-
-            $curl = curl_init($url);
-            curl_setopt($curl, CURLOPT_HTTPHEADER, [
-                'Content-Type:application/json',
-                'Authorization:Bearer ' . $accessToken
-            ]);
+            $timestamp = $this->client->timestamp();
 
             $requestData = [
-                'BusinessShortCode' => $this->businessShortCode,
-                'Password' => $password,
-                'Timestamp' => $timestamp,
-                'TransactionType' => 'CustomerPayBillOnline',
-                'Amount' => (int) $amount,
-                'PartyA' => $phoneNumber,
-                'PartyB' => $this->businessShortCode,
-                'PhoneNumber' => $phoneNumber,
-                'CallBackURL' => $callbackUrl,
-                'AccountReference' => $admissionNumber, // Use admission number as account reference
-                'TransactionDesc' => $description
+                'BusinessShortCode' => $this->client->getShortcode(),
+                'Password'          => $this->client->lipaNaMpesaPassword($timestamp),
+                'Timestamp'         => $timestamp,
+                'TransactionType'   => 'CustomerPayBillOnline',
+                'Amount'            => (int) $amount,
+                'PartyA'            => $phone,
+                'PartyB'            => $this->client->getShortcode(),
+                'PhoneNumber'       => $phone,
+                'CallBackURL'       => $this->callbackUrl('/api/payments/mpesa-stk-callback'),
+                'AccountReference'  => $admissionNumber,
+                'TransactionDesc'   => $description,
             ];
 
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($curl, CURLOPT_POST, true);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($requestData));
+            $response = $this->client->post('/mpesa/stkpush/v1/processrequest', $requestData);
 
-            $response = curl_exec($curl);
-            $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-            curl_close($curl);
+            $checkoutId  = $response['CheckoutRequestID'] ?? null;
+            $merchantId  = $response['MerchantRequestID'] ?? null;
+            $responseCode = $response['ResponseCode'] ?? '1';
 
-            $responseData = json_decode($response, true);
+            $this->logStkRequest($studentId, $admissionNumber, $phone, $amount, $requestData, $response);
 
-            // Log STK Push request
-            $this->logSTKPushRequest($student['id'], $admissionNumber, $phoneNumber, $amount, $requestData, $responseData);
-
-            if ($httpCode === 200 && isset($responseData['ResponseCode']) && $responseData['ResponseCode'] === '0') {
-                return formatResponse(true, [
-                    'checkout_request_id' => $responseData['CheckoutRequestID'],
-                    'merchant_request_id' => $responseData['MerchantRequestID'],
-                    'message' => 'STK Push sent successfully. Please enter M-Pesa PIN on your phone.'
-                ]);
+            if ($responseCode === '0') {
+                return $this->respond(true, [
+                    'checkout_request_id' => $checkoutId,
+                    'merchant_request_id' => $merchantId,
+                    'message' => 'STK Push sent successfully. Please enter M-Pesa PIN on your phone.',
+                ], 'STK Push initiated');
             }
 
-            return formatResponse(false, $responseData, $responseData['ResponseDescription'] ?? 'Failed to initiate M-Pesa payment');
-
+            $message = $response['ResponseDescription'] ?? 'Failed to initiate M-Pesa payment';
+            return $this->respond(false, $response, $message, 400);
         } catch (Exception $e) {
-            error_log("M-Pesa STK Push Error: " . $e->getMessage());
-            return formatResponse(false, null, 'M-Pesa payment initiation failed: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] STK Push error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Log STK Push request
-     * @param int $student_id Student ID
-     * @param string $admissionNumber Admission number
-     * @param string $phoneNumber Phone number
-     * @param float $amount Amount
-     * @param array $request Request data
-     * @param array $response Response data
+     * Record a pending STK Push against the live mpesa_transactions table.
+     * No M-Pesa receipt exists yet, so a placeholder code is used and later
+     * replaced by the real MpesaReceiptNumber when the callback/query lands.
      */
-    private function logSTKPushRequest($student_id, $admissionNumber, $phoneNumber, $amount, $request, $response)
+    private function logStkRequest($studentId, string $admissionNumber, string $phone, float $amount, array $request, array $response): void
     {
         try {
-            $stmt = $this->db->prepare("
-                INSERT INTO mpesa_stk_requests (
-                    student_id, admission_number, phone_number, amount,
-                    checkout_request_id, merchant_request_id,
-                    request_data, response_data, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-
+            $checkoutId = $response['CheckoutRequestID'] ?? null;
+            $code = 'STK-' . ($checkoutId ?: bin2hex(random_bytes(8)));
+            $stmt = $this->getDb()->prepare(
+                "INSERT INTO mpesa_transactions
+                    (mpesa_code, student_id, amount, transaction_date, phone_number,
+                     bill_ref_number, status, transaction_type, checkout_request_id,
+                     raw_callback, webhook_data, created_at)
+                 VALUES (:code, :sid, :amount, NOW(), :phone, :bill_ref,
+                         'pending', 'STK_PUSH', :checkout, :raw, :webhook, NOW())
+                 ON DUPLICATE KEY UPDATE checkout_request_id = VALUES(checkout_request_id)"
+            );
             $stmt->execute([
-                $student_id,
-                $admissionNumber,
-                $phoneNumber,
-                $amount,
-                $response['CheckoutRequestID'] ?? null,
-                $response['MerchantRequestID'] ?? null,
-                json_encode($request),
-                json_encode($response),
-                isset($response['ResponseCode']) && $response['ResponseCode'] === '0' ? 'pending' : 'failed'
+                'code'     => $code,
+                'sid'      => $studentId,
+                'amount'   => $amount,
+                'phone'    => $phone,
+                'bill_ref' => $admissionNumber,
+                'checkout' => $checkoutId,
+                'raw'      => json_encode($request),
+                'webhook'  => json_encode($response),
             ]);
-
         } catch (Exception $e) {
-            error_log("Failed to log STK request: " . $e->getMessage());
+            error_log('[MpesaPaymentService] Failed to log STK request: ' . $e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // STK QUERY
+    // =========================================================================
+
+    /**
+     * Poll the STK push status for a CheckoutRequestID
+     * (POST /mpesa/stkpushquery/v1/query).
+     *
+     * This is what the parent portal uses to confirm a payment after the
+     * customer enters their PIN.
+     */
+    public function queryTransactionStatus($checkoutRequestId, $phone = null)
+    {
+        try {
+            if (!$checkoutRequestId) {
+                return $this->respond(false, null, 'CheckoutRequestID is required');
+            }
+            $timestamp = $this->client->timestamp();
+            $payload = [
+                'BusinessShortCode' => $this->client->getShortcode(),
+                'Password'          => $this->client->lipaNaMpesaPassword($timestamp),
+                'Timestamp'         => $timestamp,
+                'CheckoutRequestID' => $checkoutRequestId,
+            ];
+
+            $response = $this->client->post('/mpesa/stkpushquery/v1/query', $payload);
+
+            if (($response['ResultCode'] ?? '1') === '0') {
+                $this->recordStkSuccess($checkoutRequestId, $response);
+            }
+
+            return $this->respond(true, $response, 'STK status retrieved');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] STK query error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Process M-Pesa callback
-     * @param array $callbackData Callback data from M-Pesa
-     * @return array Response
+     * Promote a pending STK_PUSH mpesa_transaction to processed once Safaricom
+     * confirms ResultCode 0 (via callback or query).
+     */
+    private function recordStkSuccess(string $checkoutRequestId, array $callback): void
+    {
+        try {
+            $stmt = $this->getDb()->prepare(
+                "SELECT id, status, bill_ref_number, amount FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
+            );
+            $stmt->execute(['checkout' => $checkoutRequestId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return;
+            }
+
+            $wasAlreadyProcessed = ($row['status'] ?? '') === 'processed';
+
+            $meta = $callback['CallbackMetadata']['Item'] ?? [];
+            $kv = [];
+            foreach ($meta as $item) {
+                if (isset($item['Name'])) {
+                    $kv[$item['Name']] = $item['Value'] ?? null;
+                }
+            }
+            $mpesaReceipt = $kv['MpesaReceiptNumber'] ?? null;
+            $phone = $kv['PhoneNumber'] ?? null;
+            $amount = $kv['Amount'] ?? null;
+
+            $update = $this->getDb()->prepare(
+                "UPDATE mpesa_transactions
+                 SET status = 'processed',
+                     mpesa_code = COALESCE(:receipt, mpesa_code),
+                     phone_number = COALESCE(:phone, phone_number),
+                     amount = COALESCE(:amount, amount),
+                     raw_callback = :raw,
+                     webhook_data = :webhook
+                 WHERE id = :id"
+            );
+            $update->execute([
+                'receipt' => $mpesaReceipt,
+                'phone'   => $phone,
+                'amount'  => $amount,
+                'raw'     => json_encode($callback),
+                'webhook' => json_encode($callback),
+                'id'      => $row['id'],
+            ]);
+
+            // STK pushes made before a student exists are keyed by the
+            // application reference. Preserve them in the admission ledger;
+            // placement later posts this ledger to the student's obligations.
+            $billRef = trim((string) ($row['bill_ref_number'] ?? ''));
+            if ($billRef !== '') {
+                $applicationStmt = $this->getDb()->prepare(
+                    "SELECT aa.id, aa.parent_id,
+                            CASE WHEN EXISTS (
+                                SELECT 1 FROM student_academic_enrollments sae
+                                WHERE sae.student_id = aa.enrolled_student_id
+                                  AND sae.enrollment_status = 'active'
+                            ) THEN aa.enrolled_student_id ELSE NULL END AS enrolled_student_id
+                     FROM admission_applications aa
+                     LEFT JOIN students sx ON sx.id = aa.enrolled_student_id
+                     WHERE aa.application_no = :application_reference OR sx.admission_no = :admission_reference
+                     LIMIT 1"
+                );
+                $applicationStmt->execute([
+                    'application_reference' => $billRef,
+                    'admission_reference' => $billRef,
+                ]);
+                $application = $applicationStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $applicationId = (int) ($application['id'] ?? 0);
+                $admissionPaymentId = 0;
+                if ($applicationId > 0 && !$wasAlreadyProcessed && $mpesaReceipt) {
+                    $insert = $this->getDb()->prepare(
+                        "INSERT INTO admission_payments
+                            (application_id, amount, payment_method, reference_no, receipt_no,
+                             payment_date, notes, status, recorded_by, created_at)
+                         VALUES (:application_id, :amount, 'mpesa', :reference_no, :receipt_no,
+                                 NOW(), :notes, 'recorded', 1, NOW())"
+                    );
+                    $insert->execute([
+                        'application_id' => $applicationId,
+                        'amount' => (float) ($amount ?: $row['amount'] ?: 0),
+                        'reference_no' => $mpesaReceipt,
+                        'receipt_no' => 'MPESA-' . $mpesaReceipt,
+                        'notes' => 'STK payment received using application reference ' . $billRef,
+                    ]);
+                    $admissionPaymentId = (int) $this->getDb()->lastInsertId();
+                }
+
+                if ($applicationId > 0 && !$wasAlreadyProcessed) {
+                    $studentId = (int) ($application['enrolled_student_id'] ?? 0);
+                    if ($studentId > 0) {
+                        $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->getDb());
+                        $paymentService->postApplicationPaymentsToStudent(
+                            $applicationId,
+                            $studentId,
+                            !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                            1,
+                            $billRef
+                        );
+                    }
+                }
+
+                if ($applicationId > 0) {
+                    try {
+                        (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment($applicationId);
+                    } catch (\Throwable $workflowError) {
+                        error_log('[MpesaPaymentService] payment workflow advancement deferred: ' . $workflowError->getMessage());
+                    }
+                }
+            }
+
+            if (!$wasAlreadyProcessed) {
+                $this->sendPaymentConfirmationSms((int) $row['id']);
+            }
+            // Transport has its own entitlement ledger. A successful STK
+            // callback is the only point at which that ledger may be credited.
+            if (!$wasAlreadyProcessed && !empty($checkoutRequestId)) {
+                try {
+                    $billRef = (string)($row['bill_ref_number'] ?? '');
+                    if (preg_match('/^(U|UNIFORM)-/i', $billRef)) {
+                        (new UniformPaymentService($this->getDb()))->reconcileReference($billRef, (float)($amount ?: 0), 'mpesa_daraja', $mpesaReceipt ?: $checkoutRequestId);
+                    } else {
+                        (new TransportPaymentService($this->getDb()))->reconcileDaraja($checkoutRequestId, $mpesaReceipt ?: $checkoutRequestId, (float)($amount ?: 0));
+                    }
+                } catch (\Throwable $transportError) {
+                    error_log('[MpesaPaymentService] transport reconciliation failed: ' . $transportError->getMessage());
+                }
+            }
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] Failed to record STK success: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send an SMS to the paying phone confirming the amount received, the
+     * account reference, the current term balance, and the annual balance.
+     * Best-effort: any failure is logged, never thrown.
+     */
+    public function sendPaymentConfirmationSms(int $transactionId): void
+    {
+        try {
+            $stmt = $this->getDb()->prepare(
+                "SELECT mt.id, mt.phone_number, mt.amount, mt.bill_ref_number, mt.student_id,
+                        CONCAT(p.first_name, ' ', COALESCE(NULLIF(p.middle_name, ''), ''), ' ', p.last_name) AS student_name
+                 FROM mpesa_transactions mt
+                 LEFT JOIN students s ON s.id = mt.student_id
+                 LEFT JOIN persons p ON p.id = s.person_id
+                 WHERE mt.id = :id LIMIT 1"
+            );
+            $stmt->execute(['id' => $transactionId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return;
+            }
+
+            $phone = $this->normalizePhone((string) ($row['phone_number'] ?? ''));
+            if (!preg_match('/^254[0-9]{9}$/', $phone)) {
+                error_log('[MpesaPaymentService] payment SMS skipped: no valid payer phone on tx ' . $transactionId);
+                return;
+            }
+
+            $amount = (float) $row['amount'];
+            $ref    = trim((string) ($row['bill_ref_number'] ?? ''));
+            $name   = trim((string) ($row['student_name'] ?? ''));
+            [$termBalance, $annualBalance] = $this->getStudentFeeBalances($row['student_id'] ? (int) $row['student_id'] : null);
+
+            $money = function ($v) {
+                return 'Ksh ' . number_format((float) ($v ?? 0), 2);
+            };
+
+            $msg = 'Thank you for paying ' . $money($amount) . ' for account ' . $ref . '.';
+            if ($name !== '') {
+                $msg .= ' Student: ' . $name . '.';
+            }
+            if ($termBalance !== null) {
+                $msg .= ' Current term balance: ' . $money($termBalance) . '.';
+            }
+            if ($annualBalance !== null) {
+                $msg .= ' Annual balance: ' . $money($annualBalance) . '.';
+            }
+            $portalUrl = rtrim((string) (defined('BASE_URL') ? BASE_URL : ''), '/') . '/parent_portal.php';
+            $msg .= ' Receipt: ' . ($ref !== '' ? 'MPESA-' . $ref : 'available in portal') . '.';
+            if ($portalUrl !== '/parent_portal.php') {
+                $msg .= ' View statement: ' . $portalUrl;
+            }
+            $msg .= ' - Kingsway Preparatory School';
+
+            // Payment notifications use the durable communications outbox.
+            // The worker performs provider delivery and records retries/status;
+            // a webhook must never block on an SMS provider call.
+            $communication = (new \App\API\Modules\communications\CommunicationsManager($this->getDb()))
+                ->createCommunication([
+                    'sender_id' => 1,
+                    'subject' => 'Fee payment received',
+                    'body' => mb_substr($msg, 0, 160),
+                    'type' => 'sms',
+                    'status' => 'sent',
+                    'priority' => 'high',
+                    'recipients' => [$phone],
+                ]);
+            $sent = !empty($communication['id']);
+
+            $this->logWebhook(
+                'payment_sms',
+                [
+                    'to'             => $phone,
+                    'transaction_id' => $transactionId,
+                    'amount'         => $amount,
+                    'bill_ref'       => $ref,
+                    'message'        => $msg,
+                ],
+                $sent ? 'queued' : 'failed'
+            );
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] payment SMS failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Resolve the current term balance and the current academic year balance
+     * for a student from the vw_student_fee_balances view.
+     *
+     * @return array{0: float|null, 1: float|null}
+     */
+    private function getStudentFeeBalances(?int $studentId): array
+    {
+        if (!$studentId) {
+            return [null, null];
+        }
+        try {
+            $db = $this->getDb();
+            $current = $db->query(
+                "SELECT ayt.id AS ayt_id, ayt.academic_year_id AS ay_id
+                 FROM academic_year_terms ayt
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 WHERE ay.is_current = 1 AND ayt.status = 'current'
+                 LIMIT 1"
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$current) {
+                return [null, null];
+            }
+
+            $term = $db->prepare(
+                "SELECT balance FROM vw_student_fee_balances
+                 WHERE student_id = :sid AND academic_year_term_id = :ayt LIMIT 1"
+            );
+            $term->execute(['sid' => $studentId, 'ayt' => $current['ayt_id']]);
+            $termBalance = $term->fetchColumn();
+
+            $annual = $db->prepare(
+                "SELECT SUM(balance) FROM vw_student_fee_balances
+                 WHERE student_id = :sid AND academic_year_id = :ay"
+            );
+            $annual->execute(['sid' => $studentId, 'ay' => $current['ay_id']]);
+            $annualBalance = $annual->fetchColumn();
+
+            return [
+                $termBalance !== false ? (float) $termBalance : null,
+                $annualBalance !== false ? (float) $annualBalance : null,
+            ];
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] fee balance lookup failed: ' . $e->getMessage());
+            return [null, null];
+        }
+    }
+
+    // =========================================================================
+    // STK / C2B CALLBACK PROCESSING
+    // =========================================================================
+
+    /**
+     * Process an STK Push callback (Body.stkCallback). Used by the
+     * /api/payments/mpesa-stk-callback webhook endpoint.
      */
     public function processCallback($callbackData)
     {
         try {
-            $this->db->beginTransaction();
-
-            // Log raw callback
-            $this->logCallback($callbackData);
-
-            // Extract callback data
-            $stkCallback = $callbackData['Body']['stkCallback'] ?? null;
-            if (!$stkCallback) {
-                $this->db->rollBack();
-                return formatResponse(false, null, 'Invalid callback data');
+            $body = $callbackData['Body'] ?? $callbackData;
+            $stk = $body['stkCallback'] ?? null;
+            if (!$stk) {
+                return $this->respond(false, null, 'Invalid STK callback payload');
             }
 
-            $checkoutRequestId = $stkCallback['CheckoutRequestID'];
-            $resultCode = $stkCallback['ResultCode'];
-            $resultDesc = $stkCallback['ResultDesc'];
+            $checkoutId = $stk['CheckoutRequestID'] ?? null;
+            $resultCode = $stk['ResultCode'] ?? '1';
+            $resultDesc = $stk['ResultDesc'] ?? '';
 
-            // Update STK request status
-            $stmt = $this->db->prepare("
-                UPDATE mpesa_stk_requests 
-                SET status = ?, result_desc = ?, callback_data = ?, updated_at = NOW()
-                WHERE checkout_request_id = ?
-            ");
-            $stmt->execute([
-                $resultCode === 0 ? 'completed' : 'failed',
-                $resultDesc,
-                json_encode($callbackData),
-                $checkoutRequestId
-            ]);
-
-            // If payment successful, process it
-            if ($resultCode === 0) {
-                $callbackMetadata = $stkCallback['CallbackMetadata']['Item'] ?? [];
-
-                $amount = null;
-                $mpesaReceiptNumber = null;
-                $phoneNumber = null;
-                $transactionDate = null;
-
-                foreach ($callbackMetadata as $item) {
-                    if ($item['Name'] === 'Amount') {
-                        $amount = $item['Value'];
-                    }
-                    if ($item['Name'] === 'MpesaReceiptNumber') {
-                        $mpesaReceiptNumber = $item['Value'];
-                    }
-                    if ($item['Name'] === 'PhoneNumber') {
-                        $phoneNumber = $item['Value'];
-                    }
-                    if ($item['Name'] === 'TransactionDate') {
-                        $transactionDate = $item['Value'];
-                    }
-                }
-
-                // Get student from STK request
-                $stmt = $this->db->prepare("
-                    SELECT student_id, admission_number 
-                    FROM mpesa_stk_requests 
-                    WHERE checkout_request_id = ?
-                ");
-                $stmt->execute([$checkoutRequestId]);
-                $request = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($request) {
-                    // Get parent_id from student_parents relationship table
-                    $parentId = null;
-                    $parentStmt = $this->db->prepare("
-                        SELECT parent_id FROM student_parents 
-                        WHERE student_id = ? 
-                        LIMIT 1
-                    ");
-                    $parentStmt->execute([$request['student_id']]);
-                    $parentData = $parentStmt->fetch(PDO::FETCH_ASSOC);
-                    if ($parentData) {
-                        $parentId = $parentData['parent_id'];
-                    }
-
-                    // Process payment using stored procedure
-                    $stmt = $this->db->prepare("
-                        CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-
-                    $stmt->execute([
-                        $request['student_id'],     // p_student_id
-                        $parentId,                   // p_parent_id
-                        $amount,                     // p_amount_paid
-                        'mpesa',                     // p_payment_method
-                        $mpesaReceiptNumber,         // p_reference_no
-                        'MPESA-' . $mpesaReceiptNumber,  // p_receipt_no
-                        1,                           // p_received_by
-                        $this->formatTransactionDate($transactionDate),  // p_payment_date
-                        'M-Pesa Payment - ' . $request['admission_number']  // p_notes
+            if ((string) $resultCode === '0') {
+                $this->recordStkSuccess($checkoutId, $stk);
+                $this->logWebhook('mpesa_stk', $callbackData, 'processed');
+            } else {
+                try {
+                    $this->getDb()->prepare(
+                        "UPDATE mpesa_transactions
+                         SET status = 'failed', webhook_data = :webhook
+                         WHERE checkout_request_id = :checkout"
+                    )->execute([
+                        'webhook' => json_encode($callbackData),
+                        'checkout' => $checkoutId,
                     ]);
-
-                    // Get the payment ID
-                    $stmt = $this->db->prepare("
-                        SELECT id FROM payment_transactions 
-                        WHERE student_id = ? 
-                        ORDER BY created_at DESC LIMIT 1
-                    ");
-                    $stmt->execute([$request['student_id']]);
-                    $payment = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                    if ($payment) {
-                        // Record M-Pesa transaction details
-                        $stmt = $this->db->prepare("
-                            INSERT INTO mpesa_transactions (
-                                payment_id, transaction_id, phone_number, amount, 
-                                transaction_date, status, checkout_request_id
-                            ) VALUES (?, ?, ?, ?, ?, 'completed', ?)
-                        ");
-
-                        $stmt->execute([
-                            $payment['id'],
-                            $mpesaReceiptNumber,
-                            $phoneNumber,
-                            $amount,
-                            $this->formatTransactionDate($transactionDate),
-                            $checkoutRequestId
-                        ]);
-                    }
+                } catch (Exception $e) {
+                    error_log('[MpesaPaymentService] failed-status update: ' . $e->getMessage());
                 }
+                $this->logWebhook('mpesa_stk', $callbackData, 'failed');
             }
 
-            $this->db->commit();
-
-            return formatResponse(true, [
-                'message' => 'Callback processed successfully',
+            return $this->respond(true, [
+                'checkout_request_id' => $checkoutId,
                 'result_code' => $resultCode,
-                'result_desc' => $resultDesc
-            ]);
-
+                'result_desc' => $resultDesc,
+            ], 'STK callback processed');
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            error_log("M-Pesa Callback Error: " . $e->getMessage());
-            return formatResponse(false, null, 'Failed to process callback: ' . $e->getMessage());
+            error_log('[MpesaPaymentService] processCallback error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Format M-Pesa transaction date
-     */
-    private function formatTransactionDate($transactionDate)
-    {
-        // Format: YYYYMMDDHHmmss to Y-m-d H:i:s
-        if (strlen($transactionDate) === 14) {
-            return substr($transactionDate, 0, 4) . '-' .
-                substr($transactionDate, 4, 2) . '-' .
-                substr($transactionDate, 6, 2) . ' ' .
-                substr($transactionDate, 8, 2) . ':' .
-                substr($transactionDate, 10, 2) . ':' .
-                substr($transactionDate, 12, 2);
-        }
-        return date('Y-m-d H:i:s');
-    }
-
-    /**
-     * Log callback data
-     */
-    private function logCallback($callbackData)
-    {
-        try {
-            $logFile = __DIR__ . '/../../../../logs/mpesa_callbacks.log';
-            $logDir = dirname($logFile);
-
-            $storage = new \App\API\Services\UploadService();
-            $storage->ensureDirectoryPath($logDir);
-
-            $timestamp = date('Y-m-d H:i:s');
-            $logEntry = "[$timestamp] " . json_encode($callbackData, JSON_PRETTY_PRINT) . "\n\n";
-
-            $storage->writeFile($logFile, $logEntry, FILE_APPEND);
-
-        } catch (Exception $e) {
-            error_log("Failed to log M-Pesa callback: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * Query STK Push transaction status
-     * @param string $checkoutRequestId Checkout Request ID
-     * @return array Response
-     */
-    public function queryTransactionStatus($checkoutRequestId)
-    {
-        try {
-            $accessToken = $this->getAccessToken();
-            if (!$accessToken) {
-                return formatResponse(false, null, 'Failed to get access token');
-            }
-
-            $timestamp = date('YmdHis');
-            $password = base64_encode($this->businessShortCode . $this->passkey . $timestamp);
-
-            $url = $this->environment === 'production'
-                ? 'https://api.safaricom.co.ke/mpesa/stkpushquery/v1/query'
-                : 'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query';
-
-            $curl = curl_init($url);
-            curl_setopt($curl, CURLOPT_HTTPHEADER, [
-                'Content-Type:application/json',
-                'Authorization:Bearer ' . $accessToken
-            ]);
-
-            $requestData = [
-                'BusinessShortCode' => $this->businessShortCode,
-                'Password' => $password,
-                'Timestamp' => $timestamp,
-                'CheckoutRequestID' => $checkoutRequestId
-            ];
-
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($curl, CURLOPT_POST, true);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($requestData));
-
-            $response = curl_exec($curl);
-            curl_close($curl);
-
-            $responseData = json_decode($response, true);
-
-            return formatResponse(true, $responseData);
-
-        } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to query status: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Register C2B URLs with M-Pesa
-     * This must be called before customers can pay via paybill
-     * 
-     * @param string $validationURL URL for validating payments
-     * @param string $confirmationURL URL for confirming successful payments
-     * @param string $responseType 'Completed' or 'Cancelled' - determines if validation is required
-     * @return array Registration response
-     */
-    public function registerC2BUrls($validationURL, $confirmationURL, $responseType = 'Completed')
-    {
-        try {
-            $accessToken = $this->getAccessToken();
-            if (!$accessToken) {
-                return formatResponse(false, null, 'Failed to get access token');
-            }
-
-            $url = $this->environment === 'production'
-                ? 'https://api.safaricom.co.ke/mpesa/c2b/v1/registerurl'
-                : 'https://sandbox.safaricom.co.ke/mpesa/c2b/v1/registerurl';
-
-            $curl = curl_init($url);
-            curl_setopt($curl, CURLOPT_HTTPHEADER, [
-                'Content-Type:application/json',
-                'Authorization:Bearer ' . $accessToken
-            ]);
-
-            $requestData = [
-                'ShortCode' => $this->businessShortCode,
-                'ResponseType' => $responseType, // 'Completed' = no validation, 'Cancelled' = requires validation
-                'ConfirmationURL' => $confirmationURL,
-                'ValidationURL' => $validationURL
-            ];
-
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($curl, CURLOPT_POST, true);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($requestData));
-
-            $response = curl_exec($curl);
-            $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-            curl_close($curl);
-
-            $result = json_decode($response, true);
-
-            // Log registration attempt
-            $this->logC2BRegistration($validationURL, $confirmationURL, $responseType, $result, $httpCode);
-
-            return formatResponse(true, $result);
-        } catch (Exception $e) {
-            return formatResponse(false, null, 'C2B URL registration failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Validate C2B payment before M-Pesa completes it
-     * This is called by M-Pesa ValidationURL
-     * 
-     * @param array $callbackData Data from M-Pesa validation request
-     * @return array Validation response (Accept or Reject)
+     * C2B Validation URL handler — returns the expected validation result.
      */
     public function validateC2BPayment($callbackData)
     {
         try {
-            // Extract data from callback
-            $transAmount = $callbackData['TransAmount'] ?? 0;
-            $billRefNumber = $callbackData['BillRefNumber'] ?? null; // This is the admission number
+            $this->logWebhook('mpesa_c2b_validation', $callbackData, 'validated');
+            $transId = $callbackData['TransID'] ?? $callbackData['TransactionID'] ?? null;
+            $accountReference = trim((string) ($callbackData['BillRefNumber'] ?? $callbackData['AccountReference'] ?? ''));
+            $amount = (float) ($callbackData['TransAmount'] ?? $callbackData['Amount'] ?? 0);
 
-            // Log validation request
-            $this->logC2BValidation($callbackData);
-
-            // Validate admission number exists
-            if (empty($billRefNumber)) {
-                return [
-                    'ResultCode' => 'C2B00012',
-                    'ResultDesc' => 'Account number is required'
-                ];
+            if (empty($transId) && empty($callbackData)) {
+                return ['ResultCode' => 'C2B00011', 'ResultDesc' => 'Invalid validation request'];
             }
 
-            $stmt = $this->db->prepare("SELECT id, first_name, last_name FROM students WHERE admission_no = ? AND status = 'active'");
-            $stmt->execute([$billRefNumber]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$student) {
-                return [
-                    'ResultCode' => 'C2B00011',
-                    'ResultDesc' => 'Invalid account number: ' . $billRefNumber
-                ];
+            if ($accountReference === '' || $amount <= 0 || !$this->resolvePaymentAccount($accountReference)) {
+                return ['ResultCode' => 'C2B00016', 'ResultDesc' => 'Invalid account reference'];
             }
 
-            // Validate amount (must be positive)
-            if ($transAmount <= 0) {
-                return [
-                    'ResultCode' => 'C2B00013',
-                    'ResultDesc' => 'Invalid amount'
-                ];
-            }
-
-            // All validations passed
-            return [
-                'ResultCode' => '0',
-                'ResultDesc' => 'Accepted'
-            ];
+            return ['ResultCode' => '0', 'ResultDesc' => 'Success'];
         } catch (Exception $e) {
-            error_log("C2B validation error: " . $e->getMessage());
-            return [
-                'ResultCode' => 'C2B00016',
-                'ResultDesc' => 'System error during validation'
-            ];
+            error_log('[MpesaPaymentService] validateC2BPayment error: ' . $e->getMessage());
+            return ['ResultCode' => 'C2B00011', 'ResultDesc' => 'System error'];
         }
     }
 
+    /** Resolve both official learner accounts and pre-placement applicant accounts. */
+    private function resolvePaymentAccount(string $reference): ?array
+    {
+        $reference = trim($reference);
+        if ($reference === '') return null;
+
+        $db = $this->getDb();
+        $student = $db->prepare(
+            "SELECT s.id AS student_id, sp.parent_id, s.admission_no
+             FROM students s
+             LEFT JOIN student_parents sp ON sp.student_id = s.id
+             WHERE s.admission_no = :reference
+             LIMIT 1"
+        );
+        $student->execute(['reference' => $reference]);
+        $studentRow = $student->fetch(PDO::FETCH_ASSOC);
+        if ($studentRow) {
+            return ['type' => 'student'] + $studentRow;
+        }
+
+        $application = $db->prepare(
+            "SELECT id AS application_id, parent_id, application_no, status, enrolled_student_id
+             FROM admission_applications
+             WHERE application_no = :reference
+               AND status NOT IN ('cancelled', 'rejected')
+             LIMIT 1"
+        );
+        $application->execute(['reference' => $reference]);
+        $applicationRow = $application->fetch(PDO::FETCH_ASSOC);
+        return $applicationRow ? ['type' => 'application'] + $applicationRow : null;
+    }
+
     /**
-     * Process C2B confirmation callback from M-Pesa
-     * This is called after a successful payment
-     * 
-     * @param array $callbackData Data from M-Pesa confirmation request
-     * @return array Confirmation response
+     * C2B Confirmation URL handler — records a fully-credited incoming C2B
+     * payment against the live schema.
      */
     public function processC2BConfirmation($callbackData)
     {
         try {
-            $this->db->beginTransaction();
+            $transId = $callbackData['TransID'] ?? '';
+            $admissionNo = $callbackData['BillRefNumber'] ?? '';
+            $amount = (float) ($callbackData['TransAmount'] ?? 0);
 
-            // Extract data from callback
-            $transID = $callbackData['TransID'] ?? null;
-            $transTime = $callbackData['TransTime'] ?? null;
-            $transAmount = $callbackData['TransAmount'] ?? 0;
-            $billRefNumber = $callbackData['BillRefNumber'] ?? null; // Admission number
-            $msisdn = $callbackData['MSISDN'] ?? null;
-            $firstName = $callbackData['FirstName'] ?? '';
-            $middleName = $callbackData['MiddleName'] ?? '';
-            $lastName = $callbackData['LastName'] ?? '';
-            $orgAccountBalance = $callbackData['OrgAccountBalance'] ?? null;
-            $thirdPartyTransID = $callbackData['ThirdPartyTransID'] ?? null;
+            if ($transId === '' || $amount <= 0) {
+                $this->logWebhook('mpesa_c2b_confirmation', $callbackData, 'failed');
+                return $this->respond(false, null, 'Missing required fields', 400);
+            }
 
-            // Log confirmation request
-            $this->logC2BConfirmation($callbackData);
+            $this->recordC2BConfirmation($callbackData, $transId, $admissionNo, $amount);
+            $this->logWebhook('mpesa_c2b_confirmation', $callbackData, 'processed');
 
-            // Get student ID
-            $stmt = $this->db->prepare("SELECT id FROM students WHERE admission_no = ?");
-            $stmt->execute([$billRefNumber]);
+            return $this->respond(true, [
+                'mpesa_code' => $transId,
+                'amount' => $amount,
+            ], 'C2B confirmation processed');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] processC2BConfirmation error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Record a C2B confirmation into mpesa_transactions (idempotent on
+     * mpesa_code). Actual fee allocation lives in PaymentsAPI which calls
+     * sp_process_student_payment — the row must exist first.
+     */
+    public function recordC2BConfirmation(array $callbackData, string $transId, string $admissionNo, float $amount): int
+    {
+        $db = $this->getDb();
+        $studentId = null;
+        try {
+            $stmt = $db->prepare("SELECT id FROM students WHERE admission_no = :adm LIMIT 1");
+            $stmt->execute(['adm' => $admissionNo]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
+            $studentId = $student ? (int) $student['id'] : null;
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] C2B student lookup: ' . $e->getMessage());
+        }
 
-            if (!$student) {
-                $this->db->rollBack();
-                throw new Exception("Student not found: " . $billRefNumber);
-            }
+        $date = $this->client->formatTransactionDate((string) ($callbackData['TransTime'] ?? ''));
 
-            $student_id = $student['id'];
+        $stmt = $db->prepare(
+            "INSERT INTO mpesa_transactions
+                (mpesa_code, student_id, amount, transaction_date, phone_number,
+                 first_name, middle_name, last_name, org_account_balance,
+                 third_party_trans_id, bill_ref_number, status, transaction_type,
+                 raw_callback, webhook_data, created_at)
+             VALUES (:code, :sid, :amount, :tdate, :phone, :fname, :mname, :lname,
+                     :orgbal, :thirdparty, :billref, 'processed', 'C2B',
+                     :raw, :webhook, NOW())
+             ON DUPLICATE KEY UPDATE status = 'processed',
+                 webhook_data = VALUES(webhook_data)"
+        );
+        $stmt->execute([
+            'code'       => $transId,
+            'sid'        => $studentId,
+            'amount'     => $amount,
+            'tdate'      => $date,
+            'phone'      => $callbackData['MSISDN'] ?? null,
+            'fname'      => $callbackData['FirstName'] ?? null,
+            'mname'      => $callbackData['MiddleName'] ?? null,
+            'lname'      => $callbackData['LastName'] ?? null,
+            'orgbal'     => isset($callbackData['OrgAccountBalance']) ? (float) $callbackData['OrgAccountBalance'] : null,
+            'thirdparty' => $callbackData['ThirdPartyTransID'] ?? null,
+            'billref'    => $admissionNo,
+            'raw'        => json_encode($callbackData),
+            'webhook'    => json_encode($callbackData),
+        ]);
 
-            // Convert transaction time (format: YYYYMMDDHHmmss to Y-m-d H:i:s)
-            $transactionDate = $this->formatTransactionDate($transTime);
+        $newId = (int) $db->lastInsertId();
 
-            // Check for duplicate transaction
-            $stmt = $this->db->prepare("SELECT id FROM mpesa_transactions WHERE mpesa_code = ?");
-            $stmt->execute([$transID]);
-            if ($stmt->fetch()) {
-                $this->db->rollBack();
-                error_log("Duplicate C2B transaction: " . $transID);
-                return [
-                    'ResultCode' => '0',
-                    'ResultDesc' => 'Duplicate transaction already processed'
-                ];
-            }
+        // rowCount() is 1 on fresh insert, 2 on duplicate-key update; only
+        // notify the payer the first time the money is credited.
+        if ($stmt->rowCount() === 1) {
+            $this->sendPaymentConfirmationSms($newId);
+        }
 
-            // Record in mpesa_transactions table
-            $stmt = $this->db->prepare("
-                INSERT INTO mpesa_transactions 
-                (mpesa_code, student_id, amount, transaction_date, phone_number, status, raw_callback, transaction_type, first_name, middle_name, last_name, org_account_balance, third_party_trans_id)
-                VALUES (?, ?, ?, ?, ?, 'processed', ?, 'C2B', ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
-                $transID,
-                $student_id,
-                $transAmount,
-                $transactionDate,
-                $msisdn,
-                json_encode($callbackData),
-                $firstName,
-                $middleName,
-                $lastName,
-                $orgAccountBalance,
-                $thirdPartyTransID
-            ]);
+        return $newId;
+    }
 
-            // Get parent_id from student_parents relationship table
-            $parentId = null;
-            $parentStmt = $this->db->prepare("
-                SELECT parent_id FROM student_parents 
-                WHERE student_id = ? 
-                LIMIT 1
-            ");
-            $parentStmt->execute([$student_id]);
-            $parentData = $parentStmt->fetch(PDO::FETCH_ASSOC);
-            if ($parentData) {
-                $parentId = $parentData['parent_id'];
-            }
+    // =========================================================================
+    // C2B REGISTER + SIMULATE
+    // =========================================================================
 
-            // Use stored procedure to process the payment
-            $stmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $student_id,                    // p_student_id
-                $parentId,                      // p_parent_id
-                $transAmount,                   // p_amount_paid
-                'mpesa',                        // p_payment_method
-                $transID,                       // p_reference_no
-                'MPESA-' . $transID,            // p_receipt_no
-                1,                              // p_received_by (default user)
-                date('Y-m-d H:i:s'),            // p_payment_date
-                'M-Pesa C2B Payment'            // p_notes
-            ]);
-
-            $this->db->commit();
-
-            // Log success
-            error_log("C2B payment processed successfully: TransID={$transID}, Student={$billRefNumber}, Amount={$transAmount}");
-
-            return [
-                'ResultCode' => '0',
-                'ResultDesc' => 'Payment processed successfully'
+    /**
+     * Register C2B validation/confirmation URLs.
+     */
+    public function registerC2BUrls($validationURL, $confirmationURL, $responseType = 'Completed')
+    {
+        try {
+            $payload = [
+                'ShortCode'         => $this->client->getShortcode(),
+                'ResponseType'      => $responseType,
+                'ConfirmationURL'   => $confirmationURL,
+                'ValidationURL'     => $validationURL,
             ];
-        } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
+
+            $response = $this->client->post('/mpesa/c2b/v1/registerurl', $payload);
+            $this->logWebhook('mpesa_c2b_confirmation', [
+                'operation' => 'register_urls',
+                'request' => $payload,
+                'response' => $response,
+            ], 'received');
+
+            if (($response['ResponseDescription'] ?? '') === 'Success') {
+                return $this->respond(true, $response, 'C2B URLs registered');
             }
-            error_log("C2B confirmation error: " . $e->getMessage());
-            return [
-                'ResultCode' => '1',
-                'ResultDesc' => 'Payment processing failed'
+            return $this->respond(false, $response, $response['ResponseDescription'] ?? 'Registration failed');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] registerC2BUrls error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * C2B simulate (sandbox only) — fires a fake C2B transaction so the
+     * confirmation callback fires with a realistic payload.
+     */
+    public function simulateC2B($amount, $msisdn, $billRefNumber, $commandId = 'CustomerPayBillOnline')
+    {
+        try {
+            $payload = [
+                'ShortCode'     => $this->client->getShortcode(),
+                'CommandID'     => $commandId,
+                'Amount'        => (int) $amount,
+                'Msisdn'        => $msisdn,
+                'BillRefNumber' => $billRefNumber,
             ];
+            $response = $this->client->post('/mpesa/c2b/v1/simulate', $payload);
+
+            if (($response['ResponseCode'] ?? '1') === '0') {
+                try {
+                    $code = 'C2B-' . bin2hex(random_bytes(6));
+                    $this->getDb()->prepare(
+                        "INSERT INTO mpesa_transactions
+                            (mpesa_code, amount, transaction_date, phone_number,
+                             bill_ref_number, status, transaction_type, webhook_data, created_at)
+                         VALUES (:code, :amount, NOW(), :phone, :billref, 'pending', 'C2B', :webhook, NOW())
+                         ON DUPLICATE KEY UPDATE webhook_data = VALUES(webhook_data)"
+                    )->execute([
+                        'code' => $code,
+                        'amount' => (float) $amount,
+                        'phone' => $msisdn,
+                        'billref' => $billRefNumber,
+                        'webhook' => json_encode($response),
+                    ]);
+                } catch (Exception $e) {
+                    error_log('[MpesaPaymentService] simulate log: ' . $e->getMessage());
+                }
+            }
+
+            return $this->respond(($response['ResponseCode'] ?? '1') === '0', $response, $response['ResponseDescription'] ?? 'C2B simulate failed');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] simulateC2B error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
+    // =========================================================================
+    // TRANSACTION STATUS, BALANCE, REVERSAL, QR, B2B
+    // =========================================================================
+
     /**
-     * Log C2B URL registration attempt
+     * Official Transaction Status API — query a completed transaction by its
+     * M-Pesa receipt/transaction ID.
      */
-    private function logC2BRegistration($validationURL, $confirmationURL, $responseType, $result, $httpCode)
+    public function queryOfficialTransactionStatus($transactionId, string $remarks = 'status query', string $occasion = 'status')
     {
         try {
-            $stmt = $this->db->prepare("
-                INSERT INTO c2b_url_registrations 
-                (validation_url, confirmation_url, response_type, registration_response, http_code, created_at)
-                VALUES (?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $validationURL,
-                $confirmationURL,
-                $responseType,
-                json_encode($result),
-                $httpCode
-            ]);
+            if (!$transactionId) {
+                return $this->respond(false, null, 'TransactionID is required');
+            }
+            $payload = [
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'TransactionStatusQuery',
+                'TransactionID'      => $transactionId,
+                'PartyA'             => $this->client->getShortcode(),
+                'IdentifierType'     => 4,
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'Remarks'            => $remarks,
+                'Occasion'           => $occasion,
+            ];
+            $response = $this->client->post('/mpesa/transactionstatus/v1/query', $payload);
+            return $this->respond(true, $response, 'Transaction status queried');
         } catch (Exception $e) {
-            error_log("Failed to log C2B registration: " . $e->getMessage());
+            error_log('[MpesaPaymentService] transaction status error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Log C2B validation request
+     * Account Balance API.
      */
-    private function logC2BValidation($callbackData)
+    public function queryAccountBalance(string $remarks = 'balance query', string $occasion = 'balance')
     {
         try {
-            $stmt = $this->db->prepare("
-                INSERT INTO c2b_validation_log 
-                (trans_id, trans_time, trans_amount, business_short_code, bill_ref_number, msisdn, validation_data, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $callbackData['TransID'] ?? null,
-                $callbackData['TransTime'] ?? null,
-                $callbackData['TransAmount'] ?? 0,
-                $callbackData['BusinessShortCode'] ?? null,
-                $callbackData['BillRefNumber'] ?? null,
-                $callbackData['MSISDN'] ?? null,
-                json_encode($callbackData)
-            ]);
+            $payload = [
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'AccountBalance',
+                'PartyA'             => $this->client->getShortcode(),
+                'IdentifierType'     => 4,
+                'Remarks'            => $remarks,
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
+            ];
+            $response = $this->client->post('/mpesa/accountbalance/v1/query', $payload);
+            return $this->respond(true, $response, 'Account balance queried');
         } catch (Exception $e) {
-            error_log("Failed to log C2B validation: " . $e->getMessage());
+            error_log('[MpesaPaymentService] account balance error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Log C2B confirmation request
+     * Transaction Reversal API.
      */
-    private function logC2BConfirmation($callbackData)
+    public function requestReversal(string $transactionId, float $amount, string $receiverParty, string $remarks = 'reversal', string $occasion = 'reversal')
     {
         try {
-            $stmt = $this->db->prepare("
-                INSERT INTO c2b_confirmation_log 
-                (trans_id, trans_time, trans_amount, business_short_code, bill_ref_number, msisdn, confirmation_data, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-            ");
-            $stmt->execute([
-                $callbackData['TransID'] ?? null,
-                $callbackData['TransTime'] ?? null,
-                $callbackData['TransAmount'] ?? 0,
-                $callbackData['BusinessShortCode'] ?? null,
-                $callbackData['BillRefNumber'] ?? null,
-                $callbackData['MSISDN'] ?? null,
-                json_encode($callbackData)
-            ]);
+            if (!$transactionId || $amount <= 0) {
+                return $this->respond(false, null, 'TransactionID and positive amount are required');
+            }
+            $payload = [
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'TransactionReversal',
+                'TransactionID'      => $transactionId,
+                'Amount'             => (int) $amount,
+                'ReceiverParty'      => $receiverParty,
+                'RecieverIdentifierType' => 11,
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'Remarks'            => $remarks,
+                'Occasion'           => $occasion,
+            ];
+            $response = $this->client->post('/mpesa/reversal/v1/request', $payload);
+            return $this->respond(true, $response, 'Reversal request submitted');
         } catch (Exception $e) {
-            error_log("Failed to log C2B confirmation: " . $e->getMessage());
+            error_log('[MpesaPaymentService] reversal error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
     }
 
     /**
-     * Validate admission number
-     * 
-     * Called by C2B validation endpoint to check if admission number exists.
-     * 
-     * @param string $admissionNumber Student admission number
-     * @return array ['valid' => bool, 'student' => array|null, 'message' => string]
+     * Dynamic QR API. Defaults to a pay-bill QR (TrxCode "PB").
+     */
+    public function generateDynamicQR(string $merchantName, string $refNo, float $amount, string $cpi, string $trxCode = 'PB', string $merchantId = '', string $size = '200')
+    {
+        try {
+            $payload = [
+                'MerchantName' => $merchantName,
+                'RefNo'        => $refNo,
+                'Amount'       => (int) $amount,
+                'TrxCode'      => $trxCode,
+                'CPI'          => $cpi,
+                'Size'         => $size,
+                'MerchantID'   => $merchantId,
+                'Type'         => 'dynamic',
+            ];
+            $response = $this->client->post('/mpesa/qrcode/v1/generate', $payload);
+            return $this->respond(true, $response, 'QR generated');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] QR error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * B2B remittance (business-to-business funds transfer), official
+     * CommandID "BusinessPayBill".
+     */
+    public function b2bRemitTax(float $amount, string $receiverShortcode, string $accountReference, string $remarks = 'B2B payment')
+    {
+        try {
+            $payload = [
+                'Initiator'          => $this->client->getInitiatorName(),
+                'SecurityCredential' => $this->client->securityCredential(),
+                'CommandID'          => 'BusinessPayBill',
+                'SenderIdentifierType'   => 4,
+                'RecieverIdentifierType' => 4,
+                'Amount'             => (int) $amount,
+                'PartyA'             => $this->client->getShortcode(),
+                'PartyB'             => $receiverShortcode,
+                'AccountReference'   => $accountReference,
+                'Remarks'            => $remarks,
+                'QueueTimeOutURL'    => $this->callbackUrl('/api/payments/mpesa-result'),
+                'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
+            ];
+            $response = $this->client->post('/mpesa/b2b/v1/paymentrequest', $payload);
+            return $this->respond(true, $response, 'B2B payment submitted');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] B2B error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
+        }
+    }
+
+    // =========================================================================
+    // DB QUERIES (live schema)
+    // =========================================================================
+
+    /**
+     * Look up a student by admission number.
      */
     public function validateAdmissionNumber($admissionNumber)
     {
-        $query = "
-            SELECT 
-                s.id,
-                s.admission_number,
-                s.first_name,
-                s.last_name,
-                s.status,
-                COALESCE(sfb.balance, 0) as current_balance
-            FROM students s
-            LEFT JOIN student_fee_balances sfb ON s.id = sfb.student_id
-            WHERE s.admission_number = :admission_number
-            LIMIT 1
-        ";
-
-        $stmt = $this->db->prepare($query);
-        $stmt->execute(['admission_number' => $admissionNumber]);
-        $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$student) {
-            return [
-                'valid' => false,
-                'student' => null,
-                'message' => "Admission number {$admissionNumber} not found"
-            ];
+        try {
+            $stmt = $this->getDb()->prepare(
+                "SELECT s.id, s.admission_no, s.status,
+                        CONCAT(p.first_name, ' ', COALESCE(p.middle_name, ''), ' ', p.last_name) AS full_name
+                 FROM students s
+                 LEFT JOIN persons p ON p.id = s.person_id
+                 WHERE s.admission_no = :adm LIMIT 1"
+            );
+            $stmt->execute(['adm' => $admissionNumber]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$student) {
+                return $this->respond(false, null, 'Invalid admission number');
+            }
+            return $this->respond(true, $student, 'Student found');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] validateAdmissionNumber error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
         }
-
-        if (!in_array($student['status'], ['active', 'enrolled'])) {
-            return [
-                'valid' => false,
-                'student' => $student,
-                'message' => "Student account is {$student['status']}"
-            ];
-        }
-
-        return [
-            'valid' => true,
-            'student' => $student,
-            'message' => "Valid admission number"
-        ];
     }
 
     /**
-     * Get recent payments by admission number
-     * 
-     * @param string $admissionNumber Student admission number
-     * @param int $limit Number of records to retrieve
-     * @return array List of recent payments
+     * Recent M-Pesa transactions for an admission number.
      */
     public function getPaymentsByAdmission($admissionNumber, $limit = 10)
     {
-        $query = "
-            SELECT 
-                mt.id,
-                mt.mpesa_code,
-                mt.amount,
-                mt.transaction_date,
-                mt.phone_number,
-                mt.status,
-                s.admission_number,
-                s.first_name,
-                s.last_name
-            FROM mpesa_transactions mt
-            INNER JOIN students s ON mt.student_id = s.id
-            WHERE s.admission_number = :admission_number
-            ORDER BY mt.transaction_date DESC
-            LIMIT :limit
-        ";
+        try {
+            $stmt = $this->getDb()->prepare(
+                "SELECT mpesa_code, amount, transaction_date, phone_number,
+                        bill_ref_number, status, transaction_type, checkout_request_id
+                 FROM mpesa_transactions
+                 WHERE bill_ref_number = :bill_ref OR student_id IN (
+                     SELECT id FROM students WHERE admission_no = :adm
+                 )
+                 ORDER BY transaction_date DESC
+                 LIMIT " . (int) $limit
+            );
+            $stmt->execute([
+                'bill_ref' => $admissionNumber,
+                'adm'      => $admissionNumber,
+            ]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return $this->respond(true, ['transactions' => $rows], 'Transactions retrieved');
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] getPaymentsByAdmission error: ' . $e->getMessage());
+            return $this->respond(false, null, 'An internal error occurred.', 500);
+        }
+    }
 
-        $stmt = $this->db->prepare($query);
-        $stmt->bindValue(':admission_number', $admissionNumber, PDO::PARAM_STR);
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    /**
+     * Append a webhook entry to payment_webhooks_log (audit trail).
+     */
+    public function logWebhook(string $source, array $data, string $status = 'received', bool $signatureVerified = false, ?string $ip = null): void
+    {
+        try {
+            $allowed = ['mpesa_stk', 'mpesa_c2b_validation', 'mpesa_c2b_confirmation', 'mpesa_b2c', 'mpesa_result', 'kcb_bank', 'generic_bank', 'payment_sms'];
+            if (!in_array($source, $allowed, true)) {
+                $source = 'generic_bank';
+            }
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => $source,
+                'webhook_data' => $data,
+                'status' => $status,
+                'signature_verified' => $signatureVerified ? 1 : 0,
+                'ip' => $ip,
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? null,
+            ]);
+        } catch (Exception $e) {
+            error_log('[MpesaPaymentService] logWebhook error: ' . $e->getMessage());
+        }
     }
 }

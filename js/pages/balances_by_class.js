@@ -16,6 +16,7 @@ const BalancesByClassController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -32,8 +33,8 @@ const BalancesByClassController = {
         window.API.academic.listYears(),
       ]);
 
-      const classes = classesRes?.success ? classesRes.data || [] : (classesRes?.data || []);
-      const years = yearsRes?.success ? yearsRes.data || [] : (yearsRes?.data || []);
+      const classes = classesRes || [];
+      const years = yearsRes || [];
 
       this.state.classes = Array.isArray(classes) ? classes : [];
       this.state.academicYears = Array.isArray(years) ? years : [];
@@ -121,8 +122,8 @@ const BalancesByClassController = {
           : window.API.academic.getCustom({ action: 'class-balances' }),
       ]);
 
-      const classes = classesRes?.success ? classesRes.data || [] : (classesRes?.data || []);
-      const paymentPayload = paymentRes?.success ? paymentRes.data || [] : (paymentRes?.data || paymentRes || []);
+      const classes = classesRes || [];
+      const paymentPayload = paymentRes || [];
       const payments = Array.isArray(paymentPayload)
         ? paymentPayload
         : (paymentPayload?.items || paymentPayload?.data || []);
@@ -540,9 +541,9 @@ function renderBillingHistoryModal(data) {
   contentEl.innerHTML = html;
 }
 
-BalancesByClassController.printBillingStatement = function printBillingStatement() {
+BalancesByClassController.printBillingStatement = async function printBillingStatement() {
   if (!this.state.selectedStudentBilling || this.state.selectedStudentBilling.length === 0) {
-    alert('No billing data to print');
+    await window.infoDialog('Notice', 'No billing data to print');
     return;
   }
 

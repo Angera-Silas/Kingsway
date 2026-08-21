@@ -21,3 +21,42 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{REQUEST_URI} !^/Kingsway/api/
 RewriteRule ^(.*)$ index.php?page=$1 [L,QSA]
+
+
+
+ Current business flows:
+
+   Area          Current flow
+  ━━━━━━━━━━━━  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Fees          Fee obligations → calculated statement/balance → Daraja STK, Buni Express, bank/IPN, or cash → payments → corrected balance
+                 view → receipt/statement
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   M-Pesa        STK/C2B callback → idempotent mpesa_transactions → sp_process_student_payment → parent confirmation queued
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   KCB bank      IPN → RSA verification → bank_transactions → payment procedure → balance update
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Payroll       Draft → calculate deductions → approve → payslip → M-Pesa B2C or KCB Funds Transfer → callback updates disbursement/payslip
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   P9            Generated through sp_generate_p9_form; this is local reporting, not KRA submission
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Vendors       Supplier/PO/expense approval exists, but supplier disbursement is not yet connected to KCB Funds Transfer
+  ────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Statements    Parent portal already reads fee balances, obligations, payment history, and downloadable statements
+
+  The remaining production gaps are:
+
+  1. The parent portal still needs a provider selector for Daraja versus Buni Express.
+  2. KCB bank-payment confirmations need the same SMS/WhatsApp outbox notification currently implemented for M-Pesa.
+  3. Payment receipts and statements should be automatically attached or linked in the notification.
+  4. Supplier/vendor payments need a dedicated disbursement workflow using the normalized supplier bank-account data.
+  5. Tax remittances require a separate statutory-payment workflow; P9 generation alone does not pay PAYE, NSSF, SHIF, or housing levy.
+  6. Configure the real KCB-issued values:
+      - KCB_COMPANY_CODE
+      - KCB_DEBIT_ACCOUNT
+      - KCB_COLLECTION_ACCOUNT_IDENTIFIER
+      - KCB public verification key
+
+
+
+
+

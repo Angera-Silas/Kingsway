@@ -132,10 +132,10 @@ $roleCategory = 'viewer';
                         <table class="table table-sm" id="leaveHistoryTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>From</th>
-                                    <th>To</th>
-                                    <th>Reason</th>
-                                    <th>Status</th>
+                                    <th scope="col">From</th>
+                                    <th scope="col">To</th>
+                                    <th scope="col">Reason</th>
+                                    <th scope="col">Status</th>
                                 </tr>
                             </thead>
                             <tbody>

@@ -76,7 +76,8 @@ final class SystemAdministrationController extends BaseController
             $key = trim((string)($data['key'] ?? $_GET['key'] ?? ''));
             return $this->success($this->service->resource($key, $data));
         } catch (Throwable $e) {
-            return $this->badRequest($e->getMessage());
+            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->badRequest('An internal error occurred.');
         }
     }
 
@@ -97,8 +98,9 @@ final class SystemAdministrationController extends BaseController
             $this->audit($recordId ? 'update' : 'create', $key, (int)($result['id'] ?? 0), ['fields' => array_keys($record)]);
             return $recordId ? $this->success($result, 'Record updated') : $this->created($result, 'Record created');
         } catch (Throwable $e) {
-            $this->audit('save_failed', (string)($data['key'] ?? 'system'), null, ['error' => $e->getMessage()], 'failure');
-            return $this->unprocessable($e->getMessage());
+            $this->audit('save_failed', (string)($data['key'] ?? 'system'), null, ['error' => 'An internal error occurred.'], 'failure');
+            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->unprocessable('An internal error occurred.');
         }
     }
 
@@ -118,7 +120,8 @@ final class SystemAdministrationController extends BaseController
             $this->audit('delete', $key, $recordId);
             return $this->success(null, 'Record deleted');
         } catch (Throwable $e) {
-            return $this->unprocessable($e->getMessage());
+            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->unprocessable('An internal error occurred.');
         }
     }
 
@@ -137,7 +140,8 @@ final class SystemAdministrationController extends BaseController
             $this->audit($action, $resource, isset($payload['id']) ? (int)$payload['id'] : null, $payload);
             return $this->success($result, 'Action completed');
         } catch (Throwable $e) {
-            return $this->unprocessable($e->getMessage());
+            error_log('[SystemAdministrationController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->unprocessable('An internal error occurred.');
         }
     }
 }

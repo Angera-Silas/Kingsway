@@ -1,5 +1,4 @@
-document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.teaching_assignments.view'); });
-c/**
+/**
  * Assign Subjects to Teachers Page Controller
  * Manages teacher-subject-class assignment workflow
  */
@@ -42,12 +41,12 @@ const AssignSubjectsController = (() => {
     async function loadReferenceData() {
         try {
             const [teacherResp, subjectResp, classResp] = await Promise.all([
-                // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+                // Reference data: network-first with a 1 h offline fallback (freshness wins).
                 DataStore.fetchPage('teachers', {
                   endpoint: '/staff/teachers', storeName: 'reference_teachers',
                   ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
                 }).catch(() => []),
-                // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+                // Reference data: network-first with a 5 min offline fallback (freshness wins).
                 DataStore.fetchPage('subjects', {
                   endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
                   ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
@@ -204,7 +203,7 @@ const AssignSubjectsController = (() => {
     }
 
     async function remove(id) {
-        if (!confirm('Remove this assignment?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Remove this assignment?', { confirmText: 'Delete', danger: true }))) return;
         try {
             await window.API.apiCall(`/academic/subject-assignments/${id}`, 'DELETE');
             showNotification('Assignment removed', 'success');
@@ -214,10 +213,7 @@ const AssignSubjectsController = (() => {
         }
     }
 
-    function showNotification(message, type) {
-        if (window.API?.showNotification) window.API.showNotification(message, type);
-        else alert((type === 'error' ? 'Error: ' : '') + message);
-    }
+    function showNotification(message, type) { window.showNotification(message, type); }
 
     function attachListeners() {
         document.getElementById('addAssignmentBtn')?.addEventListener('click', () => openModal());
@@ -235,6 +231,7 @@ const AssignSubjectsController = (() => {
     }
 
     async function init() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
         attachListeners();
         await loadReferenceData();
         await loadData();

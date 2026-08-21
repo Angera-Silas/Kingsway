@@ -3,6 +3,7 @@ namespace App\API\Modules\admission;
 
 use PDO;
 use Exception;
+use App\API\Services\FinancialPostingCoordinator;
 
 class AdmissionPaymentService
 {
@@ -20,10 +21,20 @@ class AdmissionPaymentService
             throw new Exception('Payment amount must be greater than zero');
         }
 
-        $method = $this->normalizePaymentMethod((string) ($paymentData['method'] ?? $paymentData['payment_method'] ?? 'cash'));
+        $method = $this->normalizePaymentMethod((string) ($paymentData['method'] ?? $paymentData['payment_method'] ?? ''));
+        if (!in_array($method, ['mpesa', 'bank_transfer'], true)) {
+            throw new Exception('Admission and school fees may only be paid through M-Pesa or bank transfer');
+        }
         $referenceNo = trim((string) ($paymentData['reference'] ?? $paymentData['reference_no'] ?? $paymentData['transaction_reference'] ?? ''));
         if ($referenceNo === '') {
-            $referenceNo = 'ADM-' . $applicationId . '-' . date('YmdHis');
+            throw new Exception('A bank or M-Pesa transaction reference is required');
+        }
+        $duplicate = $this->db->prepare(
+            "SELECT id FROM admission_payments WHERE reference_no = :reference_no LIMIT 1"
+        );
+        $duplicate->execute(['reference_no' => $referenceNo]);
+        if ($duplicate->fetchColumn()) {
+            throw new Exception('This payment reference has already been recorded');
         }
 
         $receiptNo = trim((string) ($paymentData['receipt_no'] ?? ''));
@@ -36,10 +47,10 @@ class AdmissionPaymentService
 
         $sql = "INSERT INTO admission_payments (
                     application_id, amount, payment_method, reference_no, receipt_no,
-                    payment_date, notes, status, recorded_by, created_at
+                    financial_account_id, payment_date, notes, status, recorded_by, created_at
                 ) VALUES (
                     :application_id, :amount, :payment_method, :reference_no, :receipt_no,
-                    :payment_date, :notes, 'recorded', :recorded_by, NOW()
+                    :financial_account_id, :payment_date, :notes, 'pending_verification', :recorded_by, NOW()
                 )";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
@@ -48,6 +59,7 @@ class AdmissionPaymentService
             'payment_method' => $method,
             'reference_no' => $referenceNo,
             'receipt_no' => $receiptNo,
+            'financial_account_id' => !empty($paymentData['financial_account_id']) ? (int) $paymentData['financial_account_id'] : null,
             'payment_date' => $paymentDate,
             'notes' => $notes,
             'recorded_by' => $userId,
@@ -60,7 +72,8 @@ class AdmissionPaymentService
             'reference_no' => $referenceNo,
             'receipt_no' => $receiptNo,
             'payment_date' => $paymentDate,
-            'can_enroll' => true,
+            'status' => 'pending_verification',
+            'can_enroll' => false,
         ];
     }
 
@@ -92,7 +105,7 @@ class AdmissionPaymentService
         $suffix = $applicationNo !== '' ? " ({$applicationNo})" : '';
 
         foreach ($payments as $payment) {
-            if (($payment['status'] ?? '') === 'posted') {
+            if (!in_array(($payment['status'] ?? ''), ['recorded', 'posted'], true)) {
                 continue;
             }
 
@@ -131,7 +144,26 @@ class AdmissionPaymentService
                 'payment_date' => $payment['payment_date'] ?? date('Y-m-d H:i:s'),
                 'notes' => $notes,
             ]);
+            $paymentResult = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
             $stmt->closeCursor();
+
+            $studentPaymentId = (int) ($paymentResult['transaction_id'] ?? 0);
+            if ($studentPaymentId && !empty($payment['financial_account_id'])) {
+                $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=\'fees\' WHERE id=?')->execute([(int) $payment['financial_account_id'], $studentPaymentId]);
+                $allocations = $this->db->prepare(
+                    "SELECT apa.amount, COALESCE(coa.account_code,'120001') AS account_code, ec.name AS description
+                     FROM admission_payment_allocations apa
+                     JOIN extra_charge_application_obligations eao ON eao.id=apa.application_obligation_id
+                     JOIN extra_charges ec ON ec.id=eao.extra_charge_id
+                     LEFT JOIN chart_of_accounts coa ON coa.id=ec.gl_account_id
+                     WHERE apa.admission_payment_id=?"
+                );
+                $allocations->execute([(int) $payment['id']]);
+                (new FinancialPostingCoordinator($this->db))->postIncomingToChargeAccounts(
+                    'payment', $studentPaymentId, (int) $payment['financial_account_id'],
+                    $allocations->fetchAll(PDO::FETCH_ASSOC), $userId, (string) ($payment['reference_no'] ?? '')
+                );
+            }
 
             $update = $this->db->prepare("UPDATE admission_payments SET student_id = :student_id, status = 'posted', posted_at = NOW(), updated_at = NOW() WHERE id = :id");
             $update->execute([
@@ -151,7 +183,7 @@ class AdmissionPaymentService
             return 'bank_transfer';
         }
 
-        $allowed = ['cash', 'bank_transfer', 'mpesa', 'cheque', 'other'];
+        $allowed = ['bank_transfer', 'mpesa'];
         return in_array($normalized, $allowed, true) ? $normalized : 'other';
     }
 }

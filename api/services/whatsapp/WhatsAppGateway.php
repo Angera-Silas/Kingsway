@@ -14,6 +14,7 @@ class WhatsAppGateway
             'api_key' => defined('SMS_API_KEY') ? SMS_API_KEY : '',
             'username' => defined('SMS_USERNAME') ? SMS_USERNAME : '',
             'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
+            'api_url' => defined('SMS_WHATSAPP_API_URL') ? SMS_WHATSAPP_API_URL : 'https://chat.africastalking.com',
         ];
         $this->config = array_merge($defaults, $config);
         $this->provider = $this->initializeProvider();
@@ -22,6 +23,14 @@ class WhatsAppGateway
     public function sendMessage($to, $message)
     {
         return $this->provider->sendMessage($to, $message);
+    }
+
+    public function sendMedia($to, $message, $mediaType, $url, $caption = null)
+    {
+        if (method_exists($this->provider, 'sendMedia')) {
+            return $this->provider->sendMedia($to, $message, $mediaType, $url, $caption);
+        }
+        throw new \Exception('WhatsApp media sending not supported by this provider');
     }
 
     public function sendTemplate($to, $templateId, $variables = [])
@@ -82,25 +91,50 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
 
     public function sendMessage($to, $message)
     {
-        $url = $this->isSandbox 
-            ? 'https://chat.sandbox.africastalking.com/whatsapp/message/send'
-            : 'https://chat.africastalking.com/whatsapp/message/send';
+        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
 
         $body = [
             'username' => $this->username,
             'waNumber' => $this->waNumber,
             'phoneNumber' => $to,
-            'body' => $message
+            // Africa's Talking expects the message content as a JSON object.
+            'body' => ['message' => $message]
         ];
 
         return $this->sendRequest($url, $body, "Send Message");
     }
 
+    public function sendMedia($to, $message, $mediaType, $url, $caption = null)
+    {
+        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send';
+        $type = ucfirst(strtolower(trim((string) $mediaType)));
+        $allowed = ['Image', 'Video', 'Audio', 'Sticker', 'Document', 'Voice'];
+        if (!in_array($type, $allowed, true)) {
+            throw new \InvalidArgumentException('Unsupported WhatsApp media type');
+        }
+        if (!filter_var($url = trim((string) $url), FILTER_VALIDATE_URL) || stripos($url, 'https://') !== 0) {
+            throw new \InvalidArgumentException('WhatsApp media URL must be a public HTTPS URL');
+        }
+        $body = [
+            'username' => $this->username,
+            'waNumber' => $this->waNumber,
+            'phoneNumber' => $to,
+            'body' => [
+                'mediaType' => $type,
+                'url' => $url,
+            ],
+        ];
+        if ($caption !== null && $caption !== '') $body['body']['caption'] = (string) $caption;
+        return $this->sendRequest(
+            rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/message/send',
+            $body,
+            'Send WhatsApp media'
+        );
+    }
+
     public function sendTemplate($to, $templateId, $variables = [])
     {
-        $url = $this->isSandbox 
-            ? 'https://chat.sandbox.africastalking.com/whatsapp/template/send'
-            : 'https://chat.africastalking.com/whatsapp/template/send';
+        $url = rtrim((string) ($this->config['api_url'] ?? 'https://chat.africastalking.com'), '/') . '/whatsapp/template/send';
 
         $body = [
             'username' => $this->username,
@@ -109,8 +143,15 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
             'templateId' => $templateId
         ];
 
-        if (!empty($variables)) {
-            $body['parameters'] = $variables;
+        // Africa's Talking expects template substitutions as bodyValues,
+        // with an optional headerValue for a templated header.
+        if (isset($variables['bodyValues']) || isset($variables['body_values'])) {
+            $body['bodyValues'] = $variables['bodyValues'] ?? $variables['body_values'];
+            if (isset($variables['headerValue']) || isset($variables['header_value'])) {
+                $body['headerValue'] = $variables['headerValue'] ?? $variables['header_value'];
+            }
+        } elseif (!empty($variables)) {
+            $body['bodyValues'] = array_values($variables);
         }
 
         return $this->sendRequest($url, $body, "Send Template");

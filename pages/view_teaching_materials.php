@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/view_teaching_materials.js"></script>
+<?php asset_script($appBase, 'js/pages/view_teaching_materials.js'); ?>

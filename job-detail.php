@@ -1,17 +1,14 @@
 <?php
 $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
 if ($appBase === '.') $appBase = '';
-require_once __DIR__ . '/public/layout/public_data.php';
-
-$id   = (int)($_GET['id'] ?? 0);
-$job  = $id ? kw_job_by_id($id) : null;
-if (!$job) { header("Location: {$appBase}/careers.php"); exit; }
-
-$pageTitle  = htmlspecialchars($job['title']);
+$pageTitle  = 'Job Vacancy';
 $activePage = 'careers';
-$req = json_decode($job['requirements'] ?? '[]', true) ?: [];
-$res = json_decode($job['responsibilities'] ?? '[]', true) ?: [];
-$dl  = new DateTime($job['deadline']);
+$pageScript = 'job-detail';
+// The job detail body, meta, responsibilities/requirements and apply CTA are
+// rendered by js/pages/public/job-detail.js via GET /api/website/jobs/<id> and
+// /api/website/departments. A missing/invalid id is redirected to careers.php
+// client-side (no server data fetch happens here).
+require_once __DIR__ . '/public/layout/public_data.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -20,9 +17,9 @@ $dl  = new DateTime($job['deadline']);
     <nav aria-label="breadcrumb"><ol class="breadcrumb mb-2">
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/index.php">Home</a></li>
       <li class="breadcrumb-item"><a href="<?= $appBase ?>/careers.php">Careers</a></li>
-      <li class="breadcrumb-item active"><?= htmlspecialchars(mb_strimwidth($job['title'],0,40,'…')) ?></li>
+      <li class="breadcrumb-item active" id="jd-crumb">Job</li>
     </ol></nav>
-    <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)"><?= htmlspecialchars($job['title']) ?></h1>
+    <h1 class="page-title" style="font-size:clamp(1.4rem,3vw,2rem)" id="jd-title">Loading&hellip;</h1>
   </div>
 </div>
 
@@ -34,60 +31,32 @@ $dl  = new DateTime($job['deadline']);
       <div class="col-lg-8">
 
         <!-- Job meta card -->
-        <div class="card-modern p-4 mb-4 reveal">
-          <div class="d-flex flex-wrap gap-3 mb-3">
-            <span class="tag text-white" style="background:<?= htmlspecialchars($job['color'] ?? '#198754') ?>"><?= htmlspecialchars($job['job_type']) ?></span>
-            <span class="tag bg-white border text-dark"><?= htmlspecialchars($job['department']) ?></span>
-            <span class="tag bg-white border text-dark"><i class="bi bi-geo-alt me-1"></i><?= htmlspecialchars($job['location']) ?></span>
-          </div>
-          <div class="d-flex flex-wrap gap-4 text-muted small">
-            <span><i class="bi bi-calendar-x text-danger me-1"></i>Closes: <?= $dl->format('d M Y') ?></span>
-            <span><i class="bi bi-clock me-1"></i><?= htmlspecialchars($job['job_type']) ?></span>
-          </div>
-        </div>
+        <div class="card-modern p-4 mb-4 reveal" id="jd-meta"></div>
 
         <!-- Description -->
         <div class="card-modern p-4 mb-4 reveal">
           <h5 class="fw-bold mb-3"><i class="bi bi-file-text text-success me-2"></i>About This Role</h5>
-          <div class="article-body"><?= nl2br(htmlspecialchars($job['description'])) ?></div>
+          <div class="article-body" id="jd-description"></div>
         </div>
 
         <!-- Responsibilities -->
-        <?php if (!empty($res)): ?>
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-4 reveal" id="jd-responsibilities-card">
           <h5 class="fw-bold mb-3"><i class="bi bi-list-check text-success me-2"></i>Responsibilities</h5>
-          <ul class="list-unstyled">
-            <?php foreach ($res as $r): ?>
-            <li class="d-flex align-items-start gap-2 mb-2">
-              <i class="bi bi-check-circle-fill text-success mt-1 flex-shrink-0"></i>
-              <span><?= htmlspecialchars($r) ?></span>
-            </li>
-            <?php endforeach; ?>
-          </ul>
+          <ul class="list-unstyled" id="jd-responsibilities"></ul>
         </div>
-        <?php endif; ?>
 
         <!-- Requirements -->
-        <?php if (!empty($req)): ?>
-        <div class="card-modern p-4 mb-4 reveal">
+        <div class="card-modern p-4 mb-4 reveal" id="jd-requirements-card">
           <h5 class="fw-bold mb-3"><i class="bi bi-person-check text-success me-2"></i>Requirements</h5>
-          <ul class="list-unstyled">
-            <?php foreach ($req as $r): ?>
-            <li class="d-flex align-items-start gap-2 mb-2">
-              <i class="bi bi-check-circle-fill text-success mt-1 flex-shrink-0"></i>
-              <span><?= htmlspecialchars($r) ?></span>
-            </li>
-            <?php endforeach; ?>
-          </ul>
+          <ul class="list-unstyled" id="jd-requirements"></ul>
         </div>
-        <?php endif; ?>
 
         <!-- Apply CTA -->
         <div class="d-flex flex-wrap gap-3 mt-4">
           <a href="<?= $appBase ?>/careers.php" class="btn-kw-outline">
             <i class="bi bi-arrow-left"></i>All Vacancies
           </a>
-          <button class="btn-kw-primary" onclick="openApplyModal(<?= (int)$job['id'] ?>, '<?= htmlspecialchars(addslashes($job['title'])) ?>')">
+          <button type="button" id="jd-apply-btn" class="btn-kw-primary">
             <i class="bi bi-send-fill"></i>Apply for This Position
           </button>
         </div>
@@ -100,7 +69,7 @@ $dl  = new DateTime($job['deadline']);
         <div class="card-modern p-4 mb-4 reveal">
           <h6 class="fw-bold mb-3 text-success"><i class="bi bi-send me-2"></i>Quick Apply</h6>
           <form id="quickApplyForm">
-            <input type="hidden" name="apply_job_id" value="<?= (int)$job['id'] ?>">
+            <input type="hidden" name="apply_job_id" value="0">
             <div class="mb-2">
               <input type="text" name="apply_first_name" class="form-control-kw" placeholder="First Name *" required>
             </div>
@@ -133,15 +102,34 @@ $dl  = new DateTime($job['deadline']);
         <!-- Why work here -->
         <div class="card-modern p-4 reveal">
           <h6 class="fw-bold mb-3"><i class="bi bi-heart text-success me-2"></i>Why Kingsway?</h6>
-          <?php foreach ([['bi-cash-coin','Competitive Salary','TSC-scale with annual reviews'],['bi-house-fill','Staff Housing','On-campus accommodation'],['bi-heart-pulse','Medical Cover','Staff and dependants'],['bi-calendar2-check','Work-Life Balance','Generous leave and support']] as $b): ?>
           <div class="d-flex align-items-start gap-2 mb-3">
-            <i class="bi <?= $b[0] ?> text-success flex-shrink-0 mt-1"></i>
+            <i class="bi bi-cash-coin text-success flex-shrink-0 mt-1"></i>
             <div>
-              <div class="small fw-semibold"><?= $b[1] ?></div>
-              <div class="text-muted" style="font-size:.78rem"><?= $b[2] ?></div>
+              <div class="small fw-semibold">Competitive Salary</div>
+              <div class="text-muted" style="font-size:.78rem">TSC-scale with annual reviews</div>
             </div>
           </div>
-          <?php endforeach; ?>
+          <div class="d-flex align-items-start gap-2 mb-3">
+            <i class="bi bi-house-fill text-success flex-shrink-0 mt-1"></i>
+            <div>
+              <div class="small fw-semibold">Staff Housing</div>
+              <div class="text-muted" style="font-size:.78rem">School accommodation</div>
+            </div>
+          </div>
+          <div class="d-flex align-items-start gap-2 mb-3">
+            <i class="bi bi-heart-pulse text-success flex-shrink-0 mt-1"></i>
+            <div>
+              <div class="small fw-semibold">Medical Cover</div>
+              <div class="text-muted" style="font-size:.78rem">Staff and dependants</div>
+            </div>
+          </div>
+          <div class="d-flex align-items-start gap-2 mb-3">
+            <i class="bi bi-calendar2-check text-success flex-shrink-0 mt-1"></i>
+            <div>
+              <div class="small fw-semibold">Work-Life Balance</div>
+              <div class="text-muted" style="font-size:.78rem">Generous leave and support</div>
+            </div>
+          </div>
           <a href="<?= $appBase ?>/careers.php" class="btn-kw-outline w-100 justify-content-center mt-2" style="font-size:.85rem">
             Learn More About Benefits
           </a>
@@ -221,7 +209,7 @@ async function submitApplication(formId, statusId, submitBtnId) {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
     const fd = new FormData(form);
     try {
-      const res = await fetch('<?= $appBase ?>/careers.php', { method:'POST', body:fd });
+      const res = await fetch('<?= $appBase ?>/api/public/job-applications', { method:'POST', body:fd });
       const json = await res.json();
       msg.style.display = 'block';
       if (json.success) {

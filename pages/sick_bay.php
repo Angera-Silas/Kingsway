@@ -170,5 +170,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/sick_bay.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/sick_bay.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => sickBayController.init());</script>

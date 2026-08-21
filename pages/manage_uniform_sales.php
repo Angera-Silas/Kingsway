@@ -12,6 +12,7 @@
             <h4 class="mb-1"><i class="bi bi-bag-check me-2 text-primary"></i>Uniform Sales</h4>
             <p class="text-muted mb-0">Manage uniform inventory, record sales, and track payments</p>
         </div>
+        <a class="btn btn-outline-success" href="uniform_catalog.php" target="_blank"><i class="bi bi-shop me-1"></i>Preview Store</a>
         <div class="d-flex gap-2">
             <button class="btn btn-primary" onclick="UniformSalesController.showNewSaleModal()">
                 <i class="bi bi-cart-plus me-1"></i>New Sale
@@ -145,8 +146,8 @@
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th><th>Student</th><th>Item</th><th>Size</th>
-                                <th>Qty</th><th>Amount</th><th>Status</th><th>Actions</th>
+                                <th scope="col">Date</th><th scope="col">Student</th><th scope="col">Item</th><th scope="col">Size</th>
+                                <th scope="col">Qty</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="salesTableBody">
@@ -174,7 +175,7 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead class="table-light">
-                            <tr><th>Item</th><th>Size</th><th>Available</th><th>Sold</th><th>Unit Price</th><th>Status</th><th>Action</th></tr>
+                            <tr><th scope="col">Item</th><th scope="col">Size</th><th scope="col">Available</th><th scope="col">Sold</th><th scope="col">Unit Price</th><th scope="col">Status</th><th scope="col">Action</th></tr>
                         </thead>
                         <tbody id="lowStockTableBody">
                             <tr><td colspan="7" class="text-center py-4">Loading...</td></tr>
@@ -360,9 +361,20 @@
                         <label class="form-label fw-semibold">Payment Method</label>
                         <select id="upMethod" class="form-select">
                             <option value="cash">Cash</option>
-                            <option value="mpesa">M-Pesa</option>
-                            <option value="bank">Bank Transfer</option>
+                            <option value="daraja_mpesa">M-Pesa STK Push</option>
+                            <option value="buni_mpesa">KCB/Buni M-Pesa Express</option>
+                            <option value="c2b_mpesa">M-Pesa PayBill / Till</option>
+                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="cheque">Cheque</option>
                         </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold">Receiving account <span class="text-danger">*</span></label>
+                        <select id="upFinancialAccount" class="form-select" required><option value="">Loading authorized uniform accounts…</option></select>
+                    </div>
+                    <div class="col-12" id="upPhoneGroup">
+                        <label class="form-label">Parent phone <span class="text-muted">(required for STK)</span></label>
+                        <input type="tel" id="upPhone" class="form-control" placeholder="2547XXXXXXXX">
                     </div>
                     <div class="col-12">
                         <label class="form-label">Reference / M-Pesa Code</label>
@@ -386,4 +398,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/uniform_sales.js"></script>
+<?php asset_script($appBase, 'js/pages/uniform_sales.js'); ?>

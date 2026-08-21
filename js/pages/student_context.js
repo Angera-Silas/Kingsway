@@ -50,9 +50,10 @@
     waitForAuth() {
       return new Promise((resolve, reject) => {
         let attempts = 0;
-        const check = () => {
+        const check = async () => {
           attempts += 1;
           if (window.AuthContext && window.API) {
+            await window.AuthContext?.ready();
             if (!AuthContext.isAuthenticated()) {
               window.location.href = (window.APP_BASE || "") + "/index.php";
               return;

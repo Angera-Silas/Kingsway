@@ -40,7 +40,8 @@
     // ── Controller ────────────────────────────────────────────────────────────
     const ManageInventoryController = {
 
-        init() {
+        init: async function() {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
@@ -311,7 +312,7 @@
         },
 
         async deleteItem(id) {
-            if (!id || !confirm("Delete this inventory item? This cannot be undone.")) return;
+            if (!id || !(await window.confirmAction('Confirm Deletion', "Delete this inventory item? This cannot be undone.", { confirmText: 'Delete', danger: true }))) return;
             try {
                 await window.API.inventory.delete(id);
                 showToast("Item deleted");
@@ -332,14 +333,14 @@
             this._openAdjustModal("Issue / Stock Out", "out");
         },
 
-        _openAdjustModal(title, type) {
+        async _openAdjustModal(title, type) {
             // Reuse stockInModal if present, otherwise fallback to a simple prompt
             const modal = document.getElementById("stockInModal");
             if (!modal) {
-                const item = prompt("Enter item ID:");
+                const item = await window.promptAction('Input', "Enter item ID:");
                 if (!item) return;
-                const qty   = parseFloat(prompt("Quantity:") || "0");
-                const notes = prompt("Notes:") || "";
+                const qty   = parseFloat(await window.promptAction('Input', "Quantity:") || "0");
+                const notes = await window.promptAction('Input', "Notes:") || "";
                 this._submitAdjust({ item_id: item, quantity: qty, movement_type: type, notes });
                 return;
             }
@@ -369,8 +370,16 @@
                 showToast("Item and quantity are required", "warning");
                 return;
             }
+            const payload = {
+                item_id:        data.item_id,
+                adjustment_type:data.adjustment_type || (this._adjustType === "out" ? "decrease" : "increase"),
+                quantity:       data.quantity,
+                unit_cost:      parseFloat(data.unit_price || data.unit_cost || 0),
+                location_id:    data.location_id || null,
+                reason:         data.reason || data.notes || "",
+            };
             try {
-                await window.API.inventory.adjustStock(data);
+                await window.API.inventory.adjustStock(payload);
                 showToast("Stock adjusted successfully");
                 ["stockInModal", "stockOutModal"].forEach(id => {
                     const m = document.getElementById(id);

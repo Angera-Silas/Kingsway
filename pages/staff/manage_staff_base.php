@@ -226,15 +226,15 @@
                     <table class="table table-hover table-striped">
                         <thead class="table-light">
                             <tr>
-                                <th>#</th>
-                                <th>Staff No.</th>
-                                <th>Name</th>
-                                <th>Type</th>
-                                <th>Department</th>
-                                <th>Role</th>
-                                <th>Contact</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th scope="col">#</th>
+                                <th scope="col">Staff No.</th>
+                                <th scope="col">Name</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Department</th>
+                                <th scope="col">Role</th>
+                                <th scope="col">Contact</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="staffTableBody">
@@ -342,14 +342,14 @@
                         <table class="table table-hover" id="payrollTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Staff No.</th>
-                                    <th>Name</th>
-                                    <th>Basic Salary</th>
-                                    <th>Allowances</th>
-                                    <th>Deductions</th>
-                                    <th>Net Pay</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Staff No.</th>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Basic Salary</th>
+                                    <th scope="col">Allowances</th>
+                                    <th scope="col">Deductions</th>
+                                    <th scope="col">Net Pay</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="payrollTableBody">
@@ -424,13 +424,13 @@
                         <table class="table table-hover" id="contractsTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Staff No.</th>
-                                    <th>Name</th>
-                                    <th>Contract Type</th>
-                                    <th>Start Date</th>
-                                    <th>End Date</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Staff No.</th>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Contract Type</th>
+                                    <th scope="col">Start Date</th>
+                                    <th scope="col">End Date</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="contractsTableBody">
@@ -510,13 +510,13 @@
                         <table class="table table-hover" id="staffAttendanceTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Staff No.</th>
-                                    <th>Name</th>
-                                    <th>Department</th>
-                                    <th>Check-In</th>
-                                    <th>Check-Out</th>
-                                    <th>Status</th>
-                                    <th>Remarks</th>
+                                    <th scope="col">Staff No.</th>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Department</th>
+                                    <th scope="col">Check-In</th>
+                                    <th scope="col">Check-Out</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Remarks</th>
                                 </tr>
                             </thead>
                             <tbody id="staffAttendanceTableBody">
@@ -561,14 +561,14 @@
                         <table class="table table-hover" id="assignmentsTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Staff No.</th>
-                                    <th>Name</th>
-                                    <th>Class</th>
-                                    <th>Stream</th>
-                                    <th>Subject</th>
-                                    <th>Role</th>
-                                    <th>Workload (hrs)</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Staff No.</th>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Stream</th>
+                                    <th scope="col">Subject</th>
+                                    <th scope="col">Role</th>
+                                    <th scope="col">Workload (hrs)</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="assignmentsTableBody">
@@ -644,14 +644,14 @@
                         <table class="table table-hover" id="performanceTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Staff No.</th>
-                                    <th>Name</th>
-                                    <th>Department</th>
-                                    <th>Avg Rating</th>
-                                    <th>Last Review</th>
-                                    <th>KPI Score</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Staff No.</th>
+                                    <th scope="col">Name</th>
+                                    <th scope="col">Department</th>
+                                    <th scope="col">Avg Rating</th>
+                                    <th scope="col">Last Review</th>
+                                    <th scope="col">KPI Score</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="performanceTableBody">
@@ -694,11 +694,11 @@
                             <thead class="table-success">
                                 <tr>
                                     <th style="width:100px">Time</th>
-                                    <th>Monday</th>
-                                    <th>Tuesday</th>
-                                    <th>Wednesday</th>
-                                    <th>Thursday</th>
-                                    <th>Friday</th>
+                                    <th scope="col">Monday</th>
+                                    <th scope="col">Tuesday</th>
+                                    <th scope="col">Wednesday</th>
+                                    <th scope="col">Thursday</th>
+                                    <th scope="col">Friday</th>
                                 </tr>
                             </thead>
                             <tbody id="scheduleGridBody">
@@ -1083,13 +1083,13 @@
                             <table class="table table-hover">
                                 <thead class="table-light">
                                     <tr>
-                                        <th>Staff No.</th>
-                                        <th>Name</th>
-                                        <th>Type</th>
-                                        <th>Start</th>
-                                        <th>End</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Staff No.</th>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Start</th>
+                                        <th scope="col">End</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="leaveRequestsTableBody">
@@ -1180,4 +1180,4 @@
 </div>
 
 <!-- Link Controller Script -->
-<script src="<?= $appBase ?>/js/pages/staff.js"></script>
+<?php asset_script($appBase, 'js/pages/staff.js'); ?>
