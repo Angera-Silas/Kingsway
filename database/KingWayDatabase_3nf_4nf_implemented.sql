@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Aug 20, 2026 at 02:52 PM
+-- Generation Time: Aug 21, 2026 at 06:23 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -1145,16 +1145,15 @@ END$$
 
 DROP PROCEDURE IF EXISTS `sp_calculate_student_fees`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_calculate_student_fees` (IN `p_student_id` INT, IN `p_year` INT, IN `p_term_id` INT)   BEGIN
-    SELECT
-        ayfs.id AS fee_structure_id,
-        fc.name AS fee_type,
-        ayfs.amount,
-        ayfs.due_date
+    SELECT ayfs.id AS fee_structure_id,
+           'School Fees' AS fee_type,
+           ayfs.amount,
+           ayfs.due_date
     FROM academic_year_fee_schedules ayfs
-    JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
-    JOIN student_academic_enrollments sae ON sae.student_id = p_student_id
-        AND sae.academic_year_id = (SELECT id FROM academic_years WHERE year_code = p_year LIMIT 1)
-        AND sae.enrollment_status IN ('active', 'pending')
+    JOIN student_academic_enrollments sae
+      ON sae.student_id = p_student_id
+     AND sae.academic_year_id = (SELECT id FROM academic_years WHERE year_code = p_year LIMIT 1)
+     AND sae.enrollment_status IN ('active', 'pending')
     JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
     WHERE ayfs.academic_year_class_id = aycs.academic_year_class_id
       AND ayfs.student_type_id = (SELECT student_type_id FROM students WHERE id = p_student_id)
@@ -2176,6 +2175,41 @@ SET p_comment = CASE
   END;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_generate_due_extra_charge_obligations`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_due_extra_charge_obligations` ()   BEGIN
+    INSERT IGNORE INTO extra_charge_student_obligations
+        (student_academic_enrollment_id,schedule_id,academic_year_term_id,due_date,quantity,unit_price,amount_due)
+    SELECT sae.id, sch.id, sch.academic_year_term_id, CURDATE(), 1,
+           ec.amount, ec.amount
+    FROM student_academic_enrollments sae
+    JOIN students s ON s.id=sae.student_id
+    JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
+    JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+    JOIN extra_charges ec ON ec.academic_year_id=sae.academic_year_id
+    JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='enrollment'
+    JOIN extra_charge_schedules sch ON sch.extra_charge_id=ec.id AND sch.status='active'
+    LEFT JOIN extra_charge_classes eccs ON eccs.extra_charge_id=ec.id AND eccs.class_id=ayc.class_id
+    LEFT JOIN extra_charge_student_types ecst ON ecst.extra_charge_id=ec.id AND ecst.student_type_id=s.student_type_id
+    LEFT JOIN student_types st ON st.id=s.student_type_id
+    LEFT JOIN academic_year_terms ayt ON ayt.id=sch.academic_year_term_id
+    WHERE sae.enrollment_status='active' AND ec.status='active'
+      AND ec.billing_model='added_to_fees' AND ec.calculation_mode='fixed'
+      AND (sch.ends_on IS NULL OR CURDATE()<=sch.ends_on)
+      AND (ec.target_scope='all_students'
+        OR (ec.target_scope='boarders' AND st.code IN ('BOARD','WEEKLY'))
+        OR (ec.target_scope='day_students' AND st.code='DAY')
+        OR (ec.target_scope='specific_class' AND eccs.class_id IS NOT NULL)
+        OR ecst.student_type_id IS NOT NULL)
+      AND (
+        (sch.frequency='one_time' AND sch.starts_on=CURDATE())
+        OR (sch.frequency='daily' AND sch.starts_on<=CURDATE())
+        OR (sch.frequency='weekly' AND sch.starts_on<=CURDATE() AND DAYOFWEEK(sch.starts_on)=DAYOFWEEK(CURDATE()))
+        OR (sch.frequency='monthly' AND sch.starts_on<=CURDATE() AND DAY(CURDATE())=LEAST(COALESCE(sch.due_day,DAY(sch.starts_on)),DAY(LAST_DAY(CURDATE()))))
+        OR (sch.frequency='per_year' AND MONTH(sch.starts_on)=MONTH(CURDATE()) AND DAY(sch.starts_on)=DAY(CURDATE()))
+        OR (sch.frequency='per_term' AND ayt.opening_date=CURDATE())
+      );
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_generate_p9_form`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_p9_form` (IN `p_staff_id` INT, IN `p_year` INT)   BEGIN
     SELECT
@@ -2727,20 +2761,20 @@ END$$
 
 DROP PROCEDURE IF EXISTS `sp_get_class_fee_schedule`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_get_class_fee_schedule` (IN `p_class_id` INT, IN `p_year` INT)   BEGIN
-    SELECT
-        fc.name AS fee_type,
-        ayfs.amount,
-        ayfs.due_date,
-        st.name AS student_type
+    SELECT 'School Fees' AS fee_type,
+           ayfs.amount,
+           ayfs.due_date,
+           st.name AS student_type
     FROM academic_year_fee_schedules ayfs
-    JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
     JOIN student_types st ON st.id = ayfs.student_type_id
-    JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
-        AND ayc.class_id = p_class_id
-    JOIN academic_years ay ON ay.id = ayfs.academic_year_id
-        AND ay.year_code = p_year
+    JOIN academic_year_classes ayc
+      ON ayc.id = ayfs.academic_year_class_id
+     AND ayc.class_id = p_class_id
+    JOIN academic_years ay
+      ON ay.id = ayfs.academic_year_id
+     AND ay.year_code = p_year
     WHERE ayfs.status = 'active'
-    ORDER BY fc.name, st.name;
+    ORDER BY st.name;
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_get_competency_report`$$
@@ -2813,22 +2847,23 @@ END$$
 
 DROP PROCEDURE IF EXISTS `sp_get_fee_breakdown_for_review`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_get_fee_breakdown_for_review` (IN `p_year` INT, IN `p_term` INT)   BEGIN
-    SELECT
-        l.name AS level_name,
-        fc.name AS fee_type,
-        st.name AS student_type,
-        ayfs.amount,
-        ayfs.status,
-        ayfs.due_date
+    SELECT l.name AS level_name,
+           'School Fees' AS fee_type,
+           st.name AS student_type,
+           ayfs.amount,
+           ayfs.status,
+           ayfs.due_date
     FROM academic_year_fee_schedules ayfs
-    JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
     JOIN student_types st ON st.id = ayfs.student_type_id
     JOIN academic_year_classes ayc ON ayc.id = ayfs.academic_year_class_id
     JOIN classes c ON c.id = ayc.class_id
     JOIN school_levels l ON l.id = c.level_id
     WHERE ayfs.academic_year_id = (SELECT id FROM academic_years WHERE year_code = p_year LIMIT 1)
-      AND ayfs.academic_year_term_id IN (SELECT ayt.id FROM academic_year_terms ayt WHERE ayt.term_id = p_term)
-    ORDER BY l.name, fc.name, st.name;
+      AND ayfs.academic_year_term_id IN (
+          SELECT ayt.id FROM academic_year_terms ayt WHERE ayt.term_id = p_term
+      )
+      AND ayfs.status = 'active'
+    ORDER BY l.name, st.name;
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_get_fee_collection_rate`$$
@@ -6813,6 +6848,7 @@ INSERT IGNORE INTO `academic_year_class_streams` (`id`, `academic_year_class_id`
 -- Table structure for table `academic_year_fee_schedules`
 --
 -- Creation: Aug 20, 2026 at 10:17 AM
+-- Last update: Aug 20, 2026 at 10:53 PM
 --
 
 DROP TABLE IF EXISTS `academic_year_fee_schedules`;
@@ -6853,150 +6889,6 @@ TRUNCATE TABLE `academic_year_fee_schedules`;
 --
 
 INSERT IGNORE INTO `academic_year_fee_schedules` (`id`, `academic_year_id`, `academic_year_term_id`, `academic_year_class_id`, `student_type_id`, `fee_catalog_id`, `amount`, `due_date`, `status`, `created_by`, `approved_by`, `approved_at`, `created_at`, `updated_at`) VALUES
-(1, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(2, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(3, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(4, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(5, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(6, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(7, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(8, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(9, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(10, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(11, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(12, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:35:59', '2026-08-19 19:28:25'),
-(13, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(14, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(15, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(16, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(17, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(18, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(19, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(20, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(21, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(22, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(23, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(24, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:35:59', '2026-08-19 19:28:27'),
-(25, 1, 2, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(26, 1, 2, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(27, 1, 2, NULL, 1, 1, 6500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(28, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(29, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(30, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(31, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(32, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(33, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(34, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(35, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(36, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(37, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(38, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(39, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(40, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(41, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(42, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(43, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(44, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(45, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(46, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(47, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(48, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:35:59', '2026-08-19 19:28:24'),
-(49, 1, 3, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(50, 1, 3, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(51, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(52, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(53, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(54, 1, 3, NULL, 1, 1, 12500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(55, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(56, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(57, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(58, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(59, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(60, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(61, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(62, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(63, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(64, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(65, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(66, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(67, 1, 3, NULL, 2, 1, 20000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(68, 1, 3, NULL, 2, 1, 20000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(69, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(70, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(71, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(72, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:35:59', '2026-08-19 19:28:26'),
-(73, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(74, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(75, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(76, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(77, 1, 1, NULL, 1, 1, 3500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(78, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(79, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(80, 1, 1, NULL, 1, 1, 4500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(81, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(82, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(83, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(84, 1, 1, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:25', '2026-08-19 15:44:47', '2026-08-19 19:28:25'),
-(85, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(86, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(87, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(88, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(89, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(90, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(91, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(92, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(93, 1, 1, NULL, 2, 1, 7000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(94, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(95, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(96, 1, 1, NULL, 2, 1, 8000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:27', '2026-08-19 15:44:47', '2026-08-19 19:28:27'),
-(97, 1, 2, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(98, 1, 2, NULL, 1, 1, 5500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(99, 1, 2, NULL, 1, 1, 6500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(100, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(101, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(102, 1, 2, NULL, 1, 1, 7500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(103, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(104, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(105, 1, 2, NULL, 1, 1, 8500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(106, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(107, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(108, 1, 2, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(109, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(110, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(111, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(112, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(113, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(114, 1, 2, NULL, 2, 1, 12000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(115, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(116, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(117, 1, 2, NULL, 2, 1, 13000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(118, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(119, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(120, 1, 2, NULL, 2, 1, 14000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:24', '2026-08-19 15:44:47', '2026-08-19 19:28:24'),
-(121, 1, 3, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(122, 1, 3, NULL, 1, 1, 9500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(123, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(124, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(125, 1, 3, NULL, 1, 1, 10500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(126, 1, 3, NULL, 1, 1, 12500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(127, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(128, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(129, 1, 3, NULL, 1, 1, 14500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(130, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(131, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(132, 1, 3, NULL, 1, 1, 15500.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(133, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(134, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(135, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(136, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(137, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(138, 1, 3, NULL, 2, 1, 18000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(139, 1, 3, NULL, 2, 1, 20000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(140, 1, 3, NULL, 2, 1, 20000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(141, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(142, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(143, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
-(144, 1, 3, NULL, 2, 1, 21000.00, NULL, 'active', 9, NULL, '2026-08-19 22:28:26', '2026-08-19 15:44:47', '2026-08-19 19:28:26'),
 (145, 1, 1, 1, 1, 1, 9500.00, NULL, 'active', 9, 9, '2026-08-19 22:28:25', '2026-08-19 15:46:18', '2026-08-19 22:19:19'),
 (146, 1, 1, 2, 1, 1, 9500.00, NULL, 'active', 9, 9, '2026-08-19 22:28:25', '2026-08-19 15:46:18', '2026-08-19 22:19:19'),
 (147, 1, 1, 13, 1, 1, 10500.00, NULL, 'active', 9, 9, '2026-08-19 22:28:25', '2026-08-19 15:46:18', '2026-08-19 22:19:19'),
@@ -8014,7 +7906,7 @@ INSERT IGNORE INTO `admission_interview_sessions` (`id`, `admission_window_id`, 
 --
 -- Table structure for table `admission_payments`
 --
--- Creation: Aug 19, 2026 at 09:19 PM
+-- Creation: Aug 20, 2026 at 10:58 PM
 --
 
 DROP TABLE IF EXISTS `admission_payments`;
@@ -8023,6 +7915,7 @@ CREATE TABLE IF NOT EXISTS `admission_payments` (
   `application_id` int(10) UNSIGNED NOT NULL,
   `student_id` int(10) UNSIGNED DEFAULT NULL,
   `amount` decimal(12,2) NOT NULL,
+  `financial_account_id` bigint(20) UNSIGNED DEFAULT NULL,
   `payment_method` enum('cash','bank_transfer','mpesa','cheque','other') NOT NULL DEFAULT 'cash',
   `reference_no` varchar(100) DEFAULT NULL,
   `receipt_no` varchar(100) DEFAULT NULL,
@@ -8041,13 +7934,16 @@ CREATE TABLE IF NOT EXISTS `admission_payments` (
   KEY `idx_admission_payments_application` (`application_id`),
   KEY `idx_admission_payments_student` (`student_id`),
   KEY `idx_admission_payments_reference` (`reference_no`),
-  KEY `idx_admission_payments_status` (`status`)
+  KEY `idx_admission_payments_status` (`status`),
+  KEY `fk_admission_payment_source` (`financial_account_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `admission_payments`:
 --   `application_id`
 --       `admission_applications` -> `id`
+--   `financial_account_id`
+--       `school_financial_accounts` -> `id`
 --   `student_id`
 --       `students` -> `id`
 --
@@ -8061,9 +7957,39 @@ TRUNCATE TABLE `admission_payments`;
 -- Dumping data for table `admission_payments`
 --
 
-INSERT IGNORE INTO `admission_payments` (`id`, `application_id`, `student_id`, `amount`, `payment_method`, `reference_no`, `receipt_no`, `payment_date`, `notes`, `status`, `verification_source`, `verified_by`, `verified_at`, `verification_notes`, `recorded_by`, `posted_at`, `created_at`, `updated_at`) VALUES
-(1, 1, 1, 2000.00, 'mpesa', 'UHIJ93IXVD', 'MPESA-UHIJ93IXVD', '2026-08-19 19:30:00', 'Pre-enrollment M-Pesa C2B payment received using application reference ADM/2027/001', 'posted', NULL, NULL, NULL, NULL, 1, '2026-08-19 23:56:11', '2026-08-19 20:54:36', '2026-08-19 20:56:11');
+INSERT IGNORE INTO `admission_payments` (`id`, `application_id`, `student_id`, `amount`, `financial_account_id`, `payment_method`, `reference_no`, `receipt_no`, `payment_date`, `notes`, `status`, `verification_source`, `verified_by`, `verified_at`, `verification_notes`, `recorded_by`, `posted_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 1, 2000.00, NULL, 'mpesa', 'UHIJ93IXVD', 'MPESA-UHIJ93IXVD', '2026-08-19 19:30:00', 'Pre-enrollment M-Pesa C2B payment received using application reference ADM/2027/001', 'posted', NULL, NULL, NULL, NULL, 1, '2026-08-19 23:56:11', '2026-08-19 20:54:36', '2026-08-19 20:56:11');
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `admission_payment_allocations`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+--
+
+DROP TABLE IF EXISTS `admission_payment_allocations`;
+CREATE TABLE IF NOT EXISTS `admission_payment_allocations` (
+  `admission_payment_id` int(10) UNSIGNED NOT NULL,
+  `application_obligation_id` bigint(20) UNSIGNED NOT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  PRIMARY KEY (`admission_payment_id`,`application_obligation_id`),
+  KEY `fk_apa_obligation` (`application_obligation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `admission_payment_allocations`:
+--   `application_obligation_id`
+--       `extra_charge_application_obligations` -> `id`
+--   `admission_payment_id`
+--       `admission_payments` -> `id`
+--
+
+--
+-- Truncate table before insert `admission_payment_allocations`
+--
+
+TRUNCATE TABLE `admission_payment_allocations`;
 -- --------------------------------------------------------
 
 --
@@ -13240,8 +13166,8 @@ TRUNCATE TABLE `external_institutions`;
 --
 -- Table structure for table `extra_charges`
 --
--- Creation: Aug 20, 2026 at 11:06 AM
--- Last update: Aug 20, 2026 at 11:06 AM
+-- Creation: Aug 21, 2026 at 03:02 AM
+-- Last update: Aug 21, 2026 at 04:02 AM
 --
 
 DROP TABLE IF EXISTS `extra_charges`;
@@ -13251,12 +13177,21 @@ CREATE TABLE IF NOT EXISTS `extra_charges` (
   `name` varchar(150) NOT NULL,
   `description` text DEFAULT NULL,
   `amount` decimal(12,2) NOT NULL,
+  `calculation_mode` enum('fixed','per_unit') NOT NULL DEFAULT 'fixed',
+  `unit_label` varchar(50) DEFAULT NULL COMMENT 'e.g. km, month, student',
+  `unit_price` decimal(12,2) DEFAULT NULL COMMENT 'price per unit when per_unit',
   `charge_frequency` enum('one_time','per_term','per_year') NOT NULL DEFAULT 'one_time',
+  `billing_model` enum('added_to_fees','paid_separately','optional') NOT NULL DEFAULT 'paid_separately',
+  `billing_frequency` enum('one_time','daily','weekly','monthly','per_term','per_year') NOT NULL DEFAULT 'one_time',
+  `visible_on_fee_structure` tinyint(1) NOT NULL DEFAULT 1,
+  `gl_account_id` bigint(20) UNSIGNED DEFAULT NULL,
   `scope` enum('all','student_type','class','specific_students') NOT NULL DEFAULT 'all',
+  `target_scope` enum('new_admissions','existing_students','all_students','boarders','day_students','specific_class') NOT NULL DEFAULT 'all_students',
+  `pricing_tiers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT '[{label,amount,condition}] for tiered pricing' CHECK (json_valid(`pricing_tiers`)),
   `student_type_id` int(10) UNSIGNED DEFAULT NULL,
   `class_id` int(10) UNSIGNED DEFAULT NULL,
   `display_order` int(11) NOT NULL DEFAULT 0,
-  `status` enum('draft','active','inactive') NOT NULL DEFAULT 'draft',
+  `status` enum('draft','submitted','active','inactive') NOT NULL DEFAULT 'draft',
   `created_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_at` datetime DEFAULT NULL,
@@ -13267,8 +13202,10 @@ CREATE TABLE IF NOT EXISTS `extra_charges` (
   KEY `idx_ec_status` (`status`),
   KEY `idx_ec_scope` (`scope`),
   KEY `idx_ec_student_type` (`student_type_id`),
-  KEY `idx_ec_class` (`class_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  KEY `idx_ec_class` (`class_id`),
+  KEY `fk_ec_gl_account` (`gl_account_id`),
+  KEY `idx_ec_target_scope` (`target_scope`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `extra_charges`:
@@ -13276,6 +13213,8 @@ CREATE TABLE IF NOT EXISTS `extra_charges` (
 --       `academic_years` -> `id`
 --   `class_id`
 --       `classes` -> `id`
+--   `gl_account_id`
+--       `chart_of_accounts` -> `id`
 --   `student_type_id`
 --       `student_types` -> `id`
 --
@@ -13289,8 +13228,188 @@ TRUNCATE TABLE `extra_charges`;
 -- Dumping data for table `extra_charges`
 --
 
-INSERT IGNORE INTO `extra_charges` (`id`, `academic_year_id`, `name`, `description`, `amount`, `charge_frequency`, `scope`, `student_type_id`, `class_id`, `display_order`, `status`, `created_by`, `approved_by`, `approved_at`, `created_at`, `updated_at`) VALUES
-(1, 1, 'Registration Fee', 'One-time admission/registration fee for new students', 2000.00, 'one_time', 'all', NULL, NULL, 1, 'draft', NULL, NULL, NULL, '2026-08-20 11:06:04', '2026-08-20 11:06:04');
+INSERT IGNORE INTO `extra_charges` (`id`, `academic_year_id`, `name`, `description`, `amount`, `calculation_mode`, `unit_label`, `unit_price`, `charge_frequency`, `billing_model`, `billing_frequency`, `visible_on_fee_structure`, `gl_account_id`, `scope`, `target_scope`, `pricing_tiers`, `student_type_id`, `class_id`, `display_order`, `status`, `created_by`, `approved_by`, `approved_at`, `created_at`, `updated_at`) VALUES
+(1, 1, 'Registration Fee', 'One-time admission/registration fee for new students', 2000.00, 'fixed', NULL, NULL, 'one_time', 'paid_separately', 'one_time', 1, 1, 'all', 'new_admissions', '[{\"label\":\"New Parents\",\"amount\":2000,\"condition\":\"new\"},{\"label\":\"Existing Parents\",\"amount\":1000,\"condition\":\"existing\"}]', NULL, NULL, 1, 'active', NULL, NULL, NULL, '2026-08-20 11:06:04', '2026-08-21 04:02:44'),
+(4, 1, 'Registration Fee', 'Registration Fees for Existing Parents', 1000.00, 'fixed', NULL, NULL, 'one_time', 'added_to_fees', 'one_time', 1, 1, 'all', 'new_admissions', NULL, NULL, NULL, 2, 'inactive', 9, NULL, NULL, '2026-08-21 03:39:53', '2026-08-21 03:44:56');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_application_obligations`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+--
+
+DROP TABLE IF EXISTS `extra_charge_application_obligations`;
+CREATE TABLE IF NOT EXISTS `extra_charge_application_obligations` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `application_id` int(10) UNSIGNED NOT NULL,
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `pricing_tier_id` int(10) UNSIGNED DEFAULT NULL,
+  `amount_due` decimal(12,2) NOT NULL,
+  `amount_paid` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `status` enum('pending','partial','paid','waived','cancelled') NOT NULL DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ecao_application_charge` (`application_id`,`extra_charge_id`),
+  KEY `fk_ecao_charge` (`extra_charge_id`),
+  KEY `fk_ecao_tier` (`pricing_tier_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_application_obligations`:
+--   `application_id`
+--       `admission_applications` -> `id`
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--   `pricing_tier_id`
+--       `extra_charge_pricing_tiers` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_application_obligations`
+--
+
+TRUNCATE TABLE `extra_charge_application_obligations`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_classes`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+--
+
+DROP TABLE IF EXISTS `extra_charge_classes`;
+CREATE TABLE IF NOT EXISTS `extra_charge_classes` (
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `class_id` int(10) UNSIGNED NOT NULL,
+  PRIMARY KEY (`extra_charge_id`,`class_id`),
+  KEY `fk_eccs_class` (`class_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_classes`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--   `class_id`
+--       `classes` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_classes`
+--
+
+TRUNCATE TABLE `extra_charge_classes`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_contexts`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+-- Last update: Aug 21, 2026 at 03:44 AM
+--
+
+DROP TABLE IF EXISTS `extra_charge_contexts`;
+CREATE TABLE IF NOT EXISTS `extra_charge_contexts` (
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `context_code` enum('admission','enrollment') NOT NULL,
+  PRIMARY KEY (`extra_charge_id`,`context_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_contexts`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_contexts`
+--
+
+TRUNCATE TABLE `extra_charge_contexts`;
+--
+-- Dumping data for table `extra_charge_contexts`
+--
+
+INSERT IGNORE INTO `extra_charge_contexts` (`extra_charge_id`, `context_code`) VALUES
+(1, 'admission'),
+(4, 'admission');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_parent_scopes`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+-- Last update: Aug 21, 2026 at 03:44 AM
+--
+
+DROP TABLE IF EXISTS `extra_charge_parent_scopes`;
+CREATE TABLE IF NOT EXISTS `extra_charge_parent_scopes` (
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `parent_scope` enum('new_parent','existing_parent','any_parent') NOT NULL,
+  PRIMARY KEY (`extra_charge_id`,`parent_scope`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_parent_scopes`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_parent_scopes`
+--
+
+TRUNCATE TABLE `extra_charge_parent_scopes`;
+--
+-- Dumping data for table `extra_charge_parent_scopes`
+--
+
+INSERT IGNORE INTO `extra_charge_parent_scopes` (`extra_charge_id`, `parent_scope`) VALUES
+(1, 'any_parent'),
+(4, 'any_parent');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_pricing_tiers`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+-- Last update: Aug 21, 2026 at 03:44 AM
+--
+
+DROP TABLE IF EXISTS `extra_charge_pricing_tiers`;
+CREATE TABLE IF NOT EXISTS `extra_charge_pricing_tiers` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `condition_code` varchar(50) NOT NULL,
+  `label` varchar(120) NOT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `sort_order` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ecpt_condition` (`extra_charge_id`,`condition_code`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_pricing_tiers`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_pricing_tiers`
+--
+
+TRUNCATE TABLE `extra_charge_pricing_tiers`;
+--
+-- Dumping data for table `extra_charge_pricing_tiers`
+--
+
+INSERT IGNORE INTO `extra_charge_pricing_tiers` (`id`, `extra_charge_id`, `condition_code`, `label`, `amount`, `sort_order`) VALUES
+(4, 1, 'new', 'New Parents', 2000.00, 0),
+(5, 1, 'existing', 'Existing Parents', 1000.00, 1);
 
 -- --------------------------------------------------------
 
@@ -13298,6 +13417,7 @@ INSERT IGNORE INTO `extra_charges` (`id`, `academic_year_id`, `name`, `descripti
 -- Table structure for table `extra_charge_review_log`
 --
 -- Creation: Aug 20, 2026 at 11:06 AM
+-- Last update: Aug 21, 2026 at 04:02 AM
 --
 
 DROP TABLE IF EXISTS `extra_charge_review_log`;
@@ -13311,7 +13431,7 @@ CREATE TABLE IF NOT EXISTS `extra_charge_review_log` (
   PRIMARY KEY (`id`),
   KEY `idx_ecrl_charge` (`extra_charge_id`),
   KEY `idx_ecrl_action` (`action`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `extra_charge_review_log`:
@@ -13324,12 +13444,139 @@ CREATE TABLE IF NOT EXISTS `extra_charge_review_log` (
 --
 
 TRUNCATE TABLE `extra_charge_review_log`;
+--
+-- Dumping data for table `extra_charge_review_log`
+--
+
+INSERT IGNORE INTO `extra_charge_review_log` (`id`, `extra_charge_id`, `action`, `reviewer_id`, `notes`, `created_at`) VALUES
+(1, 1, 'submitted', 9, NULL, '2026-08-21 03:52:55'),
+(2, 1, 'approved', 2, NULL, '2026-08-21 04:02:44');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_schedules`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+-- Last update: Aug 21, 2026 at 03:44 AM
+--
+
+DROP TABLE IF EXISTS `extra_charge_schedules`;
+CREATE TABLE IF NOT EXISTS `extra_charge_schedules` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `frequency` enum('one_time','daily','weekly','monthly','per_term','per_year') NOT NULL,
+  `starts_on` date NOT NULL,
+  `ends_on` date DEFAULT NULL,
+  `academic_year_term_id` int(10) UNSIGNED DEFAULT NULL,
+  `due_day` tinyint(3) UNSIGNED DEFAULT NULL,
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+  PRIMARY KEY (`id`),
+  KEY `idx_ecs_charge_status` (`extra_charge_id`,`status`),
+  KEY `fk_ecs_term` (`academic_year_term_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_schedules`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--   `academic_year_term_id`
+--       `academic_year_terms` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_schedules`
+--
+
+TRUNCATE TABLE `extra_charge_schedules`;
+--
+-- Dumping data for table `extra_charge_schedules`
+--
+
+INSERT IGNORE INTO `extra_charge_schedules` (`id`, `extra_charge_id`, `frequency`, `starts_on`, `ends_on`, `academic_year_term_id`, `due_day`, `status`) VALUES
+(1, 1, 'one_time', '2026-01-06', NULL, NULL, NULL, 'inactive'),
+(3, 4, 'one_time', '2026-01-06', NULL, NULL, NULL, 'active'),
+(4, 1, 'one_time', '2026-01-06', NULL, NULL, NULL, 'active');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_student_obligations`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+--
+
+DROP TABLE IF EXISTS `extra_charge_student_obligations`;
+CREATE TABLE IF NOT EXISTS `extra_charge_student_obligations` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_academic_enrollment_id` int(10) UNSIGNED NOT NULL,
+  `schedule_id` int(10) UNSIGNED NOT NULL,
+  `academic_year_term_id` int(10) UNSIGNED DEFAULT NULL,
+  `due_date` date NOT NULL,
+  `quantity` decimal(12,3) NOT NULL DEFAULT 1.000,
+  `unit_price` decimal(12,2) NOT NULL,
+  `amount_due` decimal(12,2) NOT NULL,
+  `amount_paid` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `status` enum('pending','partial','paid','waived','cancelled') NOT NULL DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ecso_occurrence` (`student_academic_enrollment_id`,`schedule_id`,`due_date`),
+  KEY `fk_ecso_schedule` (`schedule_id`),
+  KEY `fk_ecso_term` (`academic_year_term_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_student_obligations`:
+--   `student_academic_enrollment_id`
+--       `student_academic_enrollments` -> `id`
+--   `schedule_id`
+--       `extra_charge_schedules` -> `id`
+--   `academic_year_term_id`
+--       `academic_year_terms` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_student_obligations`
+--
+
+TRUNCATE TABLE `extra_charge_student_obligations`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `extra_charge_student_types`
+--
+-- Creation: Aug 20, 2026 at 10:58 PM
+--
+
+DROP TABLE IF EXISTS `extra_charge_student_types`;
+CREATE TABLE IF NOT EXISTS `extra_charge_student_types` (
+  `extra_charge_id` int(10) UNSIGNED NOT NULL,
+  `student_type_id` int(10) UNSIGNED NOT NULL,
+  PRIMARY KEY (`extra_charge_id`,`student_type_id`),
+  KEY `fk_ecst_type` (`student_type_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `extra_charge_student_types`:
+--   `extra_charge_id`
+--       `extra_charges` -> `id`
+--   `student_type_id`
+--       `student_types` -> `id`
+--
+
+--
+-- Truncate table before insert `extra_charge_student_types`
+--
+
+TRUNCATE TABLE `extra_charge_student_types`;
 -- --------------------------------------------------------
 
 --
 -- Table structure for table `fee_catalog`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
+-- Last update: Aug 20, 2026 at 10:53 PM
 --
 
 DROP TABLE IF EXISTS `fee_catalog`;
@@ -13364,13 +13611,7 @@ TRUNCATE TABLE `fee_catalog`;
 --
 
 INSERT IGNORE INTO `fee_catalog` (`id`, `code`, `name`, `fee_type_id`, `student_type_id`, `default_amount`, `status`, `description`, `created_at`, `updated_at`) VALUES
-(1, 'TUITION', 'Tuition Fee 2025/2026', 1, NULL, 150000.00, 'active', 'Annual tuition fee for 2025/2026', '2025-11-30 21:00:00', '2025-11-30 21:00:00'),
-(2, 'TRANSPORT', 'Transport Fee 2025/2026', 8, NULL, 30000.00, 'active', 'Annual transport fee', '2025-11-30 21:00:00', '2025-11-30 21:00:00'),
-(3, 'LUNCH', 'Lunch Fee 2025/2026', 9, NULL, 20000.00, 'active', 'Annual lunch fee', '2025-11-30 21:00:00', '2025-11-30 21:00:00'),
-(4, 'ACTIVITY', 'Activity Fee', 3, NULL, NULL, 'active', 'Sports, clubs, co-curricular activities', '2025-12-31 21:00:00', '2025-12-31 21:00:00'),
-(5, 'EXAM', 'Examination Fee', 5, NULL, NULL, 'active', 'Assessment and examination charges', '2025-12-31 21:00:00', '2025-12-31 21:00:00'),
-(6, 'UNIFORM', 'Uniform', 6, NULL, NULL, 'active', 'School uniform cost', '2025-12-31 21:00:00', '2025-12-31 21:00:00'),
-(7, 'BOOKS', 'Books and Materials', 7, NULL, NULL, 'active', 'Textbooks and learning materials', '2025-12-31 21:00:00', '2025-12-31 21:00:00');
+(1, 'SCHOOL_FEES', 'School Fees', NULL, NULL, 0.00, 'active', 'Approved school fee matrix', '2025-11-30 21:00:00', '2026-08-20 22:53:36');
 
 -- --------------------------------------------------------
 
@@ -13537,69 +13778,6 @@ CREATE TABLE IF NOT EXISTS `fee_structure_adjustments` (
 --
 
 TRUNCATE TABLE `fee_structure_adjustments`;
--- --------------------------------------------------------
-
---
--- Table structure for table `fee_types`
---
--- Creation: Aug 15, 2026 at 03:49 AM
---
-
-DROP TABLE IF EXISTS `fee_types`;
-CREATE TABLE IF NOT EXISTS `fee_types` (
-  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `code` varchar(20) NOT NULL,
-  `name` varchar(100) NOT NULL,
-  `description` text DEFAULT NULL,
-  `category` enum('tuition','boarding','activity','infrastructure','other') NOT NULL,
-  `is_mandatory` tinyint(1) NOT NULL DEFAULT 1,
-  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `code` (`code`),
-  KEY `idx_code` (`code`),
-  KEY `idx_category` (`category`),
-  KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- RELATIONSHIPS FOR TABLE `fee_types`:
---
-
---
--- Truncate table before insert `fee_types`
---
-
-TRUNCATE TABLE `fee_types`;
---
--- Dumping data for table `fee_types`
---
-
-INSERT IGNORE INTO `fee_types` (`id`, `code`, `name`, `description`, `category`, `is_mandatory`, `status`, `created_at`) VALUES
-(1, 'TUITION', 'Tuition Fee', 'Core tuition charges', 'tuition', 1, 'active', '2025-11-28 15:19:20'),
-(2, 'BOARDING', 'Boarding Fee', 'Accommodation and meals', 'boarding', 0, 'active', '2025-11-28 15:19:20'),
-(3, 'ACTIVITY', 'Activity Fee', 'Sports, clubs, co-curricular activities', 'activity', 1, 'active', '2025-11-28 15:19:20'),
-(4, 'INFRASTRUCTURE', 'Infrastructure Development', 'School facilities improvement', 'infrastructure', 0, 'active', '2025-11-28 15:19:20'),
-(5, 'EXAM', 'Examination Fee', 'Assessment and examination charges', 'other', 1, 'active', '2025-11-28 15:19:20'),
-(6, 'UNIFORM', 'Uniform', 'School uniform cost', 'other', 0, 'active', '2025-11-28 15:19:20'),
-(7, 'BOOKS', 'Books and Materials', 'Textbooks and learning materials', 'other', 1, 'active', '2025-11-28 15:19:20'),
-(8, 'TRANSPORT', 'Transport', 'School transport levy', 'other', 0, 'active', '2025-11-28 15:19:20'),
-(9, 'LUNCH', 'Lunch / Meals Fee', 'Daily lunch for day scholars at school', 'other', 0, 'active', '2026-04-25 02:44:16'),
-(10, 'ICT', 'ICT / Computer Lab Fee', 'Computer lab access, software licences', 'other', 1, 'active', '2026-04-25 02:44:16'),
-(11, 'LIBRARY', 'Library Fee', 'Library access, journals, magazine subscriptions', 'other', 1, 'active', '2026-04-25 02:44:16'),
-(12, 'MUSIC_ART', 'Music & Art Fee', 'Instruments, art supplies, drama', 'activity', 0, 'active', '2026-04-25 02:44:16'),
-(13, 'SWIMMING', 'Swimming Pool Fee', 'Pool access and swimming lessons', 'activity', 0, 'active', '2026-04-25 02:44:16'),
-(14, 'MEDICAL', 'Medical / Sick Bay Fee', 'First aid supplies, sick bay consumables', 'other', 0, 'active', '2026-04-25 02:44:16'),
-(15, 'INSURANCE', 'Student Insurance', 'GPA student accident cover', 'other', 1, 'active', '2026-04-25 02:44:16'),
-(16, 'CAUTION', 'Caution Money (Deposit)', 'Refundable deposit for breakages, keys, etc.', 'other', 0, 'active', '2026-04-25 02:44:16'),
-(17, 'KNEC_REG', 'KNEC Exam Registration', 'KPSEA, KJSEA candidate registration fees', 'other', 0, 'active', '2026-04-25 02:44:16'),
-(18, 'PTA', 'PTA Levy', 'Parents & Teachers Association contributions', 'other', 1, 'active', '2026-04-25 02:44:16'),
-(19, 'BUILDING', 'Building / Development Levy', 'School expansion and infrastructure fund', 'infrastructure', 1, 'active', '2026-04-25 02:44:16'),
-(20, 'HOLIDAY_TUI', 'Holiday Tuition', 'Optional coaching during school holidays', 'tuition', 0, 'active', '2026-04-25 02:44:16'),
-(21, 'TRIP', 'Educational Trips', 'Excursions, field trips, educational tours', 'activity', 0, 'active', '2026-04-25 02:44:16'),
-(22, 'MUSIC_GRADE', 'Music Grade Exams (ABRSM)', 'External music grade examination fees', 'activity', 0, 'active', '2026-04-25 02:44:16'),
-(23, 'AFTER_SCHOOL', 'After-School Programme', 'Evening supervision and activities for day scholars', 'activity', 0, 'active', '2026-04-25 02:44:16');
-
 -- --------------------------------------------------------
 
 --
@@ -15077,7 +15255,7 @@ INSERT IGNORE INTO `item_serials` (`id`, `item_id`, `serial_number`, `batch_id`,
 --
 -- Table structure for table `job_applications`
 --
--- Creation: Aug 15, 2026 at 03:49 AM
+-- Creation: Aug 21, 2026 at 01:26 AM
 --
 
 DROP TABLE IF EXISTS `job_applications`;
@@ -15092,7 +15270,7 @@ CREATE TABLE IF NOT EXISTS `job_applications` (
   `tsc_number` varchar(50) DEFAULT NULL,
   `cv_filename` varchar(300) DEFAULT NULL,
   `cover_letter` text DEFAULT NULL,
-  `status` enum('received','shortlisted','interviewed','hired','rejected') NOT NULL DEFAULT 'received',
+  `status` enum('received','shortlisted','interview_scheduled','interviewed','hired','rejected') NOT NULL DEFAULT 'received',
   `applicant_type` enum('external','internal') NOT NULL DEFAULT 'external',
   `staff_id` int(10) UNSIGNED DEFAULT NULL,
   `current_position` varchar(100) DEFAULT NULL,
@@ -15123,6 +15301,89 @@ TRUNCATE TABLE `job_applications`;
 INSERT IGNORE INTO `job_applications` (`id`, `job_id`, `job_title`, `first_name`, `last_name`, `email`, `phone`, `tsc_number`, `cv_filename`, `cover_letter`, `status`, `applicant_type`, `staff_id`, `current_position`, `current_department_id`, `ip_address`, `created_at`, `updated_at`) VALUES
 (1, 1, 'Class Teacher — Grade 4', 'Alex', 'Murethi', 'angisofttechnologies@gmail.com', '01108003210', '', 'candidate_cv_Alex-Murethi-CV_20260816_180746_c5249c95.pdf', '', 'received', 'external', NULL, NULL, NULL, '127.0.0.1', '2026-08-16 16:07:46', '2026-08-16 16:07:46');
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `job_application_interviews`
+--
+-- Creation: Aug 21, 2026 at 01:26 AM
+--
+
+DROP TABLE IF EXISTS `job_application_interviews`;
+CREATE TABLE IF NOT EXISTS `job_application_interviews` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `application_id` int(11) NOT NULL,
+  `scheduled_at` datetime NOT NULL,
+  `mode` enum('in_person','phone','video') NOT NULL DEFAULT 'in_person',
+  `location` varchar(255) DEFAULT NULL,
+  `interviewer_user_id` int(10) UNSIGNED DEFAULT NULL,
+  `status` enum('scheduled','completed','cancelled','no_show') NOT NULL DEFAULT 'scheduled',
+  `score` decimal(5,2) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `completed_by` int(10) UNSIGNED DEFAULT NULL,
+  `completed_at` datetime DEFAULT NULL,
+  `created_by` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_jai_application` (`application_id`,`scheduled_at`),
+  KEY `fk_jai_interviewer` (`interviewer_user_id`),
+  KEY `fk_jai_completed_by` (`completed_by`),
+  KEY `fk_jai_created_by` (`created_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `job_application_interviews`:
+--   `application_id`
+--       `job_applications` -> `id`
+--   `completed_by`
+--       `users` -> `id`
+--   `created_by`
+--       `users` -> `id`
+--   `interviewer_user_id`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `job_application_interviews`
+--
+
+TRUNCATE TABLE `job_application_interviews`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `job_application_status_history`
+--
+-- Creation: Aug 21, 2026 at 01:26 AM
+--
+
+DROP TABLE IF EXISTS `job_application_status_history`;
+CREATE TABLE IF NOT EXISTS `job_application_status_history` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `application_id` int(11) NOT NULL,
+  `from_status` varchar(40) DEFAULT NULL,
+  `to_status` varchar(40) NOT NULL,
+  `changed_by` int(10) UNSIGNED DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_jash_application` (`application_id`,`created_at`),
+  KEY `fk_jash_changed_by` (`changed_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `job_application_status_history`:
+--   `application_id`
+--       `job_applications` -> `id`
+--   `changed_by`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `job_application_status_history`
+--
+
+TRUNCATE TABLE `job_application_status_history`;
 -- --------------------------------------------------------
 
 --
@@ -15285,48 +15546,110 @@ TRUNCATE TABLE `kpi_targets`;
 -- --------------------------------------------------------
 
 --
--- Table structure for table `leadership_team`
+-- Table structure for table `leadership_levels`
 --
--- Creation: Aug 15, 2026 at 03:49 AM
+-- Creation: Aug 20, 2026 at 03:36 PM
+-- Last update: Aug 20, 2026 at 04:02 PM
 --
 
-DROP TABLE IF EXISTS `leadership_team`;
-CREATE TABLE IF NOT EXISTS `leadership_team` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(150) NOT NULL,
-  `title` varchar(200) NOT NULL,
-  `bio` text DEFAULT NULL,
-  `avatar_url` varchar(500) DEFAULT NULL,
-  `avatar_color` varchar(20) NOT NULL DEFAULT '#198754',
-  `email` varchar(200) DEFAULT NULL,
+DROP TABLE IF EXISTS `leadership_levels`;
+CREATE TABLE IF NOT EXISTS `leadership_levels` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL,
+  `description` text DEFAULT NULL,
   `display_order` int(11) NOT NULL DEFAULT 0,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `idx_order_active` (`display_order`,`is_active`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  UNIQUE KEY `uq_level_name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
--- RELATIONSHIPS FOR TABLE `leadership_team`:
+-- RELATIONSHIPS FOR TABLE `leadership_levels`:
 --
 
 --
--- Truncate table before insert `leadership_team`
+-- Truncate table before insert `leadership_levels`
 --
 
-TRUNCATE TABLE `leadership_team`;
+TRUNCATE TABLE `leadership_levels`;
 --
--- Dumping data for table `leadership_team`
+-- Dumping data for table `leadership_levels`
 --
 
-INSERT IGNORE INTO `leadership_team` (`id`, `name`, `title`, `bio`, `avatar_url`, `avatar_color`, `email`, `display_order`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 'School Director', 'School Founder & Director', '20+ years in education leadership. Holds a Masters in Educational Management from University of Nairobi.', NULL, '#0d4f2a', NULL, 10, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19'),
-(2, 'Head Teacher', 'Head Teacher', 'B.Ed (Hons), experienced in CBC implementation and school administration. Sets the academic tone for the school.', NULL, '#198754', NULL, 20, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19'),
-(3, 'Deputy (Academic)', 'Deputy Head — Academic', 'Oversees curriculum delivery, lesson plans, timetabling, teacher development, and academic performance monitoring.', NULL, '#1976d2', NULL, 30, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19'),
-(4, 'Deputy (Discipline)', 'Deputy Head — Discipline', 'Manages student conduct, welfare, community relations, and the boarding programme pastoral care.', NULL, '#7b1fa2', NULL, 40, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19'),
-(5, 'The Bursar', 'School Bursar / Accountant', 'CPA-K certified. Manages school finances, fee collection, budgets, payroll, and financial reporting.', NULL, '#e65100', NULL, 50, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19'),
-(6, 'Admissions Officer', 'Admissions Officer', 'Handles student intake, placement assessments, records management, and parent liaison throughout the admission process.', NULL, '#00695c', NULL, 60, 1, '2026-04-27 03:18:19', '2026-04-27 03:18:19');
+INSERT IGNORE INTO `leadership_levels` (`id`, `name`, `description`, `display_order`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'Board of Management', 'Strategic governance body — BOM Chairperson, Secretary, Treasurer, PTA reps, and other stakeholders.', 10, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(2, 'School Administration', 'Day-to-day operational leadership — Directors, Headteacher, Deputies, School Admin, Accountant.', 20, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(3, 'Department Heads', 'Heads of department managing specific functional areas.', 30, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(4, 'Teaching Staff', 'Subject teachers, class teachers — the academic backbone.', 40, 1, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(5, 'Student Leadership', 'Student leaders — School President, Deputy, Cabinet.', 50, 1, '2026-08-20 15:36:39', '2026-08-20 16:02:40');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `leadership_positions`
+--
+-- Creation: Aug 20, 2026 at 03:36 PM
+-- Last update: Aug 20, 2026 at 04:06 PM
+--
+
+DROP TABLE IF EXISTS `leadership_positions`;
+CREATE TABLE IF NOT EXISTS `leadership_positions` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `level_id` int(10) UNSIGNED NOT NULL,
+  `name` varchar(150) NOT NULL,
+  `staff_position` varchar(100) DEFAULT NULL COMMENT 'Maps to staff.position for auto-linking',
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_level` (`level_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=45 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `leadership_positions`:
+--   `level_id`
+--       `leadership_levels` -> `id`
+--
+
+--
+-- Truncate table before insert `leadership_positions`
+--
+
+TRUNCATE TABLE `leadership_positions`;
+--
+-- Dumping data for table `leadership_positions`
+--
+
+INSERT IGNORE INTO `leadership_positions` (`id`, `level_id`, `name`, `staff_position`, `display_order`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 1, 'BOM Chairperson', NULL, 10, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(2, 1, 'BOM Vice Chairperson', NULL, 20, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(3, 1, 'BOM Secretary', NULL, 30, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(4, 1, 'BOM Treasurer', NULL, 40, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(5, 1, 'BOM Member', NULL, 50, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(6, 1, 'PTA Representative', NULL, 60, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(7, 2, 'Director', 'Director', 10, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(8, 2, 'Headteacher', 'Headteacher', 20, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(9, 2, 'Deputy Head - Academic', 'Deputy Headteacher', 30, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(10, 2, 'Deputy Head - Discipline', 'Deputy Headteacher', 40, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(11, 2, 'School Administrator', 'School Administrator', 50, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(12, 2, 'Accountant / Bursar', 'Accountant', 60, 1, '2026-08-20 15:36:39', '2026-08-20 15:36:39'),
+(31, 4, 'Teaching Staff', NULL, 10, 1, '2026-08-20 16:02:40', '2026-08-20 16:02:40'),
+(32, 5, 'School President', NULL, 10, 1, '2026-08-20 16:02:40', '2026-08-20 16:02:40'),
+(33, 5, 'Deputy School President', NULL, 20, 1, '2026-08-20 16:02:40', '2026-08-20 16:02:40'),
+(34, 5, 'Cabinet Member', NULL, 30, 1, '2026-08-20 16:02:40', '2026-08-20 16:02:40'),
+(35, 3, 'HOD Academics', NULL, 10, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(36, 3, 'HOD Transport', NULL, 20, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(37, 3, 'HOD Food & Nutrition', NULL, 30, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(38, 3, 'HOD Administration', NULL, 40, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(39, 3, 'HOD Games & Sports', NULL, 50, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(40, 3, 'HOD Student Welfare', NULL, 60, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(41, 3, 'HOD Talent Development', NULL, 70, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(42, 3, 'HOD Boarding', NULL, 80, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(43, 3, 'HOD Admissions', NULL, 90, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14'),
+(44, 3, 'HOD Finance', NULL, 100, 1, '2026-08-20 16:06:14', '2026-08-20 16:06:14');
 
 -- --------------------------------------------------------
 
@@ -26333,7 +26656,7 @@ INSERT IGNORE INTO `message_templates` (`id`, `name`, `subject`, `body`, `type`,
 -- Table structure for table `migrations`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 20, 2026 at 10:17 AM
+-- Last update: Aug 21, 2026 at 01:30 AM
 --
 
 DROP TABLE IF EXISTS `migrations`;
@@ -26345,7 +26668,7 @@ CREATE TABLE IF NOT EXISTS `migrations` (
   `duration_ms` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_migrations_filename` (`filename`)
-) ENGINE=InnoDB AUTO_INCREMENT=94 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=98 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `migrations`:
@@ -26452,7 +26775,11 @@ INSERT IGNORE INTO `migrations` (`id`, `filename`, `checksum`, `applied_at`, `du
 (90, '091_create_admission_payments.sql', '2e96fcb4dd222f73d0a67c1d5dd2a3ab', '2026-08-19 04:18:13', 0),
 (91, '092_admission_interview_sessions.sql', '81de698aa387e996dad529afaf69a97c', '2026-08-19 04:35:28', 0),
 (92, '093_admission_interview_assignment_history.sql', 'fb5b7a095b4d3ef8296e00061072bebb', '2026-08-19 04:56:36', 0),
-(93, '099_unify_academic_year_transition_workflow.sql', '0bc6c54cf7d675b847fb9ccb3e081f9b', '2026-08-20 13:17:17', 112);
+(93, '099_unify_academic_year_transition_workflow.sql', '0bc6c54cf7d675b847fb9ccb3e081f9b', '2026-08-20 13:17:17', 112),
+(94, '111_staff_payroll_child_deduction_amount.sql', '8ce37e8e03da7e8cee0eace5afa278d0', '2026-08-21 04:27:21', 0),
+(95, '112_staff_recruitment_interview_history.sql', 'abc83614947ca2df9807cd40436eafdc', '2026-08-21 04:27:21', 0),
+(96, '113_recruitment_management_permission.sql', '0e9f7b2ee4cd5cf9d21c6e4be403926f', '2026-08-21 04:27:21', 0),
+(97, '114_payroll_child_fee_transfers_and_employer_statutory.sql', 'e3e378227675e7c0bf0373bce57a866c', '2026-08-21 04:30:05', 0);
 
 -- --------------------------------------------------------
 
@@ -26460,6 +26787,7 @@ INSERT IGNORE INTO `migrations` (`id`, `filename`, `checksum`, `applied_at`, `du
 -- Table structure for table `mpesa_transactions`
 --
 -- Creation: Aug 18, 2026 at 04:55 PM
+-- Last update: Aug 21, 2026 at 03:34 AM
 --
 
 DROP TABLE IF EXISTS `mpesa_transactions`;
@@ -26516,7 +26844,7 @@ TRUNCATE TABLE `mpesa_transactions`;
 
 INSERT IGNORE INTO `mpesa_transactions` (`id`, `mpesa_code`, `student_id`, `amount`, `transaction_date`, `phone_number`, `first_name`, `middle_name`, `last_name`, `org_account_balance`, `third_party_trans_id`, `financial_account_id`, `bill_ref_number`, `normalized_reference`, `status`, `matching_status`, `transaction_type`, `reconciled_at`, `raw_callback`, `checkout_request_id`, `webhook_data`, `created_at`) VALUES
 (1, 'C2B-99773b5ae98b', NULL, 10.00, '2026-08-18 21:06:43', '0710398690', NULL, NULL, NULL, NULL, NULL, NULL, '', NULL, 'pending', 'unmatched', 'C2B', NULL, NULL, NULL, '{\"OriginatorCoversationID\":\"058f-42c6-8d43-0ee25d2aff7e106648\",\"ResponseCode\":\"0\",\"ResponseDescription\":\"Accept the service request successfully.\"}', '2026-08-18 18:06:43'),
-(2, 'STK-ws_CO_190820262344469797630228', NULL, 2000.00, '2026-08-19 23:44:47', '254797630228', NULL, NULL, NULL, NULL, NULL, NULL, 'ADM/2027/001', NULL, 'pending', 'unmatched', 'STK_PUSH', NULL, '{\"BusinessShortCode\":\"174379\",\"Password\":\"MTc0Mzc5YmZiMjc5ZjlhYTliZGJjZjE1OGU5N2RkNzFhNDY3Y2QyZTBjODkzMDU5YjEwZjc4ZTZiNzJhZGExZWQyYzkxOTIwMjYwODE5MjM0NDQ0\",\"Timestamp\":\"20260819234444\",\"TransactionType\":\"CustomerPayBillOnline\",\"Amount\":2000,\"PartyA\":\"254797630228\",\"PartyB\":\"174379\",\"PhoneNumber\":\"254797630228\",\"CallBackURL\":\"https:\\/\\/kingswaypreparatoryschool.sc.ke\\/api\\/payments\\/mpesa-stk-callback\",\"AccountReference\":\"ADM\\/2027\\/001\",\"TransactionDesc\":\"Kingsway admission and school fees\"}', 'ws_CO_190820262344469797630228', '{\"MerchantRequestID\":\"058f-42c6-8d43-0ee25d2aff7e139267\",\"CheckoutRequestID\":\"ws_CO_190820262344469797630228\",\"ResponseCode\":\"0\",\"ResponseDescription\":\"Success. Request accepted for processing\",\"CustomerMessage\":\"Success. Request accepted for processing\"}', '2026-08-19 20:44:47');
+(2, 'STK-ws_CO_190820262344469797630228', 1, 2000.00, '2026-08-19 23:44:47', '254797630228', NULL, NULL, NULL, NULL, NULL, NULL, 'ADM/2027/001', NULL, 'reconciled', 'unmatched', 'STK_PUSH', '2026-08-21 06:34:13', '{\"BusinessShortCode\":\"174379\",\"Password\":\"MTc0Mzc5YmZiMjc5ZjlhYTliZGJjZjE1OGU5N2RkNzFhNDY3Y2QyZTBjODkzMDU5YjEwZjc4ZTZiNzJhZGExZWQyYzkxOTIwMjYwODE5MjM0NDQ0\",\"Timestamp\":\"20260819234444\",\"TransactionType\":\"CustomerPayBillOnline\",\"Amount\":2000,\"PartyA\":\"254797630228\",\"PartyB\":\"174379\",\"PhoneNumber\":\"254797630228\",\"CallBackURL\":\"https:\\/\\/kingswaypreparatoryschool.sc.ke\\/api\\/payments\\/mpesa-stk-callback\",\"AccountReference\":\"ADM\\/2027\\/001\",\"TransactionDesc\":\"Kingsway admission and school fees\"}', 'ws_CO_190820262344469797630228', '{\"MerchantRequestID\":\"058f-42c6-8d43-0ee25d2aff7e139267\",\"CheckoutRequestID\":\"ws_CO_190820262344469797630228\",\"ResponseCode\":\"0\",\"ResponseDescription\":\"Success. Request accepted for processing\",\"CustomerMessage\":\"Success. Request accepted for processing\"}', '2026-08-19 20:44:47');
 
 --
 -- Triggers `mpesa_transactions`
@@ -26634,6 +26962,7 @@ TRUNCATE TABLE `newsletter_subscribers`;
 -- Table structure for table `news_articles`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
+-- Last update: Aug 20, 2026 at 06:04 PM
 --
 
 DROP TABLE IF EXISTS `news_articles`;
@@ -26670,7 +26999,7 @@ TRUNCATE TABLE `news_articles`;
 --
 
 INSERT IGNORE INTO `news_articles` (`id`, `title`, `slug`, `excerpt`, `content`, `category`, `image_url`, `author`, `status`, `views`, `created_at`, `updated_at`, `deleted_at`) VALUES
-(1, 'Term 2 Sports Day — A Day of Champions', 'term-2-sports-day-a-day-of-champions', 'Over 400 students competed in track & field, football, and netball. Our Grade 6 relay team broke a school record standing since 2019.', '<p>Kingsway Preparatory School hosted its much-anticipated Term 2 Sports Day on a sun-drenched Saturday that drew hundreds of parents, guardians and supporters from across Londiani. The day was a vibrant celebration of athletic talent, teamwork, and school spirit.</p><p>Over 400 students from PP1 through Grade 9 competed in events ranging from the 100m sprint to the 4×100m relay, high jump, long jump, shot put, and class football and netball tournaments.</p><h4>Record-Breaking Performance</h4><p>The highlight was the Grade 6 boys 4×100m relay team who shattered the school record standing since 2019. The team of Brian Mutai, Kevin Ochieng, Samuel Kipchoge, and Elijah Waweru clocked an impressive 48.3 seconds — nearly two full seconds faster than the previous record. The crowd erupted as they crossed the finish line.</p><p>In the girls category, Grade 8 student Mercy Achieng dominated the 200m and 400m events, winning both with convincing margins. Her performance has put her on the radar for county-level selection.</p><h4>Football and Netball Finals</h4><p>The football final between Grade 7 and Grade 8 went to penalties after a 1–1 draw. Grade 7 prevailed 4–3 on spot kicks, with goalkeeper Daniel Mwangi saving the decisive penalty. The netball final was equally competitive, with Grade 6 girls defeating Grade 9 by a single goal in the closing minute.</p><p>Head Teacher Mr. Odhiambo praised the students for their sportsmanship, noting that \"the character our children showed today — whether winning or losing — is exactly what we aim to build at Kingsway.\" He also thanked the PE department and all parent volunteers who made the day possible.</p>', 'Sports', 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=800&q=80', 'Kingsway Sports Department', 'published', 248, '2026-04-24 03:13:56', '2026-04-27 04:30:15', NULL),
+(1, 'Term 2 Sports Day — A Day of Champions', 'term-2-sports-day-a-day-of-champions', 'Over 400 students competed in track & field, football, and netball. Our Grade 6 relay team broke a school record standing since 2019.', '<p>Kingsway Preparatory School hosted its much-anticipated Term 2 Sports Day on a sun-drenched Saturday that drew hundreds of parents, guardians and supporters from across Londiani. The day was a vibrant celebration of athletic talent, teamwork, and school spirit.</p><p>Over 400 students from PP1 through Grade 9 competed in events ranging from the 100m sprint to the 4×100m relay, high jump, long jump, shot put, and class football and netball tournaments.</p><h4>Record-Breaking Performance</h4><p>The highlight was the Grade 6 boys 4×100m relay team who shattered the school record standing since 2019. The team of Brian Mutai, Kevin Ochieng, Samuel Kipchoge, and Elijah Waweru clocked an impressive 48.3 seconds — nearly two full seconds faster than the previous record. The crowd erupted as they crossed the finish line.</p><p>In the girls category, Grade 8 student Mercy Achieng dominated the 200m and 400m events, winning both with convincing margins. Her performance has put her on the radar for county-level selection.</p><h4>Football and Netball Finals</h4><p>The football final between Grade 7 and Grade 8 went to penalties after a 1–1 draw. Grade 7 prevailed 4–3 on spot kicks, with goalkeeper Daniel Mwangi saving the decisive penalty. The netball final was equally competitive, with Grade 6 girls defeating Grade 9 by a single goal in the closing minute.</p><p>Head Teacher Mr. Odhiambo praised the students for their sportsmanship, noting that \"the character our children showed today — whether winning or losing — is exactly what we aim to build at Kingsway.\" He also thanked the PE department and all parent volunteers who made the day possible.</p>', 'Sports', 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=800&q=80', 'Kingsway Sports Department', 'published', 249, '2026-04-24 03:13:56', '2026-08-20 18:04:12', NULL),
 (2, 'Grade 9 KJSEA Intensive Revision Workshop', 'grade-9-kjsea-intensive-revision-workshop', 'Our teaching staff hosted a full-day intensive revision workshop for all 87 Grade 9 students preparing for the Kenya Junior School Education Assessment.', '<p>With the Kenya Junior School Education Assessment (KJSEA) approaching, the academic team at Kingsway Preparatory School organised an intensive one-day revision workshop for all 87 Grade 9 students. The workshop consolidated key concepts across all examinable learning areas and built student confidence ahead of the national assessment.</p><p>The day began at 7:30 AM with an encouraging address from the Head Teacher, who reminded students that the KJSEA is a gateway to the Senior Secondary pathway aligned with each learner\'s strengths and interests. \"Prepare thoroughly, trust your teachers, and most importantly, trust yourselves,\" he said.</p><h4>Learning Area Breakout Sessions</h4><p>Students rotated through focused sessions in Mathematics, English, Kiswahili, Integrated Science, Health Education, Social Studies, and Business Studies. Each session incorporated past paper practice, timed exercises, and immediate feedback.</p><p>The Mathematics session focused on algebra, geometry, and data interpretation — areas where students historically find the most difficulty. Using KNEC-released sample questions, students worked through problems under timed conditions before group discussion.</p><h4>KJSEA Pathway Guidance</h4><p>In the afternoon, Career Guidance teacher Mrs. Wambui hosted a session on the four KJSEA pathway options: Arts, Sports & Technical (AST); STEM; Social Sciences; and Humanities. Students completed a structured self-assessment to identify which pathway best matched their academic performance and personal interests.</p><p>Parents can download the Grade 9 revision timetable from the Downloads page or collect a copy from the school office.</p>', 'Academic', 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=80', 'Academic Office', 'published', 185, '2026-04-20 03:13:56', '2026-07-13 09:51:41', NULL),
 (3, 'New ICT Computer Lab Officially Commissioned', 'new-ict-computer-lab-officially-commissioned', 'The school proudly unveils its brand-new 40-station computer lab — a major milestone in our commitment to digital literacy and CBC-aligned learning.', '<p>Kingsway Preparatory School has officially commissioned its new state-of-the-art ICT Computer Laboratory. The ribbon-cutting ceremony was attended by parents, area education officers, and members of the school board of management.</p><p>The new lab features 40 modern desktop workstations running Windows 11, high-speed fibre-optic internet connectivity, an interactive smart board, projector, and a dedicated server room. All machines have been loaded with CBC-aligned educational software including Scratch, KooBits, and Microsoft Education Suite.</p><h4>Impact on Learning</h4><p>The lab directly addresses CBC Digital Literacy requirements at all levels. Grade 3 through Grade 9 learners will now have scheduled computer lab sessions weekly. PP1 and PP2 learners will also benefit from introductory digital literacy activities.</p><p>ICT teacher Mr. Njoroge said: \"This lab will transform how our learners engage with technology — not just as consumers, but as creators. We will be coding, designing, researching and problem-solving in this space.\"</p><h4>Community Partnership</h4><p>The lab was made possible through school development funds, a parent fundraising drive that raised over KSh 1.2 million, and a matching grant from a Londiani-based education foundation. All contributing parents were recognised at the ceremony.</p>', 'Infrastructure', 'https://images.unsplash.com/photo-1581472723648-909f4851d4ae?w=800&q=80', 'School Administration', 'published', 314, '2026-04-17 03:13:56', '2026-04-27 05:37:38', NULL),
 (4, 'Term 2 Parent-Teacher Feedback Day — You Are Invited', 'term-2-parent-teacher-feedback-day-invitation', 'Parents and guardians are warmly invited to the Term 2 Feedback Day. Report books will be handed directly to parents on the day.', '<p>Kingsway Preparatory School will be hosting its Term 2 Parent-Teacher Feedback Day — an important event where parents, guardians and teachers come together to discuss each child\'s academic progress, social development and wellbeing.</p><h4>How the Day Works</h4><p>Each class teacher will be stationed in their classroom from 8:00 AM to 2:00 PM. Parents can arrive at any time during this window. Each meeting covers:</p><ul><li>Academic performance across all learning areas</li><li>Core competency development (CBC framework)</li><li>Attendance and punctuality record</li><li>Behaviour and social interaction</li><li>Action plan for Term 3</li></ul><p>Parents of Grade 9 learners are particularly encouraged to attend as KJSEA preparation is the central agenda for Term 3. The Head Teacher will be available for individual meetings with Grade 9 parents from 2:00 PM.</p><h4>Report Books</h4><p>Signed Term 2 report books will be handed directly to parents and will not be sent home with students this term. Parents unable to attend should send an authorised representative with a signed letter and the learner\'s name and class.</p><p>All report books must be signed and returned to class teachers by the end of the first week of Term 3. Tea and refreshments courtesy of the PTA. We look forward to seeing you.</p>', 'Announcement', 'https://images.unsplash.com/photo-1543269865-cbf427effbad?w=800&q=80', 'School Administration', 'published', 95, '2026-04-13 03:13:56', '2026-04-27 03:13:56', NULL),
@@ -26727,6 +27056,7 @@ INSERT IGNORE INTO `news_categories` (`id`, `name`, `slug`, `color`, `display_or
 -- Table structure for table `notifications`
 --
 -- Creation: Aug 17, 2026 at 07:01 PM
+-- Last update: Aug 21, 2026 at 04:00 AM
 --
 
 DROP TABLE IF EXISTS `notifications`;
@@ -26747,7 +27077,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   UNIQUE KEY `uq_notifications_reminder` (`user_id`,`reference_type`,`reference_id`,`reminder_window`),
   KEY `user_id` (`user_id`),
   KEY `idx_notifications_reference` (`reference_type`,`reference_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=412 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=573 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `notifications`:
@@ -26778,7 +27108,9 @@ INSERT IGNORE INTO `notifications` (`id`, `user_id`, `type`, `title`, `message`,
 (172, 4, 'reminder', 'Tomorrow: August Holiday', 'Reminder: August Holiday is scheduled for Thu, 20 Aug 2026 at 00:00.', 'home.php?route=school_events&event_id=311', 'school_event', 311, '24_hours', 'medium', 'unread', '2026-08-19 00:47:56'),
 (188, 30, 'admission_interview', 'Admission interview assignment', 'You are assigned to interview Emmanuel Too (ADM/2026/001) on 2026-08-21 at 09:30 at Main Hall. Follow-up calls may be made to your registered phone.', '/home.php?route=admission_interviews', 'admission_interview', 1, NULL, 'high', 'unread', '2026-08-19 01:18:24'),
 (361, 3, 'reminder', 'Tomorrow: August Holiday', 'Reminder: August Holiday is scheduled for Fri, 21 Aug 2026 at 00:00.', 'home.php?route=school_events&event_id=312', 'school_event', 312, '24_hours', 'medium', 'unread', '2026-08-19 20:05:45'),
-(365, 9, 'reminder', 'Tomorrow: August Holiday', 'Reminder: August Holiday is scheduled for Fri, 21 Aug 2026 at 00:00.', 'home.php?route=school_events&event_id=312', 'school_event', 312, '24_hours', 'medium', 'unread', '2026-08-19 20:45:05');
+(365, 9, 'reminder', 'Tomorrow: August Holiday', 'Reminder: August Holiday is scheduled for Fri, 21 Aug 2026 at 00:00.', 'home.php?route=school_events&event_id=312', 'school_event', 312, '24_hours', 'medium', 'unread', '2026-08-19 20:45:05'),
+(413, 9, 'reminder', 'Tomorrow: Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21', 'Reminder: Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21 is scheduled for Fri, 21 Aug 2026 at 09:30. Venue: Main Hall.', 'home.php?route=school_events&event_id=381', 'school_event', 381, '24_hours', 'medium', 'unread', '2026-08-20 17:20:26'),
+(553, 2, 'reminder', 'Tomorrow: Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21', 'Reminder: Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21 is scheduled for Fri, 21 Aug 2026 at 09:30. Venue: Main Hall.', 'home.php?route=school_events&event_id=381', 'school_event', 381, '24_hours', 'medium', 'unread', '2026-08-21 03:00:21');
 
 -- --------------------------------------------------------
 
@@ -26786,7 +27118,6 @@ INSERT IGNORE INTO `notifications` (`id`, `user_id`, `type`, `title`, `message`,
 -- Table structure for table `number_sequences`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 12:40 PM
 --
 
 DROP TABLE IF EXISTS `number_sequences`;
@@ -27097,7 +27428,6 @@ TRUNCATE TABLE `page_downloads`;
 -- Table structure for table `parents`
 --
 -- Creation: Aug 15, 2026 at 03:49 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `parents`;
@@ -27439,6 +27769,7 @@ TRUNCATE TABLE `past_papers`;
 -- Table structure for table `payments`
 --
 -- Creation: Aug 18, 2026 at 05:37 PM
+-- Last update: Aug 21, 2026 at 03:34 AM
 --
 
 DROP TABLE IF EXISTS `payments`;
@@ -27464,7 +27795,7 @@ CREATE TABLE IF NOT EXISTS `payments` (
   KEY `idx_date` (`payment_date`),
   KEY `idx_payments_parent_id` (`parent_id`),
   KEY `idx_payment_financial_account` (`financial_account_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payments`:
@@ -27482,7 +27813,8 @@ TRUNCATE TABLE `payments`;
 --
 
 INSERT IGNORE INTO `payments` (`id`, `student_id`, `financial_account_id`, `receipt_no`, `amount`, `payment_date`, `method`, `payment_purpose`, `reference`, `parent_id`, `received_by`, `status`, `notes`, `created_at`, `updated_at`) VALUES
-(1, 1, NULL, 'MPESA-UHIJ93IXVD', 2000.00, '2026-08-19 19:30:00', 'mpesa', 'fees', 'UHIJ93IXVD', 1, 1, 'confirmed', 'M-Pesa application payment allocated after placement', '2026-08-19 20:56:11', '2026-08-19 20:56:11');
+(1, 1, NULL, 'MPESA-UHIJ93IXVD', 2000.00, '2026-08-19 19:30:00', 'mpesa', 'fees', 'UHIJ93IXVD', 1, 1, 'confirmed', 'M-Pesa application payment allocated after placement', '2026-08-19 20:56:11', '2026-08-19 20:56:11'),
+(2, 1, NULL, 'MPESA-STK-ws_CO_190820262344469797630228', 2000.00, '2026-08-19 23:44:47', 'mpesa', 'fees', 'STK-ws_CO_190820262344469797630228', 1, 9, 'confirmed', ' | Payer:  (Phone: 254797630228)', '2026-08-21 03:34:13', '2026-08-21 03:34:13');
 
 --
 -- Triggers `payments`
@@ -27848,9 +28180,59 @@ TRUNCATE TABLE `payment_unmatched_cases`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `payroll_child_fee_transfers`
+--
+-- Creation: Aug 21, 2026 at 01:26 AM
+--
+
+DROP TABLE IF EXISTS `payroll_child_fee_transfers`;
+CREATE TABLE IF NOT EXISTS `payroll_child_fee_transfers` (
+  `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `payslip_id` int(10) UNSIGNED NOT NULL,
+  `staff_child_id` int(10) UNSIGNED DEFAULT NULL,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `student_academic_enrollment_id` int(10) UNSIGNED DEFAULT NULL,
+  `amount` decimal(12,2) NOT NULL,
+  `receipt_no` varchar(80) NOT NULL,
+  `payment_id` int(10) UNSIGNED DEFAULT NULL,
+  `status` enum('pending','posted','failed') NOT NULL DEFAULT 'pending',
+  `failure_reason` varchar(500) DEFAULT NULL,
+  `posted_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_payroll_child_fee_receipt` (`receipt_no`),
+  UNIQUE KEY `uq_payroll_child_fee_transfer` (`payslip_id`,`student_id`,`staff_child_id`),
+  KEY `idx_pcft_payment` (`payment_id`),
+  KEY `idx_pcft_status` (`status`),
+  KEY `fk_pcft_staff_child` (`staff_child_id`),
+  KEY `fk_pcft_student` (`student_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `payroll_child_fee_transfers`:
+--   `payment_id`
+--       `payments` -> `id`
+--   `payslip_id`
+--       `payslips` -> `id`
+--   `staff_child_id`
+--       `staff_children` -> `id`
+--   `student_id`
+--       `students` -> `id`
+--
+
+--
+-- Truncate table before insert `payroll_child_fee_transfers`
+--
+
+TRUNCATE TABLE `payroll_child_fee_transfers`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `payroll_configurations`
 --
--- Creation: Aug 15, 2026 at 03:50 AM
+-- Creation: Aug 21, 2026 at 01:26 AM
+-- Last update: Aug 21, 2026 at 01:28 AM
 --
 
 DROP TABLE IF EXISTS `payroll_configurations`;
@@ -27859,13 +28241,14 @@ CREATE TABLE IF NOT EXISTS `payroll_configurations` (
   `config_key` varchar(100) NOT NULL,
   `config_value` text NOT NULL,
   `financial_year` int(11) NOT NULL,
+  `effective_from` date DEFAULT NULL,
   `description` text DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_key_year` (`config_key`,`financial_year`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=41 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payroll_configurations`:
@@ -27880,15 +28263,25 @@ TRUNCATE TABLE `payroll_configurations`;
 -- Dumping data for table `payroll_configurations`
 --
 
-INSERT IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`, `financial_year`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 'NSSF_RATE', '6', 2025, 'NSSF employee contribution rate', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(2, 'NSSF_RATE_EMPLOYER', '6', 2025, 'NSSF employer contribution rate', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(3, 'NSSF_MAX_CONTRIBUTION', '18000', 2025, 'Maximum monthly NSSF contribution', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(4, 'NHIF_RATE', '2.75', 2025, 'NHIF employee contribution rate', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(5, 'TAX_RELIEF_MONTHLY', '2400', 2025, 'Monthly personal tax relief', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(6, 'TAX_RELIEF_PERSONAL', '1408', 2025, 'Personal tax relief amount', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(7, 'PAYROLL_CURRENCY', 'KES', 2025, 'Payroll currency', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
-(8, 'DEFAULT_PAYMENT_METHOD', 'bank', 2025, 'Default payment method', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55');
+INSERT IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`, `financial_year`, `effective_from`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'NSSF_RATE', '6', 2025, '2025-02-01', 'NSSF Year 3 employee/employer percentage', 1, '2025-11-28 15:51:55', '2026-08-21 01:28:46'),
+(2, 'NSSF_RATE_EMPLOYER', '6', 2025, NULL, 'NSSF employer contribution rate', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(3, 'NSSF_MAX_CONTRIBUTION', '18000', 2025, NULL, 'Maximum monthly NSSF contribution', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(4, 'NHIF_RATE', '2.75', 2025, NULL, 'NHIF employee contribution rate', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(5, 'TAX_RELIEF_MONTHLY', '2400', 2025, NULL, 'Monthly personal tax relief', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(6, 'TAX_RELIEF_PERSONAL', '1408', 2025, NULL, 'Personal tax relief amount', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(7, 'PAYROLL_CURRENCY', 'KES', 2025, NULL, 'Payroll currency', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(8, 'DEFAULT_PAYMENT_METHOD', 'bank', 2025, NULL, 'Default payment method', 1, '2025-11-28 15:51:55', '2025-11-28 15:51:55'),
+(9, 'SHIF_RATE', '2.75', 2026, NULL, 'Employee Social Health Insurance Fund rate; effective-dated', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(10, 'HOUSING_LEVY_EMPLOYEE_RATE', '1.50', 2026, NULL, 'Employee Affordable Housing Levy percentage', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(11, 'HOUSING_LEVY_EMPLOYER_RATE', '1.50', 2026, NULL, 'Employer Affordable Housing Levy percentage', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(12, 'PAYE_PERSONAL_RELIEF', '2400', 2026, NULL, 'Monthly resident personal relief', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(13, 'STATUTORY_RATE_SOURCE_YEAR', '2026', 2026, NULL, 'Rates must be verified against current official notices', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(14, 'NSSF_RATE', '6', 2026, '2026-02-01', 'NSSF employee/employer percentage under Year 4 notice', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(15, 'NSSF_LOWER_EARNINGS_LIMIT', '9000', 2026, '2026-02-01', 'NSSF Year 4 Tier 1 lower earnings limit', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(16, 'NSSF_UPPER_EARNINGS_LIMIT', '108000', 2026, '2026-02-01', 'NSSF Year 4 Tier 2 upper earnings limit', 1, '2026-08-21 01:26:58', '2026-08-21 01:26:58'),
+(22, 'NSSF_LOWER_EARNINGS_LIMIT', '8000', 2025, '2025-02-01', 'NSSF Year 3 Tier 1 lower earnings limit', 1, '2026-08-21 01:28:46', '2026-08-21 01:28:46'),
+(23, 'NSSF_UPPER_EARNINGS_LIMIT', '72000', 2025, '2025-02-01', 'NSSF Year 3 Tier 2 upper earnings limit', 1, '2026-08-21 01:28:46', '2026-08-21 01:28:46');
 
 -- --------------------------------------------------------
 
@@ -27896,6 +28289,7 @@ INSERT IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`,
 -- Table structure for table `payroll_runs`
 --
 -- Creation: Aug 18, 2026 at 05:37 PM
+-- Last update: Aug 21, 2026 at 02:20 AM
 --
 
 DROP TABLE IF EXISTS `payroll_runs`;
@@ -27931,14 +28325,16 @@ TRUNCATE TABLE `payroll_runs`;
 --
 
 INSERT IGNORE INTO `payroll_runs` (`id`, `financial_period_id`, `source_financial_account_id`, `month`, `year`, `status`, `workflow`, `created_by`, `created_at`) VALUES
-(1000, NULL, NULL, 1, 2026, 'paid', NULL, NULL, '2026-05-24 07:55:08');
+(1000, NULL, NULL, 1, 2026, 'paid', NULL, NULL, '2026-05-24 07:55:08'),
+(1001, NULL, NULL, 8, 2026, 'draft', NULL, 9, '2026-08-21 02:20:14');
 
 -- --------------------------------------------------------
 
 --
 -- Table structure for table `payslips`
 --
--- Creation: Aug 15, 2026 at 03:50 AM
+-- Creation: Aug 21, 2026 at 01:26 AM
+-- Last update: Aug 21, 2026 at 02:43 AM
 --
 
 DROP TABLE IF EXISTS `payslips`;
@@ -27952,11 +28348,14 @@ CREATE TABLE IF NOT EXISTS `payslips` (
   `gross_salary` decimal(12,2) NOT NULL,
   `paye_tax` decimal(12,2) NOT NULL DEFAULT 0.00,
   `nssf_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `employer_nssf_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
   `nhif_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `shif_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
   `loan_deduction` decimal(12,2) NOT NULL DEFAULT 0.00,
   `child_fees_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Total child school fees deducted',
   `sacco_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'SACCO contribution',
   `housing_levy` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Housing levy deduction',
+  `employer_housing_levy` decimal(12,2) NOT NULL DEFAULT 0.00,
   `salary_advance_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Salary advance recovery',
   `other_deductions_total` decimal(12,2) NOT NULL DEFAULT 0.00,
   `net_salary` decimal(12,2) NOT NULL,
@@ -27979,7 +28378,7 @@ CREATE TABLE IF NOT EXISTS `payslips` (
   KEY `idx_status` (`payslip_status`),
   KEY `idx_payslips_staff_period` (`staff_id`,`payroll_year`,`payroll_month`),
   KEY `idx_payslips_status` (`payslip_status`,`payment_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=1002 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1032 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payslips`:
@@ -27994,9 +28393,39 @@ TRUNCATE TABLE `payslips`;
 -- Dumping data for table `payslips`
 --
 
-INSERT IGNORE INTO `payslips` (`id`, `staff_id`, `payroll_month`, `payroll_year`, `basic_salary`, `allowances_total`, `gross_salary`, `paye_tax`, `nssf_contribution`, `nhif_contribution`, `loan_deduction`, `child_fees_deduction`, `sacco_deduction`, `housing_levy`, `salary_advance_deduction`, `other_deductions_total`, `net_salary`, `payment_method`, `payment_date`, `payslip_status`, `payment_status`, `payment_reference`, `paid_at`, `signed_by`, `notes`, `allowances_breakdown`, `deductions_breakdown`, `child_fees_breakdown`, `created_at`, `updated_at`) VALUES
-(1000, 34, 5, 2026, 25000.00, 9000.00, 34000.00, 1990.00, 2040.00, 900.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 28560.00, NULL, NULL, 'approved', 'pending', NULL, '2026-05-24 19:00:43', NULL, NULL, NULL, NULL, NULL, '2026-05-24 07:55:08', '2026-05-24 13:00:43'),
-(1001, 53, 5, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 850.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 22275.00, NULL, '2026-05-24', 'paid', 'paid', '', NULL, NULL, NULL, NULL, NULL, NULL, '2026-05-24 07:57:40', '2026-05-24 07:58:21');
+INSERT IGNORE INTO `payslips` (`id`, `staff_id`, `payroll_month`, `payroll_year`, `basic_salary`, `allowances_total`, `gross_salary`, `paye_tax`, `nssf_contribution`, `employer_nssf_contribution`, `nhif_contribution`, `shif_contribution`, `loan_deduction`, `child_fees_deduction`, `sacco_deduction`, `housing_levy`, `employer_housing_levy`, `salary_advance_deduction`, `other_deductions_total`, `net_salary`, `payment_method`, `payment_date`, `payslip_status`, `payment_status`, `payment_reference`, `paid_at`, `signed_by`, `notes`, `allowances_breakdown`, `deductions_breakdown`, `child_fees_breakdown`, `created_at`, `updated_at`) VALUES
+(1000, 34, 5, 2026, 25000.00, 9000.00, 34000.00, 1990.00, 2040.00, 0.00, 900.00, 900.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 28560.00, NULL, NULL, 'approved', 'pending', NULL, '2026-05-24 19:00:43', NULL, NULL, NULL, NULL, NULL, '2026-05-24 07:55:08', '2026-08-21 01:26:57'),
+(1001, 53, 5, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 0.00, 850.00, 850.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 22275.00, NULL, '2026-05-24', 'paid', 'paid', '', NULL, NULL, NULL, NULL, NULL, NULL, '2026-05-24 07:57:40', '2026-08-21 01:26:57'),
+(1002, 110, 8, 2026, 65000.00, 0.00, 65000.00, 9884.60, 3900.00, 3900.00, 1787.50, 1787.50, 0.00, 0.00, 0.00, 975.00, 975.00, 0.00, 0.00, 48452.90, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:20:14', '2026-08-21 02:20:14'),
+(1003, 111, 8, 2026, 45000.00, 0.00, 45000.00, 4499.60, 2700.00, 2700.00, 1237.50, 1237.50, 0.00, 0.00, 0.00, 675.00, 675.00, 0.00, 0.00, 35887.90, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1004, 52, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1005, 46, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1006, 53, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1007, 54, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1008, 47, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1009, 40, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1010, 55, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1011, 51, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1012, 43, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1013, 56, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1014, 44, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1015, 45, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1016, 42, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1017, 49, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1018, 99, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1019, 108, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1020, 107, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1021, 100, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:00', '2026-08-21 02:43:00'),
+(1022, 101, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1023, 98, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1024, 109, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1025, 103, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1026, 102, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1027, 104, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1028, 105, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1029, 106, 8, 2026, 42000.00, 0.00, 42000.00, 3691.85, 2520.00, 2520.00, 1155.00, 1155.00, 0.00, 0.00, 0.00, 630.00, 630.00, 0.00, 0.00, 34003.15, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1030, 50, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01'),
+(1031, 57, 8, 2026, 25000.00, 0.00, 25000.00, 0.00, 1500.00, 1500.00, 687.50, 687.50, 0.00, 0.00, 0.00, 375.00, 375.00, 0.00, 0.00, 22437.50, 'bank', NULL, 'draft', 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-21 02:43:01', '2026-08-21 02:43:01');
 
 --
 -- Triggers `payslips`
@@ -28024,6 +28453,7 @@ DELIMITER ;
 -- Table structure for table `payslip_items`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
+-- Last update: Aug 21, 2026 at 02:43 AM
 --
 
 DROP TABLE IF EXISTS `payslip_items`;
@@ -28044,7 +28474,7 @@ CREATE TABLE IF NOT EXISTS `payslip_items` (
   KEY `idx_item_type` (`item_type`),
   KEY `idx_item_code` (`item_code`),
   KEY `idx_payslip_items_reference_id` (`reference_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=105 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payslip_items`:
@@ -28055,6 +28485,116 @@ CREATE TABLE IF NOT EXISTS `payslip_items` (
 --
 
 TRUNCATE TABLE `payslip_items`;
+--
+-- Dumping data for table `payslip_items`
+--
+
+INSERT IGNORE INTO `payslip_items` (`id`, `payslip_id`, `item_type`, `item_code`, `item_name`, `description`, `amount`, `is_taxable`, `reference_id`, `reference_type`, `created_at`) VALUES
+(1, 1002, 'statutory', 'NSSF', 'NSSF contribution', NULL, 3900.00, 0, NULL, NULL, '2026-08-21 02:20:14'),
+(2, 1002, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1787.50, 0, NULL, NULL, '2026-08-21 02:20:14'),
+(3, 1002, 'statutory', 'PAYE', 'PAYE tax', NULL, 9884.60, 0, NULL, NULL, '2026-08-21 02:20:14'),
+(4, 1002, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 975.00, 0, NULL, NULL, '2026-08-21 02:20:14'),
+(5, 1003, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2700.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(6, 1003, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1237.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(7, 1003, 'statutory', 'PAYE', 'PAYE tax', NULL, 4499.60, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(8, 1003, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 675.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(9, 1004, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(10, 1004, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(11, 1004, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(12, 1005, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(13, 1005, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(14, 1005, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(15, 1006, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(16, 1006, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(17, 1006, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(18, 1007, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(19, 1007, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(20, 1007, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(21, 1008, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(22, 1008, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(23, 1008, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(24, 1009, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(25, 1009, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(26, 1009, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(27, 1010, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(28, 1010, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(29, 1010, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(30, 1011, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(31, 1011, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(32, 1011, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(33, 1012, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(34, 1012, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(35, 1012, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(36, 1013, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(37, 1013, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(38, 1013, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(39, 1014, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(40, 1014, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(41, 1014, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(42, 1015, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(43, 1015, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(44, 1015, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(45, 1016, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(46, 1016, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(47, 1016, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(48, 1017, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(49, 1017, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(50, 1017, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(51, 1018, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(52, 1018, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(53, 1018, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(54, 1018, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(55, 1019, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(56, 1019, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(57, 1019, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(58, 1019, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(59, 1020, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(60, 1020, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(61, 1020, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(62, 1020, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(63, 1021, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(64, 1021, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(65, 1021, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(66, 1021, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:00'),
+(67, 1022, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(68, 1022, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(69, 1022, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(70, 1022, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(71, 1023, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(72, 1023, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(73, 1023, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(74, 1023, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(75, 1024, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(76, 1024, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(77, 1024, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(78, 1024, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(79, 1025, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(80, 1025, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(81, 1025, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(82, 1025, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(83, 1026, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(84, 1026, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(85, 1026, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(86, 1026, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(87, 1027, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(88, 1027, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(89, 1027, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(90, 1027, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(91, 1028, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(92, 1028, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(93, 1028, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(94, 1028, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(95, 1029, 'statutory', 'NSSF', 'NSSF contribution', NULL, 2520.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(96, 1029, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 1155.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(97, 1029, 'statutory', 'PAYE', 'PAYE tax', NULL, 3691.85, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(98, 1029, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 630.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(99, 1030, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(100, 1030, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(101, 1030, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(102, 1031, 'statutory', 'NSSF', 'NSSF contribution', NULL, 1500.00, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(103, 1031, 'statutory', 'SHIF', 'Social Health Insurance Fund contribution', NULL, 687.50, 0, NULL, NULL, '2026-08-21 02:43:01'),
+(104, 1031, 'statutory', 'HOUSING_LEVY', 'Affordable housing levy', NULL, 375.00, 0, NULL, NULL, '2026-08-21 02:43:01');
+
 -- --------------------------------------------------------
 
 --
@@ -28255,6 +28795,7 @@ TRUNCATE TABLE `performance_review_kpis`;
 -- Table structure for table `permissions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
+-- Last update: Aug 21, 2026 at 01:26 AM
 --
 
 DROP TABLE IF EXISTS `permissions`;
@@ -28273,7 +28814,7 @@ CREATE TABLE IF NOT EXISTS `permissions` (
   KEY `idx_code` (`code`),
   KEY `idx_entity_action` (`entity`,`action`),
   KEY `idx_module` (`module`)
-) ENGINE=InnoDB AUTO_INCREMENT=100668 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=100669 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `permissions`:
@@ -33074,7 +33615,8 @@ INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action
 (100663, 'system.developer_tools.view', 'View API explorer, diagnostics, webhooks and job inspector', 'system_developer_tools', 'view', 'system', '2026-07-22 22:04:31', '2026-07-22 22:04:31'),
 (100664, 'system.developer_tools.manage', 'Manage webhooks and execute permitted diagnostics', 'system_developer_tools', 'manage', 'system', '2026-07-22 22:04:31', '2026-07-22 22:04:31'),
 (100665, 'staff.opportunities.self', 'View and apply for internal staff opportunities', 'staff_opportunities', 'self', 'staff', '2026-07-26 19:26:33', '2026-07-26 19:26:33'),
-(100666, 'staff.incidents.self', 'Create and track own workplace incident reports', 'staff_incidents', 'self', 'staff', '2026-07-26 19:26:33', '2026-07-26 19:26:33');
+(100666, 'staff.incidents.self', 'Create and track own workplace incident reports', 'staff_incidents', 'self', 'staff', '2026-07-26 19:26:33', '2026-07-26 19:26:33'),
+(100668, 'website_applications_manage', 'Manage staff recruitment applications and interviews', 'website_applications', 'manage', 'website', '2026-08-21 01:26:57', '2026-08-21 01:26:57');
 
 -- --------------------------------------------------------
 
@@ -33118,7 +33660,6 @@ TRUNCATE TABLE `permission_delegations`;
 -- Table structure for table `persons`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `persons`;
@@ -33922,7 +34463,7 @@ TRUNCATE TABLE `record_permissions`;
 -- Table structure for table `refresh_tokens`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:35 AM
+-- Last update: Aug 21, 2026 at 04:00 AM
 --
 
 DROP TABLE IF EXISTS `refresh_tokens`;
@@ -33938,7 +34479,7 @@ CREATE TABLE IF NOT EXISTS `refresh_tokens` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_expires_at` (`expires_at`),
   KEY `idx_revoked` (`revoked_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=163 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=183 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `refresh_tokens`:
@@ -34115,7 +34656,27 @@ INSERT IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `cr
 (159, 3, '497fefbf32950c3397888d169918e053a0d3ae3db21b2df1ef6c28bd54959df7', '2026-08-27 10:33:47', '2026-08-20 11:33:47', NULL),
 (160, 3, 'bb1b85be7c050657942cae4a48ce4419f89d89585e2a332ad826709a4b425d9b', '2026-08-27 10:34:15', '2026-08-20 11:34:15', NULL),
 (161, 3, 'f8f57aa82d918430029883c41bfc3dbb4bab459765a8c7783ccc3a4d2037fa9e', '2026-08-27 10:34:54', '2026-08-20 11:34:54', NULL),
-(162, 3, '8df994f38478a2cbff44f8b19e20d81af7ed936e0fadff29fd8afd7d6e59cc16', '2026-08-27 10:35:19', '2026-08-20 11:35:19', NULL);
+(162, 3, '8df994f38478a2cbff44f8b19e20d81af7ed936e0fadff29fd8afd7d6e59cc16', '2026-08-27 10:35:19', '2026-08-20 11:35:19', NULL),
+(163, 9, '215a00362eb5c15f49299470dcb08fcb734b92d1d7f0a24636e02a49a3631e61', '2026-08-27 17:20:23', '2026-08-20 18:20:23', NULL),
+(164, 9, '46a57b111cd812fa2160849479973292b9bdfc35a5a79346752798d5938f6a98', '2026-08-27 21:26:47', '2026-08-20 22:26:47', NULL),
+(165, 9, '7f94cde972f40fef55820bb15d512843e39b4d601ede6a6444109342bafec529', '2026-08-28 00:49:23', '2026-08-21 01:49:23', NULL),
+(166, 9, 'bd4384cd170fbb522c0d16eca2f5793644ca3e449608c0441666f688b1c830ed', '2026-08-28 01:19:52', '2026-08-21 02:19:52', NULL),
+(167, 9, '98a7a879d2416bc0fc55cdac7164fd11570ac46a878c6712b83253e566e2714d', '2026-08-28 01:20:02', '2026-08-21 02:20:02', NULL),
+(168, 9, '656edc7b74c7e45c1013b2d4039ffe893868d9a51510fafc9d0b97342e0a372a', '2026-08-28 01:20:14', '2026-08-21 02:20:14', NULL),
+(169, 9, 'f6f3b784e0f8f54074c2f6b632aea384aeaa5cd6c03ade50ed14257dda2eb4d0', '2026-08-28 01:20:20', '2026-08-21 02:20:20', NULL),
+(170, 9, '0c4a58800eaca24e2f0eb9c98bc99b2225f0eb0f8229bb29db60eaa1769a0e7d', '2026-08-28 01:36:32', '2026-08-21 02:36:32', NULL),
+(171, 9, '677174d87e9fe92ea4a8087d6c8bb6aa9da25792c22419169fb01c65c95b921c', '2026-08-28 01:37:25', '2026-08-21 02:37:25', NULL),
+(172, 9, 'c5245cdd8dd786a40b78dfc6f2f3af224e822144fab88ac72b79b683c3eb023e', '2026-08-28 01:38:01', '2026-08-21 02:38:01', NULL),
+(173, 2, '9c30e0d350389635a940b5731f4d07c1f992da728dc9a17173a21686e074dc35', '2026-08-28 01:38:49', '2026-08-21 02:38:49', NULL),
+(174, 2, 'a57e5ef8f7f3ac3c5a881a7592c6bedf3b5ade8e6799c650bdc36f2813973934', '2026-08-28 01:38:54', '2026-08-21 02:38:54', NULL),
+(175, 9, 'b805340456e84d0e16a81a6d2a27e3e03239fa204847f8576778273d7c731721', '2026-08-28 01:44:37', '2026-08-21 02:44:37', NULL),
+(176, 9, '742d2b5638a46b6dda213a99e346c2f5f85bfaaf18c7bbd9d7818aa5410e0d51', '2026-08-28 01:44:48', '2026-08-21 02:44:48', NULL),
+(177, 9, '8881899d1be7e3e1d4aab7365868a72151425d83ed5d1516e29cc1954b13701c', '2026-08-28 01:47:16', '2026-08-21 02:47:16', NULL),
+(178, 9, '8def37609fe27d67e91026bf3a71d1658f6d27a399bb1c38644facfd08fbd359', '2026-08-28 01:47:21', '2026-08-21 02:47:21', NULL),
+(179, 9, '19ee8277b26d9357529f9167ccb40a7f1ccb3baea3111a5d3767be392a16f721', '2026-08-28 01:47:28', '2026-08-21 02:47:28', NULL),
+(180, 9, 'd170ab8e03ea4290e970fc6f8563e44a77f6e186c655ac0f8bf35f1133b2f3a6', '2026-08-28 01:47:36', '2026-08-21 02:47:36', NULL),
+(181, 9, 'fbd1ddfd576eb22a1409e64338b2073bf4f7364acc6689d94a1f0aa7ca910af7', '2026-08-28 01:48:32', '2026-08-21 02:48:32', NULL),
+(182, 2, 'afad6e6578315aa58ff1aca156127d804dba4cc20c2aff70d2e7b107263f05c1', '2026-08-28 03:00:17', '2026-08-21 04:00:17', NULL);
 
 -- --------------------------------------------------------
 
@@ -34384,6 +34945,7 @@ DELIMITER ;
 -- Table structure for table `role_permissions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
+-- Last update: Aug 21, 2026 at 01:26 AM
 --
 
 DROP TABLE IF EXISTS `role_permissions`;
@@ -34396,7 +34958,7 @@ CREATE TABLE IF NOT EXISTS `role_permissions` (
   UNIQUE KEY `unique_role_permission` (`role_id`,`permission_id`),
   KEY `idx_role_id` (`role_id`),
   KEY `idx_permission_id` (`permission_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=184838 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Junction table: Maps roles to their permissions';
+) ENGINE=InnoDB AUTO_INCREMENT=184841 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Junction table: Maps roles to their permissions';
 
 --
 -- RELATIONSHIPS FOR TABLE `role_permissions`:
@@ -63322,7 +63884,10 @@ INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `create
 (184833, 33, 4468, '2026-07-26 19:26:33'),
 (184834, 4, 100096, '2026-08-16 10:01:07'),
 (184835, 4, 100097, '2026-08-16 10:01:07'),
-(184837, 10, 4463, '2026-08-17 10:44:54');
+(184837, 10, 4463, '2026-08-17 10:44:54'),
+(184838, 3, 100668, '2026-08-21 01:26:57'),
+(184839, 4, 100668, '2026-08-21 01:26:57'),
+(184840, 2, 100668, '2026-08-21 01:26:57');
 
 -- --------------------------------------------------------
 
@@ -82544,78 +83109,6 @@ INSERT IGNORE INTO `scheme_template_learning_outcomes` (`scheme_template_id`, `l
 -- --------------------------------------------------------
 
 --
--- Table structure for table `school_configuration`
---
--- Creation: Aug 15, 2026 at 03:50 AM
---
-
-DROP TABLE IF EXISTS `school_configuration`;
-CREATE TABLE IF NOT EXISTS `school_configuration` (
-  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `school_name` varchar(255) NOT NULL,
-  `school_code` varchar(50) DEFAULT NULL,
-  `logo_url` varchar(500) DEFAULT NULL,
-  `favicon_url` varchar(500) DEFAULT NULL,
-  `motto` varchar(500) DEFAULT NULL,
-  `vision` text DEFAULT NULL,
-  `mission` text DEFAULT NULL,
-  `core_values` text DEFAULT NULL,
-  `about_us` text DEFAULT NULL,
-  `email` varchar(255) DEFAULT NULL,
-  `phone` varchar(50) DEFAULT NULL,
-  `alternative_phone` varchar(50) DEFAULT NULL,
-  `address` text DEFAULT NULL,
-  `city` varchar(100) DEFAULT NULL,
-  `state` varchar(100) DEFAULT NULL,
-  `country` varchar(100) DEFAULT NULL,
-  `postal_code` varchar(20) DEFAULT NULL,
-  `website` varchar(255) DEFAULT NULL,
-  `facebook_url` varchar(255) DEFAULT NULL,
-  `twitter_url` varchar(255) DEFAULT NULL,
-  `instagram_url` varchar(255) DEFAULT NULL,
-  `linkedin_url` varchar(255) DEFAULT NULL,
-  `youtube_url` varchar(255) DEFAULT NULL,
-  `established_year` year(4) DEFAULT NULL,
-  `principal_name` varchar(255) DEFAULT NULL,
-  `principal_message` text DEFAULT NULL,
-  `academic_calendar_url` varchar(500) DEFAULT NULL,
-  `prospectus_url` varchar(500) DEFAULT NULL,
-  `student_handbook_url` varchar(500) DEFAULT NULL,
-  `timezone` varchar(50) DEFAULT 'Africa/Nairobi',
-  `currency` varchar(10) DEFAULT 'KES',
-  `language` varchar(10) DEFAULT 'en',
-  `date_format` varchar(20) DEFAULT 'Y-m-d',
-  `time_format` varchar(20) DEFAULT 'H:i:s',
-  `is_active` tinyint(1) NOT NULL DEFAULT 1,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `created_by` int(10) UNSIGNED DEFAULT NULL,
-  `updated_by` int(10) UNSIGNED DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_active` (`is_active`),
-  KEY `fk_school_config_created_by` (`created_by`),
-  KEY `fk_school_config_updated_by` (`updated_by`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- RELATIONSHIPS FOR TABLE `school_configuration`:
---
-
---
--- Truncate table before insert `school_configuration`
---
-
-TRUNCATE TABLE `school_configuration`;
---
--- Dumping data for table `school_configuration`
---
-
-INSERT IGNORE INTO `school_configuration` (`id`, `school_name`, `school_code`, `logo_url`, `favicon_url`, `motto`, `vision`, `mission`, `core_values`, `about_us`, `email`, `phone`, `alternative_phone`, `address`, `city`, `state`, `country`, `postal_code`, `website`, `facebook_url`, `twitter_url`, `instagram_url`, `linkedin_url`, `youtube_url`, `established_year`, `principal_name`, `principal_message`, `academic_calendar_url`, `prospectus_url`, `student_handbook_url`, `timezone`, `currency`, `language`, `date_format`, `time_format`, `is_active`, `created_at`, `updated_at`, `created_by`, `updated_by`) VALUES
-(1, 'Kingsway Preparatory School', 'KWPS', 'uploads/school_assets/official_school_logo.png', NULL, 'In God We Soar', NULL, NULL, NULL, NULL, 'info@kingswaypreparatoryschool.sc.ke', '+254-720-113030', '+254-720-113031', 'P.O BOX 203-20203, Londiani, Kenya', 'Londiani', NULL, 'Kenya', '20203', NULL, NULL, NULL, NULL, NULL, NULL, '2005', 'Mr Bett Junior', NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2026-08-02 03:06:54', '2026-08-02 03:06:54', NULL, NULL);
-
--- --------------------------------------------------------
-
---
 -- Table structure for table `school_content`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
@@ -82655,7 +83148,7 @@ INSERT IGNORE INTO `school_content` (`id`, `content_key`, `content_value`, `upda
 --
 -- Table structure for table `school_events`
 --
--- Creation: Aug 15, 2026 at 11:03 AM
+-- Creation: Aug 20, 2026 at 01:28 PM
 --
 
 DROP TABLE IF EXISTS `school_events`;
@@ -82666,6 +83159,7 @@ CREATE TABLE IF NOT EXISTS `school_events` (
   `start_at` datetime NOT NULL,
   `end_at` datetime DEFAULT NULL,
   `type` varchar(50) NOT NULL,
+  `category` enum('academic','examination','holiday','administrative','meeting','admission','public_holiday','other') DEFAULT 'other',
   `calendar_day_id` int(10) UNSIGNED DEFAULT NULL,
   `source` enum('calendar','manual') NOT NULL DEFAULT 'manual',
   `location` varchar(200) DEFAULT NULL,
@@ -82690,134 +83184,134 @@ TRUNCATE TABLE `school_events`;
 -- Dumping data for table `school_events`
 --
 
-INSERT IGNORE INTO `school_events` (`id`, `title`, `description`, `start_at`, `end_at`, `type`, `calendar_day_id`, `source`, `location`, `status`, `created_at`, `updated_at`) VALUES
-(10, 'KPSEA', 'Kenya Primary Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-10-29 17:00:00', 'exam', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-15 22:36:55'),
-(11, 'KILEA', 'Kenya Intermediate Level Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-10-30 17:00:00', 'exam', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-15 22:36:55'),
-(12, 'KJSEA & KPLEA', 'Kenya Junior School Education Assessment & Kenya Pre-Vocational Level Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-11-05 17:00:00', 'exam', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-15 22:36:55'),
-(13, 'KCSE', 'Kenya Certificate of Secondary Education (Kenya MoE 2026/2027).', '2026-11-02 08:00:00', '2026-11-20 17:00:00', 'exam', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-15 22:36:55'),
-(18, 'Happy New Year', NULL, '2027-01-01 00:00:00', '2027-01-01 23:59:59', 'public_holiday', 1737, 'calendar', NULL, 'upcoming', '2026-08-16 09:45:31', '2026-08-19 16:21:58'),
-(260, 'Half Term Break', NULL, '2026-02-25 00:00:00', '2026-02-25 23:59:59', 'school_holiday', 2134, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(261, 'Half Term Break', NULL, '2026-02-26 00:00:00', '2026-02-26 23:59:59', 'school_holiday', 2135, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(262, 'Half Term Break', NULL, '2026-02-27 00:00:00', '2026-02-27 23:59:59', 'school_holiday', 2136, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(263, 'Half Term Break', NULL, '2026-02-28 00:00:00', '2026-02-28 23:59:59', 'school_holiday', 2137, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(264, 'Half Term Break', NULL, '2026-03-01 00:00:00', '2026-03-01 23:59:59', 'school_holiday', 2138, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(265, 'Idd-ul-Fitr', NULL, '2026-03-20 00:00:00', '2026-03-20 23:59:59', 'public_holiday', 2157, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(266, 'Good Friday', NULL, '2026-04-03 00:00:00', '2026-04-03 23:59:59', 'public_holiday', 2328, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(267, 'Easter Monday', NULL, '2026-04-06 00:00:00', '2026-04-06 23:59:59', 'public_holiday', 2329, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(268, 'April Holiday', NULL, '2026-04-07 00:00:00', '2026-04-07 23:59:59', 'school_holiday', 2330, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(269, 'April Holiday', NULL, '2026-04-08 00:00:00', '2026-04-08 23:59:59', 'school_holiday', 2331, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(270, 'April Holiday', NULL, '2026-04-09 00:00:00', '2026-04-09 23:59:59', 'school_holiday', 2332, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(271, 'April Holiday', NULL, '2026-04-10 00:00:00', '2026-04-10 23:59:59', 'school_holiday', 2333, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(272, 'April Holiday', NULL, '2026-04-11 00:00:00', '2026-04-11 23:59:59', 'school_holiday', 2334, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(273, 'April Holiday', NULL, '2026-04-12 00:00:00', '2026-04-12 23:59:59', 'school_holiday', 2335, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(274, 'April Holiday', NULL, '2026-04-13 00:00:00', '2026-04-13 23:59:59', 'school_holiday', 2336, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(275, 'April Holiday', NULL, '2026-04-14 00:00:00', '2026-04-14 23:59:59', 'school_holiday', 2337, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(276, 'April Holiday', NULL, '2026-04-15 00:00:00', '2026-04-15 23:59:59', 'school_holiday', 2338, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(277, 'April Holiday', NULL, '2026-04-16 00:00:00', '2026-04-16 23:59:59', 'school_holiday', 2339, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-19 16:21:53'),
-(278, 'April Holiday', NULL, '2026-04-17 00:00:00', '2026-04-17 23:59:59', 'school_holiday', 2340, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(279, 'April Holiday', NULL, '2026-04-18 00:00:00', '2026-04-18 23:59:59', 'school_holiday', 2341, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(280, 'April Holiday', NULL, '2026-04-19 00:00:00', '2026-04-19 23:59:59', 'school_holiday', 2342, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(281, 'April Holiday', NULL, '2026-04-20 00:00:00', '2026-04-20 23:59:59', 'school_holiday', 2343, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(282, 'April Holiday', NULL, '2026-04-21 00:00:00', '2026-04-21 23:59:59', 'school_holiday', 2344, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(283, 'April Holiday', NULL, '2026-04-22 00:00:00', '2026-04-22 23:59:59', 'school_holiday', 2345, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(284, 'April Holiday', NULL, '2026-04-23 00:00:00', '2026-04-23 23:59:59', 'school_holiday', 2346, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(285, 'April Holiday', NULL, '2026-04-24 00:00:00', '2026-04-24 23:59:59', 'school_holiday', 2347, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(286, 'Labour Day', NULL, '2026-05-01 00:00:00', '2026-05-01 23:59:59', 'public_holiday', 2175, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:53'),
-(287, 'Idd-ul-Adha', NULL, '2026-05-27 00:00:00', '2026-05-27 23:59:59', 'public_holiday', 2201, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(288, 'Madaraka Day', NULL, '2026-06-01 00:00:00', '2026-06-01 23:59:59', 'public_holiday', 2206, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(289, 'Half Term Break', NULL, '2026-06-24 00:00:00', '2026-06-24 23:59:59', 'school_holiday', 2229, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(290, 'Half Term Break', NULL, '2026-06-25 00:00:00', '2026-06-25 23:59:59', 'school_holiday', 2230, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(291, 'Half Term Break', NULL, '2026-06-26 00:00:00', '2026-06-26 23:59:59', 'school_holiday', 2231, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(292, 'Half Term Break', NULL, '2026-06-27 00:00:00', '2026-06-27 23:59:59', 'school_holiday', 2232, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(293, 'Half Term Break', NULL, '2026-06-28 00:00:00', '2026-06-28 23:59:59', 'school_holiday', 2233, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(294, 'August Holiday', NULL, '2026-08-03 00:00:00', '2026-08-03 23:59:59', 'school_holiday', 2348, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:54'),
-(295, 'August Holiday', NULL, '2026-08-04 00:00:00', '2026-08-04 23:59:59', 'school_holiday', 2349, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(296, 'August Holiday', NULL, '2026-08-05 00:00:00', '2026-08-05 23:59:59', 'school_holiday', 2350, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(297, 'August Holiday', NULL, '2026-08-06 00:00:00', '2026-08-06 23:59:59', 'school_holiday', 2351, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(298, 'August Holiday', NULL, '2026-08-07 00:00:00', '2026-08-07 23:59:59', 'school_holiday', 2352, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(299, 'August Holiday', NULL, '2026-08-08 00:00:00', '2026-08-08 23:59:59', 'school_holiday', 2353, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(300, 'August Holiday', NULL, '2026-08-09 00:00:00', '2026-08-09 23:59:59', 'school_holiday', 2354, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(301, 'August Holiday', NULL, '2026-08-10 00:00:00', '2026-08-10 23:59:59', 'school_holiday', 2355, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(302, 'August Holiday', NULL, '2026-08-11 00:00:00', '2026-08-11 23:59:59', 'school_holiday', 2356, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(303, 'August Holiday', NULL, '2026-08-12 00:00:00', '2026-08-12 23:59:59', 'school_holiday', 2357, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(304, 'August Holiday', NULL, '2026-08-13 00:00:00', '2026-08-13 23:59:59', 'school_holiday', 2358, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(305, 'August Holiday', NULL, '2026-08-14 00:00:00', '2026-08-14 23:59:59', 'school_holiday', 2359, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(306, 'August Holiday', NULL, '2026-08-15 00:00:00', '2026-08-15 23:59:59', 'school_holiday', 2360, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(307, 'August Holiday', NULL, '2026-08-16 00:00:00', '2026-08-16 23:59:59', 'school_holiday', 2361, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(308, 'August Holiday', NULL, '2026-08-17 00:00:00', '2026-08-17 23:59:59', 'school_holiday', 2362, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(309, 'August Holiday', NULL, '2026-08-18 00:00:00', '2026-08-18 23:59:59', 'school_holiday', 2363, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(310, 'August Holiday', NULL, '2026-08-19 00:00:00', '2026-08-19 23:59:59', 'school_holiday', 2364, 'calendar', NULL, 'ongoing', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(311, 'August Holiday', NULL, '2026-08-20 00:00:00', '2026-08-20 23:59:59', 'school_holiday', 2365, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(312, 'August Holiday', NULL, '2026-08-21 00:00:00', '2026-08-21 23:59:59', 'school_holiday', 2366, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-19 16:21:55'),
-(313, 'Huduma Day', NULL, '2026-10-10 00:00:00', '2026-10-10 23:59:59', 'public_holiday', 2314, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-19 16:21:56'),
-(314, 'Mashujaa Day', NULL, '2026-10-20 00:00:00', '2026-10-20 23:59:59', 'public_holiday', 2324, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(315, 'December Holiday', NULL, '2026-10-26 00:00:00', '2026-10-26 23:59:59', 'school_holiday', 2367, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(316, 'December Holiday', NULL, '2026-10-31 00:00:00', '2026-10-31 23:59:59', 'school_holiday', 2368, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(317, 'December Holiday', NULL, '2026-11-01 00:00:00', '2026-11-01 23:59:59', 'school_holiday', 2369, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(318, 'December Holiday', NULL, '2026-11-02 00:00:00', '2026-11-02 23:59:59', 'school_holiday', 2370, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(319, 'December Holiday', NULL, '2026-11-03 00:00:00', '2026-11-03 23:59:59', 'school_holiday', 2371, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:56'),
-(320, 'December Holiday', NULL, '2026-11-04 00:00:00', '2026-11-04 23:59:59', 'school_holiday', 2372, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(321, 'December Holiday', NULL, '2026-11-05 00:00:00', '2026-11-05 23:59:59', 'school_holiday', 2373, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(322, 'December Holiday', NULL, '2026-11-06 00:00:00', '2026-11-06 23:59:59', 'school_holiday', 2374, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(323, 'December Holiday', NULL, '2026-11-07 00:00:00', '2026-11-07 23:59:59', 'school_holiday', 2375, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(324, 'December Holiday', NULL, '2026-11-08 00:00:00', '2026-11-08 23:59:59', 'school_holiday', 2376, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(325, 'December Holiday', NULL, '2026-11-09 00:00:00', '2026-11-09 23:59:59', 'school_holiday', 2377, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(326, 'December Holiday', NULL, '2026-11-10 00:00:00', '2026-11-10 23:59:59', 'school_holiday', 2378, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(327, 'December Holiday', NULL, '2026-11-11 00:00:00', '2026-11-11 23:59:59', 'school_holiday', 2379, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(328, 'December Holiday', NULL, '2026-11-12 00:00:00', '2026-11-12 23:59:59', 'school_holiday', 2380, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(329, 'December Holiday', NULL, '2026-11-13 00:00:00', '2026-11-13 23:59:59', 'school_holiday', 2381, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(330, 'December Holiday', NULL, '2026-11-14 00:00:00', '2026-11-14 23:59:59', 'school_holiday', 2382, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(331, 'December Holiday', NULL, '2026-11-15 00:00:00', '2026-11-15 23:59:59', 'school_holiday', 2383, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(332, 'December Holiday', NULL, '2026-11-16 00:00:00', '2026-11-16 23:59:59', 'school_holiday', 2384, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(333, 'December Holiday', NULL, '2026-11-17 00:00:00', '2026-11-17 23:59:59', 'school_holiday', 2385, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(334, 'December Holiday', NULL, '2026-11-18 00:00:00', '2026-11-18 23:59:59', 'school_holiday', 2386, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(335, 'December Holiday', NULL, '2026-11-19 00:00:00', '2026-11-19 23:59:59', 'school_holiday', 2387, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(336, 'December Holiday', NULL, '2026-11-20 00:00:00', '2026-11-20 23:59:59', 'school_holiday', 2388, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(337, 'December Holiday', NULL, '2026-11-21 00:00:00', '2026-11-21 23:59:59', 'school_holiday', 2389, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(338, 'December Holiday', NULL, '2026-11-22 00:00:00', '2026-11-22 23:59:59', 'school_holiday', 2390, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(339, 'December Holiday', NULL, '2026-11-23 00:00:00', '2026-11-23 23:59:59', 'school_holiday', 2391, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(340, 'December Holiday', NULL, '2026-11-24 00:00:00', '2026-11-24 23:59:59', 'school_holiday', 2392, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(341, 'December Holiday', NULL, '2026-11-25 00:00:00', '2026-11-25 23:59:59', 'school_holiday', 2393, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(342, 'December Holiday', NULL, '2026-11-26 00:00:00', '2026-11-26 23:59:59', 'school_holiday', 2394, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(343, 'December Holiday', NULL, '2026-11-27 00:00:00', '2026-11-27 23:59:59', 'school_holiday', 2395, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(344, 'December Holiday', NULL, '2026-11-28 00:00:00', '2026-11-28 23:59:59', 'school_holiday', 2396, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(345, 'December Holiday', NULL, '2026-11-29 00:00:00', '2026-11-29 23:59:59', 'school_holiday', 2397, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(346, 'December Holiday', NULL, '2026-11-30 00:00:00', '2026-11-30 23:59:59', 'school_holiday', 2398, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(347, 'December Holiday', NULL, '2026-12-01 00:00:00', '2026-12-01 23:59:59', 'school_holiday', 2399, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(348, 'December Holiday', NULL, '2026-12-02 00:00:00', '2026-12-02 23:59:59', 'school_holiday', 2400, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(349, 'December Holiday', NULL, '2026-12-03 00:00:00', '2026-12-03 23:59:59', 'school_holiday', 2401, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(350, 'December Holiday', NULL, '2026-12-04 00:00:00', '2026-12-04 23:59:59', 'school_holiday', 2402, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(351, 'December Holiday', NULL, '2026-12-05 00:00:00', '2026-12-05 23:59:59', 'school_holiday', 2403, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:57'),
-(352, 'December Holiday', NULL, '2026-12-06 00:00:00', '2026-12-06 23:59:59', 'school_holiday', 2404, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(353, 'December Holiday', NULL, '2026-12-07 00:00:00', '2026-12-07 23:59:59', 'school_holiday', 2405, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(354, 'December Holiday', NULL, '2026-12-08 00:00:00', '2026-12-08 23:59:59', 'school_holiday', 2406, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(355, 'December Holiday', NULL, '2026-12-09 00:00:00', '2026-12-09 23:59:59', 'school_holiday', 2407, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(356, 'December Holiday', NULL, '2026-12-10 00:00:00', '2026-12-10 23:59:59', 'school_holiday', 2408, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(357, 'December Holiday', NULL, '2026-12-11 00:00:00', '2026-12-11 23:59:59', 'school_holiday', 2409, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(358, 'Jamhuri Day', NULL, '2026-12-12 00:00:00', '2026-12-12 23:59:59', 'public_holiday', 2410, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(359, 'December Holiday', NULL, '2026-12-13 00:00:00', '2026-12-13 23:59:59', 'school_holiday', 2411, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(360, 'December Holiday', NULL, '2026-12-14 00:00:00', '2026-12-14 23:59:59', 'school_holiday', 2412, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(361, 'December Holiday', NULL, '2026-12-15 00:00:00', '2026-12-15 23:59:59', 'school_holiday', 2413, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(362, 'December Holiday', NULL, '2026-12-16 00:00:00', '2026-12-16 23:59:59', 'school_holiday', 2414, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(363, 'December Holiday', NULL, '2026-12-17 00:00:00', '2026-12-17 23:59:59', 'school_holiday', 2415, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(364, 'December Holiday', NULL, '2026-12-18 00:00:00', '2026-12-18 23:59:59', 'school_holiday', 2416, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(365, 'December Holiday', NULL, '2026-12-19 00:00:00', '2026-12-19 23:59:59', 'school_holiday', 2417, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(366, 'December Holiday', NULL, '2026-12-20 00:00:00', '2026-12-20 23:59:59', 'school_holiday', 2418, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(367, 'December Holiday', NULL, '2026-12-21 00:00:00', '2026-12-21 23:59:59', 'school_holiday', 2419, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(368, 'December Holiday', NULL, '2026-12-22 00:00:00', '2026-12-22 23:59:59', 'school_holiday', 2420, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(369, 'December Holiday', NULL, '2026-12-23 00:00:00', '2026-12-23 23:59:59', 'school_holiday', 2421, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-19 16:21:58'),
-(370, 'December Holiday', NULL, '2026-12-24 00:00:00', '2026-12-24 23:59:59', 'school_holiday', 2422, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(371, 'Christmas Day', NULL, '2026-12-25 00:00:00', '2026-12-25 23:59:59', 'public_holiday', 2423, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(372, 'Boxing Day', NULL, '2026-12-26 00:00:00', '2026-12-26 23:59:59', 'public_holiday', 2424, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(373, 'December Holiday', NULL, '2026-12-27 00:00:00', '2026-12-27 23:59:59', 'school_holiday', 2425, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(374, 'December Holiday', NULL, '2026-12-28 00:00:00', '2026-12-28 23:59:59', 'school_holiday', 2426, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(375, 'December Holiday', NULL, '2026-12-29 00:00:00', '2026-12-29 23:59:59', 'school_holiday', 2427, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(376, 'December Holiday', NULL, '2026-12-30 00:00:00', '2026-12-30 23:59:59', 'school_holiday', 2428, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(377, 'December Holiday', NULL, '2026-12-31 00:00:00', '2026-12-31 23:59:59', 'school_holiday', 2429, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-19 16:21:58'),
-(378, '__NAME_TEST__', 'temp', '2026-09-02 00:00:00', '2026-09-02 00:00:00', 'sports', NULL, 'manual', NULL, 'cancelled', '2026-08-16 10:51:53', '2026-08-16 10:52:40'),
-(379, '__SPORTS_DAY_UPDATED__', 'Annual sports', '2026-09-15 09:00:00', '2026-09-15 16:00:00', 'sports', NULL, 'manual', 'New Field', 'cancelled', '2026-08-16 11:07:59', '2026-08-16 11:08:02'),
-(380, 'Admissions: August Holiday Intake - Term 3 2026/2027', 'Test intake window for August holiday applications.', '2026-08-01 00:00:00', '2026-08-23 23:59:00', 'admissions', NULL, 'manual', 'Admissions Office', 'ongoing', '2026-08-18 19:55:26', '2026-08-18 20:07:57'),
-(381, 'Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21', 'Carry a Pen, a pencil and a ruler', '2026-08-21 09:30:00', '2026-08-21 11:30:00', 'admissions_interview', NULL, 'manual', 'Main Hall', 'upcoming', '2026-08-19 01:40:47', '2026-08-19 01:40:47');
+INSERT IGNORE INTO `school_events` (`id`, `title`, `description`, `start_at`, `end_at`, `type`, `category`, `calendar_day_id`, `source`, `location`, `status`, `created_at`, `updated_at`) VALUES
+(10, 'KPSEA', 'Kenya Primary Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-10-29 17:00:00', 'exam', 'examination', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-20 13:28:57'),
+(11, 'KILEA', 'Kenya Intermediate Level Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-10-30 17:00:00', 'exam', 'examination', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-20 13:28:57'),
+(12, 'KJSEA & KPLEA', 'Kenya Junior School Education Assessment & Kenya Pre-Vocational Level Education Assessment (Kenya MoE 2026/2027).', '2026-10-26 08:00:00', '2026-11-05 17:00:00', 'exam', 'examination', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-20 13:28:57'),
+(13, 'KCSE', 'Kenya Certificate of Secondary Education (Kenya MoE 2026/2027).', '2026-11-02 08:00:00', '2026-11-20 17:00:00', 'exam', 'examination', NULL, 'manual', NULL, 'upcoming', '2026-08-15 22:36:55', '2026-08-20 13:28:57'),
+(18, 'Happy New Year', NULL, '2027-01-01 00:00:00', '2027-01-01 23:59:59', 'public_holiday', 'public_holiday', 1737, 'calendar', NULL, 'upcoming', '2026-08-16 09:45:31', '2026-08-20 13:28:57'),
+(260, 'Half Term Break', NULL, '2026-02-25 00:00:00', '2026-02-25 23:59:59', 'school_holiday', 'holiday', 2134, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(261, 'Half Term Break', NULL, '2026-02-26 00:00:00', '2026-02-26 23:59:59', 'school_holiday', 'holiday', 2135, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(262, 'Half Term Break', NULL, '2026-02-27 00:00:00', '2026-02-27 23:59:59', 'school_holiday', 'holiday', 2136, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(263, 'Half Term Break', NULL, '2026-02-28 00:00:00', '2026-02-28 23:59:59', 'school_holiday', 'holiday', 2137, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(264, 'Half Term Break', NULL, '2026-03-01 00:00:00', '2026-03-01 23:59:59', 'school_holiday', 'holiday', 2138, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(265, 'Idd-ul-Fitr', NULL, '2026-03-20 00:00:00', '2026-03-20 23:59:59', 'public_holiday', 'public_holiday', 2157, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(266, 'Good Friday', NULL, '2026-04-03 00:00:00', '2026-04-03 23:59:59', 'public_holiday', 'public_holiday', 2328, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(267, 'Easter Monday', NULL, '2026-04-06 00:00:00', '2026-04-06 23:59:59', 'public_holiday', 'public_holiday', 2329, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(268, 'April Holiday', NULL, '2026-04-07 00:00:00', '2026-04-07 23:59:59', 'school_holiday', 'holiday', 2330, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(269, 'April Holiday', NULL, '2026-04-08 00:00:00', '2026-04-08 23:59:59', 'school_holiday', 'holiday', 2331, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(270, 'April Holiday', NULL, '2026-04-09 00:00:00', '2026-04-09 23:59:59', 'school_holiday', 'holiday', 2332, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(271, 'April Holiday', NULL, '2026-04-10 00:00:00', '2026-04-10 23:59:59', 'school_holiday', 'holiday', 2333, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(272, 'April Holiday', NULL, '2026-04-11 00:00:00', '2026-04-11 23:59:59', 'school_holiday', 'holiday', 2334, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(273, 'April Holiday', NULL, '2026-04-12 00:00:00', '2026-04-12 23:59:59', 'school_holiday', 'holiday', 2335, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(274, 'April Holiday', NULL, '2026-04-13 00:00:00', '2026-04-13 23:59:59', 'school_holiday', 'holiday', 2336, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(275, 'April Holiday', NULL, '2026-04-14 00:00:00', '2026-04-14 23:59:59', 'school_holiday', 'holiday', 2337, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(276, 'April Holiday', NULL, '2026-04-15 00:00:00', '2026-04-15 23:59:59', 'school_holiday', 'holiday', 2338, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(277, 'April Holiday', NULL, '2026-04-16 00:00:00', '2026-04-16 23:59:59', 'school_holiday', 'holiday', 2339, 'calendar', NULL, 'past', '2026-08-16 10:40:12', '2026-08-20 13:28:57'),
+(278, 'April Holiday', NULL, '2026-04-17 00:00:00', '2026-04-17 23:59:59', 'school_holiday', 'holiday', 2340, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(279, 'April Holiday', NULL, '2026-04-18 00:00:00', '2026-04-18 23:59:59', 'school_holiday', 'holiday', 2341, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(280, 'April Holiday', NULL, '2026-04-19 00:00:00', '2026-04-19 23:59:59', 'school_holiday', 'holiday', 2342, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(281, 'April Holiday', NULL, '2026-04-20 00:00:00', '2026-04-20 23:59:59', 'school_holiday', 'holiday', 2343, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(282, 'April Holiday', NULL, '2026-04-21 00:00:00', '2026-04-21 23:59:59', 'school_holiday', 'holiday', 2344, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(283, 'April Holiday', NULL, '2026-04-22 00:00:00', '2026-04-22 23:59:59', 'school_holiday', 'holiday', 2345, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(284, 'April Holiday', NULL, '2026-04-23 00:00:00', '2026-04-23 23:59:59', 'school_holiday', 'holiday', 2346, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(285, 'April Holiday', NULL, '2026-04-24 00:00:00', '2026-04-24 23:59:59', 'school_holiday', 'holiday', 2347, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(286, 'Labour Day', NULL, '2026-05-01 00:00:00', '2026-05-01 23:59:59', 'public_holiday', 'public_holiday', 2175, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(287, 'Idd-ul-Adha', NULL, '2026-05-27 00:00:00', '2026-05-27 23:59:59', 'public_holiday', 'public_holiday', 2201, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(288, 'Madaraka Day', NULL, '2026-06-01 00:00:00', '2026-06-01 23:59:59', 'public_holiday', 'public_holiday', 2206, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(289, 'Half Term Break', NULL, '2026-06-24 00:00:00', '2026-06-24 23:59:59', 'school_holiday', 'holiday', 2229, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(290, 'Half Term Break', NULL, '2026-06-25 00:00:00', '2026-06-25 23:59:59', 'school_holiday', 'holiday', 2230, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(291, 'Half Term Break', NULL, '2026-06-26 00:00:00', '2026-06-26 23:59:59', 'school_holiday', 'holiday', 2231, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(292, 'Half Term Break', NULL, '2026-06-27 00:00:00', '2026-06-27 23:59:59', 'school_holiday', 'holiday', 2232, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(293, 'Half Term Break', NULL, '2026-06-28 00:00:00', '2026-06-28 23:59:59', 'school_holiday', 'holiday', 2233, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(294, 'August Holiday', NULL, '2026-08-03 00:00:00', '2026-08-03 23:59:59', 'school_holiday', 'holiday', 2348, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(295, 'August Holiday', NULL, '2026-08-04 00:00:00', '2026-08-04 23:59:59', 'school_holiday', 'holiday', 2349, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(296, 'August Holiday', NULL, '2026-08-05 00:00:00', '2026-08-05 23:59:59', 'school_holiday', 'holiday', 2350, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(297, 'August Holiday', NULL, '2026-08-06 00:00:00', '2026-08-06 23:59:59', 'school_holiday', 'holiday', 2351, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(298, 'August Holiday', NULL, '2026-08-07 00:00:00', '2026-08-07 23:59:59', 'school_holiday', 'holiday', 2352, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(299, 'August Holiday', NULL, '2026-08-08 00:00:00', '2026-08-08 23:59:59', 'school_holiday', 'holiday', 2353, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(300, 'August Holiday', NULL, '2026-08-09 00:00:00', '2026-08-09 23:59:59', 'school_holiday', 'holiday', 2354, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(301, 'August Holiday', NULL, '2026-08-10 00:00:00', '2026-08-10 23:59:59', 'school_holiday', 'holiday', 2355, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(302, 'August Holiday', NULL, '2026-08-11 00:00:00', '2026-08-11 23:59:59', 'school_holiday', 'holiday', 2356, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(303, 'August Holiday', NULL, '2026-08-12 00:00:00', '2026-08-12 23:59:59', 'school_holiday', 'holiday', 2357, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(304, 'August Holiday', NULL, '2026-08-13 00:00:00', '2026-08-13 23:59:59', 'school_holiday', 'holiday', 2358, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(305, 'August Holiday', NULL, '2026-08-14 00:00:00', '2026-08-14 23:59:59', 'school_holiday', 'holiday', 2359, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(306, 'August Holiday', NULL, '2026-08-15 00:00:00', '2026-08-15 23:59:59', 'school_holiday', 'holiday', 2360, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(307, 'August Holiday', NULL, '2026-08-16 00:00:00', '2026-08-16 23:59:59', 'school_holiday', 'holiday', 2361, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(308, 'August Holiday', NULL, '2026-08-17 00:00:00', '2026-08-17 23:59:59', 'school_holiday', 'holiday', 2362, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(309, 'August Holiday', NULL, '2026-08-18 00:00:00', '2026-08-18 23:59:59', 'school_holiday', 'holiday', 2363, 'calendar', NULL, 'past', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(310, 'August Holiday', NULL, '2026-08-19 00:00:00', '2026-08-19 23:59:59', 'school_holiday', 'holiday', 2364, 'calendar', NULL, 'ongoing', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(311, 'August Holiday', NULL, '2026-08-20 00:00:00', '2026-08-20 23:59:59', 'school_holiday', 'holiday', 2365, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(312, 'August Holiday', NULL, '2026-08-21 00:00:00', '2026-08-21 23:59:59', 'school_holiday', 'holiday', 2366, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(313, 'Huduma Day', NULL, '2026-10-10 00:00:00', '2026-10-10 23:59:59', 'public_holiday', 'public_holiday', 2314, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:13', '2026-08-20 13:28:57'),
+(314, 'Mashujaa Day', NULL, '2026-10-20 00:00:00', '2026-10-20 23:59:59', 'public_holiday', 'public_holiday', 2324, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(315, 'December Holiday', NULL, '2026-10-26 00:00:00', '2026-10-26 23:59:59', 'school_holiday', 'holiday', 2367, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(316, 'December Holiday', NULL, '2026-10-31 00:00:00', '2026-10-31 23:59:59', 'school_holiday', 'holiday', 2368, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(317, 'December Holiday', NULL, '2026-11-01 00:00:00', '2026-11-01 23:59:59', 'school_holiday', 'holiday', 2369, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(318, 'December Holiday', NULL, '2026-11-02 00:00:00', '2026-11-02 23:59:59', 'school_holiday', 'holiday', 2370, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(319, 'December Holiday', NULL, '2026-11-03 00:00:00', '2026-11-03 23:59:59', 'school_holiday', 'holiday', 2371, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(320, 'December Holiday', NULL, '2026-11-04 00:00:00', '2026-11-04 23:59:59', 'school_holiday', 'holiday', 2372, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(321, 'December Holiday', NULL, '2026-11-05 00:00:00', '2026-11-05 23:59:59', 'school_holiday', 'holiday', 2373, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(322, 'December Holiday', NULL, '2026-11-06 00:00:00', '2026-11-06 23:59:59', 'school_holiday', 'holiday', 2374, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(323, 'December Holiday', NULL, '2026-11-07 00:00:00', '2026-11-07 23:59:59', 'school_holiday', 'holiday', 2375, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(324, 'December Holiday', NULL, '2026-11-08 00:00:00', '2026-11-08 23:59:59', 'school_holiday', 'holiday', 2376, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(325, 'December Holiday', NULL, '2026-11-09 00:00:00', '2026-11-09 23:59:59', 'school_holiday', 'holiday', 2377, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(326, 'December Holiday', NULL, '2026-11-10 00:00:00', '2026-11-10 23:59:59', 'school_holiday', 'holiday', 2378, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(327, 'December Holiday', NULL, '2026-11-11 00:00:00', '2026-11-11 23:59:59', 'school_holiday', 'holiday', 2379, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(328, 'December Holiday', NULL, '2026-11-12 00:00:00', '2026-11-12 23:59:59', 'school_holiday', 'holiday', 2380, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(329, 'December Holiday', NULL, '2026-11-13 00:00:00', '2026-11-13 23:59:59', 'school_holiday', 'holiday', 2381, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(330, 'December Holiday', NULL, '2026-11-14 00:00:00', '2026-11-14 23:59:59', 'school_holiday', 'holiday', 2382, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(331, 'December Holiday', NULL, '2026-11-15 00:00:00', '2026-11-15 23:59:59', 'school_holiday', 'holiday', 2383, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(332, 'December Holiday', NULL, '2026-11-16 00:00:00', '2026-11-16 23:59:59', 'school_holiday', 'holiday', 2384, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(333, 'December Holiday', NULL, '2026-11-17 00:00:00', '2026-11-17 23:59:59', 'school_holiday', 'holiday', 2385, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(334, 'December Holiday', NULL, '2026-11-18 00:00:00', '2026-11-18 23:59:59', 'school_holiday', 'holiday', 2386, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(335, 'December Holiday', NULL, '2026-11-19 00:00:00', '2026-11-19 23:59:59', 'school_holiday', 'holiday', 2387, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(336, 'December Holiday', NULL, '2026-11-20 00:00:00', '2026-11-20 23:59:59', 'school_holiday', 'holiday', 2388, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(337, 'December Holiday', NULL, '2026-11-21 00:00:00', '2026-11-21 23:59:59', 'school_holiday', 'holiday', 2389, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(338, 'December Holiday', NULL, '2026-11-22 00:00:00', '2026-11-22 23:59:59', 'school_holiday', 'holiday', 2390, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(339, 'December Holiday', NULL, '2026-11-23 00:00:00', '2026-11-23 23:59:59', 'school_holiday', 'holiday', 2391, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(340, 'December Holiday', NULL, '2026-11-24 00:00:00', '2026-11-24 23:59:59', 'school_holiday', 'holiday', 2392, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(341, 'December Holiday', NULL, '2026-11-25 00:00:00', '2026-11-25 23:59:59', 'school_holiday', 'holiday', 2393, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(342, 'December Holiday', NULL, '2026-11-26 00:00:00', '2026-11-26 23:59:59', 'school_holiday', 'holiday', 2394, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(343, 'December Holiday', NULL, '2026-11-27 00:00:00', '2026-11-27 23:59:59', 'school_holiday', 'holiday', 2395, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(344, 'December Holiday', NULL, '2026-11-28 00:00:00', '2026-11-28 23:59:59', 'school_holiday', 'holiday', 2396, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(345, 'December Holiday', NULL, '2026-11-29 00:00:00', '2026-11-29 23:59:59', 'school_holiday', 'holiday', 2397, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(346, 'December Holiday', NULL, '2026-11-30 00:00:00', '2026-11-30 23:59:59', 'school_holiday', 'holiday', 2398, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(347, 'December Holiday', NULL, '2026-12-01 00:00:00', '2026-12-01 23:59:59', 'school_holiday', 'holiday', 2399, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(348, 'December Holiday', NULL, '2026-12-02 00:00:00', '2026-12-02 23:59:59', 'school_holiday', 'holiday', 2400, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(349, 'December Holiday', NULL, '2026-12-03 00:00:00', '2026-12-03 23:59:59', 'school_holiday', 'holiday', 2401, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(350, 'December Holiday', NULL, '2026-12-04 00:00:00', '2026-12-04 23:59:59', 'school_holiday', 'holiday', 2402, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(351, 'December Holiday', NULL, '2026-12-05 00:00:00', '2026-12-05 23:59:59', 'school_holiday', 'holiday', 2403, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(352, 'December Holiday', NULL, '2026-12-06 00:00:00', '2026-12-06 23:59:59', 'school_holiday', 'holiday', 2404, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(353, 'December Holiday', NULL, '2026-12-07 00:00:00', '2026-12-07 23:59:59', 'school_holiday', 'holiday', 2405, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(354, 'December Holiday', NULL, '2026-12-08 00:00:00', '2026-12-08 23:59:59', 'school_holiday', 'holiday', 2406, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(355, 'December Holiday', NULL, '2026-12-09 00:00:00', '2026-12-09 23:59:59', 'school_holiday', 'holiday', 2407, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(356, 'December Holiday', NULL, '2026-12-10 00:00:00', '2026-12-10 23:59:59', 'school_holiday', 'holiday', 2408, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(357, 'December Holiday', NULL, '2026-12-11 00:00:00', '2026-12-11 23:59:59', 'school_holiday', 'holiday', 2409, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(358, 'Jamhuri Day', NULL, '2026-12-12 00:00:00', '2026-12-12 23:59:59', 'public_holiday', 'public_holiday', 2410, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(359, 'December Holiday', NULL, '2026-12-13 00:00:00', '2026-12-13 23:59:59', 'school_holiday', 'holiday', 2411, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(360, 'December Holiday', NULL, '2026-12-14 00:00:00', '2026-12-14 23:59:59', 'school_holiday', 'holiday', 2412, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(361, 'December Holiday', NULL, '2026-12-15 00:00:00', '2026-12-15 23:59:59', 'school_holiday', 'holiday', 2413, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(362, 'December Holiday', NULL, '2026-12-16 00:00:00', '2026-12-16 23:59:59', 'school_holiday', 'holiday', 2414, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(363, 'December Holiday', NULL, '2026-12-17 00:00:00', '2026-12-17 23:59:59', 'school_holiday', 'holiday', 2415, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(364, 'December Holiday', NULL, '2026-12-18 00:00:00', '2026-12-18 23:59:59', 'school_holiday', 'holiday', 2416, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(365, 'December Holiday', NULL, '2026-12-19 00:00:00', '2026-12-19 23:59:59', 'school_holiday', 'holiday', 2417, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(366, 'December Holiday', NULL, '2026-12-20 00:00:00', '2026-12-20 23:59:59', 'school_holiday', 'holiday', 2418, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(367, 'December Holiday', NULL, '2026-12-21 00:00:00', '2026-12-21 23:59:59', 'school_holiday', 'holiday', 2419, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(368, 'December Holiday', NULL, '2026-12-22 00:00:00', '2026-12-22 23:59:59', 'school_holiday', 'holiday', 2420, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(369, 'December Holiday', NULL, '2026-12-23 00:00:00', '2026-12-23 23:59:59', 'school_holiday', 'holiday', 2421, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:14', '2026-08-20 13:28:57'),
+(370, 'December Holiday', NULL, '2026-12-24 00:00:00', '2026-12-24 23:59:59', 'school_holiday', 'holiday', 2422, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(371, 'Christmas Day', NULL, '2026-12-25 00:00:00', '2026-12-25 23:59:59', 'public_holiday', 'public_holiday', 2423, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(372, 'Boxing Day', NULL, '2026-12-26 00:00:00', '2026-12-26 23:59:59', 'public_holiday', 'public_holiday', 2424, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(373, 'December Holiday', NULL, '2026-12-27 00:00:00', '2026-12-27 23:59:59', 'school_holiday', 'holiday', 2425, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(374, 'December Holiday', NULL, '2026-12-28 00:00:00', '2026-12-28 23:59:59', 'school_holiday', 'holiday', 2426, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(375, 'December Holiday', NULL, '2026-12-29 00:00:00', '2026-12-29 23:59:59', 'school_holiday', 'holiday', 2427, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(376, 'December Holiday', NULL, '2026-12-30 00:00:00', '2026-12-30 23:59:59', 'school_holiday', 'holiday', 2428, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(377, 'December Holiday', NULL, '2026-12-31 00:00:00', '2026-12-31 23:59:59', 'school_holiday', 'holiday', 2429, 'calendar', NULL, 'upcoming', '2026-08-16 10:40:15', '2026-08-20 13:28:57'),
+(378, '__NAME_TEST__', 'temp', '2026-09-02 00:00:00', '2026-09-02 00:00:00', 'sports', 'other', NULL, 'manual', NULL, 'cancelled', '2026-08-16 10:51:53', '2026-08-16 10:52:40'),
+(379, '__SPORTS_DAY_UPDATED__', 'Annual sports', '2026-09-15 09:00:00', '2026-09-15 16:00:00', 'sports', 'other', NULL, 'manual', 'New Field', 'cancelled', '2026-08-16 11:07:59', '2026-08-16 11:08:02'),
+(380, 'Admissions: August Holiday Intake - Term 3 2026/2027', 'Test intake window for August holiday applications.', '2026-08-01 00:00:00', '2026-08-23 23:59:00', 'admissions', 'admission', NULL, 'manual', 'Admissions Office', 'ongoing', '2026-08-18 19:55:26', '2026-08-20 13:28:57'),
+(381, 'Admissions Interview: August Holiday Intake - Term 3 2026/2027 — 2026-08-21', 'Carry a Pen, a pencil and a ruler', '2026-08-21 09:30:00', '2026-08-21 11:30:00', 'admissions_interview', 'admission', NULL, 'manual', 'Main Hall', 'upcoming', '2026-08-19 01:40:47', '2026-08-20 13:28:57');
 
 -- --------------------------------------------------------
 
@@ -83102,6 +83596,72 @@ INSERT IGNORE INTO `school_holidays` (`id`, `name`, `holiday_type`, `start_date`
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `school_leadership`
+--
+-- Creation: Aug 20, 2026 at 04:02 PM
+-- Last update: Aug 20, 2026 at 04:02 PM
+--
+
+DROP TABLE IF EXISTS `school_leadership`;
+CREATE TABLE IF NOT EXISTS `school_leadership` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `academic_year_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'FK to academic_years',
+  `position_id` int(10) UNSIGNED NOT NULL,
+  `person_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'FK to persons (null if external BOM)',
+  `staff_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'FK to staff (null if not staff)',
+  `student_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'FK to students',
+  `external_name` varchar(255) DEFAULT NULL COMMENT 'Name for BOM-only people without person record',
+  `external_title` varchar(255) DEFAULT NULL COMMENT 'Title/description for external members',
+  `public_photo_url` varchar(500) DEFAULT NULL COMMENT 'Admin-uploaded public photo',
+  `public_bio` text DEFAULT NULL,
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL COMMENT 'NULL = currently serving',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_position` (`position_id`),
+  KEY `idx_person` (`person_id`),
+  KEY `idx_staff` (`staff_id`),
+  KEY `fk_sl_year` (`academic_year_id`),
+  KEY `fk_sl_student` (`student_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `school_leadership`:
+--   `person_id`
+--       `persons` -> `id`
+--   `position_id`
+--       `leadership_positions` -> `id`
+--   `staff_id`
+--       `staff` -> `id`
+--   `student_id`
+--       `students` -> `id`
+--   `academic_year_id`
+--       `academic_years` -> `id`
+--
+
+--
+-- Truncate table before insert `school_leadership`
+--
+
+TRUNCATE TABLE `school_leadership`;
+--
+-- Dumping data for table `school_leadership`
+--
+
+INSERT IGNORE INTO `school_leadership` (`id`, `academic_year_id`, `position_id`, `person_id`, `staff_id`, `student_id`, `external_name`, `external_title`, `public_photo_url`, `public_bio`, `display_order`, `is_active`, `start_date`, `end_date`, `created_at`, `updated_at`) VALUES
+(1, 1, 7, 2, 40, NULL, NULL, NULL, NULL, '20+ years in education leadership. Holds a Masters in Educational Management from University of Nairobi.', 10, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(2, 1, 8, 4, 42, NULL, NULL, NULL, NULL, 'B.Ed (Hons), experienced in CBC implementation and school administration. Sets the academic tone for the school.', 20, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(3, 1, 9, 5, 43, NULL, NULL, NULL, NULL, 'Oversees curriculum delivery, lesson plans, timetabling, teacher development, and academic performance monitoring.', 30, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(4, 1, 10, 19, 57, NULL, NULL, NULL, NULL, 'Manages student conduct, welfare, community relations, and the boarding programme pastoral care.', 40, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(5, 1, 12, 9, 47, NULL, NULL, NULL, NULL, 'CPA-K certified. Manages school finances, fee collection, budgets, payroll, and financial reporting.', 50, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40'),
+(6, 1, 11, 3, 110, NULL, NULL, NULL, NULL, 'Handles student intake, placement assessments, records management, and parent liaison throughout the admission process.', 60, 1, NULL, NULL, '2026-08-20 15:36:39', '2026-08-20 16:02:40');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `school_levels`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
@@ -83139,6 +83699,66 @@ INSERT IGNORE INTO `school_levels` (`id`, `name`, `code`, `description`, `status
 (2, 'Lower Primary', 'LP', 'Grades 1, 2 and 3', 'active', '2025-11-29 09:02:34', '2025-11-29 09:02:34'),
 (3, 'Upper Primary', 'UP', 'Grades 4, 5 and 6', 'active', '2025-11-29 09:02:34', '2025-11-29 09:02:34'),
 (4, 'Junior Secondary', 'JSS', 'Grades 7, 8 and 9', 'active', '2025-11-29 09:02:34', '2025-11-29 09:02:34');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `school_profile`
+--
+-- Creation: Aug 20, 2026 at 02:57 PM
+-- Last update: Aug 20, 2026 at 02:57 PM
+--
+
+DROP TABLE IF EXISTS `school_profile`;
+CREATE TABLE IF NOT EXISTS `school_profile` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `school_name` varchar(255) NOT NULL DEFAULT '',
+  `school_code` varchar(50) DEFAULT NULL,
+  `logo_url` varchar(500) DEFAULT NULL,
+  `favicon_url` varchar(500) DEFAULT NULL,
+  `motto` varchar(500) DEFAULT NULL,
+  `vision` text DEFAULT NULL,
+  `mission` text DEFAULT NULL,
+  `about_us` text DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(50) DEFAULT NULL,
+  `alternative_phone` varchar(50) DEFAULT NULL,
+  `address` text DEFAULT NULL,
+  `city` varchar(100) DEFAULT NULL,
+  `country` varchar(100) DEFAULT 'Kenya',
+  `postal_code` varchar(20) DEFAULT NULL,
+  `website` varchar(255) DEFAULT NULL,
+  `social_facebook` varchar(255) DEFAULT NULL,
+  `social_twitter` varchar(255) DEFAULT NULL,
+  `social_instagram` varchar(255) DEFAULT NULL,
+  `social_youtube` varchar(255) DEFAULT NULL,
+  `social_whatsapp` varchar(50) DEFAULT NULL,
+  `google_maps_url` varchar(500) DEFAULT NULL,
+  `established_year` year(4) DEFAULT NULL,
+  `office_hours_weekday` varchar(100) DEFAULT NULL,
+  `office_hours_saturday` varchar(100) DEFAULT NULL,
+  `timezone` varchar(50) DEFAULT 'Africa/Nairobi',
+  `currency` varchar(10) DEFAULT 'KES',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `school_profile`:
+--
+
+--
+-- Truncate table before insert `school_profile`
+--
+
+TRUNCATE TABLE `school_profile`;
+--
+-- Dumping data for table `school_profile`
+--
+
+INSERT IGNORE INTO `school_profile` (`id`, `school_name`, `school_code`, `logo_url`, `favicon_url`, `motto`, `vision`, `mission`, `about_us`, `email`, `phone`, `alternative_phone`, `address`, `city`, `country`, `postal_code`, `website`, `social_facebook`, `social_twitter`, `social_instagram`, `social_youtube`, `social_whatsapp`, `google_maps_url`, `established_year`, `office_hours_weekday`, `office_hours_saturday`, `timezone`, `currency`, `created_at`, `updated_at`) VALUES
+(1, 'Kingsway Preparatory School', 'KWPS', 'uploads/school_assets/official_school_logo.png', NULL, 'In God We Soar', NULL, NULL, NULL, 'info@kingswaypreparatoryschool.sc.ke', '+254 720 113 030', '+254 720 113 031', 'Londiani, Kericho County, Kenya', 'Londiani – Kericho Road, Londiani Town, Kenya', 'Kenya', '20203', 'https://kingswaypreparatoryschool.sc.ke', 'https://www.facebook.com/kingswayprepschool', 'https://twitter.com/kingswayprepschool', 'https://www.instagram.com/kingswayprepschool', 'https://www.youtube.com/@kingswayprepschool', '254720113030', 'https://www.google.com/maps/search/Kingsway+Preparatory+School+Londiani', '2005', 'Monday – Friday: 7:30 AM – 5:00 PM', 'Saturday: 9:00 AM – 1:00 PM', 'Africa/Nairobi', 'KES', '2026-08-20 13:27:00', '2026-08-20 14:10:22');
 
 -- --------------------------------------------------------
 
@@ -83191,7 +83811,7 @@ INSERT IGNORE INTO `school_programs` (`id`, `name`, `level_range`, `icon`, `colo
 -- Table structure for table `school_settings`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 12:35 PM
+-- Last update: Aug 20, 2026 at 02:57 PM
 --
 
 DROP TABLE IF EXISTS `school_settings`;
@@ -83219,72 +83839,66 @@ TRUNCATE TABLE `school_settings`;
 --
 
 INSERT IGNORE INTO `school_settings` (`id`, `setting_key`, `setting_value`, `label`, `updated_at`) VALUES
-(1, 'stat_students', '1200', 'Total Students Enrolled', '2026-04-27 03:13:56'),
-(2, 'stat_students_suffix', '+', 'Students count suffix', '2026-04-27 03:13:56'),
-(3, 'stat_teachers', '80', 'Qualified Teachers', '2026-04-27 03:13:56'),
-(4, 'stat_teachers_suffix', '+', 'Teachers count suffix', '2026-04-27 03:13:56'),
 (5, 'stat_pass_rate', '98', 'Exam Pass Rate (%)', '2026-04-27 03:13:56'),
 (6, 'stat_awards', '30', 'Awards & Honours', '2026-04-27 03:13:56'),
-(7, 'stat_years', '20', 'Years of Excellence', '2026-04-27 03:13:56'),
-(8, 'school_phone', '0720 113 030', 'Main Phone Number', '2026-04-27 03:13:56'),
-(9, 'school_email', 'info@kingswaypreparatoryschool.sc.ke', 'Email Address', '2026-04-27 03:13:56'),
-(10, 'school_address', 'Londiani, Kericho County, Kenya', 'Physical Address', '2026-04-27 03:13:56'),
-(11, 'school_name', 'Kingsway Preparatory School', 'Full School Name', '2026-04-27 03:13:56'),
 (12, 'admissions_response', 'Within 24 working hours', 'Admissions Response Time', '2026-04-27 03:13:56'),
 (13, 'admissions_age_range', '3 – 16 years (Play Group – Grade 9)', 'Admissions Age Range', '2026-04-27 03:13:56'),
-(14, 'spaces_PP1', 'Available', 'PP1 Spaces Status', '2026-04-27 03:13:56'),
-(15, 'spaces_PP2', 'Available', 'PP2 Spaces Status', '2026-04-27 03:13:56'),
-(16, 'spaces_Grade1', 'Available', 'Grade 1 Spaces Status', '2026-04-27 03:13:56'),
-(17, 'spaces_Grade2_3', 'Available', 'Grade 2–3 Spaces Status', '2026-04-27 03:13:56'),
-(18, 'spaces_Grade4_6', 'Available', 'Grade 4–6 Spaces Status', '2026-04-27 03:13:56'),
-(19, 'spaces_Grade7_9', 'Available', 'Grade 7–9 Spaces Status', '2026-04-27 03:13:56'),
-(20, 'fees_day_from', 'KSh 5,000 / term', 'Day Scholar fee from', '2026-04-27 03:13:56'),
-(21, 'fees_boarding_from', 'KSh 12,000 / term', 'Full Boarding fee from', '2026-04-27 03:13:56'),
-(22, 'school_tagline', 'Excellence, Character & Leadership since 2005', 'School Tagline', '2026-04-27 03:18:19'),
-(23, 'school_founded_year', '2005', 'Year Founded', '2026-04-27 03:18:19'),
-(24, 'school_motto', 'In God We Soar', 'School Motto', '2026-04-27 03:18:19'),
-(25, 'school_address_physical', 'Londiani – Kericho Road, Londiani Town, Kenya', 'Physical Address', '2026-04-27 03:18:19'),
-(26, 'school_address_postal', 'P.O BOX 203-20203, Londiani, Kericho County', 'Postal Address', '2026-04-27 03:18:19'),
-(27, 'school_phone_main', '+254 720 113 030', 'Main Phone', '2026-04-27 03:18:19'),
-(28, 'school_phone_alt', '+254 720 113 031', 'Alternative Phone', '2026-04-27 03:18:19'),
-(29, 'school_email_main', 'info@kingswaypreparatoryschool.sc.ke', 'Main Email', '2026-04-27 03:18:19'),
-(30, 'school_email_admissions', 'admissions@kingswaypreparatoryschool.sc.ke', 'Admissions Email', '2026-04-27 03:18:19'),
-(31, 'school_email_finance', 'finance@kingswaypreparatoryschool.sc.ke', 'Finance Email', '2026-04-27 03:18:19'),
-(32, 'school_email_academic', 'academic@kingswaypreparatoryschool.sc.ke', 'Academic Email', '2026-04-27 03:18:19'),
-(33, 'school_email_boarding', 'boarding@kingswaypreparatoryschool.sc.ke', 'Boarding Email', '2026-04-27 03:18:19'),
-(34, 'office_hours_weekday', 'Monday – Friday: 7:30 AM – 5:00 PM', 'Weekday Office Hours', '2026-04-27 03:18:19'),
-(35, 'office_hours_saturday', 'Saturday: 9:00 AM – 1:00 PM', 'Saturday Office Hours', '2026-04-27 03:18:19'),
-(36, 'social_facebook', 'https://www.facebook.com/kingswayprepschool', 'Facebook URL', '2026-04-27 03:18:19'),
-(37, 'social_twitter', 'https://twitter.com/kingswayprepschool', 'Twitter/X URL', '2026-04-27 03:18:19'),
-(38, 'social_instagram', 'https://www.instagram.com/kingswayprepschool', 'Instagram URL', '2026-04-27 03:18:19'),
-(39, 'social_whatsapp', '254720113030', 'WhatsApp Number (digits only)', '2026-04-27 03:18:19'),
-(40, 'social_youtube', 'https://www.youtube.com/@kingswayprepschool', 'YouTube URL', '2026-04-27 03:18:19'),
-(41, 'google_maps_url', 'https://www.google.com/maps/search/Kingsway+Preparatory+School+Londiani', 'Google Maps URL', '2026-04-27 03:18:19'),
-(42, 'fees_day_label', 'Day Scholar', 'Day Scholar Label', '2026-04-27 03:18:19'),
-(43, 'fees_day_grades', 'PP1 – Grade 9', 'Day Scholar Grade Range', '2026-04-27 03:18:19'),
-(44, 'fees_boarding_label', 'Full Boarding', 'Boarding Label', '2026-04-27 03:18:19'),
-(45, 'fees_boarding_grades', 'Grade 1 – Grade 9', 'Boarding Grade Range', '2026-04-27 03:18:19'),
 (46, 'hero_badge', 'CBC-Aligned Curriculum', 'Hero Section Badge Text', '2026-04-27 03:18:19'),
-(47, 'hero_stat_1_value', '1,200+', 'Hero Stat 1 Value', '2026-04-27 03:18:19'),
 (48, 'hero_stat_1_label', 'Students Enrolled', 'Hero Stat 1 Label', '2026-04-27 03:18:19'),
 (49, 'hero_stat_2_value', '98%', 'Hero Stat 2 Value', '2026-04-27 03:18:19'),
-(50, 'hero_stat_2_label', 'KJSEA / KCPE Pass Rate', 'Hero Stat 2 Label', '2026-04-27 03:18:19'),
+(50, 'hero_stat_2_label', 'KJSEA / KILEA / KIPSEA Pass Rate', 'Hero Stat 2 Label', '2026-08-20 14:02:18'),
 (51, 'hero_stat_3_value', '30+', 'Hero Stat 3 Value', '2026-04-27 03:18:19'),
 (52, 'hero_stat_3_label', 'Regional Awards', 'Hero Stat 3 Label', '2026-04-27 03:18:19'),
-(53, 'hero_stat_4_value', 'Est. 2005', 'Hero Stat 4 Value', '2026-04-27 03:18:19'),
 (54, 'hero_stat_4_label', 'Years of Excellence', 'Hero Stat 4 Label', '2026-04-27 03:18:19'),
-(55, 'careers_stat_staff', '80+', 'Careers - Staff Count', '2026-04-27 03:18:19'),
 (56, 'careers_stat_experience', '15+', 'Careers - Years Experience', '2026-04-27 03:18:19'),
 (57, 'careers_stat_retention', '98%', 'Careers - Staff Retention', '2026-04-27 03:18:19'),
 (58, 'careers_stat_cpd', '100%', 'Careers - CPD Participation', '2026-04-27 03:18:19'),
-(59, 'system.maintenance.enabled', '0', 'Maintenance mode enabled', '2026-07-22 22:04:32'),
-(60, 'system.environment', 'development', 'Application environment', '2026-07-22 22:04:32'),
-(61, 'system.default_rate_limit', '60', 'Default API requests per minute', '2026-07-22 22:04:32'),
-(62, 'security.remember_me_days', '14', 'Remember Me Duration (Days)', '2026-07-28 11:12:08'),
 (63, 'admission_no_format', 'KPS{seq}', 'Admission Number Format', '2026-08-20 11:27:07'),
 (64, 'admission_no_start_sequence', '1', 'First admission sequence number', '2026-08-20 12:35:36'),
 (66, 'staff_no_format', 'KPST#{seq}', 'Staff Number Format', '2026-08-20 12:16:40'),
 (67, 'staff_no_start_sequence', '1', 'First staff sequence number', '2026-08-20 12:16:40');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `school_testimonials`
+--
+-- Creation: Aug 20, 2026 at 06:13 PM
+-- Last update: Aug 20, 2026 at 06:13 PM
+--
+
+DROP TABLE IF EXISTS `school_testimonials`;
+CREATE TABLE IF NOT EXISTS `school_testimonials` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `person_name` varchar(150) NOT NULL,
+  `role_label` varchar(150) NOT NULL COMMENT 'e.g. Parent, Grade 6 or Alumni, Class of 2019',
+  `testimonial` text NOT NULL,
+  `video_url` varchar(500) DEFAULT NULL COMMENT 'YouTube/Vimeo URL or uploaded video path',
+  `stars` tinyint(3) UNSIGNED NOT NULL DEFAULT 5,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `school_testimonials`:
+--
+
+--
+-- Truncate table before insert `school_testimonials`
+--
+
+TRUNCATE TABLE `school_testimonials`;
+--
+-- Dumping data for table `school_testimonials`
+--
+
+INSERT IGNORE INTO `school_testimonials` (`id`, `person_name`, `role_label`, `testimonial`, `video_url`, `stars`, `is_active`, `display_order`, `created_at`, `updated_at`) VALUES
+(1, 'Mrs. Akinyi Otieno', 'Parent, Grade 6', 'Kingsway has transformed my daughter completely. The teachers genuinely care, the CBC teaching is excellent, and she has grown so much in confidence and character.', NULL, 5, 1, 10, '2026-08-20 18:07:40', '2026-08-20 18:07:40'),
+(2, 'Brian Kiprotich', 'Alumni, Class of 2019', 'As an alumni who went through KCPE here, I can say the foundation Kingsway gave me opened doors to the best secondary schools and beyond. The values still guide me.', NULL, 5, 1, 20, '2026-08-20 18:07:40', '2026-08-20 18:07:40'),
+(3, 'Mr. Samuel Cheruiyot', 'Parent, Grade 8', 'The boarding facilities and pastoral care are exceptional. My son feels at home here. The staff treats every child as their own. We are extremely satisfied.', NULL, 5, 1, 30, '2026-08-20 18:07:40', '2026-08-20 18:07:40');
 
 -- --------------------------------------------------------
 
@@ -84256,7 +84870,6 @@ TRUNCATE TABLE `sports_team_members`;
 -- Table structure for table `staff`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 12:29 PM
 --
 
 DROP TABLE IF EXISTS `staff`;
@@ -84644,7 +85257,8 @@ INSERT IGNORE INTO `staff_categories` (`id`, `staff_type_id`, `category_name`, `
 --
 -- Table structure for table `staff_children`
 --
--- Creation: Aug 15, 2026 at 03:50 AM
+-- Creation: Aug 21, 2026 at 01:26 AM
+-- Last update: Aug 21, 2026 at 01:26 AM
 --
 
 DROP TABLE IF EXISTS `staff_children`;
@@ -84655,6 +85269,7 @@ CREATE TABLE IF NOT EXISTS `staff_children` (
   `relationship` enum('father','mother','guardian','spouse') NOT NULL DEFAULT 'father',
   `fee_deduction_enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Whether to deduct school fees from salary',
   `fee_deduction_percentage` decimal(5,2) NOT NULL DEFAULT 100.00 COMMENT 'Percentage of fees to deduct (0-100)',
+  `fee_deduction_amount` decimal(12,2) DEFAULT NULL,
   `notes` text DEFAULT NULL COMMENT 'Additional notes about the arrangement',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -86014,13 +86629,14 @@ TRUNCATE TABLE `statutory_agency_accounts`;
 --
 -- Table structure for table `statutory_remittances`
 --
--- Creation: Aug 17, 2026 at 04:41 PM
+-- Creation: Aug 21, 2026 at 01:28 AM
+-- Last update: Aug 21, 2026 at 02:43 AM
 --
 
 DROP TABLE IF EXISTS `statutory_remittances`;
 CREATE TABLE IF NOT EXISTS `statutory_remittances` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `agency` enum('KRA','NHIF','NSSF','Housing Levy') NOT NULL COMMENT 'Government agency',
+  `agency` enum('KRA','NSSF','SHIF','NHIF','Housing Levy') NOT NULL,
   `period_month` int(11) NOT NULL COMMENT '1-12',
   `period_year` int(11) NOT NULL,
   `total_deducted` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Sum of deductions from payslips for this period',
@@ -86037,7 +86653,7 @@ CREATE TABLE IF NOT EXISTS `statutory_remittances` (
   UNIQUE KEY `uk_agency_period` (`agency`,`period_month`,`period_year`),
   KEY `idx_status` (`status`),
   KEY `idx_due_date` (`due_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `statutory_remittances`:
@@ -86048,6 +86664,16 @@ CREATE TABLE IF NOT EXISTS `statutory_remittances` (
 --
 
 TRUNCATE TABLE `statutory_remittances`;
+--
+-- Dumping data for table `statutory_remittances`
+--
+
+INSERT IGNORE INTO `statutory_remittances` (`id`, `agency`, `period_month`, `period_year`, `total_deducted`, `amount_remitted`, `remittance_date`, `due_date`, `filing_reference`, `status`, `notes`, `filed_by`, `created_at`, `updated_at`) VALUES
+(1, 'KRA', 8, 2026, 58686.40, 0.00, NULL, NULL, NULL, 'pending', NULL, NULL, '2026-08-21 02:20:14', '2026-08-21 02:43:01'),
+(2, 'NSSF', 8, 2026, 121680.00, 0.00, NULL, NULL, NULL, 'pending', NULL, NULL, '2026-08-21 02:20:14', '2026-08-21 02:43:01'),
+(3, 'SHIF', 8, 2026, 27885.00, 0.00, NULL, NULL, NULL, 'pending', NULL, NULL, '2026-08-21 02:20:14', '2026-08-21 02:43:01'),
+(4, 'Housing Levy', 8, 2026, 30420.00, 0.00, NULL, NULL, NULL, 'pending', NULL, NULL, '2026-08-21 02:20:14', '2026-08-21 02:43:01');
+
 -- --------------------------------------------------------
 
 --
@@ -86104,7 +86730,8 @@ TRUNCATE TABLE `statutory_remittance_attempts`;
 --
 -- Table structure for table `statutory_remittance_items`
 --
--- Creation: Aug 17, 2026 at 04:41 PM
+-- Creation: Aug 21, 2026 at 01:26 AM
+-- Last update: Aug 21, 2026 at 02:43 AM
 --
 
 DROP TABLE IF EXISTS `statutory_remittance_items`;
@@ -86114,12 +86741,13 @@ CREATE TABLE IF NOT EXISTS `statutory_remittance_items` (
   `payslip_id` int(10) UNSIGNED NOT NULL COMMENT 'Reference to payslips.id',
   `staff_id` int(10) UNSIGNED NOT NULL,
   `amount` decimal(12,2) NOT NULL COMMENT 'Individual staff deduction amount for this agency',
+  `contribution_side` enum('employee','employer') NOT NULL DEFAULT 'employee',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_remittance` (`remittance_id`),
   KEY `idx_payslip` (`payslip_id`),
   KEY `idx_staff` (`staff_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2487 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `statutory_remittance_items`:
@@ -86134,6 +86762,176 @@ CREATE TABLE IF NOT EXISTS `statutory_remittance_items` (
 --
 
 TRUNCATE TABLE `statutory_remittance_items`;
+--
+-- Dumping data for table `statutory_remittance_items`
+--
+
+INSERT IGNORE INTO `statutory_remittance_items` (`id`, `remittance_id`, `payslip_id`, `staff_id`, `amount`, `contribution_side`, `created_at`) VALUES
+(2323, 1, 1002, 110, 9884.60, 'employee', '2026-08-21 02:43:01'),
+(2324, 1, 1003, 111, 4499.60, 'employee', '2026-08-21 02:43:01'),
+(2325, 1, 1018, 99, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2326, 1, 1019, 108, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2327, 1, 1020, 107, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2328, 1, 1021, 100, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2329, 1, 1022, 101, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2330, 1, 1023, 98, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2331, 1, 1024, 109, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2332, 1, 1025, 103, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2333, 1, 1026, 102, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2334, 1, 1027, 104, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2335, 1, 1028, 105, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2336, 1, 1029, 106, 3691.85, 'employee', '2026-08-21 02:43:01'),
+(2337, 2, 1002, 110, 3900.00, 'employee', '2026-08-21 02:43:01'),
+(2338, 2, 1003, 111, 2700.00, 'employee', '2026-08-21 02:43:01'),
+(2339, 2, 1004, 52, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2340, 2, 1005, 46, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2341, 2, 1006, 53, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2342, 2, 1007, 54, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2343, 2, 1008, 47, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2344, 2, 1009, 40, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2345, 2, 1010, 55, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2346, 2, 1011, 51, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2347, 2, 1012, 43, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2348, 2, 1013, 56, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2349, 2, 1014, 44, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2350, 2, 1015, 45, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2351, 2, 1016, 42, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2352, 2, 1017, 49, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2353, 2, 1018, 99, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2354, 2, 1019, 108, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2355, 2, 1020, 107, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2356, 2, 1021, 100, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2357, 2, 1022, 101, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2358, 2, 1023, 98, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2359, 2, 1024, 109, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2360, 2, 1025, 103, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2361, 2, 1026, 102, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2362, 2, 1027, 104, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2363, 2, 1028, 105, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2364, 2, 1029, 106, 2520.00, 'employee', '2026-08-21 02:43:01'),
+(2365, 2, 1030, 50, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2366, 2, 1031, 57, 1500.00, 'employee', '2026-08-21 02:43:01'),
+(2367, 3, 1002, 110, 1787.50, 'employee', '2026-08-21 02:43:01'),
+(2368, 3, 1003, 111, 1237.50, 'employee', '2026-08-21 02:43:01'),
+(2369, 3, 1004, 52, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2370, 3, 1005, 46, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2371, 3, 1006, 53, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2372, 3, 1007, 54, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2373, 3, 1008, 47, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2374, 3, 1009, 40, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2375, 3, 1010, 55, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2376, 3, 1011, 51, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2377, 3, 1012, 43, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2378, 3, 1013, 56, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2379, 3, 1014, 44, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2380, 3, 1015, 45, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2381, 3, 1016, 42, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2382, 3, 1017, 49, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2383, 3, 1018, 99, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2384, 3, 1019, 108, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2385, 3, 1020, 107, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2386, 3, 1021, 100, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2387, 3, 1022, 101, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2388, 3, 1023, 98, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2389, 3, 1024, 109, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2390, 3, 1025, 103, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2391, 3, 1026, 102, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2392, 3, 1027, 104, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2393, 3, 1028, 105, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2394, 3, 1029, 106, 1155.00, 'employee', '2026-08-21 02:43:01'),
+(2395, 3, 1030, 50, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2396, 3, 1031, 57, 687.50, 'employee', '2026-08-21 02:43:01'),
+(2397, 4, 1002, 110, 975.00, 'employee', '2026-08-21 02:43:01'),
+(2398, 4, 1003, 111, 675.00, 'employee', '2026-08-21 02:43:01'),
+(2399, 4, 1004, 52, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2400, 4, 1005, 46, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2401, 4, 1006, 53, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2402, 4, 1007, 54, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2403, 4, 1008, 47, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2404, 4, 1009, 40, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2405, 4, 1010, 55, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2406, 4, 1011, 51, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2407, 4, 1012, 43, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2408, 4, 1013, 56, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2409, 4, 1014, 44, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2410, 4, 1015, 45, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2411, 4, 1016, 42, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2412, 4, 1017, 49, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2413, 4, 1018, 99, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2414, 4, 1019, 108, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2415, 4, 1020, 107, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2416, 4, 1021, 100, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2417, 4, 1022, 101, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2418, 4, 1023, 98, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2419, 4, 1024, 109, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2420, 4, 1025, 103, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2421, 4, 1026, 102, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2422, 4, 1027, 104, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2423, 4, 1028, 105, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2424, 4, 1029, 106, 630.00, 'employee', '2026-08-21 02:43:01'),
+(2425, 4, 1030, 50, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2426, 4, 1031, 57, 375.00, 'employee', '2026-08-21 02:43:01'),
+(2427, 2, 1002, 110, 3900.00, 'employer', '2026-08-21 02:43:01'),
+(2428, 2, 1003, 111, 2700.00, 'employer', '2026-08-21 02:43:01'),
+(2429, 2, 1004, 52, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2430, 2, 1005, 46, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2431, 2, 1006, 53, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2432, 2, 1007, 54, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2433, 2, 1008, 47, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2434, 2, 1009, 40, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2435, 2, 1010, 55, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2436, 2, 1011, 51, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2437, 2, 1012, 43, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2438, 2, 1013, 56, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2439, 2, 1014, 44, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2440, 2, 1015, 45, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2441, 2, 1016, 42, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2442, 2, 1017, 49, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2443, 2, 1018, 99, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2444, 2, 1019, 108, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2445, 2, 1020, 107, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2446, 2, 1021, 100, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2447, 2, 1022, 101, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2448, 2, 1023, 98, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2449, 2, 1024, 109, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2450, 2, 1025, 103, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2451, 2, 1026, 102, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2452, 2, 1027, 104, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2453, 2, 1028, 105, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2454, 2, 1029, 106, 2520.00, 'employer', '2026-08-21 02:43:01'),
+(2455, 2, 1030, 50, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2456, 2, 1031, 57, 1500.00, 'employer', '2026-08-21 02:43:01'),
+(2457, 4, 1002, 110, 975.00, 'employer', '2026-08-21 02:43:01'),
+(2458, 4, 1003, 111, 675.00, 'employer', '2026-08-21 02:43:01'),
+(2459, 4, 1004, 52, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2460, 4, 1005, 46, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2461, 4, 1006, 53, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2462, 4, 1007, 54, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2463, 4, 1008, 47, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2464, 4, 1009, 40, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2465, 4, 1010, 55, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2466, 4, 1011, 51, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2467, 4, 1012, 43, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2468, 4, 1013, 56, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2469, 4, 1014, 44, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2470, 4, 1015, 45, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2471, 4, 1016, 42, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2472, 4, 1017, 49, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2473, 4, 1018, 99, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2474, 4, 1019, 108, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2475, 4, 1020, 107, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2476, 4, 1021, 100, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2477, 4, 1022, 101, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2478, 4, 1023, 98, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2479, 4, 1024, 109, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2480, 4, 1025, 103, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2481, 4, 1026, 102, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2482, 4, 1027, 104, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2483, 4, 1028, 105, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2484, 4, 1029, 106, 630.00, 'employer', '2026-08-21 02:43:01'),
+(2485, 4, 1030, 50, 375.00, 'employer', '2026-08-21 02:43:01'),
+(2486, 4, 1031, 57, 375.00, 'employer', '2026-08-21 02:43:01');
+
 -- --------------------------------------------------------
 
 --
@@ -86770,7 +87568,6 @@ INSERT IGNORE INTO `streams` (`id`, `name`, `code`, `capacity`) VALUES
 -- Table structure for table `students`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 12:40 PM
 --
 
 DROP TABLE IF EXISTS `students`;
@@ -86880,7 +87677,6 @@ DELIMITER ;
 -- Table structure for table `student_academic_enrollments`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_academic_enrollments`;
@@ -87120,7 +87916,6 @@ TRUNCATE TABLE `student_clearances`;
 -- Table structure for table `student_fee_migration_snapshots`
 --
 -- Creation: Aug 20, 2026 at 11:10 AM
--- Last update: Aug 20, 2026 at 11:18 AM
 --
 
 DROP TABLE IF EXISTS `student_fee_migration_snapshots`;
@@ -87176,7 +87971,6 @@ INSERT IGNORE INTO `student_fee_migration_snapshots` (`id`, `student_id`, `acade
 -- Table structure for table `student_fee_obligations`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_fee_obligations`;
@@ -87452,7 +88246,6 @@ TRUNCATE TABLE `student_health_visits`;
 -- Table structure for table `student_id_cards`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_id_cards`;
@@ -87594,7 +88387,6 @@ TRUNCATE TABLE `student_meal_profiles`;
 -- Table structure for table `student_parents`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
 --
 
 DROP TABLE IF EXISTS `student_parents`;
@@ -93010,7 +93802,7 @@ INSERT IGNORE INTO `uniform_sizes` (`id`, `item_id`, `size`, `size_label`, `size
 -- Table structure for table `users`
 --
 -- Creation: Aug 18, 2026 at 02:37 AM
--- Last update: Aug 20, 2026 at 11:35 AM
+-- Last update: Aug 21, 2026 at 04:00 AM
 --
 
 DROP TABLE IF EXISTS `users`;
@@ -93055,14 +93847,14 @@ TRUNCATE TABLE `users`;
 
 INSERT IGNORE INTO `users` (`id`, `person_id`, `username`, `password_hash`, `status`, `last_login`, `password_changed_at`, `profile_completed_at`, `failed_login_attempts`, `account_locked_until`, `password_expires_at`, `force_password_change`, `is_test_user`, `two_factor_secret`, `two_factor_enabled`, `two_factor_method`, `two_factor_verified_at`, `backup_codes_generated_at`, `created_at`, `updated_at`) VALUES
 (1, 1, 'test_sysadmin', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-18 17:09:53', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:18', '2026-08-18 19:34:20'),
-(2, 2, 'test_director', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-16 19:16:12', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:19', '2026-08-18 19:34:20'),
+(2, 2, 'test_director', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-21 07:00:16', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-20 04:00:16', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:19', '2026-08-21 04:00:16'),
 (3, 3, 'test_scholadmin', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-20 14:35:19', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-19 11:35:19', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-20 11:35:19'),
 (4, 4, 'test_headteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-19 19:21:46', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 16:21:46', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-19 16:21:46'),
 (5, 5, 'test_deputy_acad', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-18 19:34:20'),
 (6, 6, 'test_classteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-18 17:10:46', '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-18 19:34:20'),
 (7, 7, 'test_subjectteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:20', '2026-08-18 19:34:20'),
 (8, 8, 'test_internteacher', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-18 19:34:20'),
-(9, 9, 'test_accountant', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-20 00:45:02', '2026-08-15 14:06:37', '2026-08-18 13:45:58', 0, '2026-08-18 21:45:02', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-19 21:45:02'),
+(9, 9, 'test_accountant', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', '2026-08-21 05:48:32', '2026-08-15 14:06:37', '2026-08-18 13:45:58', 0, '2026-08-20 02:48:32', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-21 02:48:32'),
 (10, 10, 'test_inventorymgr', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-18 19:34:20'),
 (11, 11, 'test_cateress', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-18 19:34:20'),
 (12, 12, 'test_boardingmaster', '$2y$12$9hB6kdFrAi.nh4MGXuYHWuqzD1HxaOE5/rqNnULJm3O.jYEZcgdia', 'active', NULL, '2026-08-15 14:06:37', '2026-08-18 22:34:20', 0, '2026-08-18 19:34:20', '2026-08-02 03:06:46', 0, 1, NULL, 0, 'none', NULL, NULL, '2025-12-21 14:12:21', '2026-08-18 19:34:20'),
@@ -95311,7 +96103,7 @@ TRUNCATE TABLE `user_routes`;
 -- Table structure for table `user_sessions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:35 AM
+-- Last update: Aug 21, 2026 at 04:16 AM
 --
 
 DROP TABLE IF EXISTS `user_sessions`;
@@ -95330,7 +96122,7 @@ CREATE TABLE IF NOT EXISTS `user_sessions` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_token` (`session_token`),
   KEY `idx_user_status` (`user_id`,`session_status`)
-) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `user_sessions`:
@@ -95364,7 +96156,8 @@ INSERT IGNORE INTO `user_sessions` (`id`, `user_id`, `session_token`, `ip_addres
 (16, 4, 'cb76cc67125ae0a5b149375c42fa0f9eb4d30e30934391f7e46f23540d09036e', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-19 04:47:44', '2026-08-19 20:19:12', NULL, 'active', '2026-08-19 01:47:44', '2026-08-19 17:19:12'),
 (17, 3, 'ce1d04c5f8bf884607c352ba4972d24c042e3e43706473ce1ac0110d094e1c24', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-19 18:53:58', '2026-08-19 18:55:16', '2026-08-19 19:00:15', 'logged_out', '2026-08-19 15:53:58', '2026-08-19 16:00:15'),
 (18, 3, 'a2c5364192072a2cf6e195a739a70d125d51c3a2ca3bae0a69a932fc9856efec', '127.0.0.1', 'curl/7.53.1', '2026-08-19 21:49:36', '2026-08-20 14:35:19', NULL, 'active', '2026-08-19 18:49:36', '2026-08-20 11:35:19'),
-(19, 9, 'b12a9e8f8cbaa709771136163ad83033aea6d342dd9a377b8a9d8d1d774ad30b', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-20 00:45:02', '2026-08-20 01:07:20', NULL, 'active', '2026-08-19 21:45:02', '2026-08-19 22:07:20');
+(19, 9, '8921571c485a8948e5085c87007ed2f3e2f1d48b0e3080f881acfa11ec05848c', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64; rv:146.0) Gecko/20100101 Firefox/146.0', '2026-08-20 00:45:02', '2026-08-21 07:16:36', NULL, 'active', '2026-08-19 21:45:02', '2026-08-21 04:16:36'),
+(20, 2, 'e2f83566aa4339238e383db0aaac42fb265fe61760f474deb3d6c2defca889ca', '127.0.0.1', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36', '2026-08-21 05:38:49', '2026-08-21 07:15:02', NULL, 'active', '2026-08-21 02:38:49', '2026-08-21 04:15:02');
 
 -- --------------------------------------------------------
 
@@ -96140,8 +96933,8 @@ CREATE TABLE IF NOT EXISTS `vw_fee_schedule_by_class` (
 ,`academic_term` varchar(50)
 ,`student_type` varchar(100)
 ,`student_type_code` varchar(20)
-,`fee_name` varchar(100)
-,`fee_category` enum('tuition','boarding','activity','infrastructure','other')
+,`fee_name` varchar(11)
+,`fee_category` varchar(11)
 ,`amount_due` decimal(12,2)
 ,`due_date` date
 ,`number_of_students` bigint(21)
@@ -96158,23 +96951,21 @@ CREATE TABLE IF NOT EXISTS `vw_fee_structure_annual_summary` (
 `academic_year` varchar(20)
 ,`level_name` varchar(50)
 ,`level_id` int(10) unsigned
-,`fee_type` varchar(100)
-,`fee_type_id` int(10) unsigned
-,`fee_category` enum('tuition','boarding','activity','infrastructure','other')
+,`fee_type` varchar(11)
+,`fee_type_id` binary(0)
+,`fee_category` varchar(11)
 ,`term1_amount` decimal(34,2)
 ,`term2_amount` decimal(34,2)
 ,`term3_amount` decimal(34,2)
 ,`annual_total` decimal(34,2)
 ,`status` enum('active','inactive','cancelled','draft','pending_review')
 ,`is_auto_rollover` int(1)
-,`reviewed_by` int(10) unsigned
+,`reviewed_by` binary(0)
 ,`reviewer_name` binary(0)
 ,`approved_by` int(10) unsigned
 ,`approver_name` binary(0)
 ,`approved_at` datetime
 ,`activated_at` binary(0)
-,`copied_from_id` binary(0)
-,`copied_from_year` binary(0)
 ,`structure_count` bigint(21)
 );
 
@@ -96228,10 +97019,10 @@ CREATE TABLE IF NOT EXISTS `vw_fee_transition_audit` (
 --
 DROP VIEW IF EXISTS `vw_fee_type_collection`;
 CREATE TABLE IF NOT EXISTS `vw_fee_type_collection` (
-`fee_type` varchar(100)
-,`fee_code` varchar(20)
-,`fee_category` enum('tuition','boarding','activity','infrastructure','other')
-,`is_mandatory` tinyint(1)
+`fee_type` varchar(11)
+,`fee_code` varchar(11)
+,`fee_category` varchar(11)
+,`is_mandatory` int(1)
 ,`total_due` decimal(57,2)
 ,`total_collected` decimal(58,2)
 ,`total_outstanding` decimal(61,2)
@@ -96877,6 +97668,7 @@ CREATE TABLE IF NOT EXISTS `vw_staff_children_fees` (
 ,`relationship` enum('father','mother','guardian','spouse')
 ,`fee_deduction_enabled` tinyint(1)
 ,`fee_deduction_percentage` decimal(5,2)
+,`fee_deduction_amount` decimal(12,2)
 ,`is_sponsored` int(1)
 ,`sponsor_waiver_percentage` int(1)
 ,`total_children` bigint(21)
@@ -97509,6 +98301,25 @@ CREATE TABLE IF NOT EXISTS `vw_student_payment_status` (
 --
 DROP VIEW IF EXISTS `vw_student_payment_status_enhanced`;
 CREATE TABLE IF NOT EXISTS `vw_student_payment_status_enhanced` (
+`id` int(10) unsigned
+,`admission_no` varchar(20)
+,`student_name` varchar(101)
+,`student_type` varchar(100)
+,`class_name` varchar(103)
+,`level_name` varchar(50)
+,`academic_year` varchar(20)
+,`term_number` decimal(10,0)
+,`total_due` decimal(57,2)
+,`total_paid` decimal(58,2)
+,`total_waived` decimal(57,2)
+,`current_balance` decimal(61,2)
+,`year_balance` decimal(61,2)
+,`term_balance` decimal(61,2)
+,`previous_year_balance` int(1)
+,`previous_term_balance` int(1)
+,`payment_status` varchar(7)
+,`is_sponsored` int(4)
+,`sponsor_waiver_percentage` decimal(12,2)
 );
 
 -- --------------------------------------------------------
@@ -97913,7 +98724,6 @@ TRUNCATE TABLE `widgets`;
 -- Table structure for table `workflow_definitions`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 10:43 AM
 --
 
 DROP TABLE IF EXISTS `workflow_definitions`;
@@ -98305,7 +99115,6 @@ INSERT IGNORE INTO `workflow_notifications` (`id`, `instance_id`, `notification_
 -- Table structure for table `workflow_stages`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 10:44 AM
 --
 
 DROP TABLE IF EXISTS `workflow_stages`;
@@ -98963,7 +99772,7 @@ CREATE OR REPLACE VIEW `vw_fee_collection_monthly_trend`  AS SELECT `m`.`month` 
 DROP TABLE IF EXISTS `vw_fee_schedule_by_class`;
 
 DROP VIEW IF EXISTS `vw_fee_schedule_by_class`;
-CREATE OR REPLACE VIEW `vw_fee_schedule_by_class`  AS SELECT `sl`.`name` AS `level_name`, `sl`.`code` AS `level_code`, `t`.`name` AS `academic_term`, `st`.`name` AS `student_type`, `st`.`code` AS `student_type_code`, `ft`.`name` AS `fee_name`, `ft`.`category` AS `fee_category`, `ayfs`.`amount` AS `amount_due`, `ayfs`.`due_date` AS `due_date`, count(distinct `s`.`id`) AS `number_of_students` FROM ((((((((((`academic_year_fee_schedules` `ayfs` join `academic_year_classes` `ayc` on(`ayc`.`id` = `ayfs`.`academic_year_class_id`)) join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) left join `academic_year_terms` `ayt` on(`ayt`.`id` = `ayfs`.`academic_year_term_id`)) left join `terms` `t` on(`t`.`id` = `ayt`.`term_id`)) join `student_types` `st` on(`st`.`id` = `ayfs`.`student_type_id`)) left join `fee_catalog` `fc` on(`fc`.`id` = `ayfs`.`fee_catalog_id`)) left join `fee_types` `ft` on(`ft`.`id` = `fc`.`fee_type_id`)) left join `student_academic_enrollments` `sae` on(`sae`.`academic_year_class_stream_id` in (select `x`.`id` from `academic_year_class_streams` `x` where `x`.`academic_year_class_id` = `ayc`.`id`) and `sae`.`student_id` in (select `s2`.`id` from `students` `s2` where `s2`.`student_type_id` = `st`.`id`))) left join `students` `s` on(`s`.`id` = `sae`.`student_id`)) WHERE `ayfs`.`academic_year_id` = (select `y`.`id` from `academic_years` `y` where `y`.`year_code` = year(curdate()) AND `y`.`is_current` = 1) GROUP BY `sl`.`id`, `t`.`id`, `st`.`id`, `ft`.`id`, `ayfs`.`id` ORDER BY `sl`.`name` ASC, `t`.`id` ASC, `st`.`name` ASC, `ft`.`name` ASC ;
+CREATE OR REPLACE VIEW `vw_fee_schedule_by_class`  AS SELECT `sl`.`name` AS `level_name`, `sl`.`code` AS `level_code`, `t`.`name` AS `academic_term`, `st`.`name` AS `student_type`, `st`.`code` AS `student_type_code`, 'School Fees' AS `fee_name`, 'school_fees' AS `fee_category`, `ayfs`.`amount` AS `amount_due`, `ayfs`.`due_date` AS `due_date`, count(distinct `s`.`id`) AS `number_of_students` FROM ((((((((`academic_year_fee_schedules` `ayfs` join `academic_year_classes` `ayc` on(`ayc`.`id` = `ayfs`.`academic_year_class_id`)) join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) left join `academic_year_terms` `ayt` on(`ayt`.`id` = `ayfs`.`academic_year_term_id`)) left join `terms` `t` on(`t`.`id` = `ayt`.`term_id`)) join `student_types` `st` on(`st`.`id` = `ayfs`.`student_type_id`)) left join `student_academic_enrollments` `sae` on(`sae`.`academic_year_class_stream_id` in (select `x`.`id` from `academic_year_class_streams` `x` where `x`.`academic_year_class_id` = `ayc`.`id`))) left join `students` `s` on(`s`.`id` = `sae`.`student_id`)) WHERE `ayfs`.`status` = 'active' GROUP BY `sl`.`id`, `t`.`id`, `st`.`id`, `ayfs`.`id` ORDER BY `sl`.`name` ASC, `t`.`id` ASC, `st`.`name` ASC ;
 
 -- --------------------------------------------------------
 
@@ -98973,7 +99782,7 @@ CREATE OR REPLACE VIEW `vw_fee_schedule_by_class`  AS SELECT `sl`.`name` AS `lev
 DROP TABLE IF EXISTS `vw_fee_structure_annual_summary`;
 
 DROP VIEW IF EXISTS `vw_fee_structure_annual_summary`;
-CREATE OR REPLACE VIEW `vw_fee_structure_annual_summary`  AS SELECT `ay`.`year_code` AS `academic_year`, `sl`.`name` AS `level_name`, `sl`.`id` AS `level_id`, `ft`.`name` AS `fee_type`, `ft`.`id` AS `fee_type_id`, `ft`.`category` AS `fee_category`, sum(case when `ayt`.`term_id` = 1 then `ayfs`.`amount` else 0 end) AS `term1_amount`, sum(case when `ayt`.`term_id` = 2 then `ayfs`.`amount` else 0 end) AS `term2_amount`, sum(case when `ayt`.`term_id` = 3 then `ayfs`.`amount` else 0 end) AS `term3_amount`, sum(`ayfs`.`amount`) AS `annual_total`, `ayfs`.`status` AS `status`, 0 AS `is_auto_rollover`, `ayfs`.`approved_by` AS `reviewed_by`, NULL AS `reviewer_name`, `ayfs`.`approved_by` AS `approved_by`, NULL AS `approver_name`, `ayfs`.`approved_at` AS `approved_at`, NULL AS `activated_at`, NULL AS `copied_from_id`, NULL AS `copied_from_year`, count(distinct `ayfs`.`id`) AS `structure_count` FROM (((((((`academic_year_fee_schedules` `ayfs` join `academic_years` `ay` on(`ay`.`id` = `ayfs`.`academic_year_id`)) left join `academic_year_terms` `ayt` on(`ayt`.`id` = `ayfs`.`academic_year_term_id`)) join `academic_year_classes` `ayc` on(`ayc`.`id` = `ayfs`.`academic_year_class_id`)) join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) left join `fee_catalog` `fc` on(`fc`.`id` = `ayfs`.`fee_catalog_id`)) left join `fee_types` `ft` on(`ft`.`id` = `fc`.`fee_type_id`)) GROUP BY `ay`.`id`, `ayfs`.`academic_year_class_id`, `fc`.`fee_type_id`, `ayfs`.`status` ;
+CREATE OR REPLACE VIEW `vw_fee_structure_annual_summary`  AS SELECT `ay`.`year_code` AS `academic_year`, `sl`.`name` AS `level_name`, `sl`.`id` AS `level_id`, 'School Fees' AS `fee_type`, NULL AS `fee_type_id`, 'school_fees' AS `fee_category`, sum(case when `ayt`.`term_id` = 1 then `ayfs`.`amount` else 0 end) AS `term1_amount`, sum(case when `ayt`.`term_id` = 2 then `ayfs`.`amount` else 0 end) AS `term2_amount`, sum(case when `ayt`.`term_id` = 3 then `ayfs`.`amount` else 0 end) AS `term3_amount`, sum(`ayfs`.`amount`) AS `annual_total`, `ayfs`.`status` AS `status`, 0 AS `is_auto_rollover`, NULL AS `reviewed_by`, NULL AS `reviewer_name`, max(`ayfs`.`approved_by`) AS `approved_by`, NULL AS `approver_name`, max(`ayfs`.`approved_at`) AS `approved_at`, NULL AS `activated_at`, count(distinct `ayfs`.`id`) AS `structure_count` FROM (((((`academic_year_fee_schedules` `ayfs` join `academic_years` `ay` on(`ay`.`id` = `ayfs`.`academic_year_id`)) join `academic_year_terms` `ayt` on(`ayt`.`id` = `ayfs`.`academic_year_term_id`)) join `academic_year_classes` `ayc` on(`ayc`.`id` = `ayfs`.`academic_year_class_id`)) join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) WHERE `ayfs`.`status` = 'active' GROUP BY `ay`.`id`, `sl`.`id`, `ayfs`.`student_type_id`, `ayfs`.`status` ;
 
 -- --------------------------------------------------------
 
@@ -99013,7 +99822,7 @@ CREATE OR REPLACE VIEW `vw_fee_transition_audit`  AS SELECT `fcn`.`student_id` A
 DROP TABLE IF EXISTS `vw_fee_type_collection`;
 
 DROP VIEW IF EXISTS `vw_fee_type_collection`;
-CREATE OR REPLACE VIEW `vw_fee_type_collection`  AS SELECT `ft`.`name` AS `fee_type`, `ft`.`code` AS `fee_code`, `ft`.`category` AS `fee_category`, `ft`.`is_mandatory` AS `is_mandatory`, sum(`f`.`amount_due`) AS `total_due`, sum(`f`.`amount_paid`) AS `total_collected`, sum(`f`.`balance`) AS `total_outstanding`, count(distinct `f`.`student_id`) AS `students_affected`, round(sum(`f`.`amount_paid`) / nullif(sum(`f`.`amount_due`),0) * 100,2) AS `collection_rate_percent`, count(distinct case when `f`.`payment_status` = 'paid' then `f`.`student_id` end) AS `students_paid`, count(distinct case when `f`.`payment_status` = 'partial' then `f`.`student_id` end) AS `students_partial`, count(distinct case when `f`.`payment_status` = 'pending' then `f`.`student_id` end) AS `students_pending` FROM ((((`vw_student_fee_balances` `f` left join `student_fee_obligations` `sfo` on(`sfo`.`student_academic_enrollment_id` = `f`.`student_academic_enrollment_id`)) left join `academic_year_fee_schedules` `ayfs` on(`ayfs`.`id` = `sfo`.`academic_year_fee_schedule_id`)) left join `fee_catalog` `fc` on(`fc`.`id` = `ayfs`.`fee_catalog_id`)) left join `fee_types` `ft` on(`ft`.`id` = `fc`.`fee_type_id`)) WHERE `f`.`academic_year` = year(curdate()) GROUP BY `ft`.`id` ORDER BY sum(`f`.`amount_due`) DESC ;
+CREATE OR REPLACE VIEW `vw_fee_type_collection`  AS SELECT 'School Fees' AS `fee_type`, 'SCHOOL_FEES' AS `fee_code`, 'school_fees' AS `fee_category`, 1 AS `is_mandatory`, sum(`f`.`amount_due`) AS `total_due`, sum(`f`.`amount_paid`) AS `total_collected`, sum(`f`.`balance`) AS `total_outstanding`, count(distinct `f`.`student_id`) AS `students_affected`, round(sum(`f`.`amount_paid`) / nullif(sum(`f`.`amount_due`),0) * 100,2) AS `collection_rate_percent`, count(distinct case when `f`.`payment_status` = 'paid' then `f`.`student_id` end) AS `students_paid`, count(distinct case when `f`.`payment_status` = 'partial' then `f`.`student_id` end) AS `students_partial`, count(distinct case when `f`.`payment_status` = 'pending' then `f`.`student_id` end) AS `students_pending` FROM `vw_student_fee_balances` AS `f` WHERE `f`.`academic_year` = year(curdate()) ;
 
 -- --------------------------------------------------------
 
@@ -99273,7 +100082,7 @@ CREATE OR REPLACE VIEW `vw_staff_attendance_status`  AS SELECT `s`.`id` AS `staf
 DROP TABLE IF EXISTS `vw_staff_children_fees`;
 
 DROP VIEW IF EXISTS `vw_staff_children_fees`;
-CREATE OR REPLACE VIEW `vw_staff_children_fees`  AS SELECT `sc`.`id` AS `staff_child_id`, `sc`.`staff_id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`sp`.`first_name`,' ',`sp`.`last_name`) AS `staff_name`, `spp`.`basic_salary` AS `staff_salary`, `sc`.`student_id` AS `student_id`, `st`.`admission_no` AS `admission_no`, concat(`tp`.`first_name`,' ',`tp`.`last_name`) AS `student_name`, `tp`.`dob` AS `student_dob`, `c`.`name` AS `class_name`, `sn`.`name` AS `stream_name`, `sc`.`relationship` AS `relationship`, `sc`.`fee_deduction_enabled` AS `fee_deduction_enabled`, `sc`.`fee_deduction_percentage` AS `fee_deduction_percentage`, 0 AS `is_sponsored`, 0 AS `sponsor_waiver_percentage`, (select count(0) from `staff_children` `x` where `x`.`staff_id` = `sc`.`staff_id`) AS `total_children`, `sc`.`created_at` AS `created_at` FROM ((((((((((`staff_children` `sc` join `staff` `s` on(`sc`.`staff_id` = `s`.`id`)) join `persons` `sp` on(`sp`.`id` = `s`.`person_id`)) left join `staff_payroll_profiles` `spp` on(`spp`.`staff_id` = `s`.`id`)) join `students` `st` on(`sc`.`student_id` = `st`.`id`)) join `persons` `tp` on(`tp`.`id` = `st`.`person_id`)) left join `student_academic_enrollments` `sae` on(`sae`.`student_id` = `st`.`id`)) left join `academic_year_class_streams` `aycs` on(`aycs`.`id` = `sae`.`academic_year_class_stream_id`)) left join `academic_year_classes` `ayc` on(`ayc`.`id` = `aycs`.`academic_year_class_id`)) left join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) left join `streams` `sn` on(`sn`.`id` = `aycs`.`stream_id`)) WHERE `s`.`status` = 'active' AND `st`.`status` = 'active' ;
+CREATE OR REPLACE VIEW `vw_staff_children_fees`  AS SELECT `sc`.`id` AS `staff_child_id`, `sc`.`staff_id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`sp`.`first_name`,' ',`sp`.`last_name`) AS `staff_name`, `spp`.`basic_salary` AS `staff_salary`, `sc`.`student_id` AS `student_id`, `st`.`admission_no` AS `admission_no`, concat(`tp`.`first_name`,' ',`tp`.`last_name`) AS `student_name`, `tp`.`dob` AS `student_dob`, `c`.`name` AS `class_name`, `sn`.`name` AS `stream_name`, `sc`.`relationship` AS `relationship`, `sc`.`fee_deduction_enabled` AS `fee_deduction_enabled`, `sc`.`fee_deduction_percentage` AS `fee_deduction_percentage`, `sc`.`fee_deduction_amount` AS `fee_deduction_amount`, 0 AS `is_sponsored`, 0 AS `sponsor_waiver_percentage`, (select count(0) from `staff_children` `x` where `x`.`staff_id` = `sc`.`staff_id`) AS `total_children`, `sc`.`created_at` AS `created_at` FROM ((((((((((`staff_children` `sc` join `staff` `s` on(`sc`.`staff_id` = `s`.`id`)) join `persons` `sp` on(`sp`.`id` = `s`.`person_id`)) left join `staff_payroll_profiles` `spp` on(`spp`.`staff_id` = `s`.`id`)) join `students` `st` on(`sc`.`student_id` = `st`.`id`)) join `persons` `tp` on(`tp`.`id` = `st`.`person_id`)) left join `student_academic_enrollments` `sae` on(`sae`.`student_id` = `st`.`id`)) left join `academic_year_class_streams` `aycs` on(`aycs`.`id` = `sae`.`academic_year_class_stream_id`)) left join `academic_year_classes` `ayc` on(`ayc`.`id` = `aycs`.`academic_year_class_id`)) left join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) left join `streams` `sn` on(`sn`.`id` = `aycs`.`stream_id`)) WHERE `s`.`status` = 'active' AND `st`.`status` = 'active' ;
 
 -- --------------------------------------------------------
 
@@ -99543,7 +100352,7 @@ CREATE OR REPLACE VIEW `vw_student_payment_status`  AS SELECT `s`.`admission_no`
 DROP TABLE IF EXISTS `vw_student_payment_status_enhanced`;
 
 DROP VIEW IF EXISTS `vw_student_payment_status_enhanced`;
-CREATE OR REPLACE VIEW `vw_student_payment_status_enhanced`  AS SELECT `s`.`id` AS `id`, `s`.`admission_no` AS `admission_no`, concat(`p`.`first_name`,' ',`p`.`last_name`) AS `student_name`, `st`.`name` AS `student_type`, concat(`c`.`name`,' - ',`sn`.`name`) AS `class_name`, `sl`.`name` AS `level_name`, `f`.`academic_year_id` AS `academic_year`, coalesce(`f`.`term_id`,1) AS `term_number`, coalesce(sum(`f`.`amount_due`),0) AS `total_due`, coalesce(sum(`f`.`amount_paid`),0) AS `total_paid`, coalesce(sum(`f`.`amount_waived`),0) AS `total_waived`, coalesce(sum(`f`.`balance`),0) AS `current_balance`, coalesce(sum(case when `f`.`academic_year_id` = (select max(`y`.`id`) from `academic_years` `y`) then `f`.`balance` else 0 end),0) AS `year_balance`, coalesce(sum(case when `f`.`academic_year_term_id` = (select max(`x`.`id`) from `academic_year_terms` `x` where `x`.`status` = 'current') then `f`.`balance` else 0 end),0) AS `term_balance`, 0 AS `previous_year_balance`, 0 AS `previous_term_balance`, `f`.`payment_status` AS `payment_status`, coalesce(max(`sfo`.`is_sponsored`),0) AS `is_sponsored`, coalesce(max(`sfo`.`sponsored_waiver_amount`),0) AS `sponsor_waiver_percentage` FROM ((((((((((`students` `s` join `persons` `p` on(`p`.`id` = `s`.`person_id`)) left join `student_types` `st` on(`s`.`student_type_id` = `st`.`id`)) left join `student_academic_enrollments` `sae` on(`sae`.`student_id` = `s`.`id`)) left join `academic_year_class_streams` `aycs` on(`aycs`.`id` = `sae`.`academic_year_class_stream_id`)) left join `academic_year_classes` `ayc` on(`ayc`.`id` = `aycs`.`academic_year_class_id`)) left join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) left join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) left join `streams` `sn` on(`sn`.`id` = `aycs`.`stream_id`)) left join `vw_student_fee_balances` `f` on(`f`.`student_academic_enrollment_id` = `sae`.`id`)) left join `student_fee_obligations` `sfo` on(`sfo`.`student_academic_enrollment_id` = `sae`.`id`)) GROUP BY `s`.`id`, `f`.`academic_year_id`, `f`.`term_id`, `f`.`payment_status` ORDER BY `s`.`admission_no` ASC, `f`.`academic_year_id` DESC, `f`.`term_id` DESC ;
+CREATE OR REPLACE VIEW `vw_student_payment_status_enhanced`  AS SELECT `s`.`id` AS `id`, `s`.`admission_no` AS `admission_no`, concat(`p`.`first_name`,' ',`p`.`last_name`) AS `student_name`, `st`.`name` AS `student_type`, concat(`c`.`name`,' - ',`sn`.`name`) AS `class_name`, `sl`.`name` AS `level_name`, `f`.`academic_year` AS `academic_year`, coalesce(`f`.`term_id`,1) AS `term_number`, coalesce(sum(`f`.`amount_due`),0) AS `total_due`, coalesce(sum(`f`.`amount_paid`),0) AS `total_paid`, coalesce(sum(`f`.`amount_waived`),0) AS `total_waived`, coalesce(sum(`f`.`balance`),0) AS `current_balance`, coalesce(sum(case when `f`.`academic_year` = (select `y`.`year_code` from `academic_years` `y` where `y`.`is_current` = 1 order by `y`.`id` desc limit 1) then `f`.`balance` else 0 end),0) AS `year_balance`, coalesce(sum(case when `f`.`academic_year_term_id` = (select max(`x`.`id`) from `academic_year_terms` `x` where `x`.`status` = 'current') then `f`.`balance` else 0 end),0) AS `term_balance`, 0 AS `previous_year_balance`, 0 AS `previous_term_balance`, `f`.`payment_status` AS `payment_status`, coalesce(max(`sfo`.`is_sponsored`),0) AS `is_sponsored`, coalesce(max(`sfo`.`sponsored_waiver_amount`),0) AS `sponsor_waiver_percentage` FROM ((((((((((`students` `s` join `persons` `p` on(`p`.`id` = `s`.`person_id`)) left join `student_types` `st` on(`s`.`student_type_id` = `st`.`id`)) left join `student_academic_enrollments` `sae` on(`sae`.`student_id` = `s`.`id`)) left join `academic_year_class_streams` `aycs` on(`aycs`.`id` = `sae`.`academic_year_class_stream_id`)) left join `academic_year_classes` `ayc` on(`ayc`.`id` = `aycs`.`academic_year_class_id`)) left join `classes` `c` on(`c`.`id` = `ayc`.`class_id`)) left join `school_levels` `sl` on(`sl`.`id` = `c`.`level_id`)) left join `streams` `sn` on(`sn`.`id` = `aycs`.`stream_id`)) left join `vw_student_fee_balances` `f` on(`f`.`student_academic_enrollment_id` = `sae`.`id`)) left join `student_fee_obligations` `sfo` on(`sfo`.`student_academic_enrollment_id` = `sae`.`id`)) GROUP BY `s`.`id`, `f`.`academic_year`, `f`.`term_id`, `f`.`payment_status` ORDER BY `s`.`admission_no` ASC, `f`.`academic_year` DESC, `f`.`term_id` DESC ;
 
 -- --------------------------------------------------------
 
@@ -99781,7 +100590,15 @@ ALTER TABLE `admission_interview_sessions`
 --
 ALTER TABLE `admission_payments`
   ADD CONSTRAINT `fk_admission_payment_application` FOREIGN KEY (`application_id`) REFERENCES `admission_applications` (`id`),
+  ADD CONSTRAINT `fk_admission_payment_source` FOREIGN KEY (`financial_account_id`) REFERENCES `school_financial_accounts` (`id`),
   ADD CONSTRAINT `fk_admission_payment_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`);
+
+--
+-- Constraints for table `admission_payment_allocations`
+--
+ALTER TABLE `admission_payment_allocations`
+  ADD CONSTRAINT `fk_apa_obligation` FOREIGN KEY (`application_obligation_id`) REFERENCES `extra_charge_application_obligations` (`id`),
+  ADD CONSTRAINT `fk_apa_payment` FOREIGN KEY (`admission_payment_id`) REFERENCES `admission_payments` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `admission_windows`
@@ -99957,13 +100774,69 @@ ALTER TABLE `external_inbound_messages`
 ALTER TABLE `extra_charges`
   ADD CONSTRAINT `fk_ec_academic_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`),
   ADD CONSTRAINT `fk_ec_class` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`),
+  ADD CONSTRAINT `fk_ec_gl_account` FOREIGN KEY (`gl_account_id`) REFERENCES `chart_of_accounts` (`id`),
   ADD CONSTRAINT `fk_ec_student_type` FOREIGN KEY (`student_type_id`) REFERENCES `student_types` (`id`);
+
+--
+-- Constraints for table `extra_charge_application_obligations`
+--
+ALTER TABLE `extra_charge_application_obligations`
+  ADD CONSTRAINT `fk_ecao_application` FOREIGN KEY (`application_id`) REFERENCES `admission_applications` (`id`),
+  ADD CONSTRAINT `fk_ecao_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`),
+  ADD CONSTRAINT `fk_ecao_tier` FOREIGN KEY (`pricing_tier_id`) REFERENCES `extra_charge_pricing_tiers` (`id`);
+
+--
+-- Constraints for table `extra_charge_classes`
+--
+ALTER TABLE `extra_charge_classes`
+  ADD CONSTRAINT `fk_eccs_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_eccs_class` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`);
+
+--
+-- Constraints for table `extra_charge_contexts`
+--
+ALTER TABLE `extra_charge_contexts`
+  ADD CONSTRAINT `fk_ecc_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `extra_charge_parent_scopes`
+--
+ALTER TABLE `extra_charge_parent_scopes`
+  ADD CONSTRAINT `fk_ecps_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `extra_charge_pricing_tiers`
+--
+ALTER TABLE `extra_charge_pricing_tiers`
+  ADD CONSTRAINT `fk_ecpt_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `extra_charge_review_log`
 --
 ALTER TABLE `extra_charge_review_log`
   ADD CONSTRAINT `fk_ecrl_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `extra_charge_schedules`
+--
+ALTER TABLE `extra_charge_schedules`
+  ADD CONSTRAINT `fk_ecs_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_ecs_term` FOREIGN KEY (`academic_year_term_id`) REFERENCES `academic_year_terms` (`id`);
+
+--
+-- Constraints for table `extra_charge_student_obligations`
+--
+ALTER TABLE `extra_charge_student_obligations`
+  ADD CONSTRAINT `fk_ecso_enrollment` FOREIGN KEY (`student_academic_enrollment_id`) REFERENCES `student_academic_enrollments` (`id`),
+  ADD CONSTRAINT `fk_ecso_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `extra_charge_schedules` (`id`),
+  ADD CONSTRAINT `fk_ecso_term` FOREIGN KEY (`academic_year_term_id`) REFERENCES `academic_year_terms` (`id`);
+
+--
+-- Constraints for table `extra_charge_student_types`
+--
+ALTER TABLE `extra_charge_student_types`
+  ADD CONSTRAINT `fk_ecst_charge` FOREIGN KEY (`extra_charge_id`) REFERENCES `extra_charges` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_ecst_type` FOREIGN KEY (`student_type_id`) REFERENCES `student_types` (`id`);
 
 --
 -- Constraints for table `financial_statement_imports`
@@ -99978,10 +100851,32 @@ ALTER TABLE `financial_statement_lines`
   ADD CONSTRAINT `fk_statement_line_import` FOREIGN KEY (`import_id`) REFERENCES `financial_statement_imports` (`id`);
 
 --
+-- Constraints for table `job_application_interviews`
+--
+ALTER TABLE `job_application_interviews`
+  ADD CONSTRAINT `fk_jai_application` FOREIGN KEY (`application_id`) REFERENCES `job_applications` (`id`),
+  ADD CONSTRAINT `fk_jai_completed_by` FOREIGN KEY (`completed_by`) REFERENCES `users` (`id`),
+  ADD CONSTRAINT `fk_jai_created_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`),
+  ADD CONSTRAINT `fk_jai_interviewer` FOREIGN KEY (`interviewer_user_id`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `job_application_status_history`
+--
+ALTER TABLE `job_application_status_history`
+  ADD CONSTRAINT `fk_jash_application` FOREIGN KEY (`application_id`) REFERENCES `job_applications` (`id`),
+  ADD CONSTRAINT `fk_jash_changed_by` FOREIGN KEY (`changed_by`) REFERENCES `users` (`id`);
+
+--
 -- Constraints for table `job_vacancies`
 --
 ALTER TABLE `job_vacancies`
   ADD CONSTRAINT `fk_job_vacancies_department` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `leadership_positions`
+--
+ALTER TABLE `leadership_positions`
+  ADD CONSTRAINT `fk_pos_level` FOREIGN KEY (`level_id`) REFERENCES `leadership_levels` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `mpesa_transactions`
@@ -100069,6 +100964,15 @@ ALTER TABLE `payment_unmatched_cases`
   ADD CONSTRAINT `fk_unmatched_student` FOREIGN KEY (`resolved_student_id`) REFERENCES `students` (`id`);
 
 --
+-- Constraints for table `payroll_child_fee_transfers`
+--
+ALTER TABLE `payroll_child_fee_transfers`
+  ADD CONSTRAINT `fk_pcft_payment` FOREIGN KEY (`payment_id`) REFERENCES `payments` (`id`),
+  ADD CONSTRAINT `fk_pcft_payslip` FOREIGN KEY (`payslip_id`) REFERENCES `payslips` (`id`),
+  ADD CONSTRAINT `fk_pcft_staff_child` FOREIGN KEY (`staff_child_id`) REFERENCES `staff_children` (`id`),
+  ADD CONSTRAINT `fk_pcft_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`);
+
+--
 -- Constraints for table `payroll_runs`
 --
 ALTER TABLE `payroll_runs`
@@ -100133,6 +101037,16 @@ ALTER TABLE `school_financial_account_permissions`
 ALTER TABLE `school_financial_account_purposes`
   ADD CONSTRAINT `fk_account_purpose_account` FOREIGN KEY (`financial_account_id`) REFERENCES `school_financial_accounts` (`id`),
   ADD CONSTRAINT `fk_account_purpose_purpose` FOREIGN KEY (`purpose_id`) REFERENCES `financial_account_purposes` (`id`);
+
+--
+-- Constraints for table `school_leadership`
+--
+ALTER TABLE `school_leadership`
+  ADD CONSTRAINT `fk_sl_person` FOREIGN KEY (`person_id`) REFERENCES `persons` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_sl_position` FOREIGN KEY (`position_id`) REFERENCES `leadership_positions` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_sl_staff` FOREIGN KEY (`staff_id`) REFERENCES `staff` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_sl_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_sl_year` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `sports_fixtures`
@@ -100374,6 +101288,9 @@ CREATE DEFINER=`root`@`localhost` EVENT `ev_monthly_competency_report_reminder` 
 
 DROP EVENT IF EXISTS `ev_daily_attendance_report`$$
 CREATE DEFINER=`root`@`localhost` EVENT `ev_daily_attendance_report` ON SCHEDULE EVERY 1 DAY STARTS '2025-11-09 07:00:00' ON COMPLETION NOT PRESERVE ENABLE DO CALL sp_bulk_mark_student_attendance()$$
+
+DROP EVENT IF EXISTS `ev_generate_due_extra_charge_obligations`$$
+CREATE DEFINER=`root`@`localhost` EVENT `ev_generate_due_extra_charge_obligations` ON SCHEDULE EVERY 1 DAY STARTS '2026-08-22 00:00:00' ON COMPLETION NOT PRESERVE ENABLE DO CALL sp_generate_due_extra_charge_obligations()$$
 
 DELIMITER ;
 SET FOREIGN_KEY_CHECKS=1;
