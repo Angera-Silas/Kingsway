@@ -31,13 +31,13 @@
 - **Server**: XAMPP (Apache + MySQL + PHP)
 - **Database Server**: MySQL/MariaDB
 - **Database User**: `root`
-- **Database Password**: `admin123`
+- **Database Password**: `YOUR_DB_PASSWORD`
 - **Database Name**: `KingsWayAcademy`
 - **Default Port**: `3306`
 
 ### Database Connection String
 ```bash
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy
 ```
 
 ### Running Database Migrations
@@ -46,13 +46,13 @@
 cd /home/prof_angera/Projects/php_pages/Kingsway
 
 # Run a migration file
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/migrations/<migration_file>.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/migrations/<migration_file>.sql
 
 # Import main schema
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/KingsWayAcademy.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/KingsWayAcademy.sql
 
 # Import workflows
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/workflows_FINAL.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/workflows_FINAL.sql
 ```
 
 ### PHP Configuration
@@ -110,17 +110,17 @@ sudo /opt/lampp/lampp restart
 
 #### Access MySQL CLI
 ```bash
-/opt/lampp/bin/mysql -u root -padmin123
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD
 ```
 
 #### Check Database Status
 ```bash
-/opt/lampp/bin/mysql -u root -padmin123 -e "SHOW DATABASES;"
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD -e "SHOW DATABASES;"
 ```
 
 #### Run Specific Migration
 ```bash
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/migrations/inventory_workflows_expansion.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/migrations/inventory_workflows_expansion.sql
 ```
 
 ### Development Workflow
@@ -146,7 +146,7 @@ sudo /opt/lampp/lampp restart
 #### Issue: "Access denied for user 'root'"
 ```bash
 # Solution: Verify password
-/opt/lampp/bin/mysql -u root -padmin123
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD
 
 # If still fails, reset MySQL password in XAMPP
 sudo /opt/lampp/lampp security
@@ -155,7 +155,7 @@ sudo /opt/lampp/lampp security
 #### Issue: "Database does not exist"
 ```bash
 # Solution: Create database
-/opt/lampp/bin/mysql -u root -padmin123 -e "CREATE DATABASE IF NOT EXISTS KingsWayAcademy;"
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD -e "CREATE DATABASE IF NOT EXISTS KingsWayAcademy;"
 ```
 
 #### Issue: "Can't connect to MySQL server"
@@ -184,7 +184,7 @@ For production deployment:
 $host = 'localhost';
 $dbname = 'KingsWayAcademy';
 $user = 'root';
-$pass = 'admin123';
+$pass = 'YOUR_DB_PASSWORD';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);
@@ -543,7 +543,7 @@ CALL sp_revoke_role(user_id, role_name, reason, changed_by, @success);
 ```php
 <?php
 // Using PDO
-$pdo = new PDO("mysql:host=localhost;dbname=KingsWayAcademy", "root", "admin123");
+$pdo = new PDO("mysql:host=localhost;dbname=KingsWayAcademy", "root", "YOUR_DB_PASSWORD");
 
 // Get all permissions for a user
 $stmt = $pdo->prepare("CALL sp_get_user_permissions(?)");
@@ -671,13 +671,13 @@ LIMIT 20;
 
 ```bash
 # 1. Create normalized schema
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/migrations/rbac_schema_clean.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/migrations/rbac_schema_clean.sql
 
 # 2. Populate permissions from JSON source
 php scripts/populate_normalized_rbac.php
 
 # 3. Create helper procedures
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/migrations/rbac_procedures_final.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/migrations/rbac_procedures_final.sql
 ```
 
 ## Key Features

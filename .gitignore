@@ -1,63 +1,110 @@
+# --------------------------------------------------------
 # Composer dependencies
+# --------------------------------------------------------
 /vendor/
-./vendor
+/vendor
 
-/*.lock
+# --------------------------------------------------------
+# Lock files (environment-owned, not tracked)
+# --------------------------------------------------------
+composer.lock
+package-lock.json
+*.lock
+
+# --------------------------------------------------------
+# Local agent / tooling config (must never be shared)
+# --------------------------------------------------------
 /.remember/
 /.claude
 .agents
 .devin
 .openclaude
+.openclaude-profile.json
+.codex
+.codex/
+.ruff_cache
+
+# --------------------------------------------------------
+# Keys / certificates (environment-owned, distributed out-of-band)
+# --------------------------------------------------------
+*.pem
+*.key
+*.p12
+*.pfx
+# --------------------------------------------------------
+# Web server config (environment-owned)
+# --------------------------------------------------------
 .htaccess
 /.htaccess
 ./.htaccess
-.openclaude-profile.json
+htaccess.txt
 
+# --------------------------------------------------------
+# Environment files
+# --------------------------------------------------------
+.env
+config/.env
 
+# --------------------------------------------------------
+# Logs
+# --------------------------------------------------------
+logs/
 /logs/*.log
+*.log
+
+# --------------------------------------------------------
+# Cache
+# --------------------------------------------------------
+cache/
 .phpunit.cache/
 
-# Runtime uploads are environment-owned and must never be tracked.
-# Template or asset changes that need manual production promotion belong in
-# uploads_backup/, then production can copy them into its own uploads/ tree.
+# --------------------------------------------------------
+# Runtime uploads (environment-owned — never tracked)
+# Template/asset changes needing manual production promotion
+# belong in uploads_backup/, then production copies them
+# into its own uploads/ tree.
+# --------------------------------------------------------
 /uploads/
 !/uploads_backup/
 
-# Node modules (if any in the future)
+# Personal data / PII inside uploads_backup (never tracked)
+/uploads_backup/cvs/
+/uploads_backup/staff/profile_pictures/
+/uploads_backup/students/avatar.jpg
+
+# --------------------------------------------------------
+# Node modules
+# --------------------------------------------------------
 /node_modules/
+node_modules
 
-./AGENTS.md
-./CLAUDE.md
-
-# IDE and editor files
+# --------------------------------------------------------
+# IDE / editor files
+# --------------------------------------------------------
 *.swp
 *.swo
 *.bak
 *.tmp
-*.log
-*.vscode/
+*.iml
+.vscode/
 .idea/
 .DS_Store
-
-# OS generated files
 Thumbs.db
 
-# PHPStorm and JetBrains
-*.iml
+# --------------------------------------------------------
+# Documentation build output
+# --------------------------------------------------------
+/docs/_build/
 
-# Logs
-logs/
-*.log
+# --------------------------------------------------------
+# Generated print / test output
+# --------------------------------------------------------
+/temp/print/
+/test-output/
 
-
-# Cache
-cache/
-
-
-# Database dumps (large dump files only — migrations are tracked)
-!database/migrations/*.sql
-
-# Misc
+# --------------------------------------------------------
+# Archives
+# --------------------------------------------------------
 *.zip
 *.tar.gz
 *.tar
@@ -65,22 +112,55 @@ cache/
 *.7z
 *.rar
 
-# Ignore generated print/test output
-/temp/print/
-/test-output/
+# --------------------------------------------------------
+# Database (large dumps and seeds — migrations tracked separately)
+# --------------------------------------------------------
+database/KingWayDatabase_3nf_4nf_implemented.sql
+database/*.sql
+!database/migrations/*.sql
+!database/migrations/
+database/seeds/
 
-# Ignore documentation build output
-/docs/_build/
-# Environment files
-.env
-config/.env
-.codex
-ADMISSION_SUBMISSION_PROCESS.md
+# --------------------------------------------------------
+# Local-only directories (environment / build / scratch)
+# --------------------------------------------------------
+deploy
+scripts
+tests
+audit
+structure.txt
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# --------------------------------------------------------
+# Project meta / assistant docs (local only)
+# --------------------------------------------------------
 AGENTS.md
 CLAUDE.md
-structure.txt
+./AGENTS.md
+./CLAUDE.md
+ADMISSION_SUBMISSION_PROCESS.md
 Kingsway.code-workspace
-node_modules
-package-lock.json
-composer.lock
-package-lock.json
+
+# --------------------------------------------------------
+# Binaries and OS-specific files
+# --------------------------------------------------------
+php.exe
+
+# --------------------------------------------------------
+# Stray assets / images / documents (local, not source)
+# --------------------------------------------------------
+ChatGPT Image Aug 19, 2026, 04_36_03 AM.png
+5598687b-9af0-474a-afc0-792de844e3f9.odg
+f1326707-2abd-4e06-bdfb-ff9ccbbe15aa.odg
+5598687b-9af0-474a-afc0-792de844e3f9.pdf
+f1326707-2abd-4e06-bdfb-ff9ccbbe15aa.pdf
+Safaricom Signed Letter.pdf
+Signed Letter.pdf
+signature.png
+The+Co-operative+Bank+Open+Banking+Sandbox+TPP+Onboarding+process+form.docx
+
+# KCB Buni integration scratch (credentials / collections)
+kcb_buni/

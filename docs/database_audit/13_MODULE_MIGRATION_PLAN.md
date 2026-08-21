@@ -142,7 +142,7 @@ Counts = total matches of the legacy patterns (`s.stream_id`, `s.first_name`, `s
    **proven** comments/legit (comments in migrated modules, docblocks). Grep patterns must be
    word-boundary (`\b`) to avoid matching live views (`vw_student_fee_balances`).
 2. Baseline: run the script, record the failing list in this doc's inventory.
-3. Confirm DB access works (`mysql -u root -padmin123 KingsWayAcademy`).
+3. Confirm DB access works (`mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy`).
 
 Acceptance: script exits 0 against current allowlist baseline.
 
@@ -271,6 +271,6 @@ Acceptance: alumni page renders real data; no console errors.
 php -l $(git diff --name-only -- '*.php')
 node --check <each touched js>
 vendor/bin/phpunit
-mysql -u root -padmin123 KingsWayAcademy -e "EXPLAIN <rewritten query>"
+mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy -e "EXPLAIN <rewritten query>"
 scripts/check_legacy_sql.sh   # strict grep, allowlist-only
 ```

@@ -67,7 +67,7 @@ define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');
 define('DB_USER', $_ENV['DB_USER'] ?? 'root');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
-define('DB_PASS', $_ENV['DB_PASS'] ?? 'admin123');
+define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 
 /*
 |--------------------------------------------------------------------------

@@ -114,7 +114,7 @@ try {
 // WARNING: Default secret is insecure. Must be overridden in .env for any non-development environment.
 define(
     'JWT_SECRET',
-    $_ENV['JWT_SECRET'] ?? 'INSECURE_DEV_SECRET_REPLACE_IN_ENV_64_CHARS_MINIMUM_12345678901234567890'
+    $_ENV['JWT_SECRET'] ?? 'CHANGE_ME_IN_ENV_FILE'
 );
 
 define(
