@@ -30,38 +30,10 @@ class StaffPayrollManager extends BaseAPI
      */
     public function recordPayment($payrollId, $paymentData)
     {
-        try {
-            // Validate required fields
-            if (empty($payrollId) || empty($paymentData['payment_method'])) {
-                return formatResponse(false, null, 'Missing required payment fields');
-            }
-
-            // Update payslip/payment status
-            $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'paid', payment_method = ?, payment_reference = ?, paid_at = ? WHERE id = ?");
-            $paidAt = $paymentData['paid_at'] ?? date('Y-m-d H:i:s');
-            $paymentRef = $paymentData['payment_reference'] ?? null;
-            $result = $stmt->execute([
-                $paymentData['payment_method'],
-                $paymentRef,
-                $paidAt,
-                $payrollId
-            ]);
-
-            if (!$result) {
-                return formatResponse(false, null, 'Failed to update payment record');
-            }
-
-            $this->logAction('payment', $payrollId, "Payroll payment recorded: method={$paymentData['payment_method']}, ref={$paymentRef}");
-
-            return formatResponse(true, [
-                'payroll_id' => $payrollId,
-                'payment_method' => $paymentData['payment_method'],
-                'payment_reference' => $paymentRef,
-                'paid_at' => $paidAt
-            ], 'Payment recorded successfully');
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        // A payslip cannot be marked paid from a self-service/read model. The
+        // Finance disbursement workflow is the only writer because it records
+        // the provider transaction and waits for its callback.
+        return formatResponse(false, null, 'Direct payroll payment recording is disabled. Use the approved Finance disbursement workflow.');
     }
     /**
      * Calculate payroll for a staff member for a given period
@@ -71,6 +43,13 @@ class StaffPayrollManager extends BaseAPI
      */
     public function calculatePayroll($data)
     {
+        // Payroll calculation is a Finance responsibility.  This method is
+        // retained only for compatibility with old callers and must never
+        // write a payslip or payroll run.
+        return formatResponse(false, null, 'Legacy staff payroll calculation is disabled. Use the Finance payroll workflow.');
+
+        /* Legacy writable calculator retained below temporarily for source
+         * compatibility while old deployments are migrated. */
         try {
             $required = ['staff_id', 'payroll_month', 'payroll_year'];
             $missing = $this->validateRequired($data, $required);
@@ -90,7 +69,7 @@ class StaffPayrollManager extends BaseAPI
             // Payroll eligibility gate: staff must have all statutory IDs,
             // payment details, at least one role, and a salary set.
             $eligibilitySql = "SELECT
-                s.staff_no, s.salary, s.bank_name, s.bank_account,
+                s.staff_no, COALESCE(spp.basic_salary, 0) AS salary, spp.bank_name, spp.bank_account,
                 p.phone,
                 spp.kra_pin, spp.nssf_no, spp.nhif_no,
                 (SELECT COUNT(DISTINCT ur.role_id)
@@ -739,8 +718,8 @@ class StaffPayrollManager extends BaseAPI
 
             $stmt = $this->db->prepare("
                 INSERT INTO staff_children 
-                (staff_id, student_id, relationship, fee_deduction_enabled, fee_deduction_percentage, notes)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (staff_id, student_id, relationship, fee_deduction_enabled, fee_deduction_percentage, fee_deduction_amount, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $staffId,
@@ -748,6 +727,7 @@ class StaffPayrollManager extends BaseAPI
                 $data['relationship'],
                 $data['fee_deduction_enabled'] ?? 1,
                 $data['fee_deduction_percentage'] ?? 100.00,
+                $data['fee_deduction_amount'] ?? null,
                 $data['notes'] ?? null
             ]);
 
@@ -780,7 +760,7 @@ class StaffPayrollManager extends BaseAPI
             $updates = [];
             $params = [];
 
-            $allowedFields = ['fee_deduction_enabled', 'fee_deduction_percentage', 'notes', 'relationship'];
+            $allowedFields = ['fee_deduction_enabled', 'fee_deduction_percentage', 'fee_deduction_amount', 'notes', 'relationship'];
             foreach ($allowedFields as $field) {
                 if (isset($data[$field])) {
                     $updates[] = "$field = ?";
@@ -875,7 +855,7 @@ class StaffPayrollManager extends BaseAPI
             $maxDeductionPct = floatval($config['max_monthly_deduction_percentage']['value'] ?? 30);
 
             // Get staff salary
-            $stmt = $this->db->prepare("SELECT salary FROM staff WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT COALESCE(spp.basic_salary, 0) AS salary FROM staff s LEFT JOIN staff_payroll_profiles spp ON spp.staff_id=s.id WHERE s.id = ?");
             $stmt->execute([$staffId]);
             $staffRow = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$staffRow) {
@@ -894,6 +874,7 @@ class StaffPayrollManager extends BaseAPI
                     student_id,
                     fee_deduction_enabled,
                     fee_deduction_percentage,
+                    fee_deduction_amount,
                     student_name,
                     is_sponsored,
                     sponsor_waiver_percentage,
@@ -959,13 +940,16 @@ class StaffPayrollManager extends BaseAPI
                 $staffDiscount = $grossFees * ($discountRate / 100);
                 $deductibleAmount = $grossFees - $staffDiscount;
 
-                // Apply custom deduction percentage if set
-                if ($child['fee_deduction_percentage'] < 100) {
+                // The director may authorize either a fixed monthly amount or
+                // a percentage. A fixed amount takes precedence when present.
+                if (isset($child['fee_deduction_amount']) && (float) $child['fee_deduction_amount'] > 0) {
+                    $monthlyDeduction = min((float) $child['fee_deduction_amount'], $deductibleAmount);
+                } elseif ($child['fee_deduction_percentage'] < 100) {
                     $deductibleAmount = $deductibleAmount * ($child['fee_deduction_percentage'] / 100);
+                    $monthlyDeduction = $deductibleAmount / 3;
+                } else {
+                    $monthlyDeduction = $deductibleAmount / 3;
                 }
-
-                // Monthly amount (assuming 3 months per term)
-                $monthlyDeduction = $deductibleAmount / 3;
 
                 $childDeductions[] = [
                     'staff_child_id' => $child['staff_child_id'],
@@ -1025,12 +1009,24 @@ class StaffPayrollManager extends BaseAPI
      */
     public function generateDetailedPayslip($staffId, $payrollMonth, $payrollYear, $generatedBy = null)
     {
+        // This compatibility method is now read-only.  Finance creates the
+        // payslip; staff services may only retrieve the approved calculation.
+        $existing = $this->db->prepare('SELECT id FROM payslips WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ? LIMIT 1');
+        $existing->execute([(int) $staffId, (int) $payrollMonth, (int) $payrollYear]);
+        if (!$existing->fetchColumn()) {
+            return formatResponse(false, null, 'No payslip exists for this period. Generate it through the Finance payroll workflow.');
+        }
+        return $this->viewPayslip($staffId, ['payroll_month' => $payrollMonth, 'payroll_year' => $payrollYear]);
+
+        /* Legacy writable payslip generator retained below temporarily for
+         * source compatibility while old deployments are migrated. */
         try {
             // Get staff details
             $stmt = $this->db->prepare("
                 SELECT s.*, p.first_name, p.last_name, d.name AS department_name,
                        st.name AS staff_type_name,
-                       spp.kra_pin, spp.nssf_no, spp.nhif_no
+                       spp.kra_pin, spp.nssf_no, spp.nhif_no,
+                       COALESCE(spp.basic_salary, 0) AS salary
                 FROM staff s
                 INNER JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL

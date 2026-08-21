@@ -49,6 +49,22 @@
                 ? fees.by_level
                 : [];
 
+            const periodKey = period || 'month';
+            const collectedByPeriod = {
+                today: Number(collections.today_total || 0),
+                week: Number(collections.week_total || 0),
+                month: Number(collections.month_total || 0),
+                term: Number(fees.term_collected || 0),
+                year: Number(fees.total_collected || 0)
+            };
+            const countByPeriod = {
+                today: Number(collections.today_count || 0),
+                week: Number(collections.week_count || 0),
+                month: Number(collections.month_count || 0),
+                term: Number(fees.term_collected_count || collections.month_count || 0),
+                year: Number(fees.total_collected_count || collections.month_count || 0)
+            };
+
             return {
                 meta: {
                     scope_label: fees.current_term_name
@@ -57,13 +73,13 @@
                             : 'Finance')
                 },
                 cards: {
-                    current_term_collected: Number(fees.current_term_collected || collections.month_total || 0),
+                    current_term_collected: collectedByPeriod[periodKey] || collectedByPeriod.month,
                     total_outstanding: Number(fees.total_outstanding || 0),
                     mpesa_total: Number(payments.mpesa_total || 0),
                     bank_total: Number(payments.bank_total || 0),
                     cash_total: Number(payments.cash_total || 0),
                     unreconciled_count: Number(payments.unreconciled_count || 0),
-                    month_count: Number(collections.month_count || 0),
+                    month_count: countByPeriod[periodKey] || countByPeriod.month,
                     defaulters_count: Number(fees.defaulters_count || 0),
                     mpesa_count: Number(payments.mpesa_count || 0),
                     bank_count: Number(payments.bank_count || 0),

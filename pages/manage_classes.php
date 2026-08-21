@@ -433,12 +433,4 @@
 </div>
 
 <!-- Link to Controller -->
-<?php
-$academicsScriptPath = __DIR__ . '/../js/pages/academics.js';
-$academicsScriptVersion = is_file($academicsScriptPath)
-    ? (string) filemtime($academicsScriptPath)
-    : '1';
-?>
-<script
-    src="<?= $appBase ?>/js/pages/academics.js?v=<?= htmlspecialchars($academicsScriptVersion, ENT_QUOTES, 'UTF-8') ?>"
-></script>
+<?php asset_script($appBase, 'js/pages/academics.js'); ?>

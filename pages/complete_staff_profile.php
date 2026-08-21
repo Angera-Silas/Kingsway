@@ -85,4 +85,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/complete_staff_profile.js"></script>
+<?php asset_script($appBase, 'js/pages/complete_staff_profile.js'); ?>

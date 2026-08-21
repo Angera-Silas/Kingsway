@@ -5,6 +5,7 @@ namespace App\API\Modules\academic;
 use App\API\Includes\BaseAPI;
 use App\API\Modules\system\MediaManager;
 use App\API\Services\CalendarSyncService;
+use App\API\Services\ExtraChargeService;
 use PDO;
 use Exception;
 use Throwable;
@@ -2005,7 +2006,7 @@ class AcademicManager extends BaseAPI
 
             $feeObligations = $this->dbQuery(
                 "SELECT ay.year_code AS academic_year, t.code AS term_number, t.name AS term_name,
-                        fc.name AS fee_name,
+                        'School Fees' AS fee_name,
                         o.amount_due, o.status AS payment_status
                  FROM student_fee_obligations o
                  JOIN student_academic_enrollments sae ON sae.id = o.student_academic_enrollment_id
@@ -2013,7 +2014,6 @@ class AcademicManager extends BaseAPI
                  JOIN academic_year_terms ayt ON ayt.id = o.academic_year_term_id
                  JOIN terms t ON t.id = ayt.term_id
                  JOIN academic_year_fee_schedules fsd ON fsd.id = o.academic_year_fee_schedule_id
-                 JOIN fee_catalog fc ON fc.id = fsd.fee_catalog_id
                  WHERE sae.student_id = ?
                  ORDER BY ay.year_code ASC, t.code ASC",
                 [$studentId]
@@ -2870,6 +2870,7 @@ class AcademicManager extends BaseAPI
                 );
                 $call->execute([$enrollmentId, $userId]);
                 $call->closeCursor();
+                (new ExtraChargeService($this->db))->generateEnrollmentObligations($enrollmentId);
             } catch (Throwable $e) {
                 error_log('[YearRollover] Fee onboarding deferred for student ' . (int) $row['student_id'] . ': ' . $e->getMessage());
             }

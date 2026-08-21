@@ -368,7 +368,7 @@ $isPublic = !$isAuthenticated;
     <title>ID Card Verification - <?php echo htmlspecialchars($student['first_name'] . ' ' . $student['last_name']); ?> | Kingsway Preparatory School</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= filemtime(APP_BASE_PATH . '/css/app-common.css') ?>">
+    <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
     <style>
         :root {
             --kw-green: #0d4f2a;

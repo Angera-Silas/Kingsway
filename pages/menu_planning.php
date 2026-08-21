@@ -266,5 +266,5 @@
     }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/menu_planning.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/menu_planning.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/menu_planning.js'); ?>
 </script>

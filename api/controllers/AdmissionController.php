@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\admission\AdmissionAdminManager;
 use App\API\Modules\admission\AdmissionPolicy;
+use App\API\Modules\payments\PaymentsAPI;
 use Exception;
 
 /**
@@ -229,6 +230,53 @@ class AdmissionController extends BaseController
         return $this->handleApiResponse($this->admin->workflow()->sendPaymentInstructions($applicationId));
     }
 
+    /** POST /api/admission/prompt-payment - send the server-calculated admission amount by M-Pesa STK. */
+    public function postPromptPayment($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($data['application_id'] ?? $id ?? $segments[0] ?? 0);
+        $phone = trim((string) ($data['phone'] ?? $data['phone_number'] ?? ''));
+        if (!$applicationId || $phone === '') {
+            return $this->badRequest('application_id and parent phone are required');
+        }
+
+        $guard = $this->guardApplicationAction($applicationId, 'record_payment', 'send admission payment prompts', 'Insufficient permission to send admission payment prompts');
+        if ($guard !== null) return $guard;
+
+        // Resolve the queue on the server. Do not trust an amount supplied by
+        // the browser: only an applicant currently at fees_payment may be
+        // prompted, and the queue-calculated admission obligation is used.
+        $queueResponse = $this->admin->getQueues($this->buildAdmissionContext());
+        $queueData = is_array($queueResponse) ? ($queueResponse['data'] ?? $queueResponse) : [];
+        $rows = $queueData['queues']['payment_pending'] ?? [];
+        $application = null;
+        foreach ((array) $rows as $row) {
+            if ((int) ($row['id'] ?? 0) === $applicationId && ($row['current_stage'] ?? '') === 'fees_payment') {
+                $application = $row;
+                break;
+            }
+        }
+        if (!$application) return $this->badRequest('This applicant is not currently at the admission payment stage');
+
+        $amount = (float) ($application['registration_fee_due'] ?? 0);
+        $recorded = (float) ($application['recorded_payment_amount'] ?? 0);
+        if ($amount <= 0 || $recorded >= $amount || !empty($application['pending_payment_id'])) {
+            return $this->badRequest('This admission payment is already paid or has a prompt awaiting confirmation');
+        }
+
+        try {
+            $result = (new PaymentsAPI())->triggerStkPush([
+                'account_reference' => (string) ($application['application_no'] ?? ''),
+                'phone' => $phone,
+                'amount' => $amount,
+                'description' => 'Admission payment ' . (string) ($application['application_no'] ?? ''),
+            ]);
+            return $this->handleApiResponse($result);
+        } catch (\Throwable $e) {
+            error_log('[AdmissionController] admission payment prompt failed: ' . $e->getMessage());
+            return $this->respond(null, 'Unable to send the admission payment prompt', 500, false);
+        }
+    }
+
     public function postConfirmFeePayment($id = null, $data = [], $segments = [])
     {
         $applicationId = (int) ($data['application_id'] ?? $id ?? $segments[0] ?? 0);
@@ -283,6 +331,21 @@ class AdmissionController extends BaseController
         }
 
         return $this->handleApiResponse($this->admin->getPaymentsForApplication((int) $applicationId));
+    }
+
+    /** GET /api/admission/paid-payments?academic_year=2027 */
+    public function getPaidPayments($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admission payments');
+        }
+        $rawAcademicYear = trim((string) ($data['academic_year'] ?? $data['year'] ?? date('Y')));
+        // The UI displays labels such as 2026/2027, while admission_applications
+        // stores the ending year as YEAR(4): 2027.
+        $academicYear = preg_match('/(\d{4})\s*$/', $rawAcademicYear, $matches)
+            ? (int) $matches[1]
+            : (int) $rawAcademicYear;
+        return $this->handleApiResponse($this->admin->getPaidAdmissionPayments($academicYear));
     }
 
     public function postConfirmEnrollment($id = null, $data = [], $segments = [])

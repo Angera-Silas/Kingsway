@@ -1,6 +1,6 @@
 <?php
 /**
- * Manage Payments Page
+ * Payment Register Page
  * Logic handled in js/pages/manage_payments.js
  * Embedded in app_layout.php
  *
@@ -19,7 +19,10 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-cash-wave"></i> Payment Management</h4>
+            <div>
+                <h4 class="mb-0"><i class="bi bi-cash-wave"></i> Payment Register</h4>
+                <small class="opacity-75">Record, filter, export and audit received transactions</small>
+            </div>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="finance_create">
                     <i class="bi bi-plus-circle"></i> Record Payment
@@ -32,7 +35,9 @@
     </div>
 
     <div class="card-body">
-        <!-- Payment Overview Cards — visible to Director, Admin, Accountant -->
+        <div class="alert alert-light border small">This page records financial transactions. Learner balances and statements are available under <strong>Student Fee Accounts</strong>.</div>
+
+        <!-- Payment Register Summary -->
         <div class="row mb-4" data-role="director,school_administrator,accountant">
             <div class="col-md-3">
                 <div class="card border-success">
@@ -53,8 +58,8 @@
             <div class="col-md-3">
                 <div class="card border-danger">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Outstanding</h6>
-                        <h3 class="text-danger mb-0" id="outstandingPayments">KES 0</h3>
+                        <h6 class="text-muted mb-2">Transactions in view</h6>
+                        <h3 class="text-danger mb-0" id="paymentRecordCount">0</h3>
                     </div>
                 </div>
             </div>
@@ -193,4 +198,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_payments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_payments.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_payments.js'); ?>

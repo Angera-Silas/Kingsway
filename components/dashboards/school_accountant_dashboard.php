@@ -29,7 +29,7 @@
     <div id="accountantDashboardState" hidden></div>
 
     <div class="row g-3 mb-4">
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-green">
                 <i class="bi bi-cash-coin dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accCollected">&mdash;</div>
@@ -37,7 +37,7 @@
                 <div class="dash-stat-sub" id="accCollectedSub">&mdash;</div>
             </div>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-red">
                 <i class="bi bi-exclamation-circle dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accOutstanding">&mdash;</div>
@@ -45,7 +45,7 @@
                 <div class="dash-stat-sub" id="accOutstandingSub">&mdash;</div>
             </div>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-blue">
                 <i class="bi bi-phone dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accMpesa">&mdash;</div>
@@ -53,7 +53,7 @@
                 <div class="dash-stat-sub" id="accMpesaSub">&mdash;</div>
             </div>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-indigo">
                 <i class="bi bi-bank dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accBank">&mdash;</div>
@@ -61,7 +61,7 @@
                 <div class="dash-stat-sub" id="accBankSub">&mdash;</div>
             </div>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-teal">
                 <i class="bi bi-cash dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accCash">&mdash;</div>
@@ -69,7 +69,7 @@
                 <div class="dash-stat-sub" id="accCashSub">&mdash;</div>
             </div>
         </div>
-        <div class="col-md-2">
+        <div class="col-md-4">
             <div class="dash-stat dsc-orange">
                 <i class="bi bi-exclamation-triangle dash-stat-icon"></i>
                 <div class="dash-stat-value" id="accUnreconciled">&mdash;</div>
@@ -80,32 +80,34 @@
     </div>
 
     <div class="row g-3 mb-4">
-        <div class="col-lg-5">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
                     <h6 class="mb-0"><i class="bi bi-graph-up me-2 text-primary"></i>Collection Trend</h6>
                 </div>
-                <div class="card-body" style="position:relative;height:260px;">
+                <div class="card-body" style="position:relative;height:280px;">
                     <canvas id="accCollectionChart"></canvas>
                 </div>
             </div>
         </div>
-        <div class="col-lg-4">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
                     <h6 class="mb-0"><i class="bi bi-pie-chart me-2 text-success"></i>Payment Methods</h6>
                 </div>
-                <div class="card-body" style="position:relative;height:260px;">
+                <div class="card-body" style="position:relative;height:280px;">
                     <canvas id="accMethodChart"></canvas>
                 </div>
             </div>
         </div>
-        <div class="col-lg-3">
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
                     <h6 class="mb-0"><i class="bi bi-bar-chart me-2 text-info"></i>Collection by Level</h6>
                 </div>
-                <div class="card-body" style="position:relative;height:260px;">
+                <div class="card-body" style="position:relative;height:280px;">
                     <canvas id="accLevelChart"></canvas>
                 </div>
             </div>
@@ -113,7 +115,7 @@
     </div>
 
     <div class="row g-3 mb-4">
-        <div class="col-xl-5">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-list-check me-2 text-primary"></i>Recent Payments</h6>
@@ -139,7 +141,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-xl-4">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-phone me-2 text-warning"></i>Unreconciled M-Pesa</h6>
@@ -163,7 +165,9 @@
                 </div>
             </div>
         </div>
-        <div class="col-xl-3">
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-person-x me-2 text-danger"></i>Top Defaulters</h6>
@@ -229,13 +233,5 @@
     </div>
 </div>
 
-<?php
-if (function_exists('asset_script')) {
-    asset_script($appBase, 'js/dashboards/dashboard_base_controller.js');
-    asset_script($appBase, 'js/dashboards/school_accountant_dashboard.js');
-} else {
-    $base = htmlspecialchars($appBase ?? '', ENT_QUOTES, 'UTF-8');
-    echo '<script src="' . $base . '/js/dashboards/dashboard_base_controller.js"></script>';
-    echo '<script src="' . $base . '/js/dashboards/school_accountant_dashboard.js"></script>';
-}
-?>
+<?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/school_accountant_dashboard.js'); ?>

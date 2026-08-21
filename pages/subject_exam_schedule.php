@@ -91,4 +91,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_exam_schedule.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_exam_schedule.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/subject_exam_schedule.js'); ?>

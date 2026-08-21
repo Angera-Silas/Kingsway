@@ -11,18 +11,21 @@ use Exception;
  * Tables: news_articles, school_events, gallery_items, page_downloads,
  * job_vacancies, school_settings, school_content, admission_applications,
  * job_applications, contact_inquiries, news_categories plus the static
- * showcase tables (leadership/programs/facilities/history/values/departments/benefits).
+ * showcase tables (programs/facilities/history/values/departments/benefits)
+ * and the leadership hierarchy (leadership_levels, leadership_positions,
+ * school_leadership).
  */
 class WebsiteManager extends BaseAPI
 {
     private $allowedTables = [
-        'leadership'  => ['leadership_team',       ['name','title','bio','avatar_url','avatar_color','email','display_order','is_active']],
         'programs'    => ['school_programs',       ['name','level_range','icon','color','description','anchor','display_order','is_active']],
         'facilities'  => ['school_facilities',     ['icon','name','description','display_order','is_active']],
         'history'     => ['school_history',        ['year','event_title','description','display_order']],
         'values'      => ['school_values',         ['name','description','icon','color','display_order','is_active']],
         'categories'  => ['news_categories',       ['name','slug','color','display_order','is_active']],
         'benefits'    => ['careers_benefits',      ['icon','title','description','display_order','is_active']],
+        'testimonials'=> ['school_testimonials',   ['person_name','role_label','testimonial','video_url','stars','display_order','is_active']],
+        'testimonials'=> ['school_testimonials',   ['person_name','role_label','testimonial','stars','display_order','is_active']],
     ];
 
     /**
@@ -801,6 +804,67 @@ class WebsiteManager extends BaseAPI
     {
         try {
             $rows = $this->db->query("SELECT id, setting_key, setting_value, label FROM school_settings ORDER BY setting_key")->fetchAll(\PDO::FETCH_ASSOC);
+            // Merge school_profile columns as virtual setting rows so public
+            // pages that read keys like school_name, school_motto, etc. still work.
+            $profile = $this->db->query("SELECT * FROM school_profile LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
+            if ($profile) {
+                $profileMap = [
+                    'school_name' => $profile['school_name'] ?? '',
+                    'school_code' => $profile['school_code'] ?? '',
+                    'school_motto' => $profile['motto'] ?? '',
+                    'school_founded_year' => $profile['established_year'] ?? '',
+                    'school_phone' => $profile['phone'] ?? '',
+                    'school_phone_main' => $profile['phone'] ?? '',
+                    'school_phone_alt' => $profile['alternative_phone'] ?? '',
+                    'school_email' => $profile['email'] ?? '',
+                    'school_email_main' => $profile['email'] ?? '',
+                    'school_address' => $profile['address'] ?? '',
+                    'school_address_physical' => $profile['city'] ?? '',
+                    'school_address_postal' => $profile['postal_code'] ?? '',
+                    'school_website' => $profile['website'] ?? '',
+                    'office_hours_weekday' => $profile['office_hours_weekday'] ?? '',
+                    'office_hours_saturday' => $profile['office_hours_saturday'] ?? '',
+                    'social_facebook' => $profile['social_facebook'] ?? '',
+                    'social_twitter' => $profile['social_twitter'] ?? '',
+                    'social_instagram' => $profile['social_instagram'] ?? '',
+                    'social_youtube' => $profile['social_youtube'] ?? '',
+                    'social_whatsapp' => $profile['social_whatsapp'] ?? '',
+                    'google_maps_url' => $profile['google_maps_url'] ?? '',
+                    'currency' => $profile['currency'] ?? 'KES',
+                ];
+                $maxId = 0;
+                foreach ($rows as $r) { if ((int)$r['id'] > $maxId) $maxId = (int)$r['id']; }
+                foreach ($profileMap as $key => $val) {
+                    if ($val !== '' && $val !== null) {
+                        $maxId++;
+                        $rows[] = ['id' => $maxId, 'setting_key' => $key, 'setting_value' => (string)$val, 'label' => $key];
+                    }
+                }
+
+                // ── Computed: years of excellence (auto-increments yearly) ──
+                $years = ($profile['established_year'] ?? null)
+                    ? (int)date('Y') - (int)$profile['established_year'] : null;
+                if ($years !== null && $years >= 0) {
+                    $maxId++;
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'stat_years', 'setting_value' => (string)$years, 'label' => 'Years of Excellence'];
+                }
+
+                // ── Computed: headteacher name from staff table ──
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $headteacher = $hStmt->fetchColumn();
+                if ($headteacher) {
+                    $maxId++;
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'headteacher_name', 'setting_value' => $headteacher, 'label' => 'Headteacher'];
+                }
+
+                // ── Computed: all school leaders from staff table ──
+                $lStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) AS name, s.position FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position IN ('Director','Headteacher','Deputy Headteacher','School Administrator','Accountant') ORDER BY FIELD(s.position,'Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')");
+                $leaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
+                if ($leaders) {
+                    $maxId++;
+                    $rows[] = ['id' => $maxId, 'setting_key' => 'school_leaders_json', 'setting_value' => json_encode($leaders), 'label' => 'School Leaders'];
+                }
+            }
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
             error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
@@ -829,7 +893,6 @@ class WebsiteManager extends BaseAPI
             // Only include sections whose backing table actually exists, so a
             // missing/renamed table never turns this endpoint into a 500.
             $sections = [
-                'leadership'  => ['leadership_team', 'is_active=1'],
                 'programs'    => ['school_programs', 'is_active=1'],
                 'facilities'  => ['school_facilities', 'is_active=1'],
                 'history'     => ['school_history', ''],
@@ -842,6 +905,49 @@ class WebsiteManager extends BaseAPI
                 if ($this->tableColumns($table) !== []) {
                     $extra[$key] = $this->allOrdered($table, $where);
                 }
+            }
+            // Leadership: grouped by level from normalized hierarchy tables
+            try {
+                $ayId = (int) ($this->db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
+                $lStmt = $this->db->prepare(
+                    "SELECT sl.id, sl.position_id, sl.person_id, sl.staff_id, sl.student_id,
+                            CONCAT(p.first_name,' ',p.last_name) AS name,
+                            sl.public_photo_url AS avatar_url, sl.public_bio AS bio,
+                            sl.display_order, sl.is_active,
+                            lp.name AS position_name,
+                            ll.id AS level_id, ll.name AS level_name, ll.display_order AS level_order,
+                            s.position AS staff_position,
+                            CONCAT('person/', p.id, '/leadership') AS photo_target
+                     FROM school_leadership sl
+                     JOIN leadership_positions lp ON lp.id = sl.position_id
+                     JOIN leadership_levels ll ON ll.id = lp.level_id
+                     JOIN persons p ON p.id = sl.person_id
+                     LEFT JOIN staff s ON s.id = sl.staff_id
+                     WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+                     ORDER BY ll.display_order, sl.display_order"
+                );
+                $lStmt->execute([$ayId]);
+                $allLeaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+                // Group by level
+                $grouped = [];
+                foreach ($allLeaders as $row) {
+                    $lvl = $row['level_name'];
+                    if (!isset($grouped[$lvl])) {
+                        $grouped[$lvl] = [
+                            'level_id'   => (int) $row['level_id'],
+                            'level_name' => $lvl,
+                            'level_order'=> (int) $row['level_order'],
+                            'members'    => [],
+                        ];
+                    }
+                    $grouped[$lvl]['members'][] = $row;
+                }
+                $extra['leadership'] = array_values($grouped);
+                $extra['leadership_positions'] = $this->allOrdered('leadership_positions', 'is_active=1');
+            } catch (\Exception $e) {
+                $extra['leadership'] = [];
+                $extra['leadership_positions'] = [];
             }
             $extra['departments'] = $this->departmentSections();
             return $this->successResponse(['blocks' => $rows, 'sections' => $extra]);
@@ -859,6 +965,190 @@ class WebsiteManager extends BaseAPI
             );
             $stmt->execute([$key, $value]);
             return $this->successResponse(null, 'Content updated');
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    // ───────────────────────── LEADERSHIP HIERARCHY CRUD ─────────────────────────
+
+    public function getLeadershipHierarchy(?int $levelId = null)
+    {
+        try {
+            $ayId = (int) ($this->db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
+            $sql = "SELECT sl.id, sl.position_id, sl.person_id, sl.staff_id, sl.student_id,
+                           CONCAT(p.first_name,' ',p.last_name) AS name,
+                           sl.public_photo_url AS avatar_url, sl.public_bio AS bio,
+                           sl.display_order, sl.is_active,
+                           lp.name AS position_name,
+                           ll.id AS level_id, ll.name AS level_name, ll.display_order AS level_order,
+                           s.position AS staff_position,
+                           CONCAT('person/', p.id, '/leadership') AS photo_target
+                    FROM school_leadership sl
+                    JOIN leadership_positions lp ON lp.id = sl.position_id
+                    JOIN leadership_levels ll ON ll.id = lp.level_id
+                    JOIN persons p ON p.id = sl.person_id
+                    LEFT JOIN staff s ON s.id = sl.staff_id
+                    WHERE sl.academic_year_id = ?";
+            $params = [$ayId];
+            if ($levelId !== null) {
+                $sql .= " AND ll.id = ?";
+                $params[] = $levelId;
+            }
+            $sql .= " ORDER BY ll.display_order, sl.display_order";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $allLeaders = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $grouped = [];
+            foreach ($allLeaders as $row) {
+                $lvl = $row['level_name'];
+                if (!isset($grouped[$lvl])) {
+                    $grouped[$lvl] = [
+                        'level_id'    => (int) $row['level_id'],
+                        'level_name'  => $lvl,
+                        'level_order' => (int) $row['level_order'],
+                        'members'     => [],
+                    ];
+                }
+                $grouped[$lvl]['members'][] = $row;
+            }
+            return $this->successResponse(array_values($grouped));
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function getLeadershipLevels()
+    {
+        try {
+            $rows = $this->allOrdered('leadership_levels', 'is_active=1');
+            return $this->successResponse($rows);
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function getLeadershipPositions(?int $levelId = null)
+    {
+        try {
+            $where = 'is_active=1';
+            if ($levelId !== null) {
+                $where .= " AND level_id=" . (int) $levelId;
+            }
+            $rows = $this->allOrdered('leadership_positions', $where);
+            return $this->successResponse($rows);
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function createLeadershipEntry(array $data)
+    {
+        try {
+            if (empty($data['position_id'])) {
+                return $this->errorResponse('position_id is required.', 400);
+            }
+
+            // Resolve person_id: create persons record if none provided
+            if (empty($data['person_id'])) {
+                if (empty($data['first_name']) || empty($data['last_name'])) {
+                    return $this->errorResponse('person_id or first_name + last_name is required.', 400);
+                }
+                $pStmt = $this->db->prepare(
+                    "INSERT INTO persons (first_name, last_name) VALUES (?,?)"
+                );
+                $pStmt->execute([$data['first_name'], $data['last_name']]);
+                $data['person_id'] = (int) $this->db->lastInsertId();
+            }
+
+            // Auto-detect current academic year
+            if (empty($data['academic_year_id'])) {
+                $data['academic_year_id'] = (int) ($this->db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
+            }
+
+            // Auto-fill display_order if not set
+            if (empty($data['display_order'])) {
+                $data['display_order'] = (int) $this->scalar(
+                    "SELECT COALESCE(MAX(display_order),0) FROM school_leadership WHERE academic_year_id=?",
+                    [$data['academic_year_id']]
+                ) + 10;
+            }
+
+            // Default is_active
+            if (!isset($data['is_active'])) {
+                $data['is_active'] = 1;
+            }
+
+            $stmt = $this->db->prepare(
+                "INSERT INTO school_leadership
+                    (academic_year_id, position_id, person_id, staff_id, student_id,
+                     public_photo_url, public_bio, display_order, is_active)
+                 VALUES (?,?,?,?,?,?,?,?,?)"
+            );
+            $stmt->execute([
+                $data['academic_year_id'],
+                $data['position_id'],
+                $data['person_id'],
+                $data['staff_id'] ?? null,
+                $data['student_id'] ?? null,
+                $data['public_photo_url'] ?? null,
+                $data['public_bio'] ?? null,
+                $data['display_order'],
+                $data['is_active'],
+            ]);
+            return $this->successResponse(['id' => (int) $this->db->lastInsertId()], 'Leadership entry created.', 201);
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function updateLeadershipEntry(int $id, array $data)
+    {
+        try {
+            $existing = $this->db->prepare("SELECT id FROM school_leadership WHERE id=?");
+            $existing->execute([$id]);
+            if (!$existing->fetch()) {
+                return $this->errorResponse('Leadership entry not found.', 404);
+            }
+
+            $allowed = ['position_id','person_id','staff_id','student_id','public_photo_url','public_bio','display_order','is_active'];
+            $fields = [];
+            $params = [];
+            foreach ($allowed as $col) {
+                if (array_key_exists($col, $data)) {
+                    $fields[] = "$col=?";
+                    $params[] = $data[$col];
+                }
+            }
+            if (empty($fields)) {
+                return $this->errorResponse('No fields to update.', 400);
+            }
+            $fields[] = "updated_at=NOW()";
+            $params[] = $id;
+            $stmt = $this->db->prepare("UPDATE school_leadership SET " . implode(',', $fields) . " WHERE id=?");
+            $stmt->execute($params);
+            return $this->successResponse(['id' => $id], 'Leadership entry updated.');
+        } catch (Exception $e) {
+            error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function deleteLeadershipEntry(int $id)
+    {
+        try {
+            $stmt = $this->db->prepare("DELETE FROM school_leadership WHERE id=?");
+            $stmt->execute([$id]);
+            if ($stmt->rowCount() === 0) {
+                return $this->errorResponse('Leadership entry not found.', 404);
+            }
+            return $this->successResponse(null, 'Leadership entry deleted.');
         } catch (Exception $e) {
             error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
@@ -908,14 +1198,79 @@ class WebsiteManager extends BaseAPI
     {
         try {
             $rows = $this->db->query(
-                "SELECT id, job_title, first_name, last_name, email, phone, tsc_number, status, created_at
-                 FROM job_applications ORDER BY created_at DESC LIMIT 200"
+                "SELECT a.id, a.job_id, a.job_title, a.first_name, a.last_name, a.email, a.phone,
+                        a.tsc_number, a.status, a.created_at,
+                        i.id AS interview_id, i.scheduled_at AS interview_scheduled_at,
+                        i.mode AS interview_mode, i.location AS interview_location,
+                        i.status AS interview_status, i.score AS interview_score, i.notes AS interview_notes
+                 FROM job_applications a
+                 LEFT JOIN job_application_interviews i ON i.id = (
+                    SELECT i2.id FROM job_application_interviews i2
+                    WHERE i2.application_id = a.id ORDER BY i2.scheduled_at DESC, i2.id DESC LIMIT 1
+                 )
+                 ORDER BY a.created_at DESC LIMIT 200"
             )->fetchAll(\PDO::FETCH_ASSOC);
             return $this->successResponse(['items' => $rows, 'total' => count($rows)]);
         } catch (Exception $e) {
             error_log('[WebsiteManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    public function updateJobApplicationStatus(int $id, string $status, int $actorId, ?string $notes = null)
+    {
+        $allowed = ['received','shortlisted','interview_scheduled','interviewed','hired','rejected'];
+        if (!in_array($status, $allowed, true)) return $this->errorResponse('Invalid application status.', 422);
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare('SELECT status FROM job_applications WHERE id=? FOR UPDATE');
+            $q->execute([$id]); $old = $q->fetchColumn();
+            if ($old === false) { $this->db->rollBack(); return $this->errorResponse('Application not found.', 404); }
+            if ($old !== $status) {
+                $this->db->prepare('UPDATE job_applications SET status=?, updated_at=NOW() WHERE id=?')->execute([$status, $id]);
+                $this->db->prepare('INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?,?,?,?,?)')
+                    ->execute([$id, $old, $status, $actorId ?: null, $notes]);
+            }
+            $this->db->commit();
+            return $this->successResponse(['id'=>$id,'from_status'=>$old,'status'=>$status], 'Application status updated.');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            error_log('[WebsiteManager] '.$e->getMessage());
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    public function scheduleJobInterview(int $applicationId, array $data, int $actorId)
+    {
+        if (empty($data['scheduled_at'])) return $this->errorResponse('Interview date and time are required.', 422);
+        try {
+            $this->db->beginTransaction();
+            $q=$this->db->prepare('SELECT status FROM job_applications WHERE id=? FOR UPDATE'); $q->execute([$applicationId]); $oldStatus=$q->fetchColumn();
+            if ($oldStatus === false) { $this->db->rollBack(); return $this->errorResponse('Application not found.',404); }
+            if (!in_array($oldStatus, ['received', 'shortlisted'], true)) { $this->db->rollBack(); return $this->errorResponse('Only received or shortlisted applications can be scheduled.', 422); }
+            $this->db->prepare('INSERT INTO job_application_interviews (application_id,scheduled_at,mode,location,interviewer_user_id,created_by) VALUES (?,?,?,?,?,?)')
+                ->execute([$applicationId,$data['scheduled_at'],$data['mode']??'in_person',$data['location']??null,$data['interviewer_user_id']??null,$actorId?:null]);
+            $id=(int)$this->db->lastInsertId();
+            $this->db->prepare('UPDATE job_applications SET status=\'interview_scheduled\',updated_at=NOW() WHERE id=?')->execute([$applicationId]);
+            $this->db->prepare('INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?,?,?,?,?)')->execute([$applicationId,$oldStatus,'interview_scheduled',$actorId?:null,'Interview scheduled']);
+            $this->db->commit(); return $this->successResponse(['id'=>$id,'application_id'=>$applicationId],'Interview scheduled.',201);
+        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); error_log('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
+    }
+
+    public function completeJobInterview(int $interviewId, array $data, int $actorId)
+    {
+        try {
+            $this->db->beginTransaction();
+            $q=$this->db->prepare('SELECT i.application_id, i.status AS interview_status, a.status AS application_status FROM job_application_interviews i JOIN job_applications a ON a.id=i.application_id WHERE i.id=? FOR UPDATE'); $q->execute([$interviewId]); $interview=$q->fetch(\PDO::FETCH_ASSOC); $applicationId=$interview['application_id'] ?? null;
+            if (!$applicationId) { $this->db->rollBack(); return $this->errorResponse('Interview not found.',404); }
+            if (($interview['interview_status'] ?? '') === 'completed') { $this->db->rollBack(); return $this->errorResponse('This interview has already been completed.', 422); }
+            $this->db->prepare("UPDATE job_application_interviews SET status='completed',score=?,notes=?,completed_by=?,completed_at=NOW(),updated_at=NOW() WHERE id=?")
+                ->execute([$data['score']??null,$data['notes']??null,$actorId?:null,$interviewId]);
+            $this->db->prepare("UPDATE job_applications SET status='interviewed',updated_at=NOW() WHERE id=? AND status='interview_scheduled'")->execute([$applicationId]);
+            $this->db->prepare("INSERT INTO job_application_status_history (application_id,from_status,to_status,changed_by,notes) VALUES (?, 'interview_scheduled','interviewed',?,?)")
+                ->execute([$applicationId,$actorId?:null,$data['notes']??null]);
+            $this->db->commit(); return $this->successResponse(['id'=>$interviewId,'application_id'=>(int)$applicationId],'Interview recorded.');
+        } catch (\Throwable $e) { if($this->db->inTransaction())$this->db->rollBack(); error_log('[WebsiteManager] '.$e->getMessage()); return $this->errorResponse('An internal error occurred.',500); }
     }
 
     public function getInquiries()
@@ -1327,11 +1682,14 @@ class WebsiteManager extends BaseAPI
         try {
             $jobId = (int) ($d['apply_job_id'] ?? 0);
             $jobTitle = 'General Application';
+            if (trim((string)($d['apply_first_name'] ?? '')) === '' || trim((string)($d['apply_last_name'] ?? '')) === '' || !filter_var(trim((string)($d['apply_email'] ?? '')), FILTER_VALIDATE_EMAIL)) {
+                return $this->errorResponse('First name, last name, and a valid email are required.', 422);
+            }
             if ($jobId > 0) {
-                $title = $this->scalar("SELECT title FROM job_vacancies WHERE id = ?", [$jobId]);
-                if ($title) {
-                    $jobTitle = (string) $title;
-                }
+                $jobStmt = $this->db->prepare("SELECT title FROM job_vacancies WHERE id = ? AND status='open' AND (deadline IS NULL OR deadline >= CURDATE()) LIMIT 1");
+                $jobStmt->execute([$jobId]); $title = $jobStmt->fetchColumn();
+                if (!$title) return $this->errorResponse('This vacancy is no longer accepting applications.', 422);
+                $jobTitle = (string)$title;
             }
 
             $cvFilename = null;

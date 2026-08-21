@@ -154,6 +154,18 @@
                         </div>
                     </div>
 
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">Authorized percentage of discounted balance</label>
+                            <div class="input-group"><input type="number" min="0" max="100" step="0.01" id="feeDeductionPercentage" class="form-control" value="100"><span class="input-group-text">%</span></div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Or fixed monthly amount</label>
+                            <div class="input-group"><span class="input-group-text">KES</span><input type="number" min="0" step="0.01" id="feeDeductionAmount" class="form-control" placeholder="Leave blank to use percentage"></div>
+                        </div>
+                    </div>
+                    <div class="form-text mb-3">The fixed amount takes precedence. The system caps the final deduction using the approved payroll policy.</div>
+
                     <div class="mb-3">
                         <label class="form-label">Notes</label>
                         <textarea id="childNotes" class="form-control" rows="2"
@@ -270,4 +282,4 @@
         </div>
     </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/staff_children.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_children.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_children.js'); ?>

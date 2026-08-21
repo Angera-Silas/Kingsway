@@ -23,4 +23,4 @@
 <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
 </div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form></div></div>
 <div class="modal fade" id="staffTimelineModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Staff career timeline</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="staffTimelineBody"></div></div></div></div>
-<script src="<?= $appBase ?>/js/pages/staff_lifecycle.js"></script>
+<?php asset_script($appBase, 'js/pages/staff_lifecycle.js'); ?>

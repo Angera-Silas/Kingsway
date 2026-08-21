@@ -431,6 +431,7 @@ class FeeStructureViewerController {
       const payload = response?.data || response || {};
       const structures = payload?.fee_structures || payload?.structures || [];
       const pagination = payload?.pagination || {};
+      this.billingSummary = payload?.billing_summary || { billed_students: 0, billed_amount: 0 };
 
       this.currentStructures = Array.isArray(structures) ? structures : [];
       const aggregated = this.aggregateFeeStructures(this.currentStructures);
@@ -568,14 +569,8 @@ class FeeStructureViewerController {
    */
   updateStatistics(structures) {
     const activeCount = structures.filter((s) => s.status === "active").length;
-    const totalExpected = structures.reduce(
-      (sum, s) => sum + (s.total_expected_revenue || 0),
-      0,
-    );
-    const totalStudents = structures.reduce(
-      (sum, s) => sum + (s.student_count || 0),
-      0,
-    );
+    const totalExpected = Number(this.billingSummary?.billed_amount || 0);
+    const totalStudents = Number(this.billingSummary?.billed_students || 0);
 
     const activeEl = document.getElementById("activeStructures");
     const expectedEl = document.getElementById("totalExpectedRevenue");

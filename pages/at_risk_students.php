@@ -74,5 +74,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/at_risk_students.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/at_risk_students.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/at_risk_students.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => atRiskController.init());</script>

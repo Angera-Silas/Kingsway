@@ -152,24 +152,14 @@ class AccountsManager extends BaseAPI
         }
     }
 
-    /**
-     * List active bank accounts, falling back to bank transactions when none are defined.
-     */
+    /** List normalized bank accounts; legacy bank_accounts is not a source of truth. */
     public function listBankAccounts()
     {
-        try {
-            $stmt = $this->db->query('SELECT id, name, account_no, bank_name, is_active FROM bank_accounts WHERE is_active = 1 ORDER BY name');
-            $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
-
-            if (empty($rows)) {
-                $stmt = $this->db->query('SELECT DISTINCT bank_name AS name, account_number AS account_no FROM bank_transactions WHERE bank_name IS NOT NULL ORDER BY bank_name');
-                $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
-            }
-
-            return formatResponse(true, ['bank_accounts' => $rows]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        $result = $this->listFinancialAccounts();
+        $rows = array_values(array_filter($result['data']['accounts'] ?? [], static function (array $row): bool {
+            return ($row['account_kind'] ?? '') === 'bank';
+        }));
+        return formatResponse(true, ['bank_accounts' => $rows]);
     }
 
     /**
@@ -177,21 +167,7 @@ class AccountsManager extends BaseAPI
      */
     public function createBankAccount($data)
     {
-        try {
-            $name = $data['name'] ?? null;
-            $accountNo = $data['account_no'] ?? null;
-
-            if (!$name || !$accountNo) {
-                return formatResponse(false, null, 'Missing required fields');
-            }
-
-            $stmt = $this->db->prepare('INSERT INTO bank_accounts (name, account_no, bank_name, is_active, created_at) VALUES (?, ?, ?, 1, NOW())');
-            $stmt->execute([$name, $accountNo, $data['bank'] ?? $data['bank_name'] ?? null]);
-
-            return formatResponse(true, ['id' => $this->db->lastInsertId()], 'Bank account created');
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return formatResponse(false, null, 'Legacy bank account writes are disabled. Use normalized financial accounts.');
     }
 
     /**
@@ -201,10 +177,10 @@ class AccountsManager extends BaseAPI
     {
         try {
             if ($bankId) {
-                $stmt = $this->db->prepare('SELECT * FROM bank_transactions WHERE account_number = ? OR bank_name = ? ORDER BY transaction_date DESC LIMIT 500');
+                $stmt = $this->db->prepare('SELECT bt.*, a.account_name, a.account_identifier FROM bank_transactions bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id WHERE bt.financial_account_id = ? OR bt.account_number = ? ORDER BY bt.transaction_date DESC LIMIT 500');
                 $stmt->execute([$bankId, $bankId]);
             } else {
-                $stmt = $this->db->query('SELECT * FROM bank_transactions ORDER BY transaction_date DESC LIMIT 500');
+                $stmt = $this->db->query('SELECT bt.*, a.account_name, a.account_identifier FROM bank_transactions bt LEFT JOIN school_financial_accounts a ON a.id=bt.financial_account_id ORDER BY bt.transaction_date DESC LIMIT 500');
             }
             $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 
@@ -234,7 +210,7 @@ class AccountsManager extends BaseAPI
             }
 
             if (!empty($data['account_id'])) {
-                $stmt = $this->db->prepare('SELECT bank_name, account_no FROM bank_accounts WHERE id = ? LIMIT 1');
+                $stmt = $this->db->prepare('SELECT bank_name, account_identifier AS account_no FROM school_financial_accounts WHERE id = ? LIMIT 1');
                 $stmt->execute([(int) $data['account_id']]);
                 $account = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($account) {

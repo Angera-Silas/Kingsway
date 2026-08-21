@@ -3,7 +3,7 @@
    Renders the dynamic homepage sections from the public REST API through
    window.PublicSite (guest-scoped DataStore cache). index.php stays a thin
    HTML shell — this controller only fills the data containers:
-   #home-ticker, #home-hero-stats, #home-stats, #home-programs, #home-news,
+   #home-hero-stats, #home-stats, #home-programs, #home-news,
    #home-events, #home-gallery and the contact-strip value cells.
    ============================================================================= */
 (function () {
@@ -31,7 +31,6 @@
           PS.get('settings', {}, { tier: 'reference' }),
         ]);
         const statMap = PS.keyToMap(settings, 'setting_key', 'setting_value');
-        this.renderTicker(news);
         this.renderHeroStats(stats, statMap);
         this.renderStatsCounters(stats, statMap);
         this.renderPrograms(programs);
@@ -44,17 +43,7 @@
       }
     },
 
-    // Announcing ticker — items duplicated so the CSS marquee loops seamlessly.
-    renderTicker(data) {
-      const track = document.getElementById('home-ticker');
-      if (!track) return;
-      const list = PS.items(data).slice(0, 3);
-      if (!list.length) return;
-      const spans = list.map((n) =>
-        '<span><a href="' + base + '/news-article.php?id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
-      ).join('');
-      track.innerHTML = spans + spans;
-    },
+    // Announcing ticker is rendered site-wide by public/js/public.js.
 
     renderHeroStats(stats, m) {
       const el = document.getElementById('home-hero-stats');
@@ -85,7 +74,7 @@
         { target: (stats && stats.staff) || 0, suffix: '+' },
         { target: parseInt(m.stat_pass_rate, 10) || 98, suffix: '%' },
         { target: parseInt(m.stat_awards, 10) || 30, suffix: '+' },
-        { target: parseInt(m.stat_years, 10) || 20, suffix: '' },
+        { target: m.stat_years ? parseInt(m.stat_years, 10) : (m.school_founded_year ? new Date().getFullYear() - parseInt(m.school_founded_year, 10) : 0), suffix: '' },
         { target: 100, suffix: '%' },
       ];
       nums.forEach((node, i) => {

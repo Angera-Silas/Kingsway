@@ -119,5 +119,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/audit_logs.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/audit_logs.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/audit_logs.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => auditLogsController.init());</script>

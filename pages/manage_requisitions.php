@@ -215,4 +215,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_requisitions.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_requisitions.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_requisitions.js'); ?>

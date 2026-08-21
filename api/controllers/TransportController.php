@@ -588,6 +588,21 @@ return $this->serverError('An internal error occurred.');
         }
     }
 
+    /** POST /api/transport/enrollments */
+    public function postEnrollments($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportFinance()) return $guard;
+        try {
+            $userId = (int)($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            return $this->created($this->entitlements->enrollStudent($data, $userId), 'Student transport enrollment saved');
+        } catch (\RuntimeException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[TransportController] transport enrollment failed: ' . $e->getMessage());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
+
     /** POST /api/transport/entitlements-payment/{entitlementId} */
     public function postEntitlementsPayment($id = null, $data = [], $segments = [])
     {

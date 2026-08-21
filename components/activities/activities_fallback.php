@@ -64,4 +64,4 @@
   </div>
 </div>
 
-<script src="/js/pages/manage_activities.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_activities.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_activities.js'); ?>

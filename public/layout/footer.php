@@ -107,18 +107,18 @@
 <script>
   window.APP_BASE = <?= json_encode($appBase) ?>;
 </script>
-<script src="<?= $appBase ?>/js/api.js?v=<?= filemtime(__DIR__.'/../../js/api.js') ?>"></script>
+<?php asset_script($appBase, 'js/api.js'); ?>
 <!-- Public-facing cache layer: reuses the SAME js/core storage stack the admin
      SPA uses (IndexedDB via KingswayDB + DataStore, plus the service worker for
      offline/bfcache). Order matters: kingsway_db.js defines window.KingswayDB,
      data_store.js depends on it, then service_worker_manager.js. -->
-<script src="<?= $appBase ?>/js/storage/kingsway_db.js?v=<?= filemtime(__DIR__.'/../../js/storage/kingsway_db.js') ?>"></script>
-<script src="<?= $appBase ?>/js/core/data_store.js?v=<?= filemtime(__DIR__.'/../../js/core/data_store.js') ?>"></script>
-<script src="<?= $appBase ?>/js/core/service_worker_manager.js?v=<?= filemtime(__DIR__.'/../../js/core/service_worker_manager.js') ?>"></script>
+<?php asset_script($appBase, 'js/storage/kingsway_db.js'); ?>
+<?php asset_script($appBase, 'js/core/data_store.js'); ?>
+<?php asset_script($appBase, 'js/core/service_worker_manager.js'); ?>
 <!-- Public site REST client: reads /api/website/* through DataStore with the
      guest-scoped cache (memory + IndexedDB + stale-while-revalidate). Loaded
      after data_store.js so window.PublicSite is ready for the page controllers. -->
-<script src="<?= $appBase ?>/js/core/public_site.js?v=<?= filemtime(__DIR__.'/../../js/core/public_site.js') ?>"></script>
+<?php asset_script($appBase, 'js/core/public_site.js'); ?>
 <script>
   // Open the IndexedDB store, then register the service worker. Both are guarded
   // so a missing global degrades gracefully instead of throwing on every page.
@@ -131,12 +131,12 @@
     }
   })();
 </script>
-<script src="<?= $appBase ?>/public/js/public.js?v=<?= filemtime(__DIR__.'/../../public/js/public.js') ?>"></script>
+<?php asset_script($appBase, 'js/public.js'); ?>
 <?php if (!empty($pageScript)): ?>
 <!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
      the dynamic sections through window.PublicSite. Falls back to SSR-only output
      (already printed above) when JS is unavailable. -->
-<script src="<?= $appBase ?>/js/pages/public/<?= $pageScript ?>.js?v=<?= filemtime(__DIR__.'/../../js/pages/public/'.$pageScript.'.js') ?>"></script>
+<?php asset_script($appBase, 'js/pages/public/' . $pageScript . '.js'); ?>
 <?php endif; ?>
 </body>
 </html>

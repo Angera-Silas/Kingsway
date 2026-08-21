@@ -214,5 +214,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/formative_assessments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/formative_assessments.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/formative_assessments.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => fAssCtrl.init());</script>

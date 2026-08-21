@@ -65,12 +65,12 @@ const paymentRecordsController = {
         return `<tr>
           <td class="small">${this.fmtDateTime(p.transaction_date || p.payment_date || p.created_at)}</td>
           <td class="small">${this.esc(p.receipt_no || '\u2014')}</td>
-          <td class="small">${this.esc(p.admission_no || '\u2014')}</td>
+          <td class="small">${this.esc(p.admission_no || p.student_no || p.admission_number || '\u2014')}</td>
           <td class="small fw-semibold">${this.esc(name || '\u2014')}</td>
           <td class="small">KES ${amount.toLocaleString()}</td>
           <td class="small text-muted">${this.esc(p.payment_method || p.method || '\u2014')}</td>
           <td><span class="badge ${this.badgeClass(p.status)}">${this.esc(p.status || 'pending')}</span></td>
-          <td class="small text-muted">${this.esc(p.reference_no || p.transaction_code || '\u2014')}</td>
+          <td class="small text-muted">${this.esc(p.reference_no || p.transaction_ref || p.transaction_code || p.reference || '\u2014')}</td>
         </tr>`;
       }).join('');
     }

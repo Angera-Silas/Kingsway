@@ -137,4 +137,4 @@ $appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/academic_years.js"></script>
+<?php asset_script($appBase, 'js/pages/academic_years.js'); ?>

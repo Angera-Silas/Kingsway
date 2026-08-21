@@ -175,5 +175,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/national_exams.js"></script>
+<?php asset_script($appBase, 'js/pages/national_exams.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => natExamCtrl.init());</script>

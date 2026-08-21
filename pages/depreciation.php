@@ -99,5 +99,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/depreciation.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/depreciation.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/depreciation.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => depreciationController.init());</script>

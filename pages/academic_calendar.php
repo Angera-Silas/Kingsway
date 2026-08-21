@@ -48,5 +48,5 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/components/academic_events.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/academic_events.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/academic_calendar.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/academic_calendar.js") ?>"></script>
+<?php asset_script($appBase, 'js/components/academic_events.js'); ?>
+<?php asset_script($appBase, 'js/pages/academic_calendar.js'); ?>

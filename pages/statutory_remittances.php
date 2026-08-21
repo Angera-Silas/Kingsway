@@ -189,4 +189,4 @@
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/statutory_remittances.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/statutory_remittances.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/statutory_remittances.js'); ?>

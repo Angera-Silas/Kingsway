@@ -81,8 +81,14 @@ class PaymentsAPI extends BaseAPI
                     $disbursement['id']
                 ]);
                 if (!empty($disbursement['payslip_id'])) {
-                    $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'paid', payment_reference = ?, paid_at = NOW(), notes = CONCAT(COALESCE(notes, ''), '\nB2C success: ', ?) WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE payslips SET payslip_status = 'paid', payment_status = 'paid', payment_reference = ?, paid_at = NOW(), notes = CONCAT(COALESCE(notes, ''), '\nB2C success: ', ?) WHERE id = ?");
                     $stmt->execute([$transactionID, $resultDesc, $disbursement['payslip_id']]);
+                    $run = $this->db->prepare("UPDATE payroll_runs pr
+                        JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year
+                        SET pr.status = CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'paid' ELSE 'processing' END,
+                            pr.workflow = CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'completed' ELSE 'processing' END
+                        WHERE ps.id = ?");
+                    $run->execute([$disbursement['payslip_id']]);
                 }
                 if (!empty($disbursement['refund_request_id'])) {
                     $stmt = $this->db->prepare("UPDATE parent_refund_requests SET status = 'paid', provider_reference = ?, completed_at = NOW(), updated_at = NOW() WHERE id = ?");
@@ -121,6 +127,9 @@ class PaymentsAPI extends BaseAPI
                 $this->logPaymentWebhook('mpesa_b2c', $callbackData, 'failed', $disbursement, null);
             }
             $this->db->commit();
+            if ($resultCode == 0 && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
+                (new \App\API\Services\PayrollChildFeeTransferService($this->db))->postForPayslip((int) $disbursement['payslip_id']);
+            }
             return [
                 'ResultCode' => 0,
                 'ResultDesc' => 'B2C callback processed successfully'
@@ -859,7 +868,7 @@ class PaymentsAPI extends BaseAPI
                     'statusMessage' => 'Missing required fields'
                 ];
             }
-            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, expense_id, statutory_remittance_attempt_id, refund_request_id, recipient_id, amount, account_number, recipient_name, status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT id, disbursement_type, payment_purpose, source_financial_account_id, expense_id, statutory_remittance_attempt_id, refund_request_id, payslip_id, recipient_id, amount, account_number, recipient_name, status FROM disbursement_transactions WHERE request_id = ? OR transaction_ref = ? LIMIT 1");
             $stmt->execute([$requestId, $transactionRef]);
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
@@ -895,6 +904,12 @@ class PaymentsAPI extends BaseAPI
                     $this->db->prepare("UPDATE supplier_payment_requests SET status = 'paid', provider_reference = ? WHERE disbursement_id = ?")
                         ->execute([$transactionRef, $disbursement['id']]);
                 }
+                if (!empty($disbursement['payslip_id'])) {
+                    $this->db->prepare("UPDATE payslips SET payslip_status='paid', payment_status='paid', payment_reference=?, paid_at=NOW(), notes=CONCAT(COALESCE(notes,''), '\nBank transfer success: ', ?) WHERE id=?")
+                        ->execute([$transactionRef, $statusDesc, $disbursement['payslip_id']]);
+                    $this->db->prepare("UPDATE payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year SET pr.status=CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'paid' ELSE 'processing' END, pr.workflow=CASE WHEN NOT EXISTS (SELECT 1 FROM payslips x WHERE x.payroll_month=pr.month AND x.payroll_year=pr.year AND x.payment_status <> 'paid') THEN 'completed' ELSE 'processing' END WHERE ps.id=?")
+                        ->execute([$disbursement['payslip_id']]);
+                }
                 if (!empty($disbursement['statutory_remittance_attempt_id'])) {
                     $attemptId = (int) $disbursement['statutory_remittance_attempt_id'];
                     $this->db->prepare("UPDATE statutory_remittance_attempts SET status = 'paid', provider_reference = ?, completed_at = NOW() WHERE id = ?")
@@ -926,6 +941,10 @@ class PaymentsAPI extends BaseAPI
                     json_encode($callbackData),
                     $disbursement['id']
                 ]);
+                if (!empty($disbursement['payslip_id'])) {
+                    $this->db->prepare("UPDATE payslips SET payment_status='failed', notes=CONCAT(COALESCE(notes,''), '\nBank transfer failed: ', ?) WHERE id=?")
+                        ->execute([$statusDesc, $disbursement['payslip_id']]);
+                }
                 if (!empty($disbursement['expense_id'])) {
                     $this->db->prepare("UPDATE expenses SET status = 'approved' WHERE id = ? AND status = 'payment_pending'")
                         ->execute([$disbursement['expense_id']]);
@@ -946,6 +965,9 @@ class PaymentsAPI extends BaseAPI
                 $this->sendTransferNotification($disbursement, $transactionRef, 'failed', 0, $statusDesc);
             }
             $this->db->commit();
+            if ($transferSucceeded && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
+                (new \App\API\Services\PayrollChildFeeTransferService($this->db))->postForPayslip((int) $disbursement['payslip_id']);
+            }
             return [
                 'transactionID' => $disbursement['id'],
                 'statusCode' => '0',
@@ -1635,9 +1657,94 @@ class PaymentsAPI extends BaseAPI
         }
     }
 
-    public function getUnmatchedMpesa()
+    public function getUnmatchedMpesa($params = [])
     {
         try {
+            // The settlements screen needs the complete M-Pesa audit trail. The
+            // reconciliation screen still uses the historical unmatched-only
+            // behaviour when no scope is supplied.
+            if (($params['scope'] ?? '') === 'settlements') {
+                $providerSql = "SELECT mt.id, mt.mpesa_code, mt.amount, mt.phone_number,
+                                       mt.transaction_date, mt.created_at, mt.status,
+                                       mt.matching_status, mt.transaction_type,
+                                       mt.bill_ref_number, mt.checkout_request_id,
+                                       mt.webhook_data, mt.raw_callback, mt.student_id,
+                                       s.admission_no, p.first_name, p.middle_name, p.last_name,
+                                       pay.id AS payment_id, pay.receipt_no,
+                                       pay.reference AS ledger_reference, pay.status AS payment_status,
+                                       pay.payment_date AS ledger_payment_date
+                                FROM mpesa_transactions mt
+                                LEFT JOIN students s ON s.id = mt.student_id
+                                LEFT JOIN persons p ON p.id = s.person_id
+                                LEFT JOIN payments pay ON pay.reference = mt.mpesa_code COLLATE utf8mb4_general_ci
+                                ORDER BY mt.transaction_date DESC
+                                LIMIT 500";
+                $rows = $this->db->query($providerSql)->fetchAll(\PDO::FETCH_ASSOC);
+
+                // Some legitimate payments (including admission payments) are
+                // posted to the ledger after a provider callback, without a
+                // durable mpesa_transactions row. Include those records so the
+                // accountant's audit view does not falsely imply they never
+                // happened.
+                $ledgerSql = "SELECT pay.id, pay.reference AS mpesa_code, pay.amount,
+                                     NULL AS phone_number, pay.payment_date AS transaction_date,
+                                     pay.created_at, pay.status, 'matched' AS matching_status,
+                                     'LEDGER' AS transaction_type, NULL AS bill_ref_number,
+                                     NULL AS checkout_request_id, NULL AS webhook_data,
+                                     NULL AS raw_callback, pay.student_id,
+                                     s.admission_no, p.first_name, p.middle_name, p.last_name,
+                                     pay.id AS payment_id, pay.receipt_no,
+                                     pay.reference AS ledger_reference, pay.status AS payment_status,
+                                     pay.payment_date AS ledger_payment_date
+                              FROM payments pay
+                              LEFT JOIN students s ON s.id = pay.student_id
+                              LEFT JOIN persons p ON p.id = s.person_id
+                              LEFT JOIN mpesa_transactions mt
+                                ON mt.mpesa_code = pay.reference COLLATE utf8mb4_general_ci
+                              WHERE pay.method = 'mpesa'
+                                AND pay.status IN ('confirmed', 'pending')
+                                AND pay.reference IS NOT NULL
+                                AND mt.id IS NULL
+                              ORDER BY pay.payment_date DESC
+                              LIMIT 500";
+                $rows = array_merge($rows, $this->db->query($ledgerSql)->fetchAll(\PDO::FETCH_ASSOC));
+
+                foreach ($rows as &$row) {
+                    $providerStatus = strtolower((string) ($row['status'] ?? 'pending'));
+                    $matching = strtolower((string) ($row['matching_status'] ?? 'unmatched'));
+                    $paymentStatus = strtolower((string) ($row['payment_status'] ?? ''));
+                    $payload = trim((string) ($row['webhook_data'] ?? '') . ' ' . (string) ($row['raw_callback'] ?? ''));
+
+                    if ($row['transaction_type'] === 'LEDGER' || in_array($paymentStatus, ['confirmed', 'posted'], true)) {
+                        $row['settlement_status'] = 'posted';
+                        $row['status_reason'] = 'Payment is confirmed in the school payment ledger.';
+                    } elseif (in_array($providerStatus, ['failed'], true)) {
+                        $row['settlement_status'] = 'failed';
+                        $row['status_reason'] = 'Provider reported a failed transaction.';
+                    } elseif ($providerStatus === 'processed' || $providerStatus === 'reconciled' || $matching === 'matched') {
+                        $row['settlement_status'] = 'received_unallocated';
+                        $row['status_reason'] = 'Provider transaction received but not posted to a learner ledger.';
+                    } elseif (stripos($payload, 'responsecode') !== false && (stripos($payload, '"responsecode":"0"') !== false || stripos($payload, 'accepted') !== false)) {
+                        $row['settlement_status'] = 'pending_callback';
+                        $row['status_reason'] = 'Provider accepted the request; the customer-result callback has not completed.';
+                    } else {
+                        $row['settlement_status'] = 'pending';
+                        $row['status_reason'] = $matching === 'unmatched'
+                            ? 'Transaction is not linked to a learner or payment ledger entry.'
+                            : 'Transaction is awaiting provider confirmation.';
+                    }
+                    $row['can_reconcile'] = $row['transaction_type'] !== 'LEDGER'
+                        && $row['settlement_status'] !== 'pending_callback'
+                        && $row['settlement_status'] !== 'failed'
+                        && empty($row['payment_id']);
+                    unset($row['webhook_data'], $row['raw_callback']);
+                }
+                unset($row);
+                usort($rows, static function ($a, $b) {
+                    return strcmp((string) ($b['transaction_date'] ?? ''), (string) ($a['transaction_date'] ?? ''));
+                });
+                return $this->successResponse(['transactions' => $rows]);
+            }
             $rows = $this->db->query(
                 "SELECT mt.*
                  FROM mpesa_transactions mt
@@ -1697,6 +1804,7 @@ class PaymentsAPI extends BaseAPI
     {
         try {
             $studentId = $data['student_id'] ?? null;
+            $accountType = ($data['account_type'] ?? 'school_fees') === 'transport' ? 'transport' : 'school_fees';
             $notes = $data['notes'] ?? 'Quick reconcile from dashboard';
 
             $stmt = $this->db->prepare('SELECT * FROM mpesa_transactions WHERE id = ? LIMIT 1');
@@ -1712,7 +1820,7 @@ class PaymentsAPI extends BaseAPI
 
             $this->db->beginTransaction();
 
-            $amount = $mp['amount'] ?? $mp['amt'] ?? 0;
+            $amount = (float)($mp['amount'] ?? $mp['amt'] ?? 0);
             $mpesaCode = $mp['mpesa_code'] ?? $mp['trans_id'] ?? $mp['code'] ?? null;
             $transactionDate = $mp['transaction_date'] ?? ($mp['created_at'] ?? date('Y-m-d H:i:s'));
             $phoneNumber = $mp['phone_number'] ?? $mp['msisdn'] ?? '';
@@ -1721,7 +1829,7 @@ class PaymentsAPI extends BaseAPI
             $paymentId = null;
             $feeAllocated = false;
 
-            if ($studentId) {
+            if ($studentId && $accountType === 'school_fees') {
                 $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
                 $parentStmt->execute([$studentId]);
                 $parentId = $parentStmt->fetchColumn() ?: null;
@@ -1746,6 +1854,51 @@ class PaymentsAPI extends BaseAPI
                 $ptStmt->execute([$mpesaCode]);
                 $paymentId = $ptStmt->fetchColumn() ?: null;
                 $feeAllocated = true;
+            } elseif ($studentId && $accountType === 'transport') {
+                // Allocate FIFO across the student's outstanding transport bills
+                $billStmt = $this->db->prepare("
+                    SELECT b.id, b.amount_due,
+                           (b.amount_due - COALESCE((SELECT SUM(bp.amount) FROM transport_bill_payments bp WHERE bp.bill_id = b.id), 0)) AS balance
+                    FROM transport_monthly_bills b
+                    WHERE b.student_id = ?
+                    ORDER BY b.billing_month ASC
+                ");
+                $billStmt->execute([$studentId]);
+                $bills = $billStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+                if (empty($bills)) {
+                    $this->db->rollBack();
+                    return $this->errorResponse('No transport bills found for this student. Generate transport bills first or allocate to school fees.', 422);
+                }
+
+                $remaining = $amount;
+                $receivedBy = $userId ?? $this->user_id ?? 1;
+                foreach ($bills as $bill) {
+                    if ($remaining <= 0) { break; }
+                    $balance = (float)$bill['balance'];
+                    if ($balance <= 0) { continue; }
+                    $apply = min($balance, $remaining);
+
+                    $ins = $this->db->prepare(
+                        "INSERT INTO transport_bill_payments (bill_id, amount, payment_method, transaction_id, received_by, payment_date, notes)
+                         VALUES (?, ?, 'mpesa', ?, ?, ?, ?)"
+                    );
+                    $ins->execute([
+                        $bill['id'], $apply, $mpesaCode, $receivedBy, date('Y-m-d', strtotime($transactionDate)),
+                        $notes . ' | Payer: ' . $payerName . ' (Phone: ' . $phoneNumber . ')',
+                    ]);
+                    $paymentId = $this->db->lastInsertId();
+
+                    $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(amount),0) FROM transport_bill_payments WHERE bill_id = ?");
+                    $paidStmt->execute([$bill['id']]);
+                    $newPaid = (float)$paidStmt->fetchColumn();
+                    $newStatus = $newPaid >= (float)$bill['amount_due'] ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
+                    $upd = $this->db->prepare("UPDATE transport_monthly_bills SET payment_status = ?, updated_at = NOW() WHERE id = ?");
+                    $upd->execute([$newStatus, $bill['id']]);
+
+                    $remaining -= $apply;
+                }
+                $feeAllocated = true;
             } else {
                 $details = json_encode($mp);
                 $insStmt = $this->db->prepare(
@@ -1767,7 +1920,7 @@ class PaymentsAPI extends BaseAPI
                 'amount' => $amount,
                 'fee_allocated' => $feeAllocated,
             ], $feeAllocated
-                ? 'Payment reconciled and allocated to student fees'
+                ? 'Payment reconciled and allocated to ' . ($accountType === 'transport' ? 'transport account' : 'school fees')
                 : 'Transaction recorded (no student linked - fees not updated)');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
@@ -1806,34 +1959,79 @@ class PaymentsAPI extends BaseAPI
         }
     }
 
+    /**
+     * Parent-centric lookup by phone number OR national ID.
+     * Returns matched parents with their linked children so the caller can
+     * pick which child to credit.
+     */
     public function lookupByPhone($phone)
     {
         try {
             $normalizedPhone = $this->normalizePhoneNumber($phone);
+            $digits = preg_replace('/\D/', '', (string) $phone);
+            $phone254 = '254' . substr($normalizedPhone, -9);
 
-            $results = [];
-            $existingStudentIds = [];
-
-            // 1. Via parents -> persons.phone -> student_parents -> students -> class chain
+            // 1. Parents matched directly by phone or national ID
             $sql1 = "
+                SELECT DISTINCT
+                    p.id AS parent_id,
+                    parent_person.first_name AS parent_first_name,
+                    parent_person.last_name AS parent_last_name,
+                    parent_person.phone AS parent_phone,
+                    parent_person.national_id_no,
+                    GROUP_CONCAT(DISTINCT sp.relationship SEPARATOR ', ') AS relationship
+                FROM persons parent_person
+                JOIN parents p ON p.person_id = parent_person.id
+                LEFT JOIN student_parents sp ON p.id = sp.parent_id
+                WHERE (
+                    REPLACE(REPLACE(REPLACE(parent_person.phone, '+', ''), ' ', ''), '-', '') LIKE ?
+                    OR parent_person.phone LIKE ?
+                    " . ($digits !== '' ? "OR REPLACE(parent_person.national_id_no, ' ', '') = ?" : "AND 0") . "
+                )
+                GROUP BY p.id, parent_person.first_name, parent_person.last_name, parent_person.phone, parent_person.national_id_no
+            ";
+            $params1 = ['%' . $phone254 . '%', '%' . $phone . '%'];
+            if ($digits !== '') { $params1[] = $digits; }
+
+            $stmt1 = $this->db->prepare($sql1);
+            $stmt1->execute($params1);
+            $parentRows = $stmt1->fetchAll(\PDO::FETCH_ASSOC);
+
+            // 2. Fallback: parents of students previously paid for from this M-Pesa number
+            if (empty($parentRows)) {
+                $sql2 = "
+                    SELECT DISTINCT
+                        p.id AS parent_id,
+                        parent_person.first_name AS parent_first_name,
+                        parent_person.last_name AS parent_last_name,
+                        parent_person.phone AS parent_phone,
+                        parent_person.national_id_no,
+                        'M-Pesa payer history' AS relationship
+                    FROM mpesa_transactions m
+                    JOIN student_parents sp ON sp.student_id = m.student_id
+                    JOIN parents p ON p.id = sp.parent_id
+                    JOIN persons parent_person ON parent_person.id = p.person_id
+                    WHERE m.student_id IS NOT NULL
+                      AND REPLACE(REPLACE(REPLACE(m.phone_number, '+', ''), ' ', ''), '-', '') LIKE ?
+                ";
+                $stmt2 = $this->db->prepare($sql2);
+                $stmt2->execute(['%' . $phone254 . '%']);
+                $parentRows = $stmt2->fetchAll(\PDO::FETCH_ASSOC);
+            }
+
+            // 3. Attach linked children to each parent
+            $childStmt = $this->db->prepare("
                 SELECT DISTINCT
                     s.id AS student_id,
                     s.admission_no,
                     pp.first_name,
                     pp.last_name,
+                    s.status AS student_status,
                     e.academic_year_class_stream_id AS stream_id,
-                    ayc.class_id,
                     c.name AS class_name,
                     st.name AS stream_name,
-                    p.id AS parent_id,
-                    parent_person.first_name AS parent_first_name,
-                    parent_person.last_name AS parent_last_name,
-                    parent_person.phone AS parent_phone,
-                    sp.relationship,
-                    'parent_record' AS match_source
-                FROM persons parent_person
-                JOIN parents p ON p.person_id = parent_person.id
-                JOIN student_parents sp ON p.id = sp.parent_id
+                    sp.relationship
+                FROM student_parents sp
                 JOIN students s ON sp.student_id = s.id
                 JOIN persons pp ON pp.id = s.person_id
                 LEFT JOIN student_academic_enrollments e ON e.student_id = s.id
@@ -1841,79 +2039,45 @@ class PaymentsAPI extends BaseAPI
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN streams st ON st.id = aycs.stream_id
-                WHERE (REPLACE(REPLACE(REPLACE(parent_person.phone, '+', ''), ' ', ''), '-', '') LIKE ?
-                       OR parent_person.phone LIKE ?)
-                  AND s.status = 'active'
-            ";
-            $phone254 = '254' . substr($normalizedPhone, -9);
-            $phone07 = '0' . substr($normalizedPhone, -9);
+                WHERE sp.parent_id = ?
+                ORDER BY pp.first_name, pp.last_name
+            ");
 
-            $stmt1 = $this->db->prepare($sql1);
-            $stmt1->execute(['%' . $phone254 . '%', '%' . $phone . '%']);
-            $parentMatches = $stmt1->fetchAll(\PDO::FETCH_ASSOC);
-
-            foreach ($parentMatches as $match) {
-                $results[] = $match;
-                $existingStudentIds[] = $match['student_id'];
-            }
-
-            // 2. M-Pesa history for previously linked phones
-            $sql2 = "
-                SELECT DISTINCT
-                    s.id AS student_id,
-                    s.admission_no,
-                    pp.first_name,
-                    pp.last_name,
-                    e.academic_year_class_stream_id AS stream_id,
-                    ayc.class_id,
-                    c.name AS class_name,
-                    st.name AS stream_name,
-                    NULL AS parent_id,
-                    m.first_name AS parent_first_name,
-                    m.last_name AS parent_last_name,
-                    m.phone_number AS parent_phone,
-                    'M-Pesa payer' AS relationship,
-                    'mpesa_history' AS match_source,
-                    COUNT(*) AS payment_count,
-                    MAX(m.transaction_date) AS last_payment_date,
-                    SUM(m.amount) AS total_paid
-                FROM mpesa_transactions m
-                JOIN students s ON m.student_id = s.id
-                JOIN persons pp ON pp.id = s.person_id
-                LEFT JOIN student_academic_enrollments e ON e.student_id = s.id
-                LEFT JOIN academic_year_class_streams aycs ON aycs.id = e.academic_year_class_stream_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                LEFT JOIN classes c ON c.id = ayc.class_id
-                LEFT JOIN streams st ON st.id = aycs.stream_id
-                WHERE (REPLACE(REPLACE(REPLACE(m.phone_number, '+', ''), ' ', ''), '-', '') LIKE ?
-                       OR m.phone_number LIKE ?)
-                  AND m.student_id IS NOT NULL
-                  AND s.status = 'active'
-                GROUP BY s.id, s.admission_no, pp.first_name, pp.last_name, e.academic_year_class_stream_id,
-                         ayc.class_id, c.name, st.name,
-                         m.first_name, m.last_name, m.phone_number
-                ORDER BY payment_count DESC
-            ";
-            $stmt2 = $this->db->prepare($sql2);
-            $stmt2->execute(['%' . $phone254 . '%', '%' . $phone . '%']);
-            $mpesaMatches = $stmt2->fetchAll(\PDO::FETCH_ASSOC);
-
-            foreach ($mpesaMatches as $match) {
-                if (!in_array($match['student_id'], $existingStudentIds)) {
-                    $results[] = $match;
-                }
+            $parents = [];
+            foreach ($parentRows as $row) {
+                $childStmt->execute([$row['parent_id']]);
+                $children = $childStmt->fetchAll(\PDO::FETCH_ASSOC);
+                if (empty($children)) { continue; }
+                $row['children'] = $children;
+                $parents[] = $row;
             }
 
             return $this->successResponse([
-                'phone_searched' => $phone,
+                'searched' => $phone,
                 'normalized_phone' => $normalizedPhone,
-                'students' => $results,
-                'count' => count($results),
-            ], count($results) . ' student(s) found for phone ' . $phone);
+                'parents' => $parents,
+                'count' => count($parents),
+            ], count($parents) > 0 ? count($parents) . ' parent(s) found' : 'No parent found for this phone number or ID');
         } catch (Exception $e) {
             error_log('[PaymentsAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    /**
+     * Normalise a phone number to 254XXXXXXXXX.
+     */
+    private function normalizePhoneNumber($phone)
+    {
+        $phone = preg_replace('/[^0-9+]/', '', trim((string) $phone));
+        if (strlen($phone) === 9) {
+            $phone = '254' . $phone;
+        } elseif (strlen($phone) === 10 && $phone[0] === '0') {
+            $phone = '254' . substr($phone, 1);
+        } elseif (strlen($phone) === 13 && strpos($phone, '+254') === 0) {
+            $phone = substr($phone, 1);
+        }
+        return $phone;
     }
 
     public function linkStudent($mpesaId, $studentId, $userId = null)

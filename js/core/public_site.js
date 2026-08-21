@@ -1,23 +1,10 @@
 /**
  * PublicSite — tokenless REST client + render helpers for the public website.
  *
- * Every read goes through the shared DataStore (memory LRU → IndexedDB → network)
- * so that anonymous visitors share one guest-scoped cache and offline / bfcache
- * reads work even though the service worker never intercepts /api/ requests.
- *
- * Cache keys match inferResourceKey() in api.js ('website/<resource>'), so an
- * admin mutation via apiCall (POST/PUT/DELETE /api/website/*) auto-invalidates
- * the very entries these pages read, and DataStore.invalidate() additionally
- * clears the :{params} variants (filtered lists, per-id detail views). The
- * BroadcastChannel in data_store.js then propagates the invalidation to every
- * other open tab.
- *
- * TTL tiers:
- *   - DYNAMIC   (5 min)  — news, events, jobs, downloads, stats
- *   - REFERENCE (1 h)    — programs, leadership, facilities, history, values,
- *                          benefits, gallery, categories, content, settings, terms, grades
- * stale-while-revalidate returns instantly from cache and refreshes in the
- * background, so returning visitors always see content and it self-heals.
+ * All reads go directly to the network (no DataStore/IndexedDB cache).
+ * This ensures content is always fresh — like React's fetch()-only approach.
+ * Browsers still benefit from HTTP-level caching (304 Not Modified), which
+ * is lightweight and respects server Cache-Control headers.
  */
 (function () {
   'use strict';
@@ -82,23 +69,12 @@
   }
 
   /**
-   * Read a public resource through DataStore.
+   * Read a public resource — always fetches fresh from network.
    * @param {string} resource  e.g. 'news', 'content', 'settings'
-   * @param {object} [params]  query params → also the cache-key variants
+   * @param {object} [params]  query params
    * @param {object} [opts]    { tier: 'dynamic'|'reference', strategy, forceRefresh }
    */
   async function get(resource, params = {}, opts = {}) {
-    const cacheKey = 'website/' + resource;
-    const options = {
-      ttl: opts.tier === 'dynamic' ? TTL.DYNAMIC : TTL.REFERENCE,
-      strategy: opts.strategy || 'stale-while-revalidate',
-      forceRefresh: opts.forceRefresh === true,
-      fetcher: () => fetchJSON(resource, params),
-      params,
-    };
-    if (window.DataStore && typeof window.DataStore.get === 'function') {
-      return window.DataStore.get(cacheKey, options);
-    }
     return fetchJSON(resource, params);
   }
 

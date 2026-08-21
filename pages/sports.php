@@ -250,4 +250,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/sports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/sports.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/sports.js'); ?>

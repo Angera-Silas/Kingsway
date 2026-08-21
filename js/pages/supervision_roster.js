@@ -53,7 +53,7 @@ const SupervisionRosterController = (() => {
 
     async function loadStaff() {
         try {
-            // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+            // Reference data: network-first with a 1 h offline fallback (freshness wins).
             const resp = await DataStore.fetchPage('teachers', {
               endpoint: '/staff/teachers', storeName: 'reference_teachers',
               ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'

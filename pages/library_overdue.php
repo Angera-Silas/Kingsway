@@ -41,4 +41,4 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/library_overdue.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/library_overdue.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/library_overdue.js'); ?>

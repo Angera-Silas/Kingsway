@@ -179,7 +179,6 @@ const managePaymentsController = {
         ...(payload?.summary || {}),
       };
 
-      await this.loadOutstandingSummary();
       this.renderPaymentsTable();
       this.renderPagination();
       this.renderSummaryCards();
@@ -335,7 +334,7 @@ const managePaymentsController = {
 
     setText("totalReceived", `KES ${Number(summary.confirmed_amount || 0).toLocaleString()}`);
     setText("pendingPayments", `KES ${Number(summary.pending_amount || 0).toLocaleString()}`);
-    setText("outstandingPayments", `KES ${Number(summary.outstanding_amount || 0).toLocaleString()}`);
+    setText("paymentRecordCount", Number(this.state.pagination.total || 0).toLocaleString());
     setText("todayCollections", `KES ${Number(summary.today_amount || 0).toLocaleString()}`);
   },
 

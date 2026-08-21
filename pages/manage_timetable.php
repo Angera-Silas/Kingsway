@@ -315,4 +315,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_timetable.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_timetable.js'); ?>

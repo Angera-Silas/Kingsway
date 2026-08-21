@@ -286,4 +286,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/chapel_services.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/chapel_services.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/chapel_services.js'); ?>

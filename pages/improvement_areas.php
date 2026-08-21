@@ -79,4 +79,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/improvement_areas.js"></script>
+<?php asset_script($appBase, 'js/pages/improvement_areas.js'); ?>

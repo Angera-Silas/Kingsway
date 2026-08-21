@@ -644,6 +644,7 @@ const PrintManager = (() => {
         ? config.signatureSection
         : [],
       showPageNumbers: config.showPageNumbers !== false,
+      documentClass: config.documentClass || "",
       paperSize: config.paperSize || config.defaultPaperSize || "A4",
       orientation:
         config.orientation ||

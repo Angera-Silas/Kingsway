@@ -19,4 +19,4 @@
     <div class="d-flex justify-content-between mt-4"><button class="btn btn-outline-secondary" id="provisionPrevious" disabled>Previous</button><div><button class="btn btn-outline-primary me-2" id="provisionSave">Save progress</button><button class="btn btn-primary" id="provisionNext">Next</button></div></div>
   </div></div>
 </div>
-<script src="<?= $appBase ?>/js/pages/system/school_initialization.js"></script>
+<?php asset_script($appBase, 'js/pages/system/school_initialization.js'); ?>

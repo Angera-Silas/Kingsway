@@ -39,6 +39,8 @@ class PayrollWorkflow extends WorkflowHandler
      */
     public function initiatePayroll($filters, $userId, $data = [])
     {
+        return formatResponse(false, null, 'Legacy payroll workflow is disabled. Use FinanceAPI payroll draft and deduction processing.');
+
         try {
             $required = ['payroll_month', 'payroll_year'];
             $missing = [];

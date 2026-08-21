@@ -2,6 +2,7 @@
 // Main authenticated application shell.
 
 require_once __DIR__ . '/config/DashboardRouter.php';
+require_once __DIR__ . '/config/asset_helpers.php';
 
 $appBase = rtrim(
     str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),
@@ -15,37 +16,9 @@ if ($appBase === '.') {
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 
 // Define the filesystem root so page files under pages/ can resolve
-// absolute paths for filemtime() — used by 80+ page scripts for
-// cache-busting version parameters without a central autoloader.
+// Absolute paths used by page asset helpers for cache-busting version parameters.
 if (!defined('APP_BASE_PATH')) {
     define('APP_BASE_PATH', __DIR__);
-}
-
-function asset_version(string $relativePath): string
-{
-    $path = __DIR__ . '/' . ltrim($relativePath, '/');
-
-    return is_file($path)
-        ? (string)filemtime($path)
-        : '1';
-}
-
-function asset_script(string $appBase, string $path): void
-{
-    $src = htmlspecialchars(
-        $appBase . '/' . ltrim($path, '/'),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-
-    $version = htmlspecialchars(
-        asset_version($path),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-
-    echo '<script src="' . $src . '?v=' . $version . '"></script>' .
-        PHP_EOL;
 }
 
 if (!headers_sent()) {
@@ -81,7 +54,7 @@ if (!headers_sent()) {
     >
 
     <link
-        href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css"
+        href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>"
         rel="stylesheet"
     >
     <link
@@ -195,7 +168,7 @@ if (!headers_sent()) {
         referrerpolicy="no-referrer"
     ></script>
     <script
-        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js"
+        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
     ></script>
     <script
         src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"

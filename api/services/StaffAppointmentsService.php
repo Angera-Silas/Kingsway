@@ -691,11 +691,8 @@ final class StaffAppointmentsService
 
     private function nextStaffNumber(): string
     {
-        $latest = $this->db->query(
-            "SELECT staff_no FROM staff WHERE staff_no LIKE 'KWPS%' ORDER BY CAST(SUBSTRING(staff_no, 5) AS UNSIGNED) DESC LIMIT 1"
-        )->fetch(PDO::FETCH_ASSOC);
-        $next = $latest ? ((int)substr($latest['staff_no'], 4) + 1) : 1;
-        return 'KWPS' . str_pad((string)$next, 3, '0', STR_PAD_LEFT);
+        $service = new StaffNumberService($this->db->getConnection());
+        return $service->generate();
     }
 
     private function sendWelcomeEmail(array $appointment, string $username, string $password): bool

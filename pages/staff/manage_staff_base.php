@@ -1180,4 +1180,4 @@
 </div>
 
 <!-- Link Controller Script -->
-<script src="<?= $appBase ?>/js/pages/staff.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff.js'); ?>

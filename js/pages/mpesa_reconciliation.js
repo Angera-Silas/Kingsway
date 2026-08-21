@@ -2,6 +2,7 @@ const MpesaReconciliationController = {
     state: {
         transactions: [],
         filtered: [],
+        lookup: { parents: [], selectedParentId: null, selectedStudentId: null },
     },
 
     async init() {
@@ -100,6 +101,7 @@ const MpesaReconciliationController = {
 
         const payerName = [t.first_name, t.middle_name, t.last_name].filter(Boolean).join(' ') || 'Unknown';
         const phone = t.phone_number || '';
+        this.state.lookup = { parents: [], selectedParentId: null, selectedStudentId: null };
 
         this.showModal('Reconcile M-Pesa Transaction', `
             <div class="mb-3 p-3 bg-light rounded">
@@ -120,10 +122,10 @@ const MpesaReconciliationController = {
             </div>
 
             <div class="mb-3">
-                <label class="form-label fw-semibold">Student Lookup by Phone</label>
+                <label class="form-label fw-semibold">Find Parent <span class="text-muted fw-normal">(phone number or ID number)</span></label>
                 <div class="input-group">
-                    <input type="tel" class="form-control" id="lookupPhone" value="${this.esc(phone)}" placeholder="Enter phone number">
-                    <button class="btn btn-outline-primary" onclick="MpesaReconciliationController.lookupStudent()">
+                    <input type="text" class="form-control" id="lookupParent" value="${this.esc(phone)}" placeholder="e.g. 07XX XXX XXX or 12345678">
+                    <button class="btn btn-outline-primary" onclick="MpesaReconciliationController.lookupParent()">
                         <i class="bi bi-search"></i> Find
                     </button>
                 </div>
@@ -132,18 +134,26 @@ const MpesaReconciliationController = {
 
             <form id="reconcileForm">
                 <input type="hidden" name="mpesa_id" value="${t.id}">
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Select Student</label>
-                    <select class="form-select" id="studentSelect" name="student_id" required>
-                        <option value="">-- Select student --</option>
-                    </select>
+                <input type="hidden" name="student_id" id="selectedStudentId">
+                <div class="mb-3" id="childrenSection" style="display:none;">
+                    <label class="form-label fw-semibold">Select Child to Credit</label>
+                    <div id="childrenList"></div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Notes (optional)</label>
-                    <textarea class="form-control" name="notes" rows="2" placeholder="Reconciliation notes..."></textarea>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Allocate To</label>
+                        <select class="form-select" name="account_type" required>
+                            <option value="school_fees">School Fees</option>
+                            <option value="transport">Transport Account</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Notes (optional)</label>
+                        <textarea class="form-control" name="notes" rows="1" placeholder="Reconciliation notes..."></textarea>
+                    </div>
                 </div>
                 <button type="submit" class="btn btn-success w-100">
-                    <i class="bi bi-check-circle me-1"></i> Reconcile & Allocate to Fees
+                    <i class="bi bi-check-circle me-1"></i> Reconcile & Allocate
                 </button>
             </form>
         `, () => {
@@ -151,38 +161,103 @@ const MpesaReconciliationController = {
                 e.preventDefault();
                 await this.doReconcile(e.target);
             });
-            if (phone) setTimeout(() => this.lookupStudent(), 300);
+            const input = document.getElementById('lookupParent');
+            input?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); this.lookupParent(); }
+            });
+            if (phone) setTimeout(() => this.lookupParent(), 300);
         });
     },
 
-    async lookupStudent() {
-        const phone = document.getElementById('lookupPhone')?.value;
-        if (!phone) return;
+    async lookupParent() {
+        const query = document.getElementById('lookupParent')?.value?.trim();
+        if (!query) return;
 
         const resultsDiv = document.getElementById('lookupResults');
-        const select = document.getElementById('studentSelect');
-        if (!resultsDiv || !select) return;
+        const childrenSection = document.getElementById('childrenSection');
+        if (!resultsDiv) return;
 
         resultsDiv.innerHTML = '<div class="text-muted"><div class="spinner-border spinner-border-sm me-1"></div>Searching...</div>';
+        if (childrenSection) childrenSection.style.display = 'none';
+        this.state.lookup = { parents: [], selectedParentId: null, selectedStudentId: null };
 
         try {
-            const res = await window.API.apiCall(`/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`, 'GET');
-            const students = res?.students ?? [];
-            select.innerHTML = '<option value="">-- Select student --</option>';
+            const res = await window.API.apiCall(`/payments/lookup-by-phone?phone=${encodeURIComponent(query)}`, 'GET');
+            const parents = res?.parents ?? [];
+            this.state.lookup.parents = parents;
 
-            if (students.length === 0) {
-                resultsDiv.innerHTML = '<div class="alert alert-warning py-2 mb-0">No students found for this phone number</div>';
+            if (parents.length === 0) {
+                resultsDiv.innerHTML = '<div class="alert alert-warning py-2 mb-0"><i class="bi bi-person-x me-1"></i>No parent found for this phone number or ID</div>';
                 return;
             }
 
-            select.innerHTML += students.map(s =>
-                `<option value="${s.student_id}">${this.esc(s.first_name || '')} ${this.esc(s.last_name || '')} (${this.esc(s.admission_no || 'N/A')}) - ${this.esc(s.class_name || '')}</option>`
-            ).join('');
+            if (parents.length === 1) {
+                this.selectParent(parents[0].parent_id);
+                return;
+            }
 
-            resultsDiv.innerHTML = `<div class="alert alert-success py-1 mb-0"><small>Found ${students.length} student(s)</small></div>`;
+            resultsDiv.innerHTML =
+                '<div class="alert alert-info py-2 mb-2"><small>' + parents.length + ' parents match. Select one:</small></div>' +
+                parents.map(p => `
+                    <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center rounded mb-1" style="cursor:pointer;"
+                         onclick="MpesaReconciliationController.selectParent(${p.parent_id})">
+                        <div>
+                            <strong>${this.esc([p.parent_first_name, p.parent_last_name].filter(Boolean).join(' '))}</strong>
+                            ${p.national_id_no ? `<small class="text-muted ms-2">ID: ${this.esc(p.national_id_no)}</small>` : ''}
+                        </div>
+                        <small class="text-muted">${this.esc(p.parent_phone || '')}</small>
+                    </div>
+                `).join('');
         } catch (err) {
             resultsDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Lookup failed</div>';
         }
+    },
+
+    selectParent(parentId) {
+        const parent = (this.state.lookup.parents || []).find(p => p.parent_id === parentId);
+        if (!parent) return;
+        this.state.lookup.selectedParentId = parentId;
+        this.state.lookup.selectedStudentId = null;
+
+        const children = parent.children || [];
+        const fullName = [parent.parent_first_name, parent.parent_last_name].filter(Boolean).join(' ');
+        const resultsDiv = document.getElementById('lookupResults');
+        const childrenSection = document.getElementById('childrenSection');
+        const childrenList = document.getElementById('childrenList');
+        if (!resultsDiv || !childrenSection || !childrenList) return;
+
+        resultsDiv.innerHTML = `
+            <div class="alert alert-success py-2 mb-0 d-flex align-items-center">
+                <i class="bi bi-person-check-fill me-2"></i>
+                <div>
+                    <strong>${this.esc(fullName)}</strong>
+                    ${parent.national_id_no ? `<small class="ms-2">ID: ${this.esc(parent.national_id_no)}</small>` : ''}
+                    ${parent.parent_phone ? `<small class="ms-2">${this.esc(parent.parent_phone)}</small>` : ''}
+                    <small class="d-block text-muted">${children.length} linked child(ren)</small>
+                </div>
+            </div>`;
+
+        childrenList.innerHTML = children.map(c => {
+            const cls = [c.class_name, c.stream_name].filter(Boolean).join(' - ');
+            return `
+                <label class="list-group-item d-flex align-items-center rounded mb-1" style="cursor:pointer;">
+                    <input class="form-check-input me-2" type="radio" name="childChoice" value="${c.student_id}"
+                           onchange="MpesaReconciliationController.pickChild(${c.student_id})">
+                    <div>
+                        <strong>${this.esc([c.first_name, c.last_name].filter(Boolean).join(' '))}</strong>
+                        <small class="text-muted ms-2">${this.esc(c.admission_no || 'N/A')}${cls ? ' · ' + this.esc(cls) : ''}</small>
+                        ${c.relationship ? `<small class="d-block text-muted">${this.esc(c.relationship)}</small>` : ''}
+                    </div>
+                </label>`;
+        }).join('');
+
+        childrenSection.style.display = 'block';
+    },
+
+    pickChild(studentId) {
+        this.state.lookup.selectedStudentId = studentId;
+        const hidden = document.getElementById('selectedStudentId');
+        if (hidden) hidden.value = studentId;
     },
 
     async doReconcile(form) {
@@ -190,13 +265,13 @@ const MpesaReconciliationController = {
         new FormData(form).forEach((v, k) => { data[k] = v; });
 
         if (!data.student_id) {
-            this.showNotification('Please select a student', 'warning');
+            this.showNotification('Please select a child to credit', 'warning');
             return;
         }
 
         try {
             await window.API.apiCall('/payments/reconcile-mpesa', 'POST', data);
-            this.showNotification('Transaction reconciled and allocated to fees', 'success');
+            this.showNotification('Transaction reconciled and allocated to ' + (data.account_type === 'transport' ? 'transport account' : 'school fees'), 'success');
             bootstrap.Modal.getInstance(document.getElementById('dynamicModal'))?.hide();
             await this.loadData();
         } catch (err) {

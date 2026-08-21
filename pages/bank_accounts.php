@@ -210,6 +210,17 @@
                             </select>
                         </div>
                         <div class="col-md-6">
+                            <label class="form-label">Financial Purpose <span class="text-danger">*</span></label>
+                            <select class="form-select" id="ba_purpose" required>
+                                <option value="operations">General operations</option>
+                                <option value="fees">School fees</option>
+                                <option value="transport">Transport</option>
+                                <option value="uniforms">Uniforms and merchandise</option>
+                                <option value="payroll">Payroll</option>
+                                <option value="suppliers">Suppliers and procurement</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
                             <label class="form-label">Opening Balance (KES)</label>
                             <input type="number" class="form-control" id="ba_opening_balance" step="0.01" min="0" placeholder="0.00">
                         </div>
@@ -226,7 +237,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/bank_accounts.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/bank_accounts.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/bank_accounts.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankAccountsController !== 'undefined') {

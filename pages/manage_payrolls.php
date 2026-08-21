@@ -622,7 +622,7 @@
                     <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
-                    <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showProcessPayrollModal()">
+                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showProcessPayrollModal()">
                         <i class="bi bi-plus-lg-circle me-1"></i> Single Payroll
                     </button>
                 </div>
@@ -749,7 +749,7 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="bi bi-credit-card me-2"></i>Process Staff Payroll</h5>
+                <h5 class="modal-title"><i class="bi bi-credit-card me-2"></i><span id="processPayrollModalTitle">Prepare Staff Payroll</span></h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -802,7 +802,7 @@
                                 <div class="col-md-6">
                                     <h6 style="color: #8895a7; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Salary Info</h6>
                                     <p class="mb-1"><strong>Basic Salary:</strong> <span id="staffInfoSalary" style="color: var(--payroll-success); font-weight: 700;">KES 0.00</span></p>
-                                    <p class="mb-1"><strong>Children in School:</strong> <span id="staffInfoChildrenCount" class="status-badge processing">0</span></p>
+                                <p class="mb-1" data-review-only><strong>Children in School:</strong> <span id="staffInfoChildrenCount" class="status-badge processing">0</span></p>
                                 </div>
                             </div>
                         </div>
@@ -810,7 +810,7 @@
                 </div>
 
                 <!-- Step 2: Children & Fee Deductions -->
-                <div id="payrollStep2" class="d-none">
+                <div id="payrollStep2" class="d-none" data-review-only>
                     <hr style="border-color: var(--payroll-line); margin: 20px 0;">
                     <div class="step-header">
                         <div class="step-number">2</div>
@@ -859,21 +859,21 @@
                                     <td style="color: #6b7a8d;">Basic Salary</td>
                                     <td class="text-end" style="font-weight: 700;" id="calcBasicSalary">0.00</td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">House Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="houseAllowance" class="form-control form-control-sm text-end"
                                                value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Transport Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="transportAllowance" class="form-control form-control-sm text-end"
                                                value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Other Allowances</td>
                                     <td class="text-end">
                                         <input type="number" id="otherAllowances" class="form-control form-control-sm text-end"
@@ -897,8 +897,8 @@
                                     <td class="text-end" style="font-weight: 600;" id="calcNSSF">0.00</td>
                                 </tr>
                                 <tr>
-                                    <td style="color: #6b7a8d;">NHIF</td>
-                                    <td class="text-end" style="font-weight: 600;" id="calcNHIF">0.00</td>
+                                    <td style="color: #6b7a8d;">SHIF (employee)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcSHIF">0.00</td>
                                 </tr>
                                 <tr>
                                     <td style="color: #6b7a8d;">PAYE Tax</td>
@@ -908,11 +908,19 @@
                                     <td style="color: #6b7a8d;">Housing Levy (1.5%)</td>
                                     <td class="text-end" style="font-weight: 600;" id="calcHousingLevy">0.00</td>
                                 </tr>
-                                <tr style="background: rgba(201, 168, 76, 0.08);">
+                                <tr data-accountant-hidden>
+                                    <td style="color: #6b7a8d;">Employer NSSF (school cost)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcEmployerNSSF">0.00</td>
+                                </tr>
+                                <tr data-accountant-hidden>
+                                    <td style="color: #6b7a8d;">Employer Housing Levy (school cost)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcEmployerHousingLevy">0.00</td>
+                                </tr>
+                                <tr style="background: rgba(201, 168, 76, 0.08);" data-review-only>
                                     <td style="font-weight: 700; color: #9a7d2e;"><i class="bi bi-mortarboard me-1"></i>Children Fees</td>
                                     <td class="text-end" style="font-weight: 700; color: #9a7d2e;" id="calcChildrenFees">0.00</td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Other Deductions</td>
                                     <td class="text-end">
                                         <input type="number" id="otherDeductions" class="form-control form-control-sm text-end"
@@ -938,7 +946,7 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 600;">Cancel</button>
                 <button type="button" class="btn" id="processPayrollBtn" onclick="PayrollManagerController.submitPayroll()" disabled
                         style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700; padding: 10px 24px;">
-                    <i class="bi bi-check-lg-circle me-1"></i> Process Payroll
+                    <i class="bi bi-check-lg-circle me-1"></i><span id="processPayrollButtonLabel">Prepare Draft</span>
                 </button>
             </div>
         </div>
@@ -979,7 +987,7 @@
                     <div class="col-md-6 d-flex align-items-end">
                         <div class="alert alert-info mb-0 w-100" style="font-size: 0.85rem;">
                             <i class="bi bi-info-circle me-1"></i>
-                            Bulk payroll excludes child-fee deductions. Use Single Payroll when fee deductions need review.
+                            Bulk payroll uses each staff member's approved statutory configuration. Review staff-child fee instructions in Single Payroll before processing deductions.
                         </div>
                     </div>
                 </div>
@@ -1131,6 +1139,6 @@
     </div>
 </div>
 
-<script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/payroll_manager.js"></script>
-<script src="<?= $appBase ?>/js/pages/payroll_source_account.js"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/payroll_manager.js'); ?>
+<?php asset_script($appBase, 'js/pages/payroll_source_account.js'); ?>

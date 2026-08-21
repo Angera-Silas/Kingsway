@@ -728,7 +728,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     /**
      * Resolve school profile for card rendering.
      *
-     * Uses the SAME source as the browser preview (school_settings + school_assets),
+     * Uses the SAME source as the browser preview (school_profile + school_assets),
      * so the printed card's logo, name, address, phone, email and signature exactly
      * match what renderCardPreview displays. Maps to the keys the renderer expects.
      */
@@ -759,13 +759,15 @@ return formatResponse(false, null, 'An internal error occurred.');
     private function getSchoolConfig()
     {
         try {
-            $stmt = $this->db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature')");
-            $stmt->execute();
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $settings = [];
-            foreach ($rows as $row) {
-                $settings[$row['setting_key']] = $row['setting_value'];
-            }
+            $stmt = $this->db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $settings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            // Get headteacher from staff table
+            $headteacher = '';
+            try {
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $headteacher = $hStmt->fetchColumn() ?: '';
+            } catch (\Exception $e) { /* fallback below */ }
 
             return [
                 'school_name' => $settings['school_name'] ?? 'Kingsway Preparatory School',
@@ -774,8 +776,8 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'school_email' => $settings['school_email'] ?? '',
                 'school_website' => $settings['school_website'] ?? '',
                 'school_motto' => $settings['school_motto'] ?? 'In God We Soar',
-                'headteacher_name' => $settings['headteacher_name'] ?? '',
-                'authorized_signature' => $settings['authorized_signature'] ?? '',
+                'headteacher_name' => $headteacher,
+                'authorized_signature' => '',
                 // Logo resolution mirrors the browser preview (resolveAssetUrl
                 // fallback to the on-disk official logo).
                 'school_logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png')

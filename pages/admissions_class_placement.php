@@ -313,8 +313,4 @@ if ($appBase === '.')
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
-<script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_class_placement.js?v=<?= (int) @filemtime(__DIR__ . '/../js/pages/admissions_class_placement.js') ?>"
-    onload="console.log('admissions_class_placement.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load admissions_class_placement.js. Check path:', this.src)">
-</script>
+<?php asset_script($appBase, 'js/pages/admissions_class_placement.js'); ?>

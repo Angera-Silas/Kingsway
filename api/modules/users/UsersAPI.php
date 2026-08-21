@@ -1431,29 +1431,9 @@ class UsersAPI extends BaseAPI
                 }
             }
 
-            // Generate next KWPS staff number (KWPS001, KWPS002, etc.)
-            // Use a named MySQL GET_LOCK to serialize generation and avoid race conditions or gaps when multiple processes create staff concurrently.
-            $staffNo = $staffInfo['staff_no'] ?? null;
-            if (empty($staffNo)) {
-                $lockRes = $this->db->query("SELECT GET_LOCK('kwps_staff_no', 10) AS got_lock");
-                $gotLock = $lockRes ? (int) $lockRes->fetch(PDO::FETCH_ASSOC)['got_lock'] : 0;
-                if (!$gotLock) {
-                    throw new Exception('Could not acquire lock to generate staff_no');
-                }
-                try {
-                    $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
-                    $maxStmt->execute();
-                    $result = $maxStmt->fetch(PDO::FETCH_ASSOC);
-                    $nextNum = (int) ($result['max_num'] ?? 0) + 1;
-                    $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
-                } finally {
-                    // Always release the lock
-                    $this->db->query("SELECT RELEASE_LOCK('kwps_staff_no')");
-                }
-            } else {
-                // Normalize provided staff_no
-                $staffNo = strtoupper($staffNo);
-            }
+            // Generate staff number via the centralized StaffNumberService.
+            $staffNoService = new \App\API\Services\StaffNumberService($this->db);
+            $staffNo = $staffNoService->generate();
 
             // Update the shared person record with profile fields (phone/gender/dob/photo)
             $personSets = [];

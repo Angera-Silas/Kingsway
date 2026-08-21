@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_results_summary.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_results_summary.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/subject_results_summary.js'); ?>

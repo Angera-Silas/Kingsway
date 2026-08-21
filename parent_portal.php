@@ -18,8 +18,8 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
   <title>Kingsway Prep School — Parent Portal</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= filemtime(__DIR__ . '/css/school-theme.css') ?>">
-  <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= filemtime(__DIR__ . '/css/app-common.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+  <link rel="stylesheet" href="<?= $appBase ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
   <style>
     /* ===== Kingsway brand palette ===== */
     :root {
@@ -380,8 +380,8 @@ $ppGrades = function_exists('kw_active_grades') ? kw_active_grades() : [];
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
-<script src="<?= $appBase ?>/js/api.js?v=<?= filemtime(__DIR__ . "/js/api.js") ?>"></script>
-<script src="<?= $appBase ?>/js/core/grading_scale.js?v=<?= filemtime(__DIR__ . "/js/core/grading_scale.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/parent_portal.js?v=<?= filemtime(__DIR__ . "/js/pages/parent_portal.js") ?>"></script>
+<?php asset_script($appBase, 'js/api.js'); ?>
+<?php asset_script($appBase, 'js/core/grading_scale.js'); ?>
+<?php asset_script($appBase, 'js/pages/parent_portal.js'); ?>
 </body>
 </html>

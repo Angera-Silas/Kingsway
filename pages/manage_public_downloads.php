@@ -88,4 +88,4 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_public_downloads.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_public_downloads.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_public_downloads.js'); ?>

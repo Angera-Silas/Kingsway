@@ -100,5 +100,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/exception_reports.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/exception_reports.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/exception_reports.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());</script>

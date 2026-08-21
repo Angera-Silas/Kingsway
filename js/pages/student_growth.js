@@ -50,7 +50,7 @@ const studentGrowthCtrl = {
 
   _loadClasses: async function () {
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const r = await DataStore.fetchPage('classes', {
         endpoint: '/academic/classes-list', storeName: 'reference_classes',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'

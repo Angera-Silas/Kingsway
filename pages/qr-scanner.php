@@ -9,7 +9,7 @@ $currentPage = 'qr-scanner';
     <title>QR Scanner — Verification</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <link rel="stylesheet" href="css/app-common.css">
+    <link rel="stylesheet" href="css/app-common.css?v=<?= asset_version('css/app-common.css') ?>">
     <style>
         :root { --kps-green: #0f5b3b; --kps-gold: #d3ad24; }
         body { background: #f0f4f2; font-family: 'Inter', system-ui, sans-serif; }
@@ -311,6 +311,6 @@ $currentPage = 'qr-scanner';
 <div class="audio-indicator" id="audioIndicator"></div>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" crossorigin="anonymous"></script>
-<script src="js/pages/qr_scanner.js"></script>
+<?php asset_script($appBase, 'js/pages/qr_scanner.js'); ?>
 </body>
 </html>

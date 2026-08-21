@@ -556,4 +556,4 @@ if (!isset($appBase)) {
 })();
 </script>
 
-<script src="<?= $appBase ?>/js/pages/admissions.js"></script>
+<?php asset_script($appBase, 'js/pages/admissions.js'); ?>

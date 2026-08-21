@@ -2035,7 +2035,7 @@ return $this->badRequest('An internal error occurred.');
             if ($agency) { $sql .= " AND agency = ?"; $params[] = $agency; }
             if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
             $sql .= " ORDER BY period_year DESC, period_month DESC, agency";
-            $stmt = $this->db->prepare($sql);
+            $stmt = $this->db->getConnection()->prepare($sql);
             $stmt->execute($params);
             $remittances = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             $monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -2078,7 +2078,7 @@ return $this->badRequest('An internal error occurred.');
             $month = (int)($data['period_month'] ?? 0);
             $year = (int)($data['period_year'] ?? 0);
             if (!$agency || !$month || !$year) return $this->badRequest('agency, period_month, and period_year are required');
-            $stmt = $this->db->prepare("INSERT INTO statutory_remittances (agency, period_month, period_year, total_deducted, amount_remitted, status, due_date, remittance_date, filing_reference, notes, filed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt = $this->db->getConnection()->prepare("INSERT INTO statutory_remittances (agency, period_month, period_year, total_deducted, amount_remitted, status, due_date, remittance_date, filing_reference, notes, filed_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $agency, $month, $year,
                 $data['total_deducted'] ?? 0, $data['amount_remitted'] ?? 0,
@@ -2087,7 +2087,7 @@ return $this->badRequest('An internal error occurred.');
                 $data['filing_reference'] ?? null, $data['notes'] ?? null,
                 $this->access->staffId()
             ]);
-            return $this->success(['id' => $this->db->lastInsertId()], 'Remittance saved');
+            return $this->success(['id' => $this->db->getConnection()->lastInsertId()], 'Remittance saved');
         } catch (\Throwable $e) {
             error_log('[StaffController] createStatutoryRemittance: ' . $e->getMessage());
             return $this->badRequest('Failed to save remittance.');
@@ -2102,7 +2102,7 @@ return $this->badRequest('An internal error occurred.');
         $remId = (int)($id ?? $data['id'] ?? 0);
         if (!$remId) return $this->badRequest('Remittance ID required');
         try {
-            $stmt = $this->db->prepare("UPDATE statutory_remittances SET amount_remitted = ?, status = ?, remittance_date = ?, filing_reference = ?, notes = ?, updated_at = NOW() WHERE id = ?");
+            $stmt = $this->db->getConnection()->prepare("UPDATE statutory_remittances SET amount_remitted = ?, status = ?, remittance_date = ?, filing_reference = ?, notes = ?, updated_at = NOW() WHERE id = ?");
             $stmt->execute([
                 $data['amount_remitted'] ?? 0, $data['status'] ?? 'pending',
                 $data['remittance_date'] ?? null, $data['filing_reference'] ?? null,
@@ -2139,7 +2139,7 @@ return $this->badRequest('An internal error occurred.');
         $agency = $_GET['agency'] ?? $data['agency'] ?? null;
         if (!$agency) return $this->badRequest('Agency is required');
         try {
-            $stmt = $this->db->prepare("SELECT id, agency, account_name, account_number, bank_name, bank_code, payment_reference_rule FROM statutory_agency_accounts WHERE agency = ? AND active = 1 ORDER BY account_name, id");
+            $stmt = $this->db->getConnection()->prepare("SELECT id, agency, account_name, account_number, bank_name, bank_code, payment_reference_rule FROM statutory_agency_accounts WHERE agency = ? AND active = 1 ORDER BY account_name, id");
             $stmt->execute([$agency]);
             return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
@@ -2161,7 +2161,7 @@ return $this->badRequest('An internal error occurred.');
             $col = $colMap[$agency] ?? null;
             if (!$col) return $this->badRequest('Unknown agency');
             $sql = "SELECT p.staff_id, s.staff_no, CONCAT(ps.first_name, ' ', ps.last_name) AS staff_name, p.{$col} AS amount FROM payslips p JOIN staff s ON s.id = p.staff_id JOIN persons ps ON ps.id = s.person_id WHERE p.payroll_month = ? AND p.payroll_year = ? AND p.payslip_status IN ('approved','paid') AND p.{$col} > 0 ORDER BY ps.last_name, ps.first_name";
-            $stmt = $this->db->prepare($sql);
+            $stmt = $this->db->getConnection()->prepare($sql);
             $stmt->execute([$month, $year]);
             $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
             $total = array_sum(array_column($rows, 'amount'));

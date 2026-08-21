@@ -147,5 +147,5 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
 $staffAccessJs = __DIR__ . '/../js/pages/staff_access.js';
 $staffAppointmentsJs = __DIR__ . '/../js/pages/staff_appointments.js';
 ?>
-<script src="<?= $appBase ?>/js/pages/staff_access.js?v=<?= file_exists($staffAccessJs) ? filemtime($staffAccessJs) : time() ?>"></script>
-<script src="<?= $appBase ?>/js/pages/staff_appointments.js?v=<?= file_exists($staffAppointmentsJs) ? filemtime($staffAppointmentsJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/staff_appointments.js'); ?>

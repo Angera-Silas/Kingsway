@@ -875,13 +875,33 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             if (!empty($filters['academic_year'])) {
-                $baseSql .= " AND academic_year = ?";
-                $params[] = $filters['academic_year'];
+                // The UI may submit an academic-year id, year code (2026/2027),
+                // or a display year (2026). Resolve all forms to year_code.
+                $yearInput = trim((string) $filters['academic_year']);
+                $yearStmt = $this->db->prepare(
+                    "SELECT year_code FROM academic_years
+                     WHERE id = ? OR year_code = ? OR year_name = ?
+                     ORDER BY id DESC LIMIT 1"
+                );
+                $yearStmt->execute([$yearInput, $yearInput, $yearInput]);
+                $resolvedYear = $yearStmt->fetchColumn();
+                if ($resolvedYear === false && preg_match('/^\\d{4}$/', $yearInput)) {
+                    $baseSql .= " AND (academic_year = ? OR academic_year LIKE ?)";
+                    $params[] = $yearInput;
+                    $params[] = $yearInput . '/%';
+                } else {
+                    $baseSql .= " AND academic_year = ?";
+                    $params[] = $resolvedYear !== false ? $resolvedYear : $yearInput;
+                }
             }
 
             if (!empty($filters['term_number'])) {
+                $termInput = strtoupper(trim((string) $filters['term_number']));
+                if (preg_match('/^T([1-3])$/', $termInput, $termMatch)) {
+                    $termInput = $termMatch[1];
+                }
                 $baseSql .= " AND term_number = ?";
-                $params[] = $filters['term_number'];
+                $params[] = $termInput;
             }
 
             if (!empty($filters['status'])) {

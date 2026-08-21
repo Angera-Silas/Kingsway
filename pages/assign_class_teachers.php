@@ -177,5 +177,5 @@
     </div>
 </div>
 
-<script src="js/pages/staff_access.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_access.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/assign_class_teachers.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/assign_class_teachers.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/assign_class_teachers.js'); ?>

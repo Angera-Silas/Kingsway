@@ -201,4 +201,4 @@
         </a>
     </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/manage_inventory.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_inventory.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_inventory.js'); ?>

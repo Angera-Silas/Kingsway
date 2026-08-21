@@ -237,7 +237,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/bank_transactions.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/bank_transactions.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/bank_transactions.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankTransactionsController !== 'undefined') {

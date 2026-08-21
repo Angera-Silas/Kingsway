@@ -373,7 +373,7 @@ if (!isset($appBase)) {
     <div class="metric-card featured">
         <div class="metric-label">Expected Revenue</div>
         <div class="metric-value" id="totalExpectedRevenue">KES 0</div>
-        <div class="metric-note">Projected collection basis across the currently filtered fee book.</div>
+        <div class="metric-note">Sum of annual obligations actually billed to enrolled learners.</div>
         <div class="board-caption"><i class="bi bi-graph-up-arrow"></i> Director revenue exposure</div>
     </div>
 
@@ -399,7 +399,7 @@ if (!isset($appBase)) {
         <div class="metric-card metric-mini" style="--accent:#4b5563;">
             <div class="metric-label">Students Affected</div>
             <div class="metric-value" id="affectedStudents">0</div>
-            <div class="metric-note">Learners covered by selected structures</div>
+            <div class="metric-note">Distinct learners with billed obligations</div>
         </div>
     </div>
 </div>
@@ -419,6 +419,21 @@ if (!isset($appBase)) {
                 <th>Academic Year</th><th>Terms</th><th>Student Types</th><th>Classes</th><th>Submitted By</th><th>Status</th><th class="text-end">Actions</th>
             </tr></thead>
             <tbody id="pendingApprovalsBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading submitted structures…</td></tr></tbody>
+        </table>
+    </div>
+    <div class="card-header d-flex align-items-center justify-content-between border-top mt-2 py-3">
+        <div>
+            <h6 class="mb-1">Submitted Extra Charges</h6>
+            <small class="text-muted">One-off and recurring add-on charges awaiting the same review/approval gate.</small>
+        </div>
+        <span class="badge rounded-pill text-bg-warning" id="pendingExtraChargesBadge">0 pending</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light"><tr>
+                <th>Charge</th><th>Amount</th><th>Billing</th><th>Target</th><th>Created By</th><th>Status</th><th class="text-end">Actions</th>
+            </tr></thead>
+            <tbody id="pendingExtraChargesBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading submitted extra charges…</td></tr></tbody>
         </table>
     </div>
 </div>

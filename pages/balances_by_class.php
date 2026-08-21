@@ -210,4 +210,4 @@
   </div>
 </div>
 
-<script src="<?= (defined("APP_BASE") ? APP_BASE : "/Kingsway") ?>/js/pages/balances_by_class.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/balances_by_class.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/balances_by_class.js'); ?>

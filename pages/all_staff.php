@@ -18,7 +18,7 @@
 <!-- Container where the correct template will be injected -->
 <div id="staff-list-content" style="display: none;"></div>
 
-<script src="<?= $appBase ?>/js/pages/all_staff.js?v=<?= filemtime(APP_BASE_PATH . '/js/pages/all_staff.js') ?>"></script>
+<?php asset_script($appBase, 'js/pages/all_staff.js'); ?>
 <script>
 (function () {
     function boot() {

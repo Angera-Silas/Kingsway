@@ -710,6 +710,20 @@ final class PrintService
 
         $projectRoot = $this->resolveProjectRoot();
 
+        // Remote fonts (e.g. Google Fonts in print templates) get their metric
+        // caches written by the web-server user; keep that cache inside the
+        // app (writable) instead of the read-only vendor/fonts directory.
+        if (is_dir($projectRoot)) {
+            $fontCacheDir = $projectRoot . '/uploads/print_fonts';
+            if (!is_dir($fontCacheDir)) {
+                @mkdir($fontCacheDir, 0775, true);
+            }
+            if (is_dir($fontCacheDir) && is_writable($fontCacheDir)) {
+                $dompdfOptions->set('fontDir', $fontCacheDir);
+                $dompdfOptions->set('fontCache', $fontCacheDir);
+            }
+        }
+
         if (is_dir($projectRoot)) {
             // Reports use trusted templates and assets from both public/ and
             // uploads/. Restricting Dompdf to public/ caused the school logo
@@ -1589,7 +1603,8 @@ final class PrintService
             $body,
             $footer,
             (string) $config['paperSize'],
-            (string) $config['orientation']
+            (string) $config['orientation'],
+            (string) ($config['documentClass'] ?? '')
         );
     }
 
@@ -1687,7 +1702,8 @@ final class PrintService
         string $body,
         string $footer,
         string $paperSize,
-        string $orientation
+        string $orientation,
+        string $documentClass = ''
     ): string {
         $css = $this->loadPrintStyles();
 
@@ -1695,6 +1711,18 @@ final class PrintService
             '@page { size: %s %s; margin: 42mm 12mm 23mm; }',
             $this->safeCssToken($paperSize, 'A4'),
             $this->safeCssToken($orientation, 'portrait')
+        );
+
+        $documentClass = trim((string) preg_replace(
+            '/[^A-Za-z0-9_-]+/',
+            ' ',
+            $documentClass
+        ));
+        $bodyClass = trim(
+            'server-print-orientation-'
+            . strtolower($this->safeCssToken($orientation, 'portrait'))
+            . ' '
+            . $documentClass
         );
 
         return '<!DOCTYPE html>
@@ -1708,7 +1736,7 @@ final class PrintService
         ' . $dynamicPageCss . '
     </style>
 </head>
-<body>
+<body class="' . $this->escape($bodyClass) . '">
     <div class="server-print-document">
         ' . $header . '
 
@@ -3252,6 +3280,7 @@ final class PrintService
                 "SELECT ec.name, ec.amount
                  FROM extra_charges ec
                  WHERE ec.academic_year_id = ? AND ec.status = 'active'
+                   AND ec.visible_on_fee_structure = 1
                  ORDER BY ec.display_order, ec.name"
             );
             $stmt->execute([$yearId]);
@@ -3291,11 +3320,25 @@ final class PrintService
         $db = $this->getDb();
         try {
             $stmt = $db->query(
-                "SELECT config_key, config_value FROM system_config WHERE config_key IN ('school_name','school_address','school_phone','school_motto','school_logo')"
+                "SELECT school_name, address, phone, email, motto, logo_path, website FROM school_profile LIMIT 1"
             );
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $cfg = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $cfg[$row['config_key']] = $row['config_value'];
+            if ($row) {
+                $cfg['school_name']    = $row['school_name'] ?? '';
+                $cfg['school_address'] = $row['address'] ?? '';
+                $cfg['school_phone']   = $row['phone'] ?? '';
+                $cfg['school_email']   = $row['email'] ?? '';
+                $cfg['school_motto']   = $row['motto'] ?? '';
+                $cfg['school_logo']    = $row['logo_path'] ?? '';
+                $cfg['school_website'] = $row['website'] ?? '';
+            }
+            // Get headteacher from staff table
+            try {
+                $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $cfg['principal_name'] = $hStmt->fetchColumn() ?: '';
+            } catch (\Exception $e) {
+                $cfg['principal_name'] = '';
             }
 
             // Read payment accounts from the proper financial accounts table
@@ -3330,13 +3373,16 @@ final class PrintService
             }
 
             return [
-                'name'    => $cfg['school_name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
-                'address' => $cfg['school_address'] ?? '',
-                'phone'   => $cfg['school_phone'] ?? '',
-                'motto'   => $cfg['school_motto'] ?? 'In God We Soar',
-                'logo'    => $cfg['school_logo'] ?? '',
-                'mpesa'   => $mpesa,
-                'bank'    => $bank,
+                'name'            => $cfg['school_name'] ?? 'KINGSWAY PREPARATORY SCHOOL',
+                'address'         => $cfg['school_address'] ?? '',
+                'phone'           => $cfg['school_phone'] ?? '',
+                'motto'           => $cfg['school_motto'] ?? 'In God We Soar',
+                'logo'            => $cfg['school_logo'] ?? '',
+                'email'           => $cfg['school_email'] ?? '',
+                'website'         => $cfg['school_website'] ?? '',
+                'headteacher_name' => $cfg['principal_name'] ?? '',
+                'mpesa'           => $mpesa,
+                'bank'            => $bank,
             ];
         } catch (\Exception $e) {
             return [

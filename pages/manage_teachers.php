@@ -911,4 +911,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_teachers.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_teachers.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_teachers.js'); ?>

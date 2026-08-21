@@ -42,12 +42,24 @@ class AccountsController extends BaseController
             return $this->forbidden('Insufficient permissions');
         }
 
-        $result = $this->api->listBankAccounts();
+        // Bank accounts are financial accounts. The old bank_accounts table is
+        // no longer a source of truth; expose only normalized bank accounts.
+        $result = $this->api->listFinancialAccounts();
         if (($result['code'] ?? 200) >= 400) {
             return $this->error($result['message'] ?? 'Failed to load bank accounts');
         }
 
-        return $this->success($result['data'] ?? ['bank_accounts' => []]);
+        $accounts = $result['data']['accounts'] ?? [];
+        $banks = array_values(array_map(static function (array $account): array {
+            $account['account_number'] = $account['account_identifier'] ?? null;
+            $account['account_type'] = $account['account_kind'] ?? 'bank';
+            $account['balance'] = (float) ($account['balance'] ?? 0);
+            $account['is_active'] = ($account['status'] ?? '') === 'active' ? 1 : 0;
+            return $account;
+        }, array_filter($accounts, static function (array $account): bool {
+            return ($account['account_kind'] ?? '') === 'bank';
+        })));
+        return $this->success(['bank_accounts' => $banks]);
     }
 
     // POST /api/accounts/bank-accounts - create/update
@@ -60,16 +72,59 @@ class AccountsController extends BaseController
             return $this->forbidden('Insufficient permissions');
         }
 
-        if (empty($data['name']) || empty($data['account_no'])) {
+        if (empty($data['account_name']) || empty($data['account_number'])) {
             return $this->badRequest('Missing required fields');
         }
-
-        $result = $this->api->createBankAccount($data);
+        $purpose = $data['purpose'] ?? 'operations';
+        $ledgerByPurpose = [
+            'fees' => '110001', 'transport' => '110002', 'uniforms' => '110003',
+            'operations' => '110090', 'payroll' => '110090', 'suppliers' => '110090',
+        ];
+        $payload = [
+            'account_name' => $data['account_name'],
+            'account_kind' => 'bank',
+            'account_identifier' => $data['account_number'],
+            'bank_name' => $data['bank_name'] ?? null,
+            'currency' => 'KES',
+            'purposes' => [$purpose],
+            'channels' => ['bank_transfer'],
+            'ledger_code' => $data['ledger_code'] ?? ($ledgerByPurpose[$purpose] ?? '110090'),
+        ];
+        $result = $this->api->createFinancialAccount($payload, (int) $this->getUserId());
         if (($result['code'] ?? 200) >= 400) {
             return $this->error($result['message'] ?? 'Failed to create bank account');
         }
 
         return $this->success($result['data'] ?? ['id' => null], $result['message'] ?? 'Bank account created');
+    }
+
+    // PUT /api/accounts/bank-accounts/{id} - update normalized account
+    public function putBankAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user || !$this->canManage()) return $this->forbidden('Insufficient permissions');
+        if (!$id) return $this->badRequest('Bank account ID required');
+        $purpose = $data['purpose'] ?? 'operations';
+        $ledgerByPurpose = ['fees'=>'110001','transport'=>'110002','uniforms'=>'110003','operations'=>'110090','payroll'=>'110090','suppliers'=>'110090'];
+        $payload = [
+            'account_name' => $data['account_name'] ?? '',
+            'account_identifier' => $data['account_number'] ?? '',
+            'bank_name' => $data['bank_name'] ?? null,
+            'purposes' => [$purpose], 'channels' => ['bank_transfer'],
+            'ledger_code' => $data['ledger_code'] ?? ($ledgerByPurpose[$purpose] ?? '110090'),
+        ];
+        $result = $this->api->updateFinancialAccount((int) $id, $payload, (int) $this->getUserId());
+        if (($result['code'] ?? 200) >= 400) return $this->error($result['message'] ?? 'Failed to update bank account');
+        return $this->success($result['data'] ?? ['id' => $id], $result['message'] ?? 'Bank account updated');
+    }
+
+    // DELETE /api/accounts/bank-accounts/{id} - close, never physically delete
+    public function deleteBankAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user || !$this->canManage()) return $this->forbidden('Insufficient permissions');
+        if (!$id) return $this->badRequest('Bank account ID required');
+        $result = $this->api->verifyFinancialAccount((int) $id, (int) $this->getUserId(), 'closed');
+        if (($result['code'] ?? 200) >= 400) return $this->error($result['message'] ?? 'Failed to close bank account');
+        return $this->success($result['data'] ?? ['id' => $id], 'Bank account closed');
     }
 
     // GET /api/accounts/bank-transactions

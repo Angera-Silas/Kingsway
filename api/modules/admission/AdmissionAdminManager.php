@@ -439,16 +439,38 @@ class AdmissionAdminManager extends BaseAPI
                                 SELECT 1 FROM student_parents sp0
                                 WHERE sp0.parent_id = aa.parent_id
                                   AND (aa.enrolled_student_id IS NULL OR sp0.student_id <> aa.enrolled_student_id)
-                            ) THEN ROUND(COALESCE(
-                                (SELECT ec.amount * 0.5 FROM extra_charges ec
-                                 JOIN academic_years ay ON ay.id = ec.academic_year_id
-                                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active' LIMIT 1),
-                                1000
-                            )) ELSE COALESCE(
-                                (SELECT ec.amount FROM extra_charges ec
-                                 JOIN academic_years ay ON ay.id = ec.academic_year_id
-                                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active' LIMIT 1),
-                                2000
+                            ) THEN COALESCE(
+                                (SELECT tier.amount
+                                 FROM extra_charge_pricing_tiers tier
+                                 JOIN extra_charges ec ON ec.id=tier.extra_charge_id
+                                 JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                   AND ec.name='Registration Fee' AND ec.status='active'
+                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
+                                   AND tier.condition_code IN ('existing_parent','existing')
+                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
+                                (SELECT ec.amount FROM extra_charges ec JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
+                                 ORDER BY ec.id LIMIT 1)
+                            ) ELSE COALESCE(
+                                (SELECT tier.amount
+                                 FROM extra_charge_pricing_tiers tier
+                                 JOIN extra_charges ec ON ec.id=tier.extra_charge_id
+                                 JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                   AND ec.name='Registration Fee' AND ec.status='active'
+                                   AND ec.target_scope='new_admissions' AND ec.billing_model='paid_separately'
+                                   AND tier.condition_code IN ('new_parent','new')
+                                 ORDER BY tier.sort_order, tier.id LIMIT 1),
+                                (SELECT ec.amount FROM extra_charges ec JOIN academic_years ay ON ay.id=ec.academic_year_id
+                                 JOIN extra_charge_contexts ecc ON ecc.extra_charge_id=ec.id AND ecc.context_code='admission'
+                                 WHERE CAST(RIGHT(ay.year_code, 4) AS UNSIGNED)=aa.academic_year
+                                   AND ec.name='Registration Fee' AND ec.status='active' AND ec.target_scope='new_admissions'
+                                 ORDER BY ec.id LIMIT 1)
                             ) END AS registration_fee_due,
                             s0.admission_no AS admission_number,
                             (SELECT c0.name
@@ -479,6 +501,8 @@ class AdmissionAdminManager extends BaseAPI
                             (SELECT ap2.amount FROM admission_payments ap2
                               WHERE ap2.application_id = aa.id AND ap2.status = 'pending_verification'
                               ORDER BY ap2.id DESC LIMIT 1) AS pending_payment_amount
+                            ,(SELECT COALESCE(SUM(CASE WHEN ap3.status IN ('recorded', 'posted') THEN ap3.amount ELSE 0 END), 0)
+                              FROM admission_payments ap3 WHERE ap3.application_id = aa.id) AS recorded_payment_amount
                      FROM admission_applications aa
                      LEFT JOIN students s0 ON s0.id = aa.enrolled_student_id
                      LEFT JOIN parents p ON aa.parent_id = p.id
@@ -1722,6 +1746,48 @@ class AdmissionAdminManager extends BaseAPI
             'payments' => $this->paymentService->getPaymentsForApplication($applicationId),
             'total_recorded' => $this->paymentService->getTotalRecorded($applicationId),
         ], 'Admission payments retrieved');
+    }
+
+    /** List paid admission applications for the accountant's selected year. */
+    public function getPaidAdmissionPayments(int $academicYear): array
+    {
+        if ($academicYear < 2000 || $academicYear > 2100) {
+            return $this->errorResponse('A valid academic year is required', 400);
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT aa.id AS application_id, aa.academic_year, aa.application_no,
+                        COALESCE(s.admission_no, '—') AS admission_no,
+                        aa.applicant_name,
+                        COALESCE(MAX(JSON_UNQUOTE(JSON_EXTRACT(aa.workflow_data_json, '$.admission_window_label'))), aw.label, '—') AS application_window,
+                        COALESCE((SELECT c0.name
+                                  FROM student_academic_enrollments sae0
+                                  JOIN academic_year_class_streams aycs0 ON aycs0.id = sae0.academic_year_class_stream_id
+                                  JOIN academic_year_classes ayc0 ON ayc0.id = aycs0.academic_year_class_id
+                                  JOIN classes c0 ON c0.id = ayc0.class_id
+                                  WHERE sae0.student_id = aa.enrolled_student_id
+                                    AND sae0.enrollment_status = 'active'
+                                  ORDER BY sae0.id DESC LIMIT 1), '—') AS class_assigned,
+                        ROUND(SUM(CASE WHEN ap.status IN ('recorded', 'posted') THEN ap.amount ELSE 0 END), 2) AS amount_paid,
+                        MAX(CASE WHEN ap.status IN ('recorded', 'posted') THEN COALESCE(ap.payment_date, ap.created_at) END) AS paid_at,
+                        GROUP_CONCAT(DISTINCT ap.reference_no ORDER BY ap.id DESC SEPARATOR ', ') AS payment_references
+                 FROM admission_payments ap
+                 JOIN admission_applications aa ON aa.id = ap.application_id
+                 LEFT JOIN students s ON s.id = aa.enrolled_student_id
+                 LEFT JOIN admission_windows aw ON aw.academic_year_term_id = aa.target_term_id
+                 WHERE aa.academic_year = :academic_year
+                   AND ap.status IN ('recorded', 'posted')
+                 GROUP BY aa.id, aa.academic_year, aa.application_no, s.admission_no,
+                          aa.applicant_name, aw.label
+                 ORDER BY paid_at DESC, aa.id DESC"
+            );
+            $stmt->execute(['academic_year' => $academicYear]);
+            return $this->successResponse(['payments' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []], 'Paid admission payments retrieved');
+        } catch (Exception $e) {
+            error_log('[AdmissionAdminManager] paid admission payments: ' . $e->getMessage());
+            return $this->errorResponse('Unable to load paid admission payments');
+        }
     }
 
     // ========================================================================

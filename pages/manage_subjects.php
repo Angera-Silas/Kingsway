@@ -358,4 +358,4 @@
 </div>
 
 <!-- Link to Controller -->
-<script src="<?= $appBase ?>/js/pages/manage_subjects.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_subjects.js'); ?>

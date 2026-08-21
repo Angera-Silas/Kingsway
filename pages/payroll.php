@@ -8,26 +8,26 @@
 
 <div class="card shadow">
     <div class="card-header bg-warning text-white">
-        <h2 class="mb-0">💰 Manage Payroll</h2>
+        <h2 class="mb-0">💰 Payroll Ledger</h2>
     </div>
     <div class="card-body">
         <!-- Tabs for different payroll actions -->
         <ul class="nav nav-tabs mb-4" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="processTab" data-bs-toggle="tab" data-bs-target="#processPanel" type="button" role="tab">
-                    Process Payroll
+                <button class="nav-link" id="processTab" data-bs-toggle="tab" data-bs-target="#processPanel" type="button" role="tab" disabled>
+                    Payroll Processing
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="reportTab" data-bs-toggle="tab" data-bs-target="#reportPanel" type="button" role="tab">
-                    Payroll Report
+                <button class="nav-link active" id="reportTab" data-bs-toggle="tab" data-bs-target="#reportPanel" type="button" role="tab">
+                    Database Payroll Records
                 </button>
             </li>
         </ul>
 
         <!-- Process Payroll Tab -->
         <div class="tab-content">
-            <div class="tab-pane fade show active" id="processPanel" role="tabpanel">
+            <div class="tab-pane fade" id="processPanel" role="tabpanel">
                 <form id="payrollForm">
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -71,7 +71,10 @@
             </div>
 
             <!-- Payroll Report Tab -->
-            <div class="tab-pane fade" id="reportPanel" role="tabpanel">
+            <div class="tab-pane fade show active" id="reportPanel" role="tabpanel">
+                <div class="alert alert-info mb-3">
+                    This ledger displays only payroll records returned from the database. Payroll preparation, approval, and disbursement are handled in the Finance payroll workflow.
+                </div>
                 <button class="btn btn-secondary mb-3" onclick="payrollController.loadReport()">Load Report</button>
                 <div id="reportContainer">
                     <p class="text-muted">Click Load Report to view payroll history</p>
@@ -80,5 +83,5 @@
         </div>
     </div>
 </div>
-<script src="js/pages/staff_access.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_access.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/payroll.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/payroll.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/payroll.js'); ?>

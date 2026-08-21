@@ -149,4 +149,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/parent_meetings.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/parent_meetings.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/parent_meetings.js'); ?>

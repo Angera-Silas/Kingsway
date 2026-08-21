@@ -12,7 +12,7 @@
 </div>
 <div id="library-content" style="display:none;"></div>
 
-<script src="<?= $appBase ?>/js/pages/manage_library.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_library.js'); ?>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({

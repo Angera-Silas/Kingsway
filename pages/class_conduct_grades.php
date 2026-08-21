@@ -92,4 +92,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/class_conduct_grades.js"></script>
+<?php asset_script($appBase, 'js/pages/class_conduct_grades.js'); ?>

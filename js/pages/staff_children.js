@@ -296,6 +296,8 @@ const StaffChildrenController = {
       child.relationship || "father";
     document.getElementById("deductionStatus").value =
       child.fee_deduction_status || "active";
+    document.getElementById("feeDeductionPercentage").value = child.fee_deduction_percentage ?? 100;
+    document.getElementById("feeDeductionAmount").value = child.fee_deduction_amount ?? "";
     document.getElementById("childNotes").value = child.notes || "";
 
     this.updateFeePreview();
@@ -362,6 +364,8 @@ const StaffChildrenController = {
   saveStaffChild: async function () {
     const id = document.getElementById("staffChildId").value;
     const status = document.getElementById("deductionStatus").value;
+    const deductionAmount = document.getElementById("feeDeductionAmount").value;
+    const deductionPercentage = document.getElementById("feeDeductionPercentage").value;
     const feeEnabled = status === "active" ? 1 : 0;
     const feePercentage = status === "exempt" ? 0 : 100;
 
@@ -370,7 +374,8 @@ const StaffChildrenController = {
       student_id: document.getElementById("studentSelect").value,
       relationship: document.getElementById("relationshipSelect").value,
       fee_deduction_enabled: feeEnabled,
-      fee_deduction_percentage: feePercentage,
+      fee_deduction_percentage: deductionPercentage === "" ? 100 : Number(deductionPercentage),
+      fee_deduction_amount: deductionAmount === "" ? null : Number(deductionAmount),
       notes: document.getElementById("childNotes").value,
     };
 

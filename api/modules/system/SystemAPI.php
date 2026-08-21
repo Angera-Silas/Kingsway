@@ -127,82 +127,63 @@ class SystemAPI extends BaseAPI
     }
 
 
-    // Read school configuration (direct DB access)
+    // Read school configuration from school_profile
     public function getSchoolConfig($id = null)
     {
-        if ($id) {
-            $stmt = $this->db->prepare('SELECT * FROM school_configuration WHERE id = ?');
-            $stmt->execute([$id]);
-            $config = $stmt->fetch();
-            if ($config) {
-                return ['success' => true, 'data' => $config];
-            } else {
-                return ['success' => false, 'message' => 'Config not found'];
-            }
-        } else {
-            $stmt = $this->db->query('SELECT * FROM school_configuration');
-            $configs = $stmt->fetchAll();
-            return ['success' => true, 'data' => $configs];
+        $stmt = $this->db->query('SELECT * FROM school_profile LIMIT 1');
+        $config = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($config) {
+            return ['success' => true, 'data' => $config];
         }
+        return ['success' => true, 'data' => []];
     }
 
 
-    // Set school configuration (direct DB access)
+    // Set school configuration in school_profile
     public function setSchoolConfig($data)
     {
         $allowedFields = [
             'school_name', 'school_code', 'logo_url', 'favicon_url', 'motto', 'vision',
-            'mission', 'core_values', 'about_us', 'email', 'phone', 'alternative_phone',
-            'address', 'city', 'state', 'country', 'postal_code', 'website',
-            'facebook_url', 'twitter_url', 'instagram_url', 'linkedin_url', 'youtube_url',
-            'established_year', 'principal_name', 'principal_message', 'academic_calendar_url',
-            'prospectus_url', 'student_handbook_url', 'timezone', 'currency', 'language',
-            'date_format', 'time_format', 'is_active', 'created_by', 'updated_by'
+            'mission', 'about_us', 'email', 'phone', 'alternative_phone',
+            'address', 'city', 'country', 'postal_code', 'website',
+            'social_facebook', 'social_twitter', 'social_instagram',
+            'social_youtube', 'social_whatsapp', 'google_maps_url',
+            'established_year', 'office_hours_weekday',
+            'office_hours_saturday', 'timezone', 'currency'
         ];
         $allowedMap = array_flip($allowedFields);
         $filteredData = array_intersect_key($data, $allowedMap);
 
-        if (isset($data['id'])) {
-            // Update existing config
+        if (empty($filteredData)) {
+            return ['success' => false, 'message' => 'No valid fields to update'];
+        }
+
+        // Upsert: update if row exists, insert if not
+        $existing = $this->db->query('SELECT id FROM school_profile LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
+        if ($existing) {
             $fields = [];
             $params = [];
             foreach ($filteredData as $key => $value) {
                 $fields[] = "`$key` = ?";
                 $params[] = $value;
             }
-            if (empty($fields)) {
-                $result = ['success' => false, 'message' => 'No valid fields to update'];
-            } else {
-                $params[] = $data['id'];
-                $sql = 'UPDATE school_configuration SET ' . implode(', ', $fields) . ' WHERE id = ?';
-                $stmt = $this->db->prepare($sql);
-                $success = $stmt->execute($params);
-                if ($success) {
-                    $result = ['success' => true, 'message' => 'Config updated'];
-                } else {
-                    $result = ['success' => false, 'message' => 'Update failed'];
-                }
-            }
+            $params[] = $existing['id'];
+            $sql = 'UPDATE school_profile SET ' . implode(', ', $fields) . ' WHERE id = ?';
+            $stmt = $this->db->prepare($sql);
+            $success = $stmt->execute($params);
         } else {
-            // Create new config
-            if (empty($filteredData)) {
-                return ['success' => false, 'message' => 'No valid fields to create'];
-            }
-
             $fields = array_keys($filteredData);
             $quotedFields = array_map(fn($field) => "`$field`", $fields);
             $placeholders = array_fill(0, count($fields), '?');
             $params = array_values($filteredData);
-            $sql = 'INSERT INTO school_configuration (' . implode(', ', $quotedFields) . ') VALUES (' . implode(', ', $placeholders) . ')';
+            $sql = 'INSERT INTO school_profile (' . implode(', ', $quotedFields) . ') VALUES (' . implode(', ', $placeholders) . ')';
             $stmt = $this->db->prepare($sql);
             $success = $stmt->execute($params);
-            if ($success) {
-                $result = ['success' => true, 'message' => 'Config created', 'id' => $this->db->lastInsertId()];
-            } else {
-                $result = ['success' => false, 'message' => 'Create failed'];
-            }
         }
-        return $result;
+
+        return $success
+            ? ['success' => true, 'message' => 'Config saved']
+            : ['success' => false, 'message' => 'Save failed'];
     }
 
     // Active system alerts (unresolved)

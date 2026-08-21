@@ -1191,14 +1191,13 @@ class ParentPortalManager extends BaseAPI
                     sfo.amount_due, sfo.status AS obligation_status, sfo.due_date,
                     sfo.is_sponsored, sfo.sponsored_waiver_amount,
                     ay.year_code AS academic_year, t.id AS term_id, t.name AS term_name,
-                    t.code AS term_number, fc.name AS fee_type_name, fc.code AS fee_type_code
+                    t.code AS term_number, 'School Fees' AS fee_type_name, 'SCHOOL_FEES' AS fee_type_code
              FROM student_fee_obligations sfo
              JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
              JOIN academic_years ay ON ay.id = sfo.academic_year_id
              JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
              JOIN terms t ON t.id = ayt.term_id
              JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
-             JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
              WHERE sae.student_id = :sid
              ORDER BY ay.year_code DESC, t.id ASC"
         );
@@ -1488,23 +1487,17 @@ class ParentPortalManager extends BaseAPI
         ];
 
         try {
-            $stmt = $this->db->prepare(
-                "SELECT setting_key, setting_value
-                 FROM school_settings
-                 WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_motto')"
+            $stmt = $this->db->query(
+                "SELECT school_name, address, phone, email, motto
+                 FROM school_profile LIMIT 1"
             );
-            $stmt->execute();
-            $map = [
-                'school_name'    => 'name',
-                'school_address' => 'address',
-                'school_phone'   => 'phone',
-                'school_email'   => 'email',
-                'school_motto'   => 'motto',
-            ];
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                if (isset($map[$row['setting_key']])) {
-                    $pivoted[$map[$row['setting_key']]] = $row['setting_value'];
-                }
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $pivoted['name']    = $row['school_name'] ?? '';
+                $pivoted['address'] = $row['address'] ?? '';
+                $pivoted['phone']   = $row['phone'] ?? '';
+                $pivoted['email']   = $row['email'] ?? '';
+                $pivoted['motto']   = $row['motto'] ?? '';
             }
         } catch (Exception $e) {
             error_log('[ParentPortalManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

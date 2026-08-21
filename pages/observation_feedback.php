@@ -58,4 +58,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/observation_feedback.js"></script>
+<?php asset_script($appBase, 'js/pages/observation_feedback.js'); ?>

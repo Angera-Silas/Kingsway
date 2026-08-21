@@ -95,5 +95,5 @@
     </div>
 </div>
 
-<script src="js/pages/discipline.js"></script>
+<?php asset_script($appBase, 'js/pages/discipline.js'); ?>
 

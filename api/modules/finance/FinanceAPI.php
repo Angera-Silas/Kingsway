@@ -914,17 +914,88 @@ class FinanceAPI extends BaseAPI
 
     public function createPayrollDraft($data)
     {
-        return $this->payrollApprovalWorkflow->initiateDraft($data);
+        try {
+            $month = (int) ($data['month'] ?? $data['payroll_month'] ?? 0);
+            $year = (int) ($data['year'] ?? $data['payroll_year'] ?? 0);
+            $createdBy = (int) ($data['created_by'] ?? $this->getCurrentUserId());
+
+            if ($month < 1 || $month > 12 || $year < 2000) {
+                return formatResponse(false, null, 'A valid payroll month and year are required');
+            }
+
+            $existingStmt = $this->db->prepare('SELECT id, status FROM payroll_runs WHERE month = ? AND year = ? LIMIT 1');
+            $existingStmt->execute([$month, $year]);
+            $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+            if ($existing) {
+                return formatResponse(false, null, 'A payroll run already exists for this period');
+            }
+
+            $this->db->prepare("INSERT INTO payroll_runs (month, year, status, workflow, created_by) VALUES (?, ?, 'draft', 'draft', ?)")
+                ->execute([$month, $year, $createdBy ?: null]);
+            $runId = (int) $this->db->lastInsertId();
+
+            $staffIds = $data['staff_ids'] ?? null;
+            if ($staffIds !== null && (!is_array($staffIds) || empty($staffIds))) {
+                return formatResponse(false, null, 'staff_ids must be a non-empty list when supplied');
+            }
+
+            if (is_array($staffIds)) {
+                $staffIds = array_values(array_unique(array_map('intval', $staffIds)));
+            } else {
+                $staffIds = $this->db->query("SELECT id FROM staff WHERE status = 'active' ORDER BY id")
+                    ->fetchAll(PDO::FETCH_COLUMN);
+            }
+
+            $processed = [];
+            $failed = [];
+            foreach ($staffIds as $staffId) {
+                $result = $this->processPayrollWithDeductions([
+                    'staff_id' => (int) $staffId,
+                    'payroll_month' => $month,
+                    'payroll_year' => $year,
+                    'allowances' => 0,
+                    'other_deductions' => 0,
+                    'children_deductions' => [],
+                    'processed_by' => $createdBy,
+                ]);
+
+                if (($result['status'] ?? '') === 'success') {
+                    $processed[] = $result['data'];
+                } else {
+                    $failed[] = [
+                        'staff_id' => (int) $staffId,
+                        'message' => $result['message'] ?? 'Staff payroll calculation failed',
+                    ];
+                }
+            }
+
+            if (empty($processed)) {
+                $this->db->prepare("UPDATE payroll_runs SET status = 'cancelled', workflow = 'cancelled' WHERE id = ?")
+                    ->execute([$runId]);
+                return formatResponse(false, ['payroll_id' => $runId, 'failed' => $failed], 'No eligible staff payrolls were calculated');
+            }
+
+            return formatResponse(true, [
+                'payroll_id' => $runId,
+                'month' => $month,
+                'year' => $year,
+                'processed' => $processed,
+                'failed' => $failed,
+                'processed_count' => count($processed),
+                'failed_count' => count($failed),
+            ], empty($failed) ? 'Payroll draft created' : 'Payroll draft created with ineligible staff excluded');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     public function calculatePayroll($data)
     {
-        // Calculate payroll (usually part of draft creation, but can be separate)
         $payrollId = $data['payroll_id'] ?? null;
         if (!$payrollId) {
             return formatResponse(false, null, 'Payroll ID required');
         }
-        // Minimal inline recalculation to satisfy tests
+
         $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ?");
         $stmt->execute([$payrollId]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -932,23 +1003,31 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll not found', 404);
         }
 
-        // Simulate recalculation: ensure totals are consistent
-        $gross = (float) ($payroll['basic_salary'] ?? 0) + (float) ($payroll['allowances_total'] ?? 0);
-        $ded = (float) ($payroll['nssf_contribution'] ?? 0)
-            + (float) ($payroll['nhif_contribution'] ?? 0)
-            + (float) ($payroll['paye_tax'] ?? 0)
-            + (float) ($payroll['loan_deduction'] ?? 0)
-            + (float) ($payroll['child_fees_deduction'] ?? 0)
-            + (float) ($payroll['sacco_deduction'] ?? 0)
-            + (float) ($payroll['housing_levy'] ?? 0)
-            + (float) ($payroll['salary_advance_deduction'] ?? 0)
-            + (float) ($payroll['other_deductions_total'] ?? 0);
-        $net = $gross - $ded;
+        if (($payroll['payslip_status'] ?? 'draft') !== 'draft') {
+            return formatResponse(false, null, 'Only draft payslips can be recalculated');
+        }
 
-        $upd = $this->db->prepare("UPDATE payslips SET gross_salary = ?, net_salary = ?, payslip_status = 'draft' WHERE id = ?");
-        $upd->execute([$gross, $ded, $net, $payrollId]);
+        // Reuse the same canonical calculator used when a payroll draft is built.
+        $result = $this->processPayrollWithDeductions([
+            'staff_id' => (int) $payroll['staff_id'],
+            'payroll_month' => (int) $payroll['payroll_month'],
+            'payroll_year' => (int) $payroll['payroll_year'],
+            'allowances' => 0,
+            'other_deductions' => 0,
+            'children_deductions' => [],
+            'processed_by' => $this->getCurrentUserId(),
+        ]);
 
-        return formatResponse(true, ['payroll_id' => $payrollId, 'gross_salary' => $gross, 'net_salary' => $net], 'Payroll calculated');
+        if (($result['status'] ?? '') !== 'success') {
+            return $result;
+        }
+
+        $data = $result['data'] ?? [];
+        return formatResponse(true, [
+            'payroll_id' => $data['payroll_id'] ?? $payrollId,
+            'gross_salary' => $data['gross_salary'] ?? 0,
+            'net_salary' => $data['net_salary'] ?? 0,
+        ], 'Payroll calculated');
     }
 
     public function recalculatePayroll($data)
@@ -1203,26 +1282,6 @@ class FinanceAPI extends BaseAPI
     public function createAnnualFeeStructure($data)
     {
         return $this->feeManager->createAnnualFeeStructure($data);
-    }
-
-    public function listFeeTypes()
-    {
-        return $this->feeManager->listFeeTypes();
-    }
-
-    public function createFeeType($data)
-    {
-        return $this->feeManager->createFeeType($data);
-    }
-
-    public function updateFeeType($id, $data)
-    {
-        return $this->feeManager->updateFeeType($id, $data);
-    }
-
-    public function toggleFeeTypeStatus($id)
-    {
-        return $this->feeManager->toggleFeeTypeStatus($id);
     }
 
     public function deactivateFeeStructure($data)
@@ -2035,7 +2094,7 @@ class FinanceAPI extends BaseAPI
     /**
      * Prepare a bulk payroll preview using configured salary, allowances and deductions.
      */
-    public function getBulkPayrollPreview($month, $year)
+    public function getBulkPayrollPreview($month, $year, bool $preparationOnly = false)
     {
         try {
             $periodStart = sprintf('%04d-%02d-01', (int) $year, (int) $month);
@@ -2046,15 +2105,22 @@ class FinanceAPI extends BaseAPI
 
             foreach ($staffList as $staff) {
                 $eligible = !empty($staff['payroll_eligible']);
+                $existingStmt = $this->db->prepare(
+                    'SELECT id, payslip_status FROM payslips
+                     WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                     LIMIT 1'
+                );
+                $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year]);
+                $existing = $existingStmt->fetch(PDO::FETCH_ASSOC) ?: null;
                 $basicSalary = (float) ($staff['basic_salary'] ?? 0);
-                $allowances = $eligible ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
-                $otherDeductions = $eligible ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $allowances = $eligible && !$preparationOnly ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $otherDeductions = $eligible && !$preparationOnly ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
                 $grossSalary = $basicSalary + $allowances;
-                $nssf = $eligible ? $this->calculateNSSF($grossSalary) : 0;
-                $nhif = $eligible ? $this->calculateNHIF($grossSalary) : 0;
-                $paye = $eligible ? $this->calculatePAYE($grossSalary - $nssf) : 0;
-                $housingLevy = $eligible ? $grossSalary * 0.015 : 0;
-                $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $otherDeductions;
+                $nssf = $eligible ? $this->calculateNSSF($grossSalary, $year) : 0;
+                $shif = $eligible ? $this->calculateSHIF($grossSalary, $year) : 0;
+                $housingLevy = $eligible ? round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYEE_RATE', $year, 1.5) / 100), 2) : 0;
+                $paye = $eligible ? $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $year) : 0;
+                $totalDeductions = $nssf + $shif + $paye + $housingLevy + $otherDeductions;
 
                 $rows[] = [
                     'staff_id' => $staff['id'],
@@ -2063,12 +2129,16 @@ class FinanceAPI extends BaseAPI
                     'position' => $staff['position'] ?? 'Staff',
                     'basic_salary' => $basicSalary,
                     'allowances' => $allowances,
-                    'statutory_deductions' => $nssf + $nhif + $paye,
+                    'statutory_deductions' => $nssf + $shif + $paye,
+                    'shif_deduction' => $shif,
                     'housing_levy' => $housingLevy,
                     'other_deductions' => $otherDeductions,
                     'net_salary' => $grossSalary - $totalDeductions,
                     'payroll_eligible' => $eligible,
                     'missing_fields' => $staff['payroll_missing_fields'] ?? [],
+                    'already_prepared' => $existing !== null,
+                    'existing_payslip_id' => $existing ? (int) $existing['id'] : null,
+                    'existing_payslip_status' => $existing['payslip_status'] ?? null,
                 ];
             }
 
@@ -2128,6 +2198,7 @@ class FinanceAPI extends BaseAPI
                                 sc.relationship,
                                 sc.fee_deduction_enabled,
                                 sc.fee_deduction_percentage,
+                                sc.fee_deduction_amount,
                                 st.admission_no,
                                 CONCAT(p.first_name, ' ', p.last_name) AS student_name,
                                 c.name AS class_name,
@@ -2138,7 +2209,7 @@ class FinanceAPI extends BaseAPI
                                 vfb.balance AS fee_balance,
                                 vfb.payment_status AS invoice_status,
                                 vfb.term_id,
-                                vfb.academic_year_id
+                                (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1) AS academic_year_id
                             FROM staff_children sc
                             JOIN students st ON sc.student_id = st.id
                             LEFT JOIN persons p ON p.id = st.person_id
@@ -2151,12 +2222,17 @@ class FinanceAPI extends BaseAPI
                             LEFT JOIN streams sn ON sn.id = aycs.stream_id
                             LEFT JOIN vw_student_fee_balances vfb
                                 ON vfb.student_id = st.id
-                                AND vfb.academic_year_id = ?
+                                AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE id = ? LIMIT 1)
                                 AND vfb.academic_year_term_id = ?
                             WHERE sc.staff_id = ? AND st.status = 'active'
                             ORDER BY p.first_name";
             $childrenStmt = $this->db->prepare($childrenSql);
-            $childrenStmt->execute([$academicYearId ?: 0, $termId ?: 0, $staffId]);
+            $childrenStmt->execute([
+                $academicYearId ?: 0,
+                $academicYearId ?: 0,
+                $termId ?: 0,
+                $staffId,
+            ]);
             $children = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
 
             if ($academicYearId && $termId) {
@@ -2231,9 +2307,11 @@ class FinanceAPI extends BaseAPI
             $staffId = $data['staff_id'] ?? null;
             $payrollMonth = $data['payroll_month'] ?? date('n');
             $payrollYear = $data['payroll_year'] ?? date('Y');
-            $manualAllowances = $data['allowances'] ?? [];
-            $manualOtherDeductions = $data['other_deductions'] ?? 0;
-            $childrenDeductions = $data['children_deductions'] ?? [];
+            $preparationOnly = !empty($data['preparation_only']);
+            $childrenDeductionsExplicit = !empty($data['children_deductions_explicit']);
+            $manualAllowances = $preparationOnly ? [] : ($data['allowances'] ?? []);
+            $manualOtherDeductions = $preparationOnly ? 0 : ($data['other_deductions'] ?? 0);
+            $childrenDeductions = $preparationOnly ? [] : ($data['children_deductions'] ?? []);
             $processedBy = $data['processed_by'] ?? null;
 
             if (!$staffId) {
@@ -2241,13 +2319,21 @@ class FinanceAPI extends BaseAPI
             }
 
             $this->assertPayrollEligible($staffId);
+
+            // Authorised child-fee deductions are policy data, not a value the
+            // browser is allowed to invent.  If the accountant does not send
+            // an explicit approved override, derive the monthly amount from
+            // staff_children and the current fee balance on the server.
+            if (!$preparationOnly && !$childrenDeductionsExplicit && empty($childrenDeductions)) {
+                $childrenDeductions = $this->getAuthorisedChildFeeDeductions($staffId);
+            }
             $profile = $this->getPayrollEligibilityProfile($staffId);
             $basicSalary = (float) ($profile['basic_salary'] ?? 0);
             $payrollPeriodStart = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
             $payrollPeriodEnd = date('Y-m-t', strtotime($payrollPeriodStart));
 
-            $configuredAllowances = $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
-            $configuredDeductions = $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $configuredAllowances = $preparationOnly ? 0 : $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $configuredDeductions = $preparationOnly ? 0 : $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
 
             // Calculate totals
             $manualAllowanceTotal = is_array($manualAllowances)
@@ -2259,10 +2345,14 @@ class FinanceAPI extends BaseAPI
             $grossSalary = $basicSalary + $totalAllowances;
 
             // Calculate statutory deductions
-            $nssf = $this->calculateNSSF($grossSalary);
-            $nhif = $this->calculateNHIF($grossSalary);
-            $paye = $this->calculatePAYE($grossSalary - $nssf);
-            $housingLevy = $grossSalary * 0.015;
+            $effectiveDate = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
+            $nssf = $this->calculateNSSF($grossSalary, $payrollYear, $effectiveDate);
+            $shif = $this->calculateSHIF($grossSalary, $payrollYear, $effectiveDate);
+            $housingLevy = round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYEE_RATE', $payrollYear, 1.5, $effectiveDate) / 100), 2);
+            $employerNssf = $this->calculateEmployerNSSF($grossSalary, $payrollYear, $effectiveDate);
+            $employerHousingLevy = round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYER_RATE', $payrollYear, 1.5, $effectiveDate) / 100), 2);
+            // KRA permits SHIF and the employee Housing Levy to reduce taxable income.
+            $paye = $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $payrollYear);
 
             // Calculate children fee deduction total
             $totalChildrenFees = 0;
@@ -2272,7 +2362,7 @@ class FinanceAPI extends BaseAPI
                 }
             }
 
-            $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $totalChildrenFees + $configuredDeductions + $manualOtherDeductions;
+            $totalDeductions = $nssf + $shif + $paye + $housingLevy + $totalChildrenFees + $configuredDeductions + $manualOtherDeductions;
             $netSalary = $grossSalary - $totalDeductions;
 
             $payrollPeriod = sprintf('%04d-%02d', $payrollYear, $payrollMonth);
@@ -2378,6 +2468,13 @@ class FinanceAPI extends BaseAPI
                 $insRun = $this->db->prepare("INSERT INTO payroll_runs (id, month, year, status, created_by) VALUES (?, ?, ?, 'draft', ?)");
                 $insRun->execute([$runId, $payrollMonth, $payrollYear, $processedBy ?: $this->getCurrentUserId()]);
             }
+            if (!empty($data['source_financial_account_id']) && !$preparationOnly) {
+                $sourceAccountId = (int) $data['source_financial_account_id'];
+                if ($sourceAccountId > 0) {
+                    $sourceStmt = $this->db->prepare('UPDATE payroll_runs SET source_financial_account_id = ? WHERE id = ?');
+                    $sourceStmt->execute([$sourceAccountId, $runId]);
+                }
+            }
 
             // Check if payslip already exists for this staff + period
             $checkSql = "SELECT id FROM payslips WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?";
@@ -2386,6 +2483,10 @@ class FinanceAPI extends BaseAPI
             $existing = $checkStmt->fetch();
 
             if ($existing) {
+                if ($preparationOnly) {
+                    $this->db->rollBack();
+                    return formatResponse(false, null, 'A payroll draft already exists for this staff member and period. It must be reviewed or amended by an authorised administrator.');
+                }
                 // Update existing payslip
                 $sql = "UPDATE payslips SET
                             basic_salary = ?,
@@ -2393,6 +2494,9 @@ class FinanceAPI extends BaseAPI
                             allowances_total = ?,
                             nssf_contribution = ?,
                             nhif_contribution = ?,
+                            shif_contribution = ?,
+                            employer_nssf_contribution = ?,
+                            employer_housing_levy = ?,
                             paye_tax = ?,
                             housing_levy = ?,
                             child_fees_deduction = ?,
@@ -2408,7 +2512,10 @@ class FinanceAPI extends BaseAPI
                     $grossSalary,
                     $totalAllowances,
                     $nssf,
-                    $nhif,
+                    $shif,
+                    $shif,
+                    $employerNssf,
+                    $employerHousingLevy,
                     $paye,
                     $housingLevy,
                     $totalChildrenFees,
@@ -2422,9 +2529,10 @@ class FinanceAPI extends BaseAPI
                 // Insert new payslip
                 $sql = "INSERT INTO payslips
                         (staff_id, payroll_month, payroll_year, basic_salary, allowances_total, gross_salary,
-                         nssf_contribution, nhif_contribution, paye_tax, housing_levy, child_fees_deduction,
+                         nssf_contribution, nhif_contribution, shif_contribution, employer_nssf_contribution, employer_housing_levy,
+                         paye_tax, housing_levy, child_fees_deduction,
                          other_deductions_total, net_salary, child_fees_breakdown, payslip_status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     $staffId,
@@ -2434,7 +2542,10 @@ class FinanceAPI extends BaseAPI
                     $totalAllowances,
                     $grossSalary,
                     $nssf,
-                    $nhif,
+                    $shif,
+                    $shif,
+                    $employerNssf,
+                    $employerHousingLevy,
                     $paye,
                     $housingLevy,
                     $totalChildrenFees,
@@ -2445,6 +2556,8 @@ class FinanceAPI extends BaseAPI
                 $payrollId = $this->db->lastInsertId();
             }
 
+            $this->persistPayrollChildFeeTransfers($payrollId, $childFeesBreakdown);
+            $this->persistPayrollBreakdown($payrollId, $payrollMonth, $payrollYear, $nssf, $shif, $paye, $housingLevy, $employerNssf, $employerHousingLevy, $totalChildrenFees, $configuredDeductions + $manualOtherDeductions, $childrenDeductions, $staffId);
             $this->db->commit();
 
             // Log action
@@ -2458,7 +2571,7 @@ class FinanceAPI extends BaseAPI
                 'gross_salary' => $grossSalary,
                 'total_allowances' => $totalAllowances,
                 'nssf' => $nssf,
-                'nhif' => $nhif,
+                'shif' => $shif,
                 'paye' => $paye,
                 'housing_levy' => $housingLevy,
                 'children_fees' => $totalChildrenFees,
@@ -2469,6 +2582,136 @@ class FinanceAPI extends BaseAPI
         } catch (Exception $e) {
             $this->db->rollBack();
             return $this->handleException($e);
+        }
+    }
+
+    private function getAuthorisedChildFeeDeductions($staffId)
+    {
+        $sql = "SELECT sc.id AS staff_child_id, sc.student_id,
+                       sc.fee_deduction_percentage, sc.fee_deduction_amount,
+                       vfb.student_academic_enrollment_id AS fee_invoice_id,
+                       (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1) AS academic_year_id,
+                       vfb.academic_year_term_id AS term_id,
+                       COALESCE(vfb.balance, 0) AS fee_balance
+                FROM staff_children sc
+                LEFT JOIN vw_student_fee_balances vfb
+                  ON vfb.student_id = sc.student_id
+                 AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1)
+                 AND vfb.academic_year_term_id = (SELECT ayt.id FROM academic_year_terms ayt
+                      JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                      WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1)
+                WHERE sc.staff_id = ? AND sc.fee_deduction_enabled = 1
+                ORDER BY sc.id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([(int) $staffId]);
+        $rows = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $balance = max(0, (float) ($row['fee_balance'] ?? 0));
+            $fixed = max(0, (float) ($row['fee_deduction_amount'] ?? 0));
+            $percentage = max(0, min(100, (float) ($row['fee_deduction_percentage'] ?? 0)));
+            $amount = $fixed > 0 ? $fixed : ($percentage > 0 ? ($balance / 3) * ($percentage / 100) : 0);
+            $amount = min($amount, $balance);
+            if ($amount <= 0) continue;
+            $rows[] = [
+                'staff_child_id' => (int) $row['staff_child_id'],
+                'student_id' => (int) $row['student_id'],
+                'fee_invoice_id' => $row['fee_invoice_id'] ? (int) $row['fee_invoice_id'] : null,
+                'academic_year_id' => $row['academic_year_id'] ? (int) $row['academic_year_id'] : null,
+                'term_id' => $row['term_id'] ? (int) $row['term_id'] : null,
+                'gross_fee_amount' => $balance,
+                'amount' => round($amount, 2),
+            ];
+        }
+        return $rows;
+    }
+
+    private function payrollConfig($key, $year, $fallback, $effectiveDate = null)
+    {
+        $effectiveDate = $effectiveDate ?: sprintf('%04d-12-31', (int) $year);
+        $stmt = $this->db->prepare('SELECT config_value FROM payroll_configurations WHERE config_key = ? AND financial_year <= ? AND is_active = 1 AND (effective_from IS NULL OR effective_from <= ?) ORDER BY financial_year DESC, COALESCE(effective_from, \'1000-01-01\') DESC, id DESC LIMIT 1');
+        $stmt->execute([$key, (int) $year, $effectiveDate]);
+        $value = $stmt->fetchColumn();
+        return $value === false ? (float) $fallback : (float) $value;
+    }
+
+    private function calculateSHIF($grossSalary, $year, $effectiveDate = null)
+    {
+        return round($grossSalary * ($this->payrollConfig('SHIF_RATE', $year, 2.75, $effectiveDate) / 100), 2);
+    }
+
+    private function calculateEmployerNSSF($grossSalary, $year, $effectiveDate = null)
+    {
+        return $this->calculateNSSF($grossSalary, $year, $effectiveDate);
+    }
+
+    private function persistPayrollChildFeeTransfers($payslipId, array $breakdown)
+    {
+        $this->db->prepare('DELETE FROM payroll_child_fee_transfers WHERE payslip_id = ? AND status = \'pending\'')->execute([(int) $payslipId]);
+        $insert = $this->db->prepare('INSERT INTO payroll_child_fee_transfers (payslip_id,staff_child_id,student_id,student_academic_enrollment_id,amount,receipt_no,status) VALUES (?,?,?,?,?,?,\'pending\') ON DUPLICATE KEY UPDATE amount=VALUES(amount), status=IF(status=\'posted\',status,\'pending\'), updated_at=NOW()');
+        foreach ($breakdown as $entry) {
+            $amount = (float) ($entry['deducted_amount'] ?? $entry['amount'] ?? 0);
+            $studentId = (int) ($entry['student_id'] ?? 0);
+            if ($studentId <= 0 || $amount <= 0) continue;
+            $receipt = 'SALARY-' . (int) $payslipId . '-' . $studentId;
+            $insert->execute([
+                (int) $payslipId,
+                !empty($entry['staff_child_id']) ? (int) $entry['staff_child_id'] : null,
+                $studentId,
+                !empty($entry['fee_invoice_id']) ? (int) $entry['fee_invoice_id'] : null,
+                round($amount, 2),
+                $receipt,
+            ]);
+        }
+    }
+
+    /** Persist the normalized payslip and statutory facts used by reports/remittance. */
+    private function persistPayrollBreakdown($payslipId, $month, $year, $nssf, $shif, $paye, $housingLevy, $employerNssf, $employerHousingLevy, $childFees, $otherDeductions, $childrenDeductions, $staffId)
+    {
+        $this->db->prepare('DELETE FROM payslip_items WHERE payslip_id = ?')->execute([$payslipId]);
+        $items = [
+            ['statutory', 'NSSF', 'NSSF contribution', $nssf],
+            ['statutory', 'SHIF', 'Social Health Insurance Fund contribution', $shif],
+            ['statutory', 'PAYE', 'PAYE tax', $paye],
+            ['statutory', 'HOUSING_LEVY', 'Affordable housing levy', $housingLevy],
+            ['deduction', 'OTHER_DEDUCTIONS', 'Other deductions', $otherDeductions],
+        ];
+        foreach ($items as $item) {
+            if ((float) $item[3] <= 0) continue;
+            $this->db->prepare('INSERT INTO payslip_items (payslip_id,item_type,item_code,item_name,amount,is_taxable) VALUES (?,?,?,?,?,0)')
+                ->execute([$payslipId, $item[0], $item[1], $item[2], $item[3]]);
+        }
+        foreach ((array) $childrenDeductions as $child) {
+            $amount = (float) ($child['amount'] ?? 0);
+            if ($amount <= 0) continue;
+            $this->db->prepare('INSERT INTO payslip_items (payslip_id,item_type,item_code,item_name,amount,reference_id,reference_type) VALUES (?,?,?,?,?,?,?)')
+                ->execute([$payslipId, 'child_fees', 'CHILD_FEES', 'Children school fees deduction', $amount, (int) ($child['student_id'] ?? 0) ?: null, 'students']);
+        }
+
+        $statutory = [
+            ['KRA', $paye, 'employee'], ['NSSF', $nssf, 'employee'], ['SHIF', $shif, 'employee'], ['Housing Levy', $housingLevy, 'employee'],
+            ['NSSF', $employerNssf, 'employer'], ['Housing Levy', $employerHousingLevy, 'employer']
+        ];
+        foreach ($statutory as $row) {
+            $agency = $row[0]; $amount = (float) $row[1]; $side = $row[2];
+            if ($agency === 'NHIF') $agency = 'SHIF';
+            $find = $this->db->prepare('SELECT id FROM statutory_remittances WHERE agency=? AND period_month=? AND period_year=? LIMIT 1');
+            $find->execute([$agency, $month, $year]);
+            $remittanceId = $find->fetchColumn();
+            if ($remittanceId) {
+                $this->db->prepare('UPDATE statutory_remittances SET total_deducted = total_deducted, updated_at=NOW() WHERE id=?')->execute([$remittanceId]);
+            } else {
+                $this->db->prepare('INSERT INTO statutory_remittances (agency,period_month,period_year,total_deducted,status) VALUES (?,?,?,?,\'pending\')')
+                    ->execute([$agency, $month, $year, $amount]);
+                $remittanceId = $this->db->lastInsertId();
+            }
+            $this->db->prepare('DELETE FROM statutory_remittance_items WHERE remittance_id=? AND contribution_side=?')->execute([$remittanceId, $side]);
+            $column = $agency === 'KRA' ? 'paye_tax' : ($agency === 'NSSF' ? ($side === 'employer' ? 'employer_nssf_contribution' : 'nssf_contribution') : ($agency === 'SHIF' ? 'shif_contribution' : ($side === 'employer' ? 'employer_housing_levy' : 'housing_levy')));
+            $rows = $this->db->prepare("SELECT id, staff_id, {$column} AS amount FROM payslips WHERE payroll_month=? AND payroll_year=? AND {$column}>0");
+            $rows->execute([$month, $year]);
+            $insert = $this->db->prepare('INSERT INTO statutory_remittance_items (remittance_id,payslip_id,staff_id,amount,contribution_side) VALUES (?,?,?,?,?)');
+            while ($item = $rows->fetch(PDO::FETCH_ASSOC)) $insert->execute([$remittanceId, $item['id'], $item['staff_id'], $item['amount'], $side]);
+            $this->db->prepare('UPDATE statutory_remittances SET total_deducted=(SELECT COALESCE(SUM(amount),0) FROM statutory_remittance_items WHERE remittance_id=?), updated_at=NOW() WHERE id=?')
+                ->execute([$remittanceId, $remittanceId]);
         }
     }
 
@@ -2486,6 +2729,7 @@ class FinanceAPI extends BaseAPI
                         p.last_name,
                         s.position,
                         d.name AS department,
+                        spp.bank_name,
                         spp.bank_account,
                         spp.bank_account AS bank_account_number,
                         spp.kra_pin,
@@ -2505,6 +2749,14 @@ class FinanceAPI extends BaseAPI
             if (!$payroll) {
                 return formatResponse(false, null, 'Payroll record not found', 404);
             }
+
+            // The payslip is a financial document. Return the authoritative
+            // school identity with it so the UI never invents header data.
+            $schoolStmt = $this->db->query(
+                "SELECT school_name, address, city, country, postal_code, logo_url, currency
+                 FROM school_profile ORDER BY id ASC LIMIT 1"
+            );
+            $school = $schoolStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
             // Get children fee deductions from the payslip JSON breakdown
             $childrenDeductions = [];
@@ -2536,9 +2788,25 @@ class FinanceAPI extends BaseAPI
 
             $payroll['children_deductions'] = $childrenDeductions;
             $payroll['total_children_fees'] = array_sum(array_column($childrenDeductions, 'deducted_amount'));
+            $employeeDeductions =
+                (float) ($payroll['nssf_contribution'] ?? 0) +
+                (float) ($payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0) +
+                (float) ($payroll['paye_tax'] ?? 0) +
+                (float) ($payroll['housing_levy'] ?? 0) +
+                (float) $payroll['total_children_fees'] +
+                (float) ($payroll['other_deductions_total'] ?? 0);
+            $payroll['total_deductions'] = number_format($employeeDeductions, 2, '.', '');
+            $payroll['employee_deductions_total'] = $payroll['total_deductions'];
+            $payroll['allowances'] = $payroll['allowances_total'] ?? 0;
+            $payroll['nssf_deduction'] = $payroll['nssf_contribution'] ?? 0;
+            $payroll['shif_deduction'] = $payroll['shif_contribution'] ?? $payroll['nhif_contribution'] ?? 0;
+            $payroll['other_deductions'] = $payroll['other_deductions_total'] ?? 0;
+            $payroll['payment_mode'] = $payroll['payment_method'] ?? null;
+            $payroll['status'] = $payroll['payslip_status'] ?? $payroll['status'] ?? null;
+            $payroll['school_profile'] = $school;
             $payroll['statutory_deductions'] = [
                 'nssf' => $payroll['nssf_contribution'],
-                'nhif' => $payroll['nhif_contribution'],
+                'shif' => $payroll['shif_contribution'] ?? $payroll['nhif_contribution'],
                 'paye' => $payroll['paye_tax'],
                 'housing_levy' => $payroll['housing_levy']
             ];
@@ -2599,53 +2867,18 @@ class FinanceAPI extends BaseAPI
         }
     }
 
-    /**
-     * Calculate NSSF (Kenya 2024 rates)
-     */
-    private function calculateNSSF($grossSalary)
+    private function calculateNSSF($grossSalary, $year = null, $effectiveDate = null)
     {
-        // Tier I: 6% of first 7,000
-        $tierI = min($grossSalary, 7000) * 0.06;
-        // Tier II: 6% of amount between 7,000 and 36,000
-        $tierII = max(0, min($grossSalary - 7000, 29000)) * 0.06;
+        $year = (int) ($year ?: date('Y'));
+        $rate = $this->payrollConfig('NSSF_RATE', $year, 6, $effectiveDate) / 100;
+        $lowerLimit = $this->payrollConfig('NSSF_LOWER_EARNINGS_LIMIT', $year, 7000, $effectiveDate);
+        $upperLimit = $this->payrollConfig('NSSF_UPPER_EARNINGS_LIMIT', $year, 36000, $effectiveDate);
+        $tierI = min($grossSalary, $lowerLimit) * $rate;
+        $tierII = max(0, min($grossSalary, $upperLimit) - $lowerLimit) * $rate;
         return $tierI + $tierII;
     }
 
-    /**
-     * Calculate NHIF (Kenya 2024 rates)
-     */
-    private function calculateNHIF($grossSalary)
-    {
-        $rates = [
-            5999 => 150,
-            7999 => 300,
-            11999 => 400,
-            14999 => 500,
-            19999 => 600,
-            24999 => 750,
-            29999 => 850,
-            34999 => 900,
-            39999 => 950,
-            44999 => 1000,
-            49999 => 1100,
-            59999 => 1200,
-            69999 => 1300,
-            79999 => 1400,
-            89999 => 1500,
-            99999 => 1600,
-            PHP_INT_MAX => 1700
-        ];
-        foreach ($rates as $limit => $contribution) {
-            if ($grossSalary <= $limit)
-                return $contribution;
-        }
-        return 1700;
-    }
-
-    /**
-     * Calculate PAYE (Kenya 2024 tax bands)
-     */
-    private function calculatePAYE($taxableIncome)
+    private function calculatePAYE($taxableIncome, $year = null)
     {
         $bands = [
             24000 => 0.10,
@@ -2654,7 +2887,7 @@ class FinanceAPI extends BaseAPI
             800000 => 0.325,
             PHP_INT_MAX => 0.35
         ];
-        $personalRelief = 2400;
+        $personalRelief = $this->payrollConfig('PAYE_PERSONAL_RELIEF', (int) ($year ?: date('Y')), 2400);
         $tax = 0;
         $remaining = $taxableIncome;
         $prevLimit = 0;
@@ -2683,7 +2916,13 @@ class FinanceAPI extends BaseAPI
                         CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                         s.position,
                         d.name AS department,
-                        ps.child_fees_deduction AS children_fees_deducted
+                        ps.child_fees_deduction AS children_fees_deducted,
+                        ps.payslip_status AS status,
+                        ps.allowances_total AS allowances,
+                        ps.nssf_contribution AS nssf_deduction,
+                        COALESCE(ps.shif_contribution, ps.nhif_contribution) AS shif_deduction,
+                        ps.paye_tax AS paye_deduction,
+                        ps.other_deductions_total AS other_deductions
                     FROM payslips ps
                     JOIN staff s ON ps.staff_id = s.id
                     LEFT JOIN persons p ON p.id = s.person_id
@@ -3055,7 +3294,7 @@ class FinanceAPI extends BaseAPI
     public function approvePayroll($payrollId, $approvedBy = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT payslip_status FROM payslips WHERE id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? LIMIT 1");
             $stmt->execute([$payrollId]);
             $current = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
@@ -3065,11 +3304,14 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Only pending payroll can be approved');
             }
 
-            $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NOW(), updated_at = NOW() WHERE id = ?";
+            $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
+                    WHERE payroll_month = ? AND payroll_year = ? AND payslip_status <> 'paid'";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approvedBy, $payrollId]);
+            $stmt->execute([$approvedBy, $payrollId, $current['payroll_month'], $current['payroll_year']]);
+            $run = $this->db->prepare("UPDATE payroll_runs SET status='approved', workflow='approved' WHERE month=? AND year=?");
+            $run->execute([$current['payroll_month'], $current['payroll_year']]);
 
-            return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'approved'], 'Payroll approved for payment release');
+            return formatResponse(true, ['payroll_id' => $payrollId, 'payroll_month' => $current['payroll_month'], 'payroll_year' => $current['payroll_year'], 'status' => 'approved'], 'Payroll approved for payment release');
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -3090,7 +3332,29 @@ class FinanceAPI extends BaseAPI
 
             $processed = [];
             $failed = [];
+            $skipped = [];
+            $preparationOnly = !empty($data['preparation_only']);
             foreach ($staffIds as $staffId) {
+                // Accountant bulk preparation is intentionally idempotent:
+                // existing drafts are already prepared and are not failures.
+                if ($preparationOnly) {
+                    $existingStmt = $this->db->prepare(
+                        'SELECT id, payslip_status FROM payslips
+                         WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                         LIMIT 1'
+                    );
+                    $existingStmt->execute([(int) $staffId, (int) $month, (int) $year]);
+                    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($existing) {
+                        $skipped[] = [
+                            'staff_id' => (int) $staffId,
+                            'payslip_id' => (int) $existing['id'],
+                            'status' => $existing['payslip_status'],
+                            'message' => 'Payroll already prepared for this staff member and period',
+                        ];
+                        continue;
+                    }
+                }
                 $result = $this->processPayrollWithDeductions([
                     'staff_id' => $staffId,
                     'payroll_month' => $month,
@@ -3098,6 +3362,8 @@ class FinanceAPI extends BaseAPI
                     'allowances' => 0,
                     'other_deductions' => 0,
                     'children_deductions' => [],
+                    'children_deductions_explicit' => true,
+                    'preparation_only' => !empty($data['preparation_only']),
                 ]);
 
                 if (($result['status'] ?? '') === 'success') {
@@ -3113,8 +3379,10 @@ class FinanceAPI extends BaseAPI
             return formatResponse(true, [
                 'processed' => $processed,
                 'failed' => $failed,
+                'skipped' => $skipped,
                 'processed_count' => count($processed),
                 'failed_count' => count($failed),
+                'skipped_count' => count($skipped),
             ], 'Bulk payroll processed');
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -3124,12 +3392,13 @@ class FinanceAPI extends BaseAPI
     /**
      * Mark payroll as paid and record children fee payments
      */
-    public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null)
+    public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null, $sourceFinancialAccountId = null, $userId = null)
     {
         try {
-            $this->db->beginTransaction();
-
-            $statusStmt = $this->db->prepare("SELECT payslip_status FROM payslips WHERE id = ? LIMIT 1");
+            if (!$sourceFinancialAccountId) {
+                throw new Exception('Select an authorized salary source financial account before releasing payroll.');
+            }
+            $statusStmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? LIMIT 1");
             $statusStmt->execute([$payrollId]);
             $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
             if (!$payroll) {
@@ -3139,97 +3408,21 @@ class FinanceAPI extends BaseAPI
                 throw new Exception('Payroll must be approved by the director before payment can be released');
             }
 
-            $allowedPaymentModes = ['bank', 'cash', 'mpesa', 'airtel_money'];
-            $paymentMode = in_array($paymentMode, $allowedPaymentModes, true) ? $paymentMode : 'bank';
-            $liveMethod = match ($paymentMode) {
-                'mpesa', 'airtel_money' => 'mobile_money',
-                'cash' => 'cash',
-                default => 'bank',
-            };
-
-            // Update payslip status to paid
-            $sql = "UPDATE payslips SET
-                        payslip_status = 'paid',
-                        payment_status = 'paid',
-                        payment_method = ?,
-                        payment_date = CURDATE(),
-                        payment_reference = ?,
-                        paid_at = NOW(),
-                        updated_at = NOW()
-                    WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$liveMethod, $paymentRef, $payrollId]);
-
-            // Record fee payments for children (using breakdown JSON on payslip)
-            $this->recordChildrenFeePayments($payrollId);
-
-            $this->db->commit();
-            $this->logAction('mark_paid', $payrollId, "Marked payroll as paid with ref: {$paymentRef}");
-
-            return formatResponse(true, ['payroll_id' => $payrollId], 'Payroll marked as paid');
-        } catch (Exception $e) {
-            $this->db->rollBack();
-            return $this->handleException($e);
-        }
-    }
-
-    /**
-     * Record fee payments for children after payroll is paid
-     */
-    private function recordChildrenFeePayments($payrollId)
-    {
-        // Get the payslip's child fee breakdown (JSON array of {student_id, amount, ...})
-        $stmt = $this->db->prepare("SELECT child_fees_breakdown, child_fees_deduction, payroll_month, payroll_year FROM payslips WHERE id = ?");
-        $stmt->execute([$payrollId]);
-        $payslip = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$payslip) {
-            return;
-        }
-
-        $breakdown = json_decode((string) ($payslip['child_fees_breakdown'] ?? ''), true);
-        if (!is_array($breakdown)) {
-            $breakdown = [];
-        }
-
-        // Fallback: if no breakdown JSON but a single child fees total, look up the staff's children via student_parents
-        if (empty($breakdown) && (float) ($payslip['child_fees_deduction'] ?? 0) > 0) {
-            $childrenStmt = $this->db->prepare("
-                SELECT sp.student_id
-                FROM student_parents sp
-                WHERE sp.parent_id IN (SELECT parent_id FROM student_parents sp2 WHERE sp2.student_id IS NOT NULL)
-                LIMIT 1
-            ");
-            // Not reliable as-is; skip fallback to avoid mis-allocation
-        }
-
-        $period = sprintf('%04d-%02d', $payslip['payroll_year'], $payslip['payroll_month']);
-        foreach ($breakdown as $entry) {
-            $studentId = (int) ($entry['student_id'] ?? 0);
-            $amount = (float) ($entry['amount'] ?? $entry['deducted_amount'] ?? 0);
-            if ($studentId <= 0 || $amount <= 0) {
-                continue;
+            $runStmt = $this->db->prepare('SELECT id, month, year, status FROM payroll_runs WHERE month = (SELECT payroll_month FROM payslips WHERE id = ?) AND year = (SELECT payroll_year FROM payslips WHERE id = ?) LIMIT 1');
+            $runStmt->execute([$payrollId, $payrollId]);
+            $run = $runStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$run || $run['status'] !== 'approved') {
+                throw new Exception('The payroll run must be approved before payment can be released.');
             }
+            $method = in_array($paymentMode, ['mpesa', 'airtel_money'], true) ? 'mobile_money' : 'bank';
+            $this->db->prepare('UPDATE payslips SET payment_method = ?, payment_reference = NULL, payment_status = \'pending\', updated_at = NOW() WHERE payroll_month = ? AND payroll_year = ? AND payslip_status = \'approved\'')
+                ->execute([$method, $run['month'], $run['year']]);
+            $result = $this->disbursementManager->processPayrollDisbursement((int) $run['id'], (int) ($userId ?: $this->getCurrentUserId()), ['source_financial_account_id' => (int) $sourceFinancialAccountId]);
+            return formatResponse(true, $result, 'Payroll disbursement initiated');
 
-            $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
-            $parentStmt->execute([$studentId]);
-            $parentId = $parentStmt->fetchColumn() ?: null;
-
-            $receiptNo = "SALARY-{$period}-{$payrollId}-{$studentId}";
-            $notes = "Deducted from staff salary for period {$period}";
-
-            $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $spStmt->execute([
-                $studentId,
-                $parentId,
-                $amount,
-                'salary_deduction',
-                $receiptNo,
-                $receiptNo,
-                1, // received_by = system
-                date('Y-m-d H:i:s'),
-                $notes,
-            ]);
-            $spStmt->closeCursor();
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return $this->handleException($e);
         }
     }
 
@@ -3356,5 +3549,15 @@ class FinanceAPI extends BaseAPI
     public function rejectExtraCharge(int $id, int $userId, string $notes = '')
     {
         return $this->feeManager->rejectExtraCharge($id, $userId, $notes);
+    }
+
+    public function getAcademicYearsList()
+    {
+        return $this->feeManager->getAcademicYearsList();
+    }
+
+    public function getGLAccounts()
+    {
+        return $this->feeManager->getGLAccounts();
     }
 }

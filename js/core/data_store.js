@@ -42,24 +42,29 @@ const DataStore = (() => {
   // account row in the DB — this is purely a cache-scope identity.
   const GUEST_USER_ID = -1;
 
+  // Freshness-first defaults for an always-online school administration:
+  // reference lists are re-read from the server on every page load
+  // (network-first), and the TTLs below only bound how long a snapshot may be
+  // reused as an OFFLINE FALLBACK when the network request fails. Values are
+  // short so no view can keep serving day- or week-old data to daily users.
   const DEFAULT_TTL = Object.freeze({
-    REFERENCE: 86400000,
-    LONG: 604800000,
-    DIRECTORY: 300000,
+    REFERENCE: 300000,   // 5 minutes — live lists (classes, subjects, streams, terms)
+    LONG: 3600000,       // 1 hour — slowly changing structures (departments, academic years)
+    DIRECTORY: 300000,   // 5 minutes — student directory
   });
 
   const policies = Object.freeze({
-    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
-    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
-    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
+    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
+    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
+    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
     students: { ttl: DEFAULT_TTL.DIRECTORY, strategy: 'network-first' },
     staff: { ttl: 1800000, strategy: 'network-first' },
     attendance: { ttl: 60000, strategy: 'network-first' },
     admissions: { ttl: 60000, strategy: 'network-first' },
-    school_profile: { ttl: 3600000, strategy: 'stale-while-revalidate' },
+    school_profile: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
   });
 
   function normalizeOptions(key, options) {
@@ -276,7 +281,15 @@ const DataStore = (() => {
 
     if (config.strategy === 'cache-only') return cachedValue ?? null;
 
-    if (config.strategy === 'stale-while-revalidate' && cachedValue !== null && cachedValue !== undefined) {
+    // stale-while-revalidate only serves cached data while it is still fresh
+    // (within TTL); an expired snapshot must not keep rendering old data, so it
+    // falls through to the network below. Offline fallback still applies.
+    if (
+      config.strategy === 'stale-while-revalidate' &&
+      cacheFresh &&
+      cachedValue !== null &&
+      cachedValue !== undefined
+    ) {
       revalidate(key, config);
       return cachedValue;
     }
@@ -299,17 +312,46 @@ const DataStore = (() => {
     if (!config.endpoint && !config.fetcher) {
       throw new TypeError(`DataStore.getOrFetch("${key}") requires endpoint or fetcher.`);
     }
-    const cached = await peek(key, config);
-    if (cached !== null && cached !== undefined && config.strategy === 'stale-while-revalidate' && !config.forceRefresh) {
+    const cacheKey = generateCacheKey(key, config.params);
+
+    // Resolve cached value + freshness the same way get() does. stale-while-
+    // revalidate serves cache only while fresh; everything else goes to the
+    // network so page controllers render current data for daily operations.
+    let cachedValue = null;
+    let cacheFresh = false;
+    const memoryEntry = config.useMemory ? memoryCache.get(cacheKey) : null;
+    if (memoryEntry) {
+      cachedValue = memoryEntry.data;
+      cacheFresh = !isExpired(memoryEntry);
+    }
+    if (cachedValue === null || cachedValue === undefined) {
+      if (config.useIndexedDB) {
+        const record = await readIndexed(config.storeName, cacheKey);
+        const value = unwrap(record);
+        if (value !== null && value !== undefined) {
+          cachedValue = value;
+          cacheFresh = Boolean(record && !isExpired(record));
+          if (config.useMemory) setMemory(cacheKey, value, config.ttl);
+        }
+      }
+    }
+
+    if (
+      cachedValue !== null &&
+      cachedValue !== undefined &&
+      config.strategy === 'stale-while-revalidate' &&
+      !config.forceRefresh &&
+      cacheFresh
+    ) {
       revalidate(key, config);
-      return { data: cached, source: 'cache', stale: true };
+      return { data: cachedValue, source: 'cache', stale: false };
     }
     try {
       const data = await fetchAndCache(key, config);
       return { data, source: 'network', stale: false };
     } catch (networkError) {
-      if (cached !== null && cached !== undefined && config.allowStaleOnError) {
-        return { data: cached, source: 'cache', stale: true, networkError };
+      if (cachedValue !== null && cachedValue !== undefined && config.allowStaleOnError) {
+        return { data: cachedValue, source: 'cache', stale: true, networkError };
       }
       throw networkError;
     }

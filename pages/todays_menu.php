@@ -23,4 +23,4 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/todays_menu.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/todays_menu.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/todays_menu.js'); ?>

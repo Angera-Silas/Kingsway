@@ -193,7 +193,8 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
                     <div class="row g-3">
                         <div class="col-md-3">
                             <label class="form-label">Staff No</label>
-                            <input type="text" class="form-control" id="staffNo" placeholder="Auto generated">
+                            <input type="text" class="form-control" id="staffNo" placeholder="Auto-generated" readonly>
+                            <small class="text-muted">System-generated</small>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">First Name *</label>
@@ -347,11 +348,5 @@ if (isset($staffPageContext) && is_array($staffPageContext)) {
     </div>
 </div>
 
-<?php
-$staffAccessJsPath = __DIR__ . '/../js/pages/staff_access.js';
-$staffProductionJsPath = __DIR__ . '/../js/pages/staff_production_ui.js';
-$staffAccessJsVersion = is_file($staffAccessJsPath) ? filemtime($staffAccessJsPath) : time();
-$staffProductionJsVersion = is_file($staffProductionJsPath) ? filemtime($staffProductionJsPath) : time();
-?>
-<script src="<?= $appBase ?>/js/pages/staff_access.js?v=<?= $staffAccessJsVersion ?>"></script>
-<script src="<?= $appBase ?>/js/pages/staff_production_ui.js?v=<?= $staffProductionJsVersion ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/staff_production_ui.js'); ?>

@@ -67,11 +67,12 @@ class DisbursementManager
 
             $staffPayments = $this->db->prepare(
                 "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
-                        st.bank_account AS bank_account_number, st.bank_name,
+                        spp.bank_account AS bank_account_number, spp.bank_name,
                         ps.payment_method
                  FROM payslips ps
                  JOIN staff st ON ps.staff_id = st.id
                  JOIN persons p ON p.id = st.person_id
+                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
                  WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                    AND ps.payslip_status = 'approved'
                    AND ps.payment_status IN ('pending', 'failed')"
@@ -224,17 +225,17 @@ class DisbursementManager
         $status = in_array($result['status'] ?? '', ['success', 'pending'], true) ? 'processing' : 'failed';
         $this->db->prepare(
             "UPDATE payslips
-             SET payment_status = ?, payment_reference = ?, paid_at = IF(? = 'processing', NOW(), paid_at),
+             SET payment_status = ?, payment_reference = ?, paid_at = paid_at,
                  notes = ?, updated_at = NOW()
              WHERE id = ?"
         )->execute([
             $status,
             $result['transaction_ref'] ?? null,
-            $status,
             json_encode($result),
             $payment['id'],
         ]);
 
+        $result['status'] = $status === 'processing' ? 'pending' : 'failed';
         return $result;
     }
 
@@ -306,17 +307,17 @@ class DisbursementManager
         ]);
         $this->db->prepare(
             "UPDATE payslips
-             SET payment_status = ?, payment_reference = ?, paid_at = IF(? = 'processing', NOW(), paid_at),
+             SET payment_status = ?, payment_reference = ?, paid_at = paid_at,
                  notes = ?, updated_at = NOW()
              WHERE id = ?"
         )->execute([
             $status,
             $result['transaction_ref'] ?? null,
-            $status,
             json_encode($result),
             $payment['id'],
         ]);
 
+        $result['status'] = $status === 'processing' ? 'pending' : 'failed';
         return $result;
     }
 
@@ -343,10 +344,11 @@ class DisbursementManager
     {
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
-                    st.bank_account AS bank_account_number, st.bank_name, ps.payment_method
+                    spp.bank_account AS bank_account_number, spp.bank_name, ps.payment_method
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
+             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
              WHERE ps.id = ? AND ps.payment_status = 'failed'"
         );
         $stmt->execute([$staffPaymentId]);
@@ -414,15 +416,15 @@ class DisbursementManager
      */
     private function updatePayrollDisbursementStatus($payrollId, $results)
     {
-        if ($results['failed'] === 0) {
+        if ($results['failed'] === 0 && $results['pending'] === 0) {
             $status = 'paid';
         } else {
             $status = 'processing';
         }
 
         $this->db->prepare(
-            "UPDATE payroll_runs SET status = ? WHERE id = ?"
-        )->execute([$status, $payrollId]);
+            "UPDATE payroll_runs SET status = ?, workflow = ? WHERE id = ?"
+        )->execute([$status, $status === 'paid' ? 'completed' : 'processing', $payrollId]);
     }
 
     /**

@@ -5,7 +5,7 @@
  * Features:
  * - 4 KPI stat cards (Total Settlements, Total Amount, Pending Settlement, Last Settlement Date)
  * - Filters: search, date range, status
- * - Data table with actions
+ * - Complete provider/ledger audit table with lifecycle reasons
  * - View settlement details modal (transaction list)
  * - Icon: fa-mobile-alt
  */
@@ -17,7 +17,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 class="mb-1"><i class="bi bi-phone me-2 text-success"></i>M-Pesa Settlements</h2>
-            <p class="text-muted mb-0">View and track M-Pesa settlement reports and transaction breakdowns</p>
+            <p class="text-muted mb-0">Audit provider callbacks, posted fee payments, pending requests and unmatched receipts.</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="MpesaSettlementsController.exportCSV()">
@@ -113,9 +113,11 @@
                     <label class="form-label small text-muted">Status</label>
                     <select class="form-select" id="msStatusFilter" onchange="MpesaSettlementsController.filterData()">
                         <option value="">All Statuses</option>
-                        <option value="Settled">Settled</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Failed">Failed</option>
+                        <option value="posted">Posted</option>
+                        <option value="received_unallocated">Received · Unallocated</option>
+                        <option value="pending_callback">Pending callback</option>
+                        <option value="pending">Pending</option>
+                        <option value="failed">Failed</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -139,10 +141,8 @@
                             <th scope="col">M-Pesa Code</th>
                             <th scope="col">Phone Number</th>
                             <th class="text-center">Count</th>
-                            <th class="text-end">Gross Amount (KES)</th>
-                            <th class="text-end">Charges (KES)</th>
-                            <th class="text-end">Net Amount (KES)</th>
-                            <th class="text-center">Status</th>
+                            <th class="text-end">Amount (KES)</th>
+                            <th class="text-center">Status / Reason</th>
                             <th class="text-center" width="120">Actions</th>
                         </tr>
                     </thead>
@@ -190,7 +190,7 @@
                     <div class="col-md-4">
                         <div class="card bg-light border-0">
                             <div class="card-body text-center py-2">
-                                <small class="text-muted">Settlement Date</small>
+                        <small class="text-muted">Transaction Date</small>
                                 <h6 class="mb-0" id="detailDate">-</h6>
                             </div>
                         </div>
@@ -203,6 +203,11 @@
                             </div>
                         </div>
                     </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6"><small class="text-muted d-block">Lifecycle status / reason</small><div id="detailStatus">-</div></div>
+                    <div class="col-md-6"><small class="text-muted d-block">Learner / ledger link</small><strong id="detailStudent">-</strong></div>
                 </div>
 
                 <!-- Transaction List -->
@@ -235,7 +240,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/mpesa_settlements.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/mpesa_settlements.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/mpesa_settlements.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof MpesaSettlementsController !== 'undefined') {

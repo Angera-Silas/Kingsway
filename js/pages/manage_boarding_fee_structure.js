@@ -1,9 +1,9 @@
 /**
- * manage_boarding_fee_structure.js — Boarding Fee Structure Controller (standalone page).
- * Accountant manages boarding student-type fee amounts per year, level, term.
+ * manage_boarding_fee_structure.js — Approved School Fee Matrix Controller.
+ * Accountant manages grade/student-type fee amounts per year and term.
  */
 const manageBoardingFeeStructureController = {
-  state: { bundles: [], years: [], levels: [], types: [], feeTypes: [], terms: [], classes: [], editing: null, currentTerms: [], rows: [] },
+  state: { bundles: [], years: [], levels: [], types: [], terms: [], classes: [], editing: null, currentTerms: [], rows: [] },
   TYPE_NAME: 'BOARD',
 
   API: (method, endpoint, data, params, opts) => window.callAPI(endpoint, method, data, params, opts),
@@ -43,18 +43,16 @@ const manageBoardingFeeStructureController = {
 
   async loadReference() {
     try {
-      const [years, levels, types, feeTypes, terms, classes] = await Promise.all([
+      const [years, levels, types, terms, classes] = await Promise.all([
         this.API('GET', 'academic/years/list'),
         this.API('GET', 'academic/levels-list'),
         this.API('GET', 'finance/student-types-list'),
-        this.API('GET', 'finance/fee-types-list'),
         this.API('GET', 'academic/terms-list'),
         this.API('GET', 'academic/classes-list', null, { limit: 200 }),
       ]);
       this.state.years = this.norm(years);
       this.state.levels = this.norm(levels);
       this.state.types = this.norm(types);
-      this.state.feeTypes = this.norm(feeTypes);
       this.state.terms = this.norm(terms);
       this.state.classes = this.norm(classes);
       const yearSel = document.getElementById('mbfYear');
@@ -66,7 +64,7 @@ const manageBoardingFeeStructureController = {
 
   async loadGrid() {
     const body = document.getElementById('mbfBody');
-    body.innerHTML = '<tr><td colspan="5" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></td></tr>';
     try {
       const params = { limit: 100 };
       const y = document.getElementById('mbfYear').value;
@@ -78,20 +76,28 @@ const manageBoardingFeeStructureController = {
       const tid = this.typeId();
       this.state.bundles = tid ? all.filter(b => Number(b.student_type_id) === tid) : all.filter(b => String(b.student_type_name || '').toUpperCase().includes(this.TYPE_NAME));
       this.render();
-    } catch (e) { body.innerHTML = `<tr><td colspan="5" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
+    } catch (e) { body.innerHTML = `<tr><td colspan="8" class="text-center py-3 text-danger">${this.esc(e.message || 'Load failed')}</td></tr>`; }
   },
 
   render() {
     const body = document.getElementById('mbfBody');
-    if (!this.state.bundles.length) { body.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">No boarding fee structures found.</td></tr>'; return; }
+    if (!this.state.bundles.length) { body.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No school fee structures found.</td></tr>'; return; }
     body.innerHTML = this.state.bundles.map(b => `
       <tr>
         <td class="small fw-semibold">${this.esc(b.academic_year || '\u2014')}</td>
         <td class="small">${this.esc(b.level_name || '\u2014')}</td>
-        <td class="small">${this.esc(b.student_type_name || 'Boarding')}</td>
-        <td class="small">${b.line_item_count ?? '\u2014'}</td>
+        <td class="small">${this.esc(b.student_type_name || '\u2014')}</td>
+        <td class="small text-end">${this.money(b.term_1_amount)}</td>
+        <td class="small text-end">${this.money(b.term_2_amount)}</td>
+        <td class="small text-end">${this.money(b.term_3_amount)}</td>
+        <td class="small text-end fw-semibold">${this.money(b.total_amount)}</td>
         <td><span class="badge ${this.badgeClass(b.status)}">${this.esc(b.status || 'draft')}</span></td>
       </tr>`).join('');
+  },
+
+  money(value) {
+    if (value === null || value === undefined || value === '') return '—';
+    return Number(value).toLocaleString('en-KE', { maximumFractionDigits: 0 });
   },
 
   badgeClass(s) { return { approved: 'bg-success', reviewed: 'bg-info', submitted: 'bg-primary', draft: 'bg-warning text-dark', rejected: 'bg-danger' }[s] || 'bg-secondary'; },
@@ -112,10 +118,10 @@ const manageBoardingFeeStructureController = {
       if (!this.state.currentTerms.length) this.state.currentTerms = this.termsForYear(year);
       this.state.rows = Object.keys(items).length
         ? Object.keys(items).map(code => ({ code, name: items[code].name || code, values: items[code].terms || {} }))
-        : this.state.feeTypes.map(ft => ({ code: ft.code || ft.name, name: ft.name || ft.code, values: {} }));
+        : [{ code: 'SCHOOL_FEES', name: 'School Fees', values: {} }];
       this.renderForm({ academic_year: year, from_id: gradeRange.from_id, to_id: gradeRange.to_id, student_type_id: tid });
       new bootstrap.Modal(document.getElementById('mbfModal')).show();
-    } catch (e) { this.notify(e.message || 'Failed to load boarding fees', 'danger'); }
+    } catch (e) { this.notify(e.message || 'Failed to load school fees', 'danger'); }
   },
 
   renderForm(initial = {}) {

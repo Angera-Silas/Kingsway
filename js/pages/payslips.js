@@ -42,7 +42,13 @@ const payslipsController = {
       if (this._staffId) params.staff_id = this._staffId;
 
       const r = await callAPI('/staff/payroll-list?' + new URLSearchParams(params).toString(), 'GET');
-      this._payslips = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      // The API returns { data: { payroll: [...] } } while older deployments
+      // may unwrap the outer data object. Accept both shapes, but never create
+      // client-side payroll rows when the database returns none.
+      const payload = r?.data ?? r;
+      this._payslips = Array.isArray(payload)
+        ? payload
+        : (Array.isArray(payload?.payroll) ? payload.payroll : []);
 
       // Update current month card with most recent payslip
       if (this._payslips.length) {
@@ -80,8 +86,8 @@ const payslipsController = {
         <td><strong>${this._esc(s.month_label ?? s.payroll_period ?? s.month ?? '—')}</strong></td>
         <td class="text-end">${fmt(s.gross_pay ?? s.gross_salary)}</td>
         <td class="text-end text-muted">${fmt(s.paye_tax ?? s.paye)}</td>
-        <td class="text-end text-muted">${fmt(s.nhif)}</td>
-        <td class="text-end text-muted">${fmt(s.nssf)}</td>
+        <td class="text-end text-muted">${fmt(s.shif ?? s.nhif ?? s.nhif_contribution)}</td>
+        <td class="text-end text-muted">${fmt(s.nssf ?? s.nssf_contribution)}</td>
         <td class="text-end fw-semibold text-success">${fmt(s.net_pay ?? s.net_salary)}</td>
         <td><span class="badge bg-${s.status === 'paid' || s.status === 'disbursed' ? 'success' : s.status === 'pending' ? 'warning' : 'secondary'}">${s.status ?? 'issued'}</span></td>
         <td>
@@ -163,8 +169,11 @@ const payslipsController = {
           <thead class="table-light"><tr><th>Deductions</th><th class="text-end">Amount</th></tr></thead>
           <tbody>
             ${row('PAYE', fmt(d.paye_tax ?? d.paye), 'text-danger')}
-            ${row('NHIF', fmt(d.nhif), 'text-danger')}
-            ${row('NSSF', fmt(d.nssf), 'text-danger')}
+            ${row('SHIF', fmt(d.shif ?? d.nhif ?? d.nhif_contribution), 'text-danger')}
+            ${row('NSSF', fmt(d.nssf ?? d.nssf_contribution), 'text-danger')}
+            ${row('Employee Housing Levy', fmt(d.housing_levy), 'text-danger')}
+            ${row('Employer NSSF (school cost)', fmt(d.employer_nssf_contribution), 'text-muted')}
+            ${row('Employer Housing Levy (school cost)', fmt(d.employer_housing_levy), 'text-muted')}
             ${(d.deductions ?? []).map(x => row(this._esc(x.name), fmt(x.amount), 'text-danger')).join('')}
             <tr class="fw-bold text-danger"><td>Total Deductions</td><td class="text-end">${fmt(d.total_deductions)}</td></tr>
           </tbody>

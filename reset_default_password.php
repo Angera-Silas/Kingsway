@@ -34,5 +34,5 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<script src="<?= $appBase ?>/js/pages/reset_default_password.js?v=<?= filemtime(__DIR__ . '/js/pages/reset_default_password.js') ?>"></script>
+<?php asset_script($appBase, 'js/pages/reset_default_password.js'); ?>
 <?php include __DIR__ . '/public/layout/footer.php'; ?>

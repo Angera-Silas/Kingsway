@@ -334,4 +334,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/schemes_of_work.js"></script>
+<?php asset_script($appBase, 'js/pages/schemes_of_work.js'); ?>

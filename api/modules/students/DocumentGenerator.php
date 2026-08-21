@@ -498,20 +498,27 @@ return formatResponse(false, null, 'An internal error occurred.');
             ];
         }
         
-        // Fallback to database (legacy)
+        // Fallback to database
         try {
-            $stmt = $this->db->query("SELECT setting_key, setting_value FROM school_settings");
-            $configs = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+            $stmt = $this->db->query("SELECT school_name, motto, address, phone, email, website FROM school_profile LIMIT 1");
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Get headteacher from staff table (single source of truth)
+            $headteacher = '';
+            try {
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $headteacher = $hStmt->fetchColumn() ?: '';
+            } catch (\Exception $e) { /* fallback below */ }
 
             return [
-                'name' => $configs['school_name'] ?? 'Kingsway Preparatory School',
-                'motto' => $configs['school_motto'] ?? 'In God We Soar',
-                'address' => $configs['school_address'] ?? 'P.O Box 203-20203, Londiani, Kenya',
-                'phone' => $configs['school_phone'] ?? '+254-720-113030 / +254-720-113031',
-                'email' => $configs['school_email'] ?? 'info@kingswaypreparatoryschool.sc.ke',
-                'website' => $configs['school_website'] ?? 'www.kingswaypreparatoryschool.sc.ke',
-                'principal' => $configs['principal_name'] ?? 'Mr Bett Junior',
-                'principal_title' => $configs['principal_title'] ?? 'Headteacher'
+                'name' => $row['school_name'] ?? 'Kingsway Preparatory School',
+                'motto' => $row['motto'] ?? 'In God We Soar',
+                'address' => $row['address'] ?? 'P.O Box 203-20203, Londiani, Kenya',
+                'phone' => $row['phone'] ?? '+254-720-113030 / +254-720-113031',
+                'email' => $row['email'] ?? 'info@kingswaypreparatoryschool.sc.ke',
+                'website' => $row['website'] ?? 'www.kingswaypreparatoryschool.sc.ke',
+                'principal' => $headteacher ?: 'Mr Bett Junior',
+                'principal_title' => 'Headteacher'
             ];
         } catch (Exception $e) {
             return [

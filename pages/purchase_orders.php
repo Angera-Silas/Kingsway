@@ -253,7 +253,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/purchase_orders.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/purchase_orders.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/purchase_orders.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof PurchaseOrdersController !== 'undefined') {

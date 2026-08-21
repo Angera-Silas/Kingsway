@@ -82,22 +82,89 @@
     renderLeadership(data) {
       const el = document.getElementById('about-leadership');
       if (!el) return;
-      const list = PS.items(data);
-      if (!list.length) { el.innerHTML = PS.emptyHTML(); return; }
-      el.innerHTML = list.map((l) => {
-        const nameParts = String(l.name || '').split(' ').filter(Boolean);
-        const initials = (nameParts.length ? nameParts[nameParts.length - 1] : 'A').charAt(0).toUpperCase();
-        const avatarBg = l.avatar_color || '#198754';
-        return '<div class="col-lg-2 col-md-4 col-6">' +
-          '<div class="text-center card-modern p-3 h-100 reveal">' +
-          (l.avatar_url
-            ? '<img src="' + S(l.avatar_url) + '" alt="' + S(l.name) + '" class="rounded-circle mx-auto d-block mb-3 object-fit-cover" style="width:72px;height:72px;">'
-            : '<div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3 text-white fs-3 fw-bold" style="width:72px;height:72px;background:' + S(avatarBg) + '">' + S(initials) + '</div>') +
-          '<div class="fw-bold small">' + S(l.name) + '</div>' +
-          '<div class="text-success" style="font-size:.75rem;font-weight:600">' + S(l.title) + '</div>' +
-          (l.bio ? '<p class="text-muted mt-2 mb-0" style="font-size:.75rem">' + S(l.bio) + '</p>' : '') +
-          '</div></div>';
+      const levels = Array.isArray(data) ? data : [];
+      if (!levels.length) { el.innerHTML = PS.emptyHTML(); return; }
+
+      const fallbackColors = ['#198754', '#0d6efd', '#6f42c1', '#fd7e14', '#dc3545'];
+
+      function renderCard(member, colorIdx) {
+        const nameParts = String(member.name || '').split(' ').filter(Boolean);
+        const initials = (nameParts.length > 1
+          ? nameParts.slice(0, 2).map(function (p) { return p.charAt(0); }).join('')
+          : (nameParts.length ? nameParts[0].slice(0, 2) : 'KA')).toUpperCase();
+        const color = fallbackColors[colorIdx % fallbackColors.length];
+        const avatar = member.avatar_url
+          ? '<img src="' + S(member.avatar_url) + '" alt="' + S(member.name) + '" class="leadership-avatar-img" loading="lazy">'
+          : '<span class="leadership-avatar-initials" style="background:linear-gradient(135deg,' + color + ',var(--green-dark))">' + S(initials) + '</span>';
+        return '<div class="leadership-card h-100 reveal" style="--lead-accent:' + color + '">' +
+          '<div class="leadership-avatar">' + avatar + '</div>' +
+          '<h5 class="leadership-name">' + S(member.name) + '</h5>' +
+          (member.position_name ? '<div class="leadership-role">' + S(member.position_name) + '</div>' : '') +
+          (member.bio ? '<p class="leadership-bio">' + S(member.bio) + '</p>' : '') +
+          '</div>';
+      }
+
+      function renderCarousel(members, carouselId, colorBase) {
+        var perSlide = 4;
+        var slides = [];
+        for (var i = 0; i < members.length; i += perSlide) {
+          slides.push(members.slice(i, i + perSlide));
+        }
+        if (!slides.length) return '<p class="text-muted fst-italic">No members assigned yet.</p>';
+
+        var items = slides.map(function (group, idx) {
+          var cols = group.map(function (m, gIdx) {
+            return '<div class="col-lg-3 col-md-6 col-6">' + renderCard(m, colorBase + gIdx) + '</div>';
+          }).join('');
+          return '<div class="carousel-item' + (idx === 0 ? ' active' : '') + '">' +
+            '<div class="row g-3 justify-content-center">' + cols + '</div></div>';
+        }).join('');
+
+        var indicators = slides.map(function (_, idx) {
+          return '<button type="button" data-bs-target="#' + carouselId + '" data-bs-slide-to="' + idx + '"' +
+            (idx === 0 ? ' class="active" aria-current="true"' : '') +
+            ' aria-label="Slide ' + (idx + 1) + '"></button>';
+        }).join('');
+
+        return '<div id="' + carouselId + '" class="carousel slide" data-bs-ride="carousel" data-bs-interval="6000">' +
+          '<div class="carousel-indicators mb-4">' + indicators + '</div>' +
+          '<div class="carousel-inner">' + items + '</div>' +
+          '<button class="carousel-control-prev" type="button" data-bs-target="#' + carouselId + '" data-bs-slide="prev">' +
+          '<span class="carousel-control-prev-icon" aria-hidden="true"></span>' +
+          '<span class="visually-hidden">Previous</span></button>' +
+          '<button class="carousel-control-next" type="button" data-bs-target="#' + carouselId + '" data-bs-slide="next">' +
+          '<span class="carousel-control-next-icon" aria-hidden="true"></span>' +
+          '<span class="visually-hidden">Next</span></button>' +
+          '</div>';
+      }
+
+      var colorIdx = 0;
+      el.innerHTML = levels.map(function (level) {
+        var members = Array.isArray(level.members) ? level.members : [];
+        var isTeaching = String(level.level_name || '').toLowerCase() === 'teaching staff';
+        var levelName = S(level.level_name || 'Level');
+        var baseColor = colorIdx;
+
+        var body;
+        if (!members.length) {
+          body = '<p class="text-muted fst-italic">No members assigned yet.</p>';
+        } else if (isTeaching) {
+          body = renderCarousel(members, 'leadership-carousel-' + level.level_id, baseColor);
+        } else {
+          body = '<div class="row g-4 justify-content-center">' +
+            members.map(function (m) {
+              return '<div class="col-12 col-sm-6 col-lg-4">' + renderCard(m, baseColor) + '</div>';
+            }).join('') +
+            '</div>';
+        }
+
+        colorIdx += members.length || 1;
+        return '<div class="mb-5 reveal">' +
+          '<h4 class="fw-bold text-dark mb-4 text-center">' + levelName + '</h4>' +
+          body +
+          '</div>';
       }).join('');
+
       if (window.PublicUI && window.PublicUI.observeReveals) window.PublicUI.observeReveals(el);
     },
 

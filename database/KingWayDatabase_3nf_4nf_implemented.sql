@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Aug 20, 2026 at 01:49 PM
+-- Generation Time: Aug 20, 2026 at 02:52 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -5196,6 +5196,55 @@ CREATE DEFINER=`root`@`localhost` FUNCTION `fn_generate_admission_no` (`p_year` 
     END IF;
 
     SET v_result = REPLACE(v_format, '{year}', CONVERT(p_year, CHAR) COLLATE utf8mb4_unicode_ci);
+    IF LOCATE('{seq:', v_result) > 0 THEN
+        SET v_pad_str = SUBSTRING(SUBSTRING_INDEX(v_result, '{seq:', -1), 1,
+            LOCATE('}', SUBSTRING_INDEX(v_result, '{seq:', -1)) - 1);
+        IF v_pad_str REGEXP '^[0-9]+$' THEN SET v_pad = CAST(v_pad_str AS UNSIGNED); END IF;
+        IF v_pad < 1 THEN SET v_pad = 1; END IF;
+        SET v_seq_str = LPAD(v_seq, v_pad, '0');
+        SET v_result = REGEXP_REPLACE(v_result, '\\{seq:[0-9]+\\}', v_seq_str);
+    ELSE
+        SET v_result = REPLACE(v_result, '{seq}', CONVERT(v_seq, CHAR) COLLATE utf8mb4_unicode_ci);
+    END IF;
+    RETURN v_result;
+END$$
+
+DROP FUNCTION IF EXISTS `fn_generate_staff_no`$$
+CREATE DEFINER=`root`@`localhost` FUNCTION `fn_generate_staff_no` () RETURNS VARCHAR(40) CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci MODIFIES SQL DATA BEGIN
+    DECLARE v_seq INT;
+    DECLARE v_format VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    DECLARE v_start INT DEFAULT 1;
+    DECLARE v_seq_str VARCHAR(40);
+    DECLARE v_pad_str VARCHAR(10);
+    DECLARE v_pad INT DEFAULT 0;
+    DECLARE v_result VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+    
+    SELECT setting_value INTO v_format FROM school_settings
+    WHERE setting_key = 'staff_no_format' LIMIT 1;
+    IF v_format IS NULL OR v_format = '' THEN SET v_format = 'KPST#{seq}'; END IF;
+
+    
+    SELECT CAST(setting_value AS UNSIGNED) INTO v_start FROM school_settings
+    WHERE setting_key = 'staff_no_start_sequence' LIMIT 1;
+    IF v_start IS NULL OR v_start < 1 THEN SET v_start = 1; END IF;
+
+    
+    
+    SELECT last_seq INTO v_seq FROM number_sequences
+    WHERE context = 'staff_number' AND seq_year = 0 FOR UPDATE;
+    IF v_seq IS NULL THEN
+        SET v_seq = v_start;
+        INSERT INTO number_sequences (context, seq_year, last_seq)
+        VALUES ('staff_number', 0, v_seq);
+    ELSE
+        SET v_seq = v_seq + 1;
+        UPDATE number_sequences SET last_seq = v_seq
+        WHERE context = 'staff_number' AND seq_year = 0;
+    END IF;
+
+    
+    SET v_result = v_format;
     IF LOCATE('{seq:', v_result) > 0 THEN
         SET v_pad_str = SUBSTRING(SUBSTRING_INDEX(v_result, '{seq:', -1), 1,
             LOCATE('}', SUBSTRING_INDEX(v_result, '{seq:', -1)) - 1);
@@ -26737,7 +26786,7 @@ INSERT IGNORE INTO `notifications` (`id`, `user_id`, `type`, `title`, `message`,
 -- Table structure for table `number_sequences`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
+-- Last update: Aug 20, 2026 at 12:40 PM
 --
 
 DROP TABLE IF EXISTS `number_sequences`;
@@ -26762,7 +26811,8 @@ TRUNCATE TABLE `number_sequences`;
 --
 
 INSERT IGNORE INTO `number_sequences` (`context`, `seq_year`, `last_seq`) VALUES
-('student_admission', 0, 112),
+('staff_number', 0, 39),
+('student_admission', 0, 12),
 ('student_admission', 2026, 5);
 
 -- --------------------------------------------------------
@@ -83141,7 +83191,7 @@ INSERT IGNORE INTO `school_programs` (`id`, `name`, `level_range`, `icon`, `colo
 -- Table structure for table `school_settings`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
+-- Last update: Aug 20, 2026 at 12:35 PM
 --
 
 DROP TABLE IF EXISTS `school_settings`;
@@ -83153,7 +83203,7 @@ CREATE TABLE IF NOT EXISTS `school_settings` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_key` (`setting_key`)
-) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=68 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `school_settings`:
@@ -83232,7 +83282,9 @@ INSERT IGNORE INTO `school_settings` (`id`, `setting_key`, `setting_value`, `lab
 (61, 'system.default_rate_limit', '60', 'Default API requests per minute', '2026-07-22 22:04:32'),
 (62, 'security.remember_me_days', '14', 'Remember Me Duration (Days)', '2026-07-28 11:12:08'),
 (63, 'admission_no_format', 'KPS{seq}', 'Admission Number Format', '2026-08-20 11:27:07'),
-(64, 'admission_no_start_sequence', '111', 'First admission sequence number', '2026-08-20 11:27:07');
+(64, 'admission_no_start_sequence', '1', 'First admission sequence number', '2026-08-20 12:35:36'),
+(66, 'staff_no_format', 'KPST#{seq}', 'Staff Number Format', '2026-08-20 12:16:40'),
+(67, 'staff_no_start_sequence', '1', 'First staff sequence number', '2026-08-20 12:16:40');
 
 -- --------------------------------------------------------
 
@@ -84204,6 +84256,7 @@ TRUNCATE TABLE `sports_team_members`;
 -- Table structure for table `staff`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
+-- Last update: Aug 20, 2026 at 12:29 PM
 --
 
 DROP TABLE IF EXISTS `staff`;
@@ -84245,44 +84298,44 @@ TRUNCATE TABLE `staff`;
 --
 
 INSERT IGNORE INTO `staff` (`id`, `person_id`, `staff_no`, `staff_type_id`, `staff_category_id`, `position`, `contract_type`, `employment_date`, `status`, `supervisor_id`, `salary`, `bank_name`, `bank_account`, `created_at`, `updated_at`) VALUES
-(32, 32, 'KWPS009', 3, NULL, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:28', '2026-05-23 20:10:37'),
-(33, 33, 'KWPS010', 2, 7, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:28', '2026-05-23 20:10:37'),
-(34, 34, 'KWPS011', 2, 9, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-05-23 20:10:37'),
-(35, 35, 'KWPS012', 2, 21, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-05-23 20:10:37'),
-(36, 36, 'KWPS013', 2, 13, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-05-23 20:10:37'),
-(37, 37, 'KWPS014', 3, 12, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-05-23 20:10:37'),
-(38, 38, 'KWPS015', 3, 10, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-05-23 20:10:37'),
-(39, 39, 'KWPS016', 3, 16, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-05-23 20:10:37'),
-(40, 2, 'KWPS017', 3, 14, 'Director', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000040', '2025-12-21 14:12:19', '2026-08-18 19:35:02'),
-(42, 4, 'KWPS018', 3, 15, 'Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', '145355657', '2025-12-21 14:12:20', '2026-08-18 19:35:02'),
-(43, 5, 'KWPS019', 3, 16, 'Deputy Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000043', '2025-12-21 14:12:20', '2026-08-18 19:35:02'),
-(44, 6, 'KWPS020', 1, 4, 'Class Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000044', '2025-12-21 14:12:20', '2026-08-18 19:35:02'),
-(45, 7, 'KWPS021', 1, 6, 'Subject Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000045', '2025-12-21 14:12:20', '2026-08-18 19:35:02'),
-(46, 8, 'KWPS022', 1, 8, 'Intern Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000046', '2025-12-21 14:12:21', '2026-08-18 19:35:02'),
-(47, 9, 'KWPS023', 3, 18, 'Accountant', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000047', '2025-12-21 14:12:21', '2026-08-18 19:35:02'),
-(49, 11, 'KWPS024', 2, 13, 'Cateress / Cook', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000049', '2025-12-21 14:12:21', '2026-08-18 19:35:02'),
-(50, 12, 'KWPS025', 3, 22, 'Boarding Master', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000050', '2025-12-21 14:12:21', '2026-08-18 19:35:02'),
-(51, 13, 'KWPS026', 2, 7, 'Talent Development Coordinator', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000051', '2025-12-21 14:12:21', '2026-08-18 19:35:02'),
-(52, 14, 'KWPS027', 2, 9, 'Driver', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000052', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(53, 15, 'KWPS028', 2, 21, 'Chaplain', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000053', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(54, 16, 'KWPS029', 2, 13, 'Cateress / Cook', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000054', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(55, 17, 'KWPS030', 3, 12, 'Security Officer', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000055', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(56, 18, 'KWPS031', 3, 10, 'Cleaner', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000056', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(57, 19, 'KWPS032', 3, 16, 'Deputy Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000057', '2025-12-21 14:12:22', '2026-08-18 19:35:02'),
-(98, 20, 'KWPS033', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:44', '2026-08-18 19:35:02'),
-(99, 21, 'KWPS034', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:44', '2026-08-18 19:35:02'),
-(100, 22, 'KWPS035', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:45', '2026-08-18 19:35:02'),
-(101, 23, 'KWPS036', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:46', '2026-08-18 19:35:02'),
-(102, 24, 'KWPS037', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:47', '2026-08-18 19:35:02'),
-(103, 25, 'KWPS038', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:48', '2026-08-18 19:35:02'),
-(104, 26, 'KWPS039', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:49', '2026-08-18 19:35:02'),
-(105, 27, 'KWPS040', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:49', '2026-08-18 19:35:02'),
-(106, 28, 'KWPS041', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:50', '2026-08-18 19:35:02'),
-(107, 29, 'KWPS042', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:51', '2026-08-18 19:35:02'),
-(108, 30, 'KWPS043', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:52', '2026-08-18 19:35:02'),
-(109, 31, 'KWPS044', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:53', '2026-08-18 19:35:02'),
-(110, 3, 'KWPS045', 3, 17, 'School Administrator', 'permanent', '2026-01-02', 'active', NULL, 65000.00, 'KCB Bank', 'TEST-KCB-000045', '2026-08-18 19:34:20', '2026-08-18 19:35:02'),
-(111, 10, 'KWPS046', 3, 17, 'Inventory Manager', 'permanent', '2026-01-02', 'active', NULL, 45000.00, 'KCB Bank', 'TEST-KCB-000046', '2026-08-18 19:34:20', '2026-08-18 19:35:02');
+(32, 32, 'KPST#31', 3, NULL, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:28', '2026-08-20 12:29:41'),
+(33, 33, 'KPST#32', 2, 7, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:28', '2026-08-20 12:29:41'),
+(34, 34, 'KPST#33', 2, 9, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-08-20 12:29:41'),
+(35, 35, 'KPST#34', 2, 21, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-08-20 12:29:41'),
+(36, 36, 'KPST#35', 2, 13, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:29', '2026-08-20 12:29:41'),
+(37, 37, 'KPST#36', 3, 12, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-08-20 12:29:41'),
+(38, 38, 'KPST#37', 3, 10, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-08-20 12:29:41'),
+(39, 39, 'KPST#38', 3, 16, 'Staff', 'permanent', '2025-12-21', 'active', NULL, 25000.00, NULL, NULL, '2025-12-21 14:09:30', '2026-08-20 12:29:41'),
+(40, 2, 'KPST#2', 3, 14, 'Director', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000040', '2025-12-21 14:12:19', '2026-08-20 12:29:41'),
+(42, 4, 'KPST#3', 3, 15, 'Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', '145355657', '2025-12-21 14:12:20', '2026-08-20 12:29:41'),
+(43, 5, 'KPST#4', 3, 16, 'Deputy Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000043', '2025-12-21 14:12:20', '2026-08-20 12:29:41'),
+(44, 6, 'KPST#6', 1, 4, 'Class Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000044', '2025-12-21 14:12:20', '2026-08-20 12:29:41'),
+(45, 7, 'KPST#19', 1, 6, 'Subject Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000045', '2025-12-21 14:12:20', '2026-08-20 12:29:41'),
+(46, 8, 'KPST#20', 1, 8, 'Intern Teacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000046', '2025-12-21 14:12:21', '2026-08-20 12:29:41'),
+(47, 9, 'KPST#21', 3, 18, 'Accountant', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000047', '2025-12-21 14:12:21', '2026-08-20 12:29:41'),
+(49, 11, 'KPST#27', 2, 13, 'Cateress / Cook', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000049', '2025-12-21 14:12:21', '2026-08-20 12:29:41'),
+(50, 12, 'KPST#23', 3, 22, 'Boarding Master', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000050', '2025-12-21 14:12:21', '2026-08-20 12:29:41'),
+(51, 13, 'KPST#25', 2, 7, 'Talent Development Coordinator', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000051', '2025-12-21 14:12:21', '2026-08-20 12:29:41'),
+(52, 14, 'KPST#26', 2, 9, 'Driver', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000052', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(53, 15, 'KPST#24', 2, 21, 'Chaplain', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000053', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(54, 16, 'KPST#28', 2, 13, 'Cateress / Cook', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000054', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(55, 17, 'KPST#29', 3, 12, 'Security Officer', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000055', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(56, 18, 'KPST#30', 3, 10, 'Cleaner', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000056', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(57, 19, 'KPST#5', 3, 16, 'Deputy Headteacher', 'permanent', '2025-12-21', 'active', NULL, 25000.00, 'KCB Bank', 'TEST-KCB-000057', '2025-12-21 14:12:22', '2026-08-20 12:29:41'),
+(98, 20, 'KPST#7', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:44', '2026-08-20 12:29:41'),
+(99, 21, 'KPST#8', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:44', '2026-08-20 12:29:41'),
+(100, 22, 'KPST#9', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:45', '2026-08-20 12:29:41'),
+(101, 23, 'KPST#10', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:46', '2026-08-20 12:29:41'),
+(102, 24, 'KPST#11', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:47', '2026-08-20 12:29:41'),
+(103, 25, 'KPST#12', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:48', '2026-08-20 12:29:41'),
+(104, 26, 'KPST#13', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:49', '2026-08-20 12:29:41'),
+(105, 27, 'KPST#14', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:49', '2026-08-20 12:29:41'),
+(106, 28, 'KPST#15', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:50', '2026-08-20 12:29:41'),
+(107, 29, 'KPST#16', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:51', '2026-08-20 12:29:41'),
+(108, 30, 'KPST#17', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:52', '2026-08-20 12:29:41'),
+(109, 31, 'KPST#18', 1, 6, 'Class Teacher', 'permanent', '2026-01-11', 'active', NULL, 42000.00, 'KCB Bank', '0000', '2026-01-11 13:18:53', '2026-08-20 12:29:41'),
+(110, 3, 'KPST#1', 3, 17, 'School Administrator', 'permanent', '2026-01-02', 'active', NULL, 65000.00, 'KCB Bank', 'TEST-KCB-000045', '2026-08-18 19:34:20', '2026-08-20 12:29:41'),
+(111, 10, 'KPST#22', 3, 17, 'Inventory Manager', 'permanent', '2026-01-02', 'active', NULL, 45000.00, 'KCB Bank', 'TEST-KCB-000046', '2026-08-18 19:34:20', '2026-08-20 12:29:41');
 
 -- --------------------------------------------------------
 
@@ -86717,7 +86770,7 @@ INSERT IGNORE INTO `streams` (`id`, `name`, `code`, `capacity`) VALUES
 -- Table structure for table `students`
 --
 -- Creation: Aug 15, 2026 at 03:50 AM
--- Last update: Aug 20, 2026 at 11:27 AM
+-- Last update: Aug 20, 2026 at 12:40 PM
 --
 
 DROP TABLE IF EXISTS `students`;
@@ -86757,17 +86810,17 @@ TRUNCATE TABLE `students`;
 --
 
 INSERT IGNORE INTO `students` (`id`, `person_id`, `admission_no`, `student_type_id`, `assessment_number`, `assessment_status`, `nemis_number`, `nemis_status`, `status`, `application_id`, `admission_date`, `blood_group`, `created_at`, `updated_at`) VALUES
-(1, 40, 'KA-2026-0005', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', 1, '2026-08-19', NULL, '2026-08-19 19:51:22', '2026-08-19 19:51:22'),
-(2, 41, 'IMP-TEST-2026-002', 1, 'TEST-ASSESS-002', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:12', '2026-08-20 10:54:12'),
-(3, 43, 'IMP-TEST-2026-001', 1, 'TEST-ASSESS-001', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:21', '2026-08-20 10:54:21'),
-(4, 45, 'IMP-TEST-2026-003', 1, 'TEST-ASSESS-003', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:57:20', '2026-08-20 10:57:20'),
-(5, 47, 'IMP-TEST-2026-004', 1, 'TEST-ASSESS-004', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:58:32', '2026-08-20 10:58:32'),
-(6, 49, 'IMP-TEST-2026-005', 1, 'TEST-ASSESS-005', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:59:14', '2026-08-20 10:59:14'),
-(7, 51, 'IMP-TEST-2026-006', 1, 'TEST-ASSESS-006', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:00:01', '2026-08-20 11:00:01'),
-(8, 53, 'IMP-FIN-2026-007', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:12:14', '2026-08-20 11:12:14'),
-(9, 55, 'CURL-MODAL-2026-001', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:18:27', '2026-08-20 11:18:27'),
-(10, 57, 'KPS111', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:36', '2026-08-20 11:27:36'),
-(11, 59, 'KPS112', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:46', '2026-08-20 11:27:46');
+(1, 40, 'KPS1', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', 1, '2026-08-19', NULL, '2026-08-19 19:51:22', '2026-08-20 12:40:08'),
+(2, 41, 'KPS2', 1, 'TEST-ASSESS-002', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:12', '2026-08-20 12:40:08'),
+(3, 43, 'KPS3', 1, 'TEST-ASSESS-001', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:54:21', '2026-08-20 12:40:08'),
+(4, 45, 'KPS4', 1, 'TEST-ASSESS-003', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:57:20', '2026-08-20 12:40:08'),
+(5, 47, 'KPS5', 1, 'TEST-ASSESS-004', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:58:32', '2026-08-20 12:40:08'),
+(6, 49, 'KPS6', 1, 'TEST-ASSESS-005', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 10:59:14', '2026-08-20 12:40:08'),
+(7, 51, 'KPS7', 1, 'TEST-ASSESS-006', 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:00:01', '2026-08-20 12:40:09'),
+(8, 53, 'KPS8', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:12:14', '2026-08-20 12:40:09'),
+(9, 55, 'KPS9', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:18:27', '2026-08-20 12:40:09'),
+(10, 57, 'KPS10', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:36', '2026-08-20 12:40:09'),
+(11, 59, 'KPS11', 1, NULL, 'not_assigned', NULL, 'not_assigned', 'active', NULL, '2026-08-20', NULL, '2026-08-20 11:27:46', '2026-08-20 12:40:09');
 
 --
 -- Triggers `students`

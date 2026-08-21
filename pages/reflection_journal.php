@@ -104,4 +104,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/reflection_journal.js"></script>
+<?php asset_script($appBase, 'js/pages/reflection_journal.js'); ?>

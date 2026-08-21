@@ -173,4 +173,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/finance_approvals.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/finance_approvals.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/finance_approvals.js'); ?>

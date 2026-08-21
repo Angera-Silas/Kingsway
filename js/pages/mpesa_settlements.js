@@ -35,7 +35,7 @@
          */
         loadData: async function () {
             try {
-                var response = await API.payments.getUnmatchedMpesa();
+                var response = await API.payments.getMpesaSettlements();
                 this.data = (response && response.transactions) ? response.transactions : [];
                 if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
@@ -65,7 +65,7 @@
                 return sum + (parseFloat(s.amount) || 0);
             }, 0);
             var pendingAmount = this.data.filter(function (s) {
-                return (s.status || "").toLowerCase() === "pending";
+                return ["pending", "pending_callback"].indexOf((s.settlement_status || s.status || "").toLowerCase()) !== -1;
             }).reduce(function (sum, s) {
                 return sum + (parseFloat(s.amount) || 0);
             }, 0);
@@ -100,7 +100,7 @@
             if (!tbody) return;
 
             if (this.filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4">' +
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4">' +
                     '<i class="fas fa-mobile-alt fa-3x text-muted mb-3 d-block"></i>' +
                     '<p class="text-muted mb-0">No M-Pesa settlements found</p></td></tr>';
                 this.updateTableInfo(0);
@@ -115,9 +115,8 @@
             var html = "";
 
             pageItems.forEach(function (settlement, index) {
-                var statusBadge = self.getStatusBadge(settlement.status);
+                var statusBadge = self.getStatusBadge(settlement.settlement_status || settlement.status);
                 var grossAmount = parseFloat(settlement.amount) || 0;
-                var charges = 0;
                 var netAmount = grossAmount;
 
                 html += '<tr>' +
@@ -127,12 +126,13 @@
                     '<td>' + self.escapeHtml(settlement.phone_number || "-") + '</td>' +
                     '<td class="text-center">1</td>' +
                     '<td class="text-end">KES ' + self.formatCurrency(grossAmount) + '</td>' +
-                    '<td class="text-end text-danger">KES 0.00</td>' +
                     '<td class="text-end fw-bold text-success">KES ' + self.formatCurrency(netAmount) + '</td>' +
-                    '<td class="text-center">' + statusBadge + '</td>' +
+                    '<td class="text-center">' + statusBadge + '<div class="small text-muted mt-1" title="' + self.escapeHtml(settlement.status_reason || '') + '">' + self.escapeHtml(self.shortReason(settlement.status_reason)) + '</div></td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
                             '<button class="btn btn-outline-primary" onclick="MpesaSettlementsController.viewDetails(' + settlement.id + ')" title="View Details"><i class="fas fa-eye"></i></button>' +
+                            (settlement.can_reconcile ? '<button class="btn btn-outline-warning" onclick="MpesaSettlementsController.openReconciliation()" title="Reconcile / allocate"><i class="fas fa-link"></i></button>' : '') +
+                            (settlement.checkout_request_id && settlement.settlement_status === 'pending_callback' ? '<button class="btn btn-outline-info" onclick="MpesaSettlementsController.queryStatus(' + settlement.id + ')" title="Query provider status"><i class="fas fa-sync"></i></button>' : '') +
                             '<button class="btn btn-outline-secondary" onclick="MpesaSettlementsController.exportSettlement(' + settlement.id + ')" title="Export"><i class="fas fa-download"></i></button>' +
                         '</div>' +
                     '</td>' +
@@ -154,7 +154,7 @@
             var statusFilter = document.getElementById("msStatusFilter")?.value || "";
 
             this.filtered = this.data.filter(function (settlement) {
-                if (statusFilter && (settlement.status || "") !== statusFilter) return false;
+                if (statusFilter && (settlement.settlement_status || settlement.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
 
                 var sDate = settlement.transaction_date || settlement.created_at || "";
                 if (dateFrom && sDate && new Date(sDate) < new Date(dateFrom)) return false;
@@ -162,7 +162,7 @@
 
                 if (search) {
                     var hay = ((settlement.mpesa_code || "") + " " + (settlement.phone_number || "") + " " +
-                        (settlement.status || "")).toLowerCase();
+                        (settlement.settlement_status || settlement.status || "") + " " + (settlement.status_reason || "")).toLowerCase();
                     if (hay.indexOf(search) === -1) return false;
                 }
                 return true;
@@ -200,6 +200,10 @@
             document.getElementById("detailDate").textContent = this.formatDate(settlement.transaction_date || settlement.created_at);
             var netAmount = parseFloat(settlement.amount) || 0;
             document.getElementById("detailNetAmount").textContent = "KES " + this.formatCurrency(netAmount);
+            var detailStatus = document.getElementById("detailStatus");
+            if (detailStatus) detailStatus.innerHTML = this.getStatusBadge(settlement.settlement_status || settlement.status) + '<div class="small text-muted mt-1">' + this.escapeHtml(settlement.status_reason || "") + '</div>';
+            var detailStudent = document.getElementById("detailStudent");
+            if (detailStudent) detailStudent.textContent = settlement.admission_no ? settlement.admission_no + " — " + ([settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "") : "Not linked";
 
             // Render the single transaction breakdown
             var transBody = document.getElementById("settlementTransactionsBody");
@@ -234,8 +238,6 @@
             if (!settlement) return;
 
             var grossAmount = parseFloat(settlement.amount) || 0;
-            var charges = 0;
-            var netAmount = grossAmount;
             var name = [settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "-";
 
             var csv = "M-Pesa Settlement Report\n";
@@ -243,10 +245,9 @@
             csv += "Date," + this.formatDate(settlement.transaction_date || settlement.created_at) + "\n";
             csv += "Phone," + (settlement.phone_number || "-") + "\n";
             csv += "Name," + name + "\n";
-            csv += "Gross Amount (KES)," + grossAmount + "\n";
-            csv += "Charges (KES)," + charges + "\n";
-            csv += "Net Amount (KES)," + netAmount + "\n";
-            csv += "Status," + (settlement.status || "-") + "\n";
+            csv += "Amount (KES)," + grossAmount + "\n";
+            csv += "Status," + (settlement.settlement_status || settlement.status || "-") + "\n";
+            csv += "Reason," + (settlement.status_reason || "-") + "\n";
 
             KingswayFileLifecycle.exportText(csv, "mpesa_settlement_" + (settlement.mpesa_code || settlement.id) + ".csv", "text/csv");
             this.showNotification("Settlement exported", "success");
@@ -263,7 +264,6 @@
 
             const settlement = this.currentSettlement;
             const gross = Number(settlement.amount || 0);
-            const charges = 0;
             const net = gross;
             const name = [settlement.first_name, settlement.middle_name, settlement.last_name].filter(Boolean).join(" ") || "—";
 
@@ -277,10 +277,9 @@
                         { label: "M-Pesa Code", value: settlement.mpesa_code || settlement.id },
                         { label: "Phone", value: settlement.phone_number || "—" },
                         { label: "Name", value: name },
-                        { label: "Gross Amount", value: `KSh ${gross.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
-                        { label: "Charges", value: `KSh 0.00` },
-                        { label: "Net Amount", value: `KSh ${net.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
-                        { label: "Status", value: settlement.status || "—" },
+                        { label: "Amount", value: `KSh ${gross.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
+                        { label: "Status", value: settlement.settlement_status || settlement.status || "—" },
+                        { label: "Reason", value: settlement.status_reason || "—" },
                     ],
                 }],
                 reportCode: `MPESA-SETTLEMENT-${settlement.id}`,
@@ -296,7 +295,7 @@
          * Export all settlements as CSV
          */
         exportCSV: function () {
-            var headers = ["#", "Date", "M-Pesa Code", "Phone Number", "Name", "Amount (KES)", "Status"];
+            var headers = ["#", "Date", "M-Pesa Code", "Phone Number", "Name", "Amount (KES)", "Status", "Reason"];
             var self = this;
             var rows = this.filtered.map(function (s, i) {
                 var name = [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(" ") || "";
@@ -308,7 +307,8 @@
                     s.phone_number || "",
                     name.replace(/,/g, " "),
                     s.amount || 0,
-                    s.status || ""
+                    s.settlement_status || s.status || "",
+                    s.status_reason || ""
                 ];
             });
 
@@ -384,7 +384,32 @@
                 failed: '<span class="badge bg-danger">Failed</span>',
                 processing: '<span class="badge bg-info">Processing</span>'
             };
+            map.posted = '<span class="badge bg-success">Posted</span>';
+            map.received_unallocated = '<span class="badge bg-warning text-dark">Received · Unallocated</span>';
+            map.pending_callback = '<span class="badge bg-warning text-dark">Pending callback</span>';
+            map.pending = '<span class="badge bg-secondary">Pending</span>';
             return map[s] || '<span class="badge bg-secondary">' + (status || "Unknown") + '</span>';
+        },
+
+        shortReason: function (reason) {
+            if (!reason) return "";
+            return reason.length > 42 ? reason.substring(0, 39) + "…" : reason;
+        },
+
+        openReconciliation: function () {
+            window.location.href = (window.APP_BASE || "") + "/home.php?route=mpesa_reconciliation";
+        },
+
+        queryStatus: async function (id) {
+            var row = this.data.find(function (s) { return s.id === id; });
+            if (!row || !row.checkout_request_id) return;
+            try {
+                await API.payments.stkQuery({ checkout_request_id: row.checkout_request_id });
+                this.showNotification("Provider status query sent; refresh shortly for the callback result.", "info");
+                await this.loadData();
+            } catch (error) {
+                this.showNotification(error.message || "Unable to query provider status", "error");
+            }
         },
 
         formatCurrency: function (amount) {

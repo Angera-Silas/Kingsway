@@ -198,4 +198,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/adjustments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/adjustments.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/adjustments.js'); ?>

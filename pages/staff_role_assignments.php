@@ -67,4 +67,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/staff_role_assignments.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_role_assignments.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_role_assignments.js'); ?>

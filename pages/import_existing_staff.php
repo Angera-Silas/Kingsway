@@ -21,4 +21,4 @@
   <div class="card shadow-sm border-0 mt-4"><div class="card-header bg-transparent fw-semibold">Import history</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th scope="col">Batch</th><th scope="col">File</th><th scope="col">Rows</th><th scope="col">Status</th><th scope="col">Imported by</th><th scope="col">Date</th><th scope="col">Actions</th></tr></thead><tbody id="smBatches"><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody></table></div></div>
 </div>
 <?php $importExistingStaffJs = __DIR__ . '/../js/pages/import_existing_staff.js'; ?>
-<script src="<?= $appBase ?>/js/pages/import_existing_staff.js?v=<?= file_exists($importExistingStaffJs) ? filemtime($importExistingStaffJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/import_existing_staff.js'); ?>

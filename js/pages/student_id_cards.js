@@ -912,7 +912,7 @@ const StudentIdCardsController = {
 
     renderCardPreview: function(data) {
         const student = data.student || {};
-        const school = data.school_settings || data.school_profile || {};
+        const school = data.school_profile || data.school_settings || {};
         const appBase = window.APP_BASE || "";
         const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
         const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);

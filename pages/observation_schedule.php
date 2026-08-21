@@ -126,4 +126,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/observation_schedule.js"></script>
+<?php asset_script($appBase, 'js/pages/observation_schedule.js'); ?>

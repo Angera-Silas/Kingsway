@@ -38,6 +38,7 @@
         "phpunit/phpunit": "^10.0"
     },
     "scripts": {
-        "test": "phpunit"
+        "test": "phpunit",
+        "check:assets": "php scripts/check_asset_versioning.php"
     }
 }

@@ -142,10 +142,10 @@ final class StaffDomainAccessService
     public function payrollEligibility(int $staffId): array
     {
         // Identity (first_name/last_name) now lives ONLY on persons; the payroll
-        // bank/KRA/NSSF/NHIF details moved to staff_payroll_profiles. staff.salary
-        // is kept as the canonical basic salary on the employee record.
+        // Payroll identity and compensation are sourced from the normalized
+        // payroll profile; staff is only the employment subtype.
         $staff = $this->db->query(
-            'SELECT s.id, s.staff_no, s.status, s.salary, s.employment_date,
+            'SELECT s.id, s.staff_no, s.status, COALESCE(spp.basic_salary,0) AS salary, s.employment_date,
                     p.first_name, p.last_name,
                     spp.bank_name, spp.bank_account, spp.kra_pin, spp.nssf_no, spp.nhif_no
              FROM staff s

@@ -58,16 +58,7 @@
               <input type="text" id="schoolAddress" class="form-control" required>
             </div>
           </div>
-          <div class="row mb-3">
-            <div class="col-md-6">
-              <label class="form-label">Principal Name</label>
-              <input type="text" id="principalName" class="form-control">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Deputy Principal Name</label>
-              <input type="text" id="deputyPrincipalName" class="form-control">
-            </div>
-          </div>
+          <p class="text-muted small"><i class="bi bi-info-circle me-1"></i> School leaders (Headteacher, Directors, Deputies) are managed in the <strong>Staff</strong> module — not here. They auto-appear on the public website.</p>
           <button type="submit" class="btn btn-primary">Save General Settings</button>
         </form>
       </div>
@@ -153,6 +144,23 @@
           </div>
           <button type="submit" class="btn btn-primary">Save Admission Number Format</button>
         </form>
+        <form id="staffNumberSettingsForm" class="border rounded p-3 mb-4 bg-light">
+          <h5 class="text-primary">Staff Numbers</h5>
+          <p class="text-muted mb-3">Format for auto-generated staff numbers across all modules (creation, onboarding, imports, drivers).</p>
+          <div class="row mb-3">
+            <div class="col-md-6">
+              <label class="form-label">Staff number format</label>
+              <input type="text" id="staffNoFormat" class="form-control" placeholder="KPST#{seq}" required>
+              <small class="text-muted">Use <code>{seq}</code> for KPST#1, or <code>{seq:03}</code> for KPST#001. Do not add <code>{year}</code> — staff numbers are always global.</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Starting sequence</label>
+              <input type="number" id="staffNoStartSequence" class="form-control" min="1" required>
+              <small class="text-muted">Used when this format has no existing sequence.</small>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Save Staff Number Format</button>
+        </form>
         <form id="systemSettingsForm">
           <div class="row mb-3">
             <div class="col-md-6">
@@ -186,4 +194,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/school_settings.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/school_settings.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/school_settings.js'); ?>

@@ -325,7 +325,7 @@
     </div>
 </div>
 
-<script src="js/pages/admissions_academic_applications.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/admissions_academic_applications.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/admissions_academic_applications.js'); ?>
 <script>
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {

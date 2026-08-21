@@ -180,4 +180,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/petty_cash.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/petty_cash.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/petty_cash.js'); ?>

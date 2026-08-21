@@ -153,4 +153,4 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/draft_fee_structure.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/draft_fee_structure.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/draft_fee_structure.js'); ?>

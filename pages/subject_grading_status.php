@@ -92,4 +92,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_grading_status.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_grading_status.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/subject_grading_status.js'); ?>

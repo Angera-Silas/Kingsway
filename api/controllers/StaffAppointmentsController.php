@@ -126,9 +126,9 @@ class StaffAppointmentsController extends BaseController
 
     private function actorId(): int
     {
-        $actorId = $this->service->staffIdForUser($this->user);
+        $actorId = (int)($this->user['id'] ?? $this->user['user_id'] ?? 0);
         if (!$actorId) {
-            throw new InvalidArgumentException('Staff user context is required');
+            throw new InvalidArgumentException('Authenticated user context is required');
         }
         return $actorId;
     }

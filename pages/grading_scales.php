@@ -188,5 +188,5 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/grading_scales.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/grading_scales.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/grading_scales.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => GradingScalesCtrl.init());</script>

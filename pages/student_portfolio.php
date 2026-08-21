@@ -291,4 +291,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_portfolio.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_portfolio.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/student_portfolio.js'); ?>

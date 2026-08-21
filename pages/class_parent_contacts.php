@@ -78,4 +78,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/class_parent_contacts.js"></script>
+<?php asset_script($appBase, 'js/pages/class_parent_contacts.js'); ?>

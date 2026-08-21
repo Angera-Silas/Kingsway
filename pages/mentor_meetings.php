@@ -135,4 +135,4 @@
     </div>
   </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/mentor_meetings.js"></script>
+<?php asset_script($appBase, 'js/pages/mentor_meetings.js'); ?>

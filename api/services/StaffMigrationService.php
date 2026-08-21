@@ -14,14 +14,15 @@ use Throwable;
 final class StaffMigrationService
 {
     private const REQUIRED = [
-        'staff_no','first_name','last_name','email','phone','department_code',
+        'first_name','last_name','email','phone','department_code',
         'position','employment_date','contract_type','role_name'
     ];
     private const OPTIONAL = [
-        'gender','date_of_birth','marital_status','staff_type','staff_category',
+        'staff_no','gender','date_of_birth','marital_status','staff_type','staff_category',
         'kra_pin','nssf_no','nhif_no','tsc_no','address','bank_name','bank_account',
         'salary','work_start_time','work_end_time','late_threshold_minutes',
-        'create_payroll_profile','basic_salary','communication_email','communication_phone'
+        'create_payroll_profile','basic_salary','communication_email','communication_phone',
+        'emergency_contact_name','emergency_contact_phone'
     ];
     private const ASSIGNABLE_SCHOOL_ROLES = [
         'Accountant',
@@ -397,16 +398,22 @@ final class StaffMigrationService
         $pid=$this->nextId('persons');
         $this->db->prepare("INSERT INTO persons(id,first_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?)")
             ->execute([$pid,$r['first_name'],$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
-        $this->db->prepare("INSERT INTO users(person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,'active',1,NOW(),NOW())")
-            ->execute([$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
         $uid=$this->nextId('users');
         $this->db->prepare("INSERT INTO users(id,person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,?,'active',1,NOW(),NOW())")
             ->execute([$uid,$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
         $roleStmt=$this->db->prepare("INSERT INTO user_roles(user_id,role_id,created_at) VALUES(?,?,NOW())");
         foreach($roleIds as $roleId)$roleStmt->execute([$uid,$roleId]);
+        // Auto-generate staff_no when blank; validate format when provided.
+        $staffNoSvc = new StaffNumberService($this->db->getConnection());
+        $staffNo = trim((string)($r['staff_no'] ?? ''));
+        if ($staffNo === '') {
+            $staffNo = $staffNoSvc->generate();
+        } elseif (!$staffNoSvc->isValid($staffNo)) {
+            throw new RuntimeException("Row: staff_no '$staffNo' does not match the configured format");
+        }
         $sid=$this->nextId('staff');
         $this->db->prepare("INSERT INTO staff(id,person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?)")
-            ->execute([$sid,$pid,$type,$cat,$r['staff_no'],$r['position'],strtolower($r['contract_type']),$r['employment_date'],$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
+            ->execute([$sid,$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
         $this->db->prepare("INSERT INTO staff_department_assignments(id,staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
             ->execute([$this->nextId('staff_department_assignments'),$sid,$dept,$r['position'],$r['employment_date']]);
         $this->db->prepare("INSERT INTO staff_employment_profiles(staff_id,department_id,position,employment_date,contract_type,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',NOW(),NOW())")
@@ -475,9 +482,9 @@ final class StaffMigrationService
         if(($r['date_of_birth']??'')&&!$this->validDate($r['date_of_birth']))$e[]='date_of_birth must be YYYY-MM-DD';
         if(!in_array(strtolower((string)($r['contract_type']??'')),['permanent','contract','temporary'],true))$e[]='contract_type is invalid';
         if(($r['gender']??'')&&!in_array(strtolower($r['gender']),['male','female','other'],true))$e[]='gender is invalid';
-        if(($r['staff_no']??'')&&$this->exists('staff','staff_no',$r['staff_no']))$e[]='staff_no already exists';
+        if(($r['staff_no']??'')!==''&&$this->exists('staff','staff_no',$r['staff_no']))$e[]='staff_no already exists';
         if(($r['email']??'')&&$this->exists('persons','email',$r['email']))$e[]='email already belongs to a user';
-        if(in_array(strtolower($r['staff_no']??''),$dupes['staff_no'],true))$e[]='staff_no is duplicated in this file';
+        if(($r['staff_no']??'')!==''&&in_array(strtolower($r['staff_no']),$dupes['staff_no'],true))$e[]='staff_no is duplicated in this file';
         if(in_array(strtolower($r['email']??''),$dupes['email'],true))$e[]='email is duplicated in this file';
         if(($r['department_code']??'')&&!$this->lookupExists('departments','code',$r['department_code'],"status='active'"))$e[]='department_code was not found or inactive';
         if(($r['role_name']??'')&&!$this->schoolRoleExists($r['role_name']))$e[]='role_name was not found, inactive, or not an assignable school role';
@@ -568,7 +575,7 @@ final class StaffMigrationService
     private function templateSample(): array
     {
         return [
-            'KWPS-001', 'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
+            '', 'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
             'ACA', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
             'female', '1993-02-10', 'single', 'Teaching', 'Teacher',
             'A123456789B', 'NSSF001', 'NHIF001', 'TSC001', 'Nairobi',

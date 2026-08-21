@@ -646,5 +646,5 @@
 </div>
 
 <!-- Link Controller Script -->
-<script src="js/pages/manage_students.js?v=<?= htmlspecialchars(asset_version('js/pages/manage_students.js'), ENT_QUOTES, 'UTF-8') ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_students.js'); ?>
 <script src="js/pages/student_schedule_extension.js?v=20260702"></script>

@@ -9,11 +9,11 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="bi bi-credit-card"></i> Student Fees Management</h4>
+            <div>
+                <h4 class="mb-0"><i class="bi bi-credit-card"></i> Student Fee Accounts</h4>
+                <small class="opacity-75">Balances, obligations and learner statements</small>
+            </div>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="payments_create">
-                    <i class="bi bi-plus-circle"></i> Record Payment
-                </button>
                 <button class="btn btn-outline-light btn-sm" id="exportBtn">
                     <i class="bi bi-download"></i> Export
                 </button>
@@ -22,6 +22,8 @@
     </div>
 
     <div class="card-body">
+        <div class="alert alert-light border small">This is the learner account view. To enter or reconcile a payment, use <strong>Payment Register</strong>.</div>
+
         <!-- Search & Filter -->
         <div class="row mb-4">
             <div class="col-md-3">
@@ -270,4 +272,4 @@
   </div>
 </div>
 
-<script src="<?= (defined("APP_BASE") ? APP_BASE : "/Kingsway") ?>/js/pages/student_fees.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_fees.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/student_fees.js'); ?>

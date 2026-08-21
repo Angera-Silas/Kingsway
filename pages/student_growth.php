@@ -223,5 +223,5 @@
 .sg-grade-row:hover { background:#f8f9fa; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/student_growth.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_growth.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/student_growth.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => studentGrowthCtrl.init());</script>

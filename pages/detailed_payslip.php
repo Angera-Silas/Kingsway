@@ -127,8 +127,8 @@
                         <td id="employeeNssf">-</td>
                     </tr>
                     <tr>
-                        <td class="text-muted">NHIF No:</td>
-                        <td id="employeeNhif">-</td>
+                        <td class="text-muted">SHIF No:</td>
+                        <td id="employeeShif">-</td>
                     </tr>
                     <tr>
                         <td class="text-muted">Bank Account:</td>
@@ -201,12 +201,22 @@
                         <h5 id="nssfAmount">KES 0.00</h5>
                     </div>
                     <div class="col-md-3 text-center">
-                        <small class="text-muted">NHIF</small>
-                        <h5 id="nhifAmount">KES 0.00</h5>
+                        <small class="text-muted">SHIF (employee)</small>
+                        <h5 id="shifAmount">KES 0.00</h5>
                     </div>
                     <div class="col-md-3 text-center">
                         <small class="text-muted">Housing Levy</small>
                         <h5 id="housingLevyAmount">KES 0.00</h5>
+                    </div>
+                </div>
+                <div class="row mt-3 border-top pt-3">
+                    <div class="col-md-6 text-center">
+                        <small class="text-muted">Employer NSSF (school cost)</small>
+                        <h6 id="employerNssfAmount">KES 0.00</h6>
+                    </div>
+                    <div class="col-md-6 text-center">
+                        <small class="text-muted">Employer Housing Levy (school cost)</small>
+                        <h6 id="employerHousingLevyAmount">KES 0.00</h6>
                     </div>
                 </div>
             </div>
@@ -567,5 +577,5 @@
     }
 
 
-</style><script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/detailed_payslip.js"></script>
+</style><?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/detailed_payslip.js'); ?>

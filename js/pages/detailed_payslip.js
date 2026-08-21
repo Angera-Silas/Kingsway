@@ -153,8 +153,8 @@ const DetailedPayslipController = {
       payslip.kra_pin || "-";
     document.getElementById("employeeNssf").textContent =
       payslip.nssf_number || "-";
-    document.getElementById("employeeNhif").textContent =
-      payslip.nhif_number || "-";
+    document.getElementById("employeeShif").textContent =
+      payslip.shif_number || payslip.nhif_number || "-";
     document.getElementById("employeeBankAccount").textContent =
       payslip.bank_name
         ? `${payslip.bank_name} - ${payslip.account_number || "***"}`
@@ -172,10 +172,14 @@ const DetailedPayslipController = {
       "KES " + this.formatNumber(statutory.paye || 0);
     document.getElementById("nssfAmount").textContent =
       "KES " + this.formatNumber(statutory.nssf || 0);
-    document.getElementById("nhifAmount").textContent =
-      "KES " + this.formatNumber(statutory.nhif || 0);
+    document.getElementById("shifAmount").textContent =
+      "KES " + this.formatNumber(statutory.shif ?? statutory.nhif ?? payslip.shif_deduction ?? payslip.nhif_deduction ?? 0);
     document.getElementById("housingLevyAmount").textContent =
-      "KES " + this.formatNumber(statutory.housing_levy || 0);
+      "KES " + this.formatNumber(statutory.housing_levy ?? payslip.housing_levy ?? 0);
+    document.getElementById("employerNssfAmount").textContent =
+      "KES " + this.formatNumber(payslip.employer_nssf_contribution || 0);
+    document.getElementById("employerHousingLevyAmount").textContent =
+      "KES " + this.formatNumber(payslip.employer_housing_levy || 0);
 
     // Populate children fee deductions
     this.populateChildrenFees(payslip.children_fee_deductions || []);
@@ -412,7 +416,7 @@ const DetailedPayslipController = {
         designation: staff.designation || staff.position || '',
         kraPin: staff.kra_pin || '',
         nssfNo: staff.nssf_no || '',
-        nhifNo: staff.nhif_no || '',
+        nhifNo: staff.shif_no || staff.nhif_no || '',
         period: payslip.period || new Date().toISOString().slice(0, 7),
         basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
         allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
@@ -420,7 +424,7 @@ const DetailedPayslipController = {
         statutory: {
           paye: payslip.paye || payslip.tax || 0,
           nssf: payslip.nssf || 0,
-          nhif_shif: payslip.nhif || payslip.shif || 0,
+          nhif_shif: payslip.shif || payslip.nhif || 0,
           housing_levy: payslip.housing_levy || 0,
         },
         grossPay: payslip.gross_pay || payslip.gross_salary || 0,

@@ -735,7 +735,7 @@ final class FinanceCrudService
 
     public function getStaffBasicSalary(int $staffId): float
     {
-        $stmt = $this->db->prepare("SELECT salary FROM staff WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT COALESCE(spp.basic_salary,0) FROM staff s LEFT JOIN staff_payroll_profiles spp ON spp.staff_id=s.id WHERE s.id = ?");
         $stmt->execute([$staffId]);
         $value = $stmt->fetchColumn();
         return $value !== false ? (float) $value : 0.0;

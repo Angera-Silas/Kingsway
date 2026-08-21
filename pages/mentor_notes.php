@@ -38,4 +38,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/mentor_notes.js"></script>
+<?php asset_script($appBase, 'js/pages/mentor_notes.js'); ?>

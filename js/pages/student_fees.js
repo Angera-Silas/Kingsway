@@ -27,6 +27,14 @@ const StudentFeesController = {
   },
   ui: {},
 
+  notify: function (message, type) {
+    if (typeof showNotification === "function") {
+      showNotification(message, type || "info");
+    } else {
+      window.alert(message);
+    }
+  },
+
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {

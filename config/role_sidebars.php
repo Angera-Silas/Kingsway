@@ -497,13 +497,12 @@ return [
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // review (not draft — that's accountant)
                 ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
-                ['label' => 'Record Payments', 'url' => 'manage_payments'],
+                ['label' => 'Payment Register', 'url' => 'manage_payments'],
                 ['label' => 'Supplier Payments', 'url' => 'supplier_payments'],
                 ['label' => 'Parent Refunds', 'url' => 'parent_refunds'],
                 ['label' => 'Student Fund Transfers', 'url' => 'student_fund_transfers'],
                 ['label' => 'Payment Reconciliation', 'url' => 'payment_reconciliation'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
-                ['label' => 'Fee Defaulters', 'url' => 'fee_defaulters'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
                 ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
             ]
@@ -1443,10 +1442,8 @@ return [
                 ['label' => 'Draft Fee Structure', 'url' => 'draft_fee_structure'],       // ACCOUNTANT DRAFTS new structure or edits the existing ones that are not yet applied
                 ['label' => 'Current Structure', 'url' => 'manage_fee_structure'],
                 ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
-                ['label' => 'Fee Components', 'url' => 'view_fee_structure_components'],
                 ['label' => 'Boarding Fees', 'url' => 'manage_boarding_fee_structure'],
                 ['label' => 'Transport Fees', 'url' => 'manage_transport_fee_structure'],
-                ['label' => 'Pending Director Approval', 'url' => 'view_fee_structure_progress'],
             ]
         ],
 
@@ -1459,11 +1456,9 @@ return [
 
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
                 ['label' => 'Admission Fees', 'url' => 'manage_admissions_payments'],
-                ['label' => 'Record Payments', 'url' => 'manage_payments'], //record cash payments
-                ['label' => 'Generate Bills', 'url' => 'student_fees_bill'],
+                ['label' => 'Payment Register', 'url' => 'manage_payments'], //record and audit received transactions
                 ['label' => 'Payment Records', 'url' => 'payment_records'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
-                ['label' => 'Fee Defaulters', 'url' => 'fee_defaulters'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
                 
 
@@ -1507,7 +1502,6 @@ return [
                 ['label' => 'Bank Transactions', 'url' => 'bank_transactions'],
                 ['label' => 'M-Pesa Settlements', 'url' => 'mpesa_settlements'],
                 ['label' => 'Reconciliation', 'url' => 'mpesa_reconciliation'],
-                ['label' => 'Cash Reconciliation', 'url' => 'cash_reconciliation'],
             ]
         ],
 

@@ -7,6 +7,7 @@ Config::init();
 require_once __DIR__ . '/../../includes/WorkflowHandler.php';
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\ExtraChargeService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -27,12 +28,14 @@ use function App\API\Includes\formatResponse;
 class StudentAdmissionWorkflow extends WorkflowHandler {
     private AdmissionPolicy $policy;
     private AdmissionPaymentService $paymentService;
+    private ExtraChargeService $extraChargeService;
     private bool $parentPreExisting = false;
 
     public function __construct() {
         parent::__construct('student_admission');
         $this->policy = new AdmissionPolicy();
         $this->paymentService = new AdmissionPaymentService($this->db);
+        $this->extraChargeService = new ExtraChargeService($this->db);
     }
 
     /**
@@ -1064,12 +1067,17 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception("Payment amount must be greater than zero");
             }
 
-            $registrationFee = $this->getRegistrationFeeForApplication((int) $application_id);
-            if ($amount < $registrationFee) {
-                throw new Exception('The payment must include the required registration fee of KES ' . number_format($registrationFee, 0));
+            $admissionChargesDue = $this->getAdmissionExtraChargesDue((int) $application_id);
+            if ($amount < $admissionChargesDue) {
+                throw new Exception('The payment must include the required admission charges of KES ' . number_format($admissionChargesDue, 0));
             }
 
             $payment = $this->paymentService->recordApplicationPayment((int) $application_id, $payment_data, (int) $this->user_id);
+            $this->extraChargeService->allocateAdmissionPayment(
+                (int) $application_id,
+                (int) $payment['payment_id'],
+                $amount
+            );
 
             $instanceData = json_decode($instance['data_json'] ?? '{}', true) ?: [];
             $instanceData['last_payment_recorded_at'] = date('Y-m-d H:i:s');
@@ -1099,39 +1107,9 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
-    private function getRegistrationFeeForApplication(int $applicationId): float
+    private function getAdmissionExtraChargesDue(int $applicationId): float
     {
-        $stmt = $this->db->prepare("SELECT aa.parent_id, aa.enrolled_student_id FROM admission_applications aa WHERE aa.id = :id LIMIT 1");
-        $stmt->execute(['id' => $applicationId]);
-        $application = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
-        $parentId = (int) ($application['parent_id'] ?? 0);
-        $studentId = (int) ($application['enrolled_student_id'] ?? 0);
-
-        // Read base registration fee from the database (extra_charges table)
-        $baseFee = 2000.0;
-        try {
-            $feeStmt = $this->db->prepare(
-                "SELECT ec.amount FROM extra_charges ec
-                 JOIN academic_years ay ON ay.id = ec.academic_year_id
-                 WHERE ay.is_current = 1 AND ec.name = 'Registration Fee' AND ec.status = 'active'
-                 LIMIT 1"
-            );
-            $feeStmt->execute();
-            $dbFee = $feeStmt->fetchColumn();
-            if ($dbFee !== false) {
-                $baseFee = (float) $dbFee;
-            }
-        } catch (\Exception $e) {
-            // Table may not exist yet — fall back to default
-        }
-
-        if (!$parentId) return $baseFee;
-
-        $existing = $this->db->prepare("SELECT COUNT(*) FROM student_parents WHERE parent_id = :parent_id AND student_id <> :student_id");
-        $existing->execute(['parent_id' => $parentId, 'student_id' => $studentId]);
-
-        // Sibling discount: 50% off registration fee
-        return ((int) $existing->fetchColumn() > 0) ? round($baseFee * 0.5) : $baseFee;
+        return $this->extraChargeService->admissionTotalDue($applicationId);
     }
 
     public function sendPaymentInstructions(int $applicationId): array
@@ -1148,7 +1126,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             return false;
         }
 
-        $registrationFee = $this->getRegistrationFeeForApplication($applicationId);
+        $registrationFee = $this->getAdmissionExtraChargesDue($applicationId);
         $totalPaid = $this->paymentService->getTotalRecorded($applicationId);
         if ($totalPaid < $registrationFee) {
             return false;
@@ -1238,7 +1216,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             $this->saveWorkflowInstanceData((int) $instance['id'], $instanceData);
 
             $advanced = false;
-            if ($currentStage === 'fees_payment' && $this->paymentService->getTotalRecorded($applicationId) >= $this->getRegistrationFeeForApplication($applicationId)) {
+            if ($currentStage === 'fees_payment' && $this->paymentService->getTotalRecorded($applicationId) >= $this->getAdmissionExtraChargesDue($applicationId)) {
                 $advanced = $this->advanceAfterConfirmedPayment($applicationId);
             }
 
@@ -1272,7 +1250,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$row || (empty($row['parent_phone']) && empty($row['parent_email']))) return;
 
-        $registrationFee = $this->getRegistrationFeeForApplication($applicationId);
+            $registrationFee = $this->getAdmissionExtraChargesDue($applicationId);
         $accountReference = $admissionNumber ?: ($row['student_admission_no'] ?: $row['application_no']);
         $childName = htmlspecialchars($row['applicant_name'] ?: 'your child', ENT_QUOTES, 'UTF-8');
         $ref = htmlspecialchars($accountReference, ENT_QUOTES, 'UTF-8');
@@ -1706,6 +1684,9 @@ return formatResponse(false, null, 'An internal error occurred.');
             $student_id = (int) ($out['student_id'] ?? 0);
             $enrollment_id = $out['enrollment_id'] ?? null;
             $fee_obligations_created = (int) ($out['obligations_generated'] ?? 0);
+            if ($enrollment_id) {
+                $this->extraChargeService->generateEnrollmentObligations((int) $enrollment_id);
+            }
 
             // The placement procedure has now generated the student's fee
             // obligations. Allocate every verified pre-placement payment
@@ -1735,7 +1716,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 ? 'fees_payment'
                 : 'enrolled';
             if (($instance['current_stage'] ?? '') === 'class_placement'
-                && $this->paymentService->getTotalRecorded((int) $application_id) >= $this->getRegistrationFeeForApplication((int) $application_id)) {
+                && $this->paymentService->getTotalRecorded((int) $application_id) >= $this->getAdmissionExtraChargesDue((int) $application_id)) {
                 $nextStage = 'student_id_generation';
             }
 

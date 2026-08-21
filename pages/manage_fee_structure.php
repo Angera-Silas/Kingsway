@@ -32,16 +32,16 @@ document.addEventListener('DOMContentLoaded', function () {
         afterLoad: function (contentEl, match) {
             var controllers = {
                 'admin_fee_structure.php': [
-                    '/js/components/fee_structure_matrix.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/fee_structure_matrix.js") ?>',
-                    '/js/pages/fee_structure_admin.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_admin.js") ?>'
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_admin.js?v=<?= asset_version("js/pages/fee_structure_admin.js") ?>'
                 ],
                 'accountant_fee_structure.php': [
-                    '/js/components/fee_structure_matrix.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/fee_structure_matrix.js") ?>',
-                    '/js/pages/fee_structure_accountant.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_accountant.js") ?>'
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_accountant.js?v=<?= asset_version("js/pages/fee_structure_accountant.js") ?>'
                 ],
                 'viewer_fee_structure.php': [
-                    '/js/components/fee_structure_matrix.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/fee_structure_matrix.js") ?>',
-                    '/js/pages/fee_structure_viewer.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_viewer.js") ?>'
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_viewer.js?v=<?= asset_version("js/pages/fee_structure_viewer.js") ?>'
                 ]
             }[match.file] || [];
 

@@ -100,7 +100,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function submitForApproval($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'draft', 'pending_approval', $userId);
+            $this->validateTransition('draft', 'pending_approval', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Validate all staff payments calculated
             $this->validatePayrollComplete($payrollId);
@@ -134,7 +134,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function approve($payrollId, $userId, $comments = '')
     {
         try {
-            $this->validateTransition($payrollId, 'pending_approval', 'approved', $userId);
+            $this->validateTransition('pending_approval', 'approved', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Final validation before approval
             $this->validatePayrollForApproval($payrollId);
@@ -167,7 +167,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function reject($payrollId, $userId, $reason)
     {
         try {
-            $this->validateTransition($payrollId, 'pending_approval', 'rejected', $userId);
+            $this->validateTransition('pending_approval', 'rejected', ['payroll_id' => $payrollId, 'user_id' => $userId, 'reason' => $reason]);
 
             $this->transition($payrollId, 'rejected', $userId, [
                 'rejected_at' => date('Y-m-d H:i:s'),
@@ -198,13 +198,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function startDisbursement($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'approved', 'processing', $userId);
-
-            // Check if within disbursement window (24th-30th)
-            $currentDay = (int) date('d');
-            if ($currentDay < 24) {
-                throw new Exception("Disbursement can only be processed from 24th-30th of the month");
-            }
+            $this->validateTransition('approved', 'processing', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Update status to processing
             $this->transition($payrollId, 'processing', $userId, [
@@ -235,7 +229,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function markCompleted($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'processing', 'completed', $userId);
+            $this->validateTransition('processing', 'completed', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Verify all payments are successful (3NF: payslips.payment_status)
             $failedCount = $this->db->fetchColumn(
@@ -273,7 +267,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function markPartial($payrollId, $userId, $failedCount)
     {
         try {
-            $this->validateTransition($payrollId, 'processing', 'partial', $userId);
+            $this->validateTransition('processing', 'partial', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             $this->transition($payrollId, 'partial', $userId, [
                 'partial_marked_at' => date('Y-m-d H:i:s'),

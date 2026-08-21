@@ -298,5 +298,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/assessment_overview.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/assessment_overview.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/assessment_overview.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => assessmentOverviewCtrl.init());</script>

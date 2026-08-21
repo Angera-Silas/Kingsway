@@ -245,5 +245,5 @@
 .tt-step.done .tt-lbl { color:#198754; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/term_transition.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/term_transition.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/term_transition.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => termTransitionController.init());</script>

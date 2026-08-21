@@ -65,7 +65,7 @@ const StaffAttendanceController = {
 
   async loadDepartments() {
     try {
-      // Reference data: cache 7d (rarely changes) to skip DB re-query.
+      // Reference data: network-first with a 1 h offline fallback (freshness wins).
       const response = await DataStore.fetchPage('departments', {
         endpoint: '/staff/departments-get', storeName: 'reference_departments',
         ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'

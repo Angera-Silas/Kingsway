@@ -62,8 +62,6 @@
         email:                  "schoolEmail",
         phone:                  "schoolPhone",
         address:                "schoolAddress",
-        principal_name:         "principalName",
-        deputy_principal_name:  "deputyPrincipalName",
 
         // Academic Settings
         academic_year:          "academicYear",
@@ -83,14 +81,16 @@
         email_notifications:    "enableNotifications",
         sms_notifications:      "enableSMS",
         admission_no_format:    "admissionNoFormat",
-        admission_no_start_sequence: "admissionNoStartSequence"
+        admission_no_start_sequence: "admissionNoStartSequence",
+        staff_no_format:        "staffNoFormat",
+        staff_no_start_sequence: "staffNoStartSequence"
     };
 
     // Which fields belong to each form (for building the save payload)
     var FORM_FIELDS = {
         generalSettingsForm: [
             "school_name", "school_code", "email", "phone",
-            "address", "principal_name", "deputy_principal_name"
+            "address"
         ],
         academicSettingsForm: [
             "academic_year", "calendar_type", "grading_scale", "pass_mark"
@@ -104,6 +104,9 @@
         ],
         admissionNumberSettingsForm: [
             "admission_no_format", "admission_no_start_sequence"
+        ],
+        staffNumberSettingsForm: [
+            "staff_no_format", "staff_no_start_sequence"
         ]
     };
 
@@ -121,6 +124,7 @@
             this.bindForms();
             await this.loadData();
             await this.loadAdmissionNumberSettings();
+            await this.loadStaffNumberSettings();
         },
 
         loadAdmissionNumberSettings: async function () {
@@ -134,6 +138,20 @@
             } catch (err) {
                 console.error("school_settings: admission number settings error", err);
                 showToast("Admission number settings could not be loaded.", "error");
+            }
+        },
+
+        loadStaffNumberSettings: async function () {
+            try {
+                var response = await window.API.apiCall("/website/settings", "GET");
+                var items = response?.data?.items || response?.items || [];
+                var values = {};
+                items.forEach(function (item) { values[item.setting_key] = item.setting_value; });
+                setVal("staffNoFormat", values.staff_no_format || "KPST#{seq}");
+                setVal("staffNoStartSequence", values.staff_no_start_sequence || "1");
+            } catch (err) {
+                console.error("school_settings: staff number settings error", err);
+                showToast("Staff number settings could not be loaded.", "error");
             }
         },
 
@@ -209,14 +227,33 @@
                 }
             }
 
+            if (formId === "staffNumberSettingsForm") {
+                var staffFormat = String(payload.staff_no_format || "").trim();
+                if (!staffFormat || staffFormat.length > 40 || !staffFormat.includes("{seq")) {
+                    showToast("Format must contain {seq} or {seq:NN}.", "error");
+                    return;
+                }
+            }
+
             showSpinner(formId, true);
 
             try {
                 if (formId === "admissionNumberSettingsForm") {
                     await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_format", value: payload.admission_no_format});
                     await window.API.apiCall("/website/settings", "PUT", {key: "admission_no_start_sequence", value: payload.admission_no_start_sequence});
-                } else {
+                } else if (formId === "staffNumberSettingsForm") {
+                    await window.API.apiCall("/website/settings", "PUT", {key: "staff_no_format", value: payload.staff_no_format});
+                    await window.API.apiCall("/website/settings", "PUT", {key: "staff_no_start_sequence", value: payload.staff_no_start_sequence});
+                } else if (formId === "generalSettingsForm") {
+                    // General settings go to school_profile
                     await window.API.system.updateSchoolConfig(payload);
+                } else {
+                    // Academic/fees/system settings go to school_settings as key-value pairs
+                    for (var key in payload) {
+                        if (payload.hasOwnProperty(key)) {
+                            await window.API.apiCall("/website/settings", "PUT", {key: key, value: payload[key]});
+                        }
+                    }
                 }
                 // Merge saved values back into local cache
                 Object.assign(self.data, payload);

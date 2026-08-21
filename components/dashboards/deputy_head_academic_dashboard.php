@@ -207,5 +207,5 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/dashboards/dashboard_base_controller.js?v=<?= filemtime(__DIR__ . '/../../js/dashboards/dashboard_base_controller.js') ?>"></script>
-<script src="<?= $appBase ?>/js/dashboards/deputy_head_academic_dashboard.js?v=<?= filemtime(__DIR__ . '/../../js/dashboards/deputy_head_academic_dashboard.js') ?>"></script>
+<?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/deputy_head_academic_dashboard.js'); ?>

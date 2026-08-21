@@ -1,5 +1,10 @@
 <?php
+require_once __DIR__ . '/../../config/asset_helpers.php';
+
 if (!headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
     header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
 }
 
@@ -193,6 +198,19 @@ function kw_school_stat(string $key, string $default = ''): string {
     } catch (\Throwable $e) { return $cache[$key] = $default; }
 }
 
+/* ── School profile (single-row identity table) ──────────────────────────── */
+
+function kw_school_profile(): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $db = kw_db();
+    if (!$db) return $cache = [];
+    try {
+        $row = $db->query("SELECT * FROM school_profile LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
+        return $cache = $row ?: [];
+    } catch (\Throwable $e) { return $cache = []; }
+}
+
 /* ── Live enrolment / staff counts (computed, not hand-entered) ───────────── */
 
 /** Currently enrolled students = active rows in the students table. */
@@ -293,10 +311,10 @@ function kw_table(string $table, string $where = 'is_active = 1', string $order 
     if (!$db) return [];
 
     $allowedTables = [
-        'school_values', 'school_history', 'leadership_team',
+        'school_values', 'school_history',
         'school_programs', 'school_facilities', 'gallery_items',
         'news_categories', 'news_articles', 'careers_benefits',
-        'school_settings',
+        'school_profile', 'school_testimonials',
     ];
     if (!in_array($table, $allowedTables, true)) {
         return [];
@@ -343,19 +361,29 @@ function kw_school_history(): array {
     ];
 }
 
-/* ── Leadership Team ─────────────────────────────────────────────────────── */
+/* ── Leadership Hierarchy ───────────────────────────────────────────────── */
 
 function kw_leadership(): array {
-    $rows = kw_table('leadership_team');
-    if (!empty($rows)) return $rows;
-    return [
-        ['name'=>'School Director',     'title'=>'School Founder & Director',    'bio'=>'20+ years in education leadership. Masters in Educational Management.',    'avatar_color'=>'#0d4f2a'],
-        ['name'=>'Head Teacher',         'title'=>'Head Teacher',                 'bio'=>'B.Ed (Hons), experienced in CBC implementation and school administration.', 'avatar_color'=>'#198754'],
-        ['name'=>'Deputy (Academic)',    'title'=>'Deputy Head — Academic',        'bio'=>'Oversees curriculum, lesson plans, timetabling, and academic performance.',  'avatar_color'=>'#1976d2'],
-        ['name'=>'Deputy (Discipline)',  'title'=>'Deputy Head — Discipline',      'bio'=>'Manages student conduct, welfare, and community relations.',                 'avatar_color'=>'#7b1fa2'],
-        ['name'=>'The Bursar',           'title'=>'School Bursar / Accountant',    'bio'=>'CPA-K certified. Manages school finances, fee collection, and budgets.',     'avatar_color'=>'#e65100'],
-        ['name'=>'Admissions Officer',   'title'=>'Admissions Officer',            'bio'=>'Handles student intake, records, and parent liaison.',                       'avatar_color'=>'#00695c'],
-    ];
+    $db = kw_db();
+    if (!$db) return [];
+
+    try {
+        $ayId = (int) ($db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
+        $stmt = $db->prepare(
+            "SELECT sl.id, CONCAT(p.first_name,' ',p.last_name) AS name,
+                    lp.name AS title, sl.public_bio AS bio, sl.public_photo_url AS avatar_url,
+                    sl.display_order, sl.is_active,
+                    ll.name AS level_name, ll.display_order AS level_order
+             FROM school_leadership sl
+             JOIN leadership_positions lp ON lp.id = sl.position_id
+             JOIN leadership_levels ll ON ll.id = lp.level_id
+             JOIN persons p ON p.id = sl.person_id
+             WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+             ORDER BY ll.display_order, sl.display_order"
+        );
+        $stmt->execute([$ayId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) { return []; }
 }
 
 /* ── Academic Programs ───────────────────────────────────────────────────── */

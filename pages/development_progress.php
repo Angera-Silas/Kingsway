@@ -101,4 +101,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/development_progress.js"></script>
+<?php asset_script($appBase, 'js/pages/development_progress.js'); ?>

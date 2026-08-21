@@ -969,7 +969,6 @@ const StaffProductionUI = {
         }
         const staffId = document.getElementById('staffId').value;
         const data = {
-            staff_no: this.getValue('staffNo') || undefined,
             first_name: this.getValue('firstName'),
             last_name: this.getValue('lastName'),
             email: this.getValue('email'),

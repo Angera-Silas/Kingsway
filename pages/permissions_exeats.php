@@ -259,4 +259,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/permissions_exeats.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/permissions_exeats.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/permissions_exeats.js'); ?>

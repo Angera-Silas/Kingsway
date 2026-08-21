@@ -172,13 +172,12 @@ class FinancialPeriodAPI extends BaseAPI {
             // Get fee collection summary
             $sql = "
                 SELECT 
-                    fc.name,
+                    'School Fees' AS name,
                     COUNT(DISTINCT sae.student_id) as student_count,
                     SUM(sfo.amount_due - COALESCE(sfo.sponsored_waiver_amount, 0)
                         - COALESCE(fdw.total_discount, 0)) as total_balance
                 FROM student_fee_obligations sfo
                 JOIN academic_year_fee_schedules ays ON sfo.academic_year_fee_schedule_id = ays.id
-                JOIN fee_catalog fc ON ays.fee_catalog_id = fc.id
                 JOIN student_academic_enrollments sae ON sfo.student_academic_enrollment_id = sae.id
                 LEFT JOIN (
                     SELECT student_fee_obligation_id, SUM(discount_value) AS total_discount
@@ -187,7 +186,7 @@ class FinancialPeriodAPI extends BaseAPI {
                     GROUP BY student_fee_obligation_id
                 ) fdw ON fdw.student_fee_obligation_id = sfo.id
                 WHERE sfo.updated_at BETWEEN ? AND ?
-                GROUP BY fc.id, fc.name
+                GROUP BY name
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$period['start_date'], $period['end_date']]);
@@ -205,4 +204,4 @@ class FinancialPeriodAPI extends BaseAPI {
             return $this->handleException($e);
         }
     }
-} 
+}

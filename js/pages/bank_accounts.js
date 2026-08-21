@@ -231,6 +231,7 @@
                 account_name: document.getElementById("ba_account_name").value,
                 account_number: document.getElementById("ba_account_number").value,
                 account_type: document.getElementById("ba_type").value,
+                purpose: document.getElementById("ba_purpose").value,
                 opening_balance: parseFloat(document.getElementById("ba_opening_balance").value) || 0
             };
 
@@ -282,6 +283,7 @@
             document.getElementById("ba_account_name").value = acc.account_name || "";
             document.getElementById("ba_account_number").value = acc.account_number || "";
             document.getElementById("ba_type").value = acc.account_type || acc.type || "";
+            document.getElementById("ba_purpose").value = (acc.purposes || "operations").split(",")[0] || "operations";
             document.getElementById("ba_opening_balance").value = acc.opening_balance || acc.balance || 0;
 
             var modal = new bootstrap.Modal(document.getElementById("bankAccountModal"));

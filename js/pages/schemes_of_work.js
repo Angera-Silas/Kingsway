@@ -91,7 +91,7 @@ const SchemesOfWorkController = (() => {
     }
 
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const subjectResp = await DataStore.fetchPage('subjects', {
         endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'

@@ -387,4 +387,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_activities.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_activities.js'); ?>

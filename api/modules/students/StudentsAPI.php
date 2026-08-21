@@ -354,6 +354,12 @@ class StudentsAPI extends BaseAPI
             }
         }
 
+        // Auth payloads from the refresh-token flow also expose the primary
+        // role as role_name rather than roles[].
+        if (!empty($user['role_name'])) {
+            $roleNames[] = $this->normalizeRoleName((string) $user['role_name']);
+        }
+
         return array_values(array_unique(array_filter($roleNames)));
     }
 
@@ -386,6 +392,10 @@ class StudentsAPI extends BaseAPI
             'system_administrator',
             'director',
             'school_administrator',
+            'school_accountant',
+            'accountant',
+            'bursar',
+            'finance_manager',
             'headteacher',
             'deputy_head_academic',
             'deputy_head_discipline',
@@ -615,7 +625,15 @@ class StudentsAPI extends BaseAPI
             return null;
         }
 
-        $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? AND status = 'active' LIMIT 1");
+        // staff is linked to users through person_id; staff has no user_id
+        // column in the normalized schema.
+        $stmt = $this->db->prepare(
+            "SELECT s.id
+             FROM staff s
+             JOIN users u ON u.person_id = s.person_id
+             WHERE u.id = ? AND s.status = 'active'
+             LIMIT 1"
+        );
         $stmt->execute([(int) $userId]);
         $staffId = $stmt->fetchColumn();
 
@@ -2427,7 +2445,7 @@ class StudentsAPI extends BaseAPI
                 SUBSTRING(t.code, 2) AS term_number,
                 CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) AS academic_year,
                 sfo.academic_year_fee_schedule_id AS fee_structure_detail_id,
-                ft.name AS fee_type,
+                'School Fees' AS fee_type,
                 sfo.amount_due,
                 COALESCE(vfb.amount_paid, 0) AS amount_paid,
                 COALESCE(vfb.amount_waived, 0) AS amount_waived,
@@ -2441,8 +2459,6 @@ class StudentsAPI extends BaseAPI
             LEFT JOIN academic_years ay ON ay.id = sfo.academic_year_id
             LEFT JOIN terms t ON t.id = ayt.term_id
             LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
-            LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
-            LEFT JOIN fee_types ft ON ft.id = fc.fee_type_id
             LEFT JOIN vw_student_fee_balances vfb
                 ON vfb.student_academic_enrollment_id = sfo.student_academic_enrollment_id
                AND vfb.academic_year_term_id <=> sfo.academic_year_term_id
@@ -2455,7 +2471,7 @@ class StudentsAPI extends BaseAPI
             $bindings[] = $academicYear;
         }
 
-        $sql .= " ORDER BY term_id ASC, ft.name ASC, sfo.id ASC";
+        $sql .= " ORDER BY term_id ASC, sfo.id ASC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute($bindings);

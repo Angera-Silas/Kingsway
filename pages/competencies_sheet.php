@@ -77,5 +77,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/competencies_sheet.js"></script>
+<?php asset_script($appBase, 'js/pages/competencies_sheet.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => compCtrl.init());</script>

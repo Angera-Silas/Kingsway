@@ -41,11 +41,11 @@
         const filteredTypes = types.filter(t => !typeId || String(t.id) === typeId);
         let html = '<div class="table-responsive"><table class="table table-bordered table-sm align-middle mb-0"><thead class="table-success text-center"><tr><th class="text-start">Grade</th><th class="text-start">Student Type</th><th>Term 3</th><th>Term 2</th><th>Term 1</th><th>Total</th></tr></thead><tbody>';
         filteredClasses.forEach(cls => filteredTypes.forEach((type, index) => {
-        const values = terms.map(n => Number(grid?.[cls.id]?.TUITION?.[`term${n}`]?.[String(type.id)] || 0));
+        const values = terms.map(n => Number(grid?.[cls.id]?.SCHOOL_FEES?.[`term${n}`]?.[String(type.id)] || 0));
         const hasValue = values.some(v => v > 0);
         html += `<tr>${index === 0 ? `<td rowspan="${filteredTypes.length}" class="fw-semibold align-middle">${esc(className(cls))}</td>` : ''}<td class="small fw-semibold">${esc(type.name || type.code || type.id)}</td>${values.map(v => `<td class="text-end">${hasValue && v ? v.toLocaleString('en-KE') : '–'}</td>`).join('')}<td class="text-end fw-semibold">${hasValue ? values.reduce((a, v) => a + v, 0).toLocaleString('en-KE') : '–'}</td></tr>`;
         }));
-        const totals = terms.map(n => filteredClasses.reduce((sum, cls) => filteredTypes.reduce((s, type) => s + Number(grid?.[cls.id]?.TUITION?.[`term${n}`]?.[String(type.id)] || 0), sum), 0));
+        const totals = terms.map(n => filteredClasses.reduce((sum, cls) => filteredTypes.reduce((s, type) => s + Number(grid?.[cls.id]?.SCHOOL_FEES?.[`term${n}`]?.[String(type.id)] || 0), sum), 0));
       html += `</tbody><tfoot class="table-light"><tr><td colspan="2" class="fw-bold">Column Total</td>${totals.map(v => `<td class="text-end fw-bold">${v ? v.toLocaleString('en-KE') : '–'}</td>`).join('')}<td class="text-end fw-bold">${totals.reduce((a, v) => a + v, 0).toLocaleString('en-KE')}</td></tr></tfoot></table></div>`;
         table.innerHTML = html;
       };

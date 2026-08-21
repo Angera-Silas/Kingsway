@@ -107,4 +107,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/add_results.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/add_results.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/add_results.js'); ?>

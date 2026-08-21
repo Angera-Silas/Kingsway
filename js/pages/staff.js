@@ -409,7 +409,6 @@ const staffManagementController = {
       }
 
       if (staffId) {
-        payload.staff_no = document.getElementById("staffNumber").value || null;
         await window.API.staff.update(staffId, payload);
       } else {
         await window.API.staff.create(payload);

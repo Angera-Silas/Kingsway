@@ -348,7 +348,8 @@ class WebsiteController extends BaseController
     public function putSettings($id = null, $data = [], $segments = [])
     {
         $isAdmissionNumberSetting = in_array((string) ($data['key'] ?? ''), [
-            'admission_no_format', 'admission_no_start_sequence'
+            'admission_no_format', 'admission_no_start_sequence',
+            'staff_no_format', 'staff_no_start_sequence'
         ], true);
         if (!$isAdmissionNumberSetting) {
             $guard = $this->requirePerm('website_settings_manage');
@@ -395,13 +396,34 @@ class WebsiteController extends BaseController
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // JOB APPLICATIONS (read-only)  /api/website/job-applications
+    // JOB APPLICATIONS /api/website/job-applications
     // ─────────────────────────────────────────────────────────────────────────
 
     public function getJobApplications($id = null, $data = [], $segments = [])
     {
         if (!$this->hasPerm('website_applications_view')) return $this->forbidden('Access denied.');
         return $this->handleResponse($this->manager->getJobApplications());
+    }
+
+    public function putJobApplications($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_applications_manage')) return $this->forbidden('Recruitment management access required.');
+        if (!$id || empty($data['status'])) return $this->badRequest('Application ID and status are required.');
+        return $this->handleResponse($this->manager->updateJobApplicationStatus((int)$id, (string)$data['status'], $this->userId(), $data['notes'] ?? null));
+    }
+
+    public function postJobApplicationsInterview($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_applications_manage')) return $this->forbidden('Recruitment management access required.');
+        if (!$id) return $this->badRequest('Application ID required.');
+        return $this->handleResponse($this->manager->scheduleJobInterview((int)$id, $data, $this->userId()));
+    }
+
+    public function putJobApplicationsInterview($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_applications_manage')) return $this->forbidden('Recruitment management access required.');
+        if (!$id) return $this->badRequest('Interview ID required.');
+        return $this->handleResponse($this->manager->completeJobInterview((int)$id, $data, $this->userId()));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -460,12 +482,29 @@ class WebsiteController extends BaseController
         return $this->getStats($id, $data, $segments);
     }
 
-    public function getLeadership($id = null, $data = [], $segments = []) { return $this->genericRead('leadership', $id, $data); }
+    public function getLeadership($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        return $this->handleResponse($this->manager->getLeadershipHierarchy());
+    }
+
+    public function getLeadershipLevels($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        return $this->handleResponse($this->manager->getLeadershipLevels());
+    }
+
+    public function getLeadershipPositions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        return $this->handleResponse($this->manager->getLeadershipPositions($data['level_id'] ?? null));
+    }
     public function getPrograms($id = null, $data = [], $segments = [])   { return $this->genericRead('programs', $id, $data); }
     public function getFacilities($id = null, $data = [], $segments = []) { return $this->genericRead('facilities', $id, $data); }
     public function getHistory($id = null, $data = [], $segments = [])    { return $this->genericRead('history', $id, $data); }
     public function getValues($id = null, $data = [], $segments = [])     { return $this->genericRead('values', $id, $data); }
     public function getBenefits($id = null, $data = [], $segments = [])   { return $this->genericRead('benefits', $id, $data); }
+    public function getTestimonials($id = null, $data = [], $segments = []) { return $this->genericRead('testimonials', $id, $data); }
 
     public function getDepartments($id = null, $data = [], $segments = [])
     {
@@ -473,12 +512,18 @@ class WebsiteController extends BaseController
         return $this->handleResponse($this->manager->getDepartments($id));
     }
 
-    public function postLeadership($id = null, $data = [], $segments = []) { return $this->genericWrite('createRecord', 'leadership', $data); }
+    public function postLeadership($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        return $this->handleResponse($this->manager->createLeadershipEntry($data));
+    }
     public function postPrograms($id = null, $data = [], $segments = [])   { return $this->genericWrite('createRecord', 'programs', $data); }
     public function postFacilities($id = null, $data = [], $segments = []){ return $this->genericWrite('createRecord', 'facilities', $data); }
     public function postHistory($id = null, $data = [], $segments = [])    { return $this->genericWrite('createRecord', 'history', $data); }
     public function postValues($id = null, $data = [], $segments = [])     { return $this->genericWrite('createRecord', 'values', $data); }
     public function postBenefits($id = null, $data = [], $segments = [])   { return $this->genericWrite('createRecord', 'benefits', $data); }
+    public function postTestimonials($id = null, $data = [], $segments = []) { return $this->genericWrite('createRecord', 'testimonials', $data); }
 
     public function postDepartments($id = null, $data = [], $segments = [])
     {
@@ -487,12 +532,18 @@ class WebsiteController extends BaseController
         return $this->handleResponse($this->manager->createDepartment($data));
     }
 
-    public function putLeadership($id = null, $data = [], $segments = []) { return $this->genericWrite('updateRecord', 'leadership', $data, $id); }
+    public function putLeadership($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        return $this->handleResponse($this->manager->updateLeadershipEntry($id, $data));
+    }
     public function putPrograms($id = null, $data = [], $segments = [])   { return $this->genericWrite('updateRecord', 'programs', $data, $id); }
     public function putFacilities($id = null, $data = [], $segments = []) { return $this->genericWrite('updateRecord', 'facilities', $data, $id); }
     public function putHistory($id = null, $data = [], $segments = [])    { return $this->genericWrite('updateRecord', 'history', $data, $id); }
     public function putValues($id = null, $data = [], $segments = [])     { return $this->genericWrite('updateRecord', 'values', $data, $id); }
     public function putBenefits($id = null, $data = [], $segments = [])   { return $this->genericWrite('updateRecord', 'benefits', $data, $id); }
+    public function putTestimonials($id = null, $data = [], $segments = []) { return $this->genericWrite('updateRecord', 'testimonials', $data, $id); }
 
     public function putDepartments($id = null, $data = [], $segments = [])
     {
@@ -501,12 +552,18 @@ class WebsiteController extends BaseController
         return $this->handleResponse($this->manager->updateDepartment($id, $data));
     }
 
-    public function deleteLeadership($id = null, $data = [], $segments = []) { return $this->genericDelete('leadership', $id); }
+    public function deleteLeadership($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        return $this->handleResponse($this->manager->deleteLeadershipEntry($id));
+    }
     public function deletePrograms($id = null, $data = [], $segments = [])   { return $this->genericDelete('programs', $id); }
     public function deleteFacilities($id = null, $data = [], $segments = []) { return $this->genericDelete('facilities', $id); }
     public function deleteHistory($id = null, $data = [], $segments = [])    { return $this->genericDelete('history', $id); }
     public function deleteValues($id = null, $data = [], $segments = [])     { return $this->genericDelete('values', $id); }
     public function deleteBenefits($id = null, $data = [], $segments = [])   { return $this->genericDelete('benefits', $id); }
+    public function deleteTestimonials($id = null, $data = [], $segments = []) { return $this->genericDelete('testimonials', $id); }
 
     public function deleteDepartments($id = null, $data = [], $segments = [])
     {

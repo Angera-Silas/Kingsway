@@ -273,16 +273,22 @@ if ($appBase === '.') $appBase = '';
 
   <!-- ── TAB: STATIC CONTENT (9 generic tables) ─────────────────────────── -->
   <div id="tab-static" class="ws-tab-panel" style="display:none">
-    <p class="text-muted small mt-1 mb-3">School values, history, leadership, programs, facilities, departments, admission steps &amp; benefits. Each row is editable inline; changes appear on the public site immediately.</p>
+    <p class="text-muted small mt-1 mb-3">School values, history, programs, facilities, departments, admission steps, benefits &amp; testimonials. Each row is editable inline; changes appear on the public site immediately. Leadership hierarchy is managed in its own section below.</p>
     <div class="row g-4" id="staticTablesWrap">
       <div id="staticCard-values"    class="col-xl-6"></div>
       <div id="staticCard-history"   class="col-xl-6"></div>
-      <div id="staticCard-leadership" class="col-xl-6"></div>
       <div id="staticCard-programs"   class="col-xl-6"></div>
       <div id="staticCard-facilities" class="col-xl-6"></div>
       <div id="staticCard-departments"class="col-xl-6"></div>
       <div id="staticCard-steps"      class="col-xl-6"></div>
       <div id="staticCard-benefits"   class="col-xl-6"></div>
+      <div id="staticCard-testimonials" class="col-xl-6"></div>
+    </div>
+    <div class="bg-white border rounded-3 p-4 mt-3">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-people-fill text-success me-2"></i>Leadership Team</h6>
+      </div>
+      <div id="leadershipPanel"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div></div>
     </div>
   </div>
 
@@ -491,4 +497,70 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_website.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_website.js") ?>"></script>
+<!-- Leadership Modal -->
+<div class="modal fade" id="wsLeadershipModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header border-0 pb-0">
+      <h5 class="modal-title fw-bold" id="wsLeadershipModalTitle">Add Member</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="leadEditId">
+      <input type="hidden" id="leadLevelId">
+      <div class="row g-3">
+        <div class="col-12 ws-form-group">
+          <label>Position *</label>
+          <select id="leadPosition" class="form-select"><option value="">Loading...</option></select>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold mb-2">Person *</label>
+          <div class="d-flex gap-3 mb-2">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonExisting" value="existing" checked onchange="wsLeadershipPersonMode('existing')">
+              <label class="form-check-label" for="leadPersonExisting">Existing Staff / Student</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonNew" value="new" onchange="wsLeadershipPersonMode('new')">
+              <label class="form-check-label" for="leadPersonNew">New External Person</label>
+            </div>
+          </div>
+          <div id="leadPersonSearchWrap">
+            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name..." autocomplete="off" oninput="wsLeadershipPersonSearch(this.value)">
+            <input type="hidden" id="leadPersonId">
+            <div id="leadPersonSearchResults" class="list-group mt-1" style="max-height:180px;overflow-y:auto;display:none"></div>
+            <div id="leadPersonSelected" class="d-none mt-1">
+              <span class="badge bg-success fs-6" id="leadPersonSelectedName"></span>
+            </div>
+          </div>
+          <div id="leadPersonNewWrap" class="d-none">
+            <div class="row g-2">
+              <div class="col-md-6 ws-form-group"><label>First Name *</label><input type="text" id="leadFirstName" class="form-control form-control-sm" placeholder="e.g. James"></div>
+              <div class="col-md-6 ws-form-group"><label>Last Name *</label><input type="text" id="leadLastName" class="form-control form-control-sm" placeholder="e.g. Mwangi"></div>
+            </div>
+            <small class="text-muted">A new person record will be created in the system.</small>
+          </div>
+        </div>
+        <div class="col-12 ws-form-group">
+          <label>Public Bio</label>
+          <textarea id="leadBio" rows="3" class="form-control" placeholder="Brief biography shown on the public website..."></textarea>
+        </div>
+        <div class="col-md-8 ws-form-group">
+          <label>Photo URL</label>
+          <input type="url" id="leadPhotoUrl" class="form-control form-control-sm" placeholder="https://...">
+        </div>
+        <div class="col-md-4 ws-form-group">
+          <label>Display Order</label>
+          <input type="number" id="leadDisplayOrder" class="form-control form-control-sm" value="0">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer border-0">
+      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-success btn-sm px-4" id="leadSubmitBtn" onclick="wsSaveLeadership()">
+        <i class="bi bi-check-lg me-1"></i>Save
+      </button>
+    </div>
+  </div></div>
+</div>
+
+<?php asset_script($appBase, 'js/pages/manage_website.js'); ?>

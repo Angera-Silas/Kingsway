@@ -82,4 +82,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/intern_schedule.js"></script>
+<?php asset_script($appBase, 'js/pages/intern_schedule.js'); ?>

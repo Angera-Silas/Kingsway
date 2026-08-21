@@ -272,5 +272,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/expenses.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/expenses.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/expenses.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => expensesController.init());</script>

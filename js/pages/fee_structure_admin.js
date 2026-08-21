@@ -106,14 +106,12 @@ class FeeStructureAdminController {
         yearsResponse,
         levelsResponse,
         studentTypesResponse,
-        feeTypesResponse,
         termsResponse,
         classesResponse,
       ] = await Promise.all([
         API.academic.getAllAcademicYears().catch(() => []),
         API.academic.listLevels().catch(() => []),
         API.finance.listStudentTypes().catch(() => []),
-        API.finance.listFeeTypes().catch(() => []),
         API.academic.listTerms().catch(() => []),
         API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
@@ -130,7 +128,7 @@ class FeeStructureAdminController {
       this.academicYears = unwrapList(yearsResponse, ['years', 'academic_years', 'academicYears', 'year_list']);
       this.levels = unwrapList(levelsResponse, ['levels', 'school_levels']);
       this.studentTypes = unwrapList(studentTypesResponse, ['student_types', 'types']);
-      this.feeTypes = unwrapList(feeTypesResponse, ['fee_types', 'types']);
+      this.feeTypes = [{ code: 'SCHOOL_FEES', name: 'School Fees' }];
       this.terms = unwrapList(termsResponse, ['terms']);
       this.classes = unwrapList(classesResponse, ['classes']);
 
@@ -304,6 +302,7 @@ class FeeStructureAdminController {
 
       const structures = response?.fee_structures || response?.structures || [];
       const pagination = response?.pagination || {};
+      this.billingSummary = response?.billing_summary || response?.data?.billing_summary || { billed_students: 0, billed_amount: 0 };
 
       this.currentStructures = Array.isArray(structures) ? structures : [];
       const aggregated = this.aggregateFeeStructures(this.currentStructures);
@@ -335,6 +334,7 @@ class FeeStructureAdminController {
     try {
       const model = await window.FeeStructureMatrix.load(selectedYear);
       window.FeeStructureMatrix.render(body, model);
+      await this.renderActiveExtraCharges(body, selectedYear);
     } catch (error) {
       body.innerHTML = `<div class="alert alert-danger mb-0">${this._esc(error.message || 'Failed to load active fee matrix')}</div>`;
     }
@@ -542,14 +542,8 @@ class FeeStructureAdminController {
     const pendingCount = structures.filter((s) =>
       ["pending_review", "reviewed"].includes(s.status),
     ).length;
-    const totalExpected = structures.reduce(
-      (sum, s) => sum + (s.total_expected_revenue || 0),
-      0,
-    );
-    const totalStudents = structures.reduce(
-      (sum, s) => sum + (s.student_count || 0),
-      0,
-    );
+    const totalExpected = Number(this.billingSummary?.billed_amount || 0);
+    const totalStudents = Number(this.billingSummary?.billed_students || 0);
 
     const totalEl = document.getElementById("totalStructures");
     const activeEl = document.getElementById("activeStructures");
@@ -1706,6 +1700,7 @@ class FeeStructureAdminController {
   // ============================================================
 
   async loadPendingApprovals() {
+    this.loadPendingExtraCharges();
     const tbody = document.getElementById('pendingApprovalsBody');
     const badge = document.getElementById('pendingApprovalBadge');
     if (!tbody) return;
@@ -1761,6 +1756,154 @@ class FeeStructureAdminController {
         </tr>`).join('');
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${this._esc(e.message || '')}</td></tr>`;
+    }
+  }
+
+  // ============================================================
+  // EXTRA CHARGE APPROVAL WORKFLOW (submitted → active)
+  // ============================================================
+
+  canApproveStructures() {
+    const ctx = window.AuthContext;
+    if (!ctx || typeof ctx.hasRole !== 'function') return false;
+    return ctx.hasRole('director')
+      || ctx.hasRole('school administrator')
+      || ctx.hasRole('school admin')
+      || ctx.hasRole('system administrator');
+  }
+
+  _chargeAmountHtml(c) {
+    const tiers = Array.isArray(c.pricing_tiers) ? c.pricing_tiers : [];
+    if (tiers.length) {
+      return tiers.map(t => `<div><small>${this._esc(t.label || 'Tier')}: ${Number(t.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 })}</small></div>`).join('');
+    }
+    let html = Number(c.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 });
+    if (c.calculation_mode === 'per_unit' && c.unit_label) html += ` <small class="text-muted">/ ${this._esc(c.unit_label)}</small>`;
+    return html;
+  }
+
+  _billingLabel(c) {
+    const models = { added_to_fees: 'Added to Fees', paid_separately: 'Paid Separately', optional: 'Optional' };
+    return models[c.billing_model] || c.billing_model || '—';
+  }
+
+  _frequencyLabel(c) {
+    const freqs = { one_time: 'One Time', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', per_term: 'Per Term', per_year: 'Per Year' };
+    return freqs[c.billing_frequency] || c.billing_frequency || '—';
+  }
+
+  _targetLabel(c) {
+    const targets = { new_admissions: 'New Admissions', existing_students: 'Existing Students', all_students: 'All Students', boarders: 'Boarders', day_students: 'Day Students', specific_class: 'Specific Class' };
+    let label = targets[c.target_scope] || c.target_scope || '—';
+    if (c.target_scope === 'specific_class' && c.class_name) label += ` (${c.class_name})`;
+    return label;
+  }
+
+  _resolveYearId(yearCode) {
+    const want = String(yearCode || '');
+    if (!want) return 0;
+    const year = (this.academicYears || []).find(item => this.parseAcademicYear(item.year_code || item.year_name || item.year || item.id) === want);
+    return year ? Number(year.id) : 0;
+  }
+
+  async loadPendingExtraCharges() {
+    const tbody = document.getElementById('pendingExtraChargesBody');
+    const badge = document.getElementById('pendingExtraChargesBadge');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></td></tr>';
+    try {
+      const resp = await window.API.apiCall('/finance/extra-charges?status=submitted', 'GET');
+      const charges = resp?.charges || resp?.data?.charges || [];
+      this.pendingExtraCharges = Array.isArray(charges) ? charges : [];
+      if (badge) badge.textContent = `${this.pendingExtraCharges.length} pending`;
+      if (!this.pendingExtraCharges.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No extra charges pending approval</td></tr>';
+        return;
+      }
+      const canApprove = this.canApproveStructures();
+      tbody.innerHTML = this.pendingExtraCharges.map(c => `
+        <tr>
+          <td><strong>${this._esc(c.name)}</strong>${c.description ? `<br><small class="text-muted">${this._esc(c.description)}</small>` : ''}${c.gl_account_name ? `<br><small class="text-muted"><i class="bi bi-bank"></i> ${this._esc(c.gl_account_name)}</small>` : ''}</td>
+          <td>${this._chargeAmountHtml(c)}</td>
+          <td>${this._esc(this._billingLabel(c))}</td>
+          <td>${this._esc(this._targetLabel(c))}</td>
+          <td>${this._esc(c.created_by_name || '—')}</td>
+          <td><span class="badge text-bg-warning">${this._esc(c.status || 'submitted')}</span></td>
+          <td class="text-end">
+            ${canApprove ? `
+            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveExtraChargeRow(${Number(c.id)})">
+              <i class="bi bi-check-lg"></i> Approve
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectExtraChargeRow(${Number(c.id)})">
+              <i class="bi bi-x-lg"></i> Reject
+            </button>` : '<span class="text-muted small">Awaiting Director / School Administrator</span>'}
+          </td>
+        </tr>`).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${this._esc(e.message || '')}</td></tr>`;
+    }
+  }
+
+  async approveExtraChargeRow(id) {
+    if (!(await window.confirmAction('Confirm', 'Approve this extra charge? It becomes part of the active fee structure.'))) return;
+    const notes = await window.promptAction('Input', 'Approval notes (optional):') || '';
+    try {
+      await window.API.apiCall(`/finance/extra-charges/approve/${id}`, 'POST', { notes });
+      await window.infoDialog('Notice', 'Extra charge approved. It is now listed under Active Fee Structure.');
+      this.loadPendingExtraCharges();
+      this.loadCanonicalMatrix();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Approval failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
+  async rejectExtraChargeRow(id) {
+    const reason = await window.promptAction('Input', 'Rejection reason (required):');
+    if (!reason || !String(reason).trim()) return;
+    try {
+      await window.API.apiCall(`/finance/extra-charges/reject/${id}`, 'POST', { notes: String(reason).trim() });
+      await window.infoDialog('Notice', 'Extra charge rejected and returned to draft.');
+      this.loadPendingExtraCharges();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Reject failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
+  async renderActiveExtraCharges(container, yearCode) {
+    try {
+      const yearId = this._resolveYearId(yearCode);
+      const query = yearId ? `?academic_year=${yearId}&status=active` : '?status=active';
+      const resp = await window.API.apiCall(`/finance/extra-charges${query}`, 'GET');
+      const charges = resp?.charges || resp?.data?.charges || [];
+      if (!Array.isArray(charges) || !charges.length) return;
+      const section = document.createElement('div');
+      section.className = 'mt-4 pt-3 border-top';
+      section.innerHTML = `
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h6 class="mb-0"><i class="bi bi-plus-circle me-1"></i>Extra Charges</h6>
+          <span class="badge rounded-pill text-bg-secondary">${charges.length} approved</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="table-light"><tr>
+              <th>Charge</th><th>Amount</th><th>Billing</th><th>Frequency</th><th>Target</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              ${charges.map(c => `
+                <tr>
+                  <td><strong>${this._esc(c.name)}</strong>${c.description ? `<br><small class="text-muted">${this._esc(c.description)}</small>` : ''}</td>
+                  <td>${this._chargeAmountHtml(c)}</td>
+                  <td>${this._esc(this._billingLabel(c))}</td>
+                  <td>${this._esc(this._frequencyLabel(c))}</td>
+                  <td>${this._esc(this._targetLabel(c))}</td>
+                  <td><span class="badge text-bg-success">Active</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      container.appendChild(section);
+    } catch (e) {
+      console.error('Failed to load active extra charges:', e);
     }
   }
 

@@ -106,4 +106,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/alumni_management.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/alumni_management.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/alumni_management.js'); ?>

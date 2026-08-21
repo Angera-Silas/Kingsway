@@ -306,4 +306,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/asset_purchases.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/asset_purchases.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/asset_purchases.js'); ?>

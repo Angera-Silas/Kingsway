@@ -136,4 +136,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/teacher_performance_reviews.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/teacher_performance_reviews.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/teacher_performance_reviews.js'); ?>

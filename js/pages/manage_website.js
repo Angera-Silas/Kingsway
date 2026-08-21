@@ -8,6 +8,11 @@ const manageWebsiteController = {
     newsItems: [],
     newsCats: [],
     allSettings: [],
+    leadershipLevels: [],
+    leadershipData: [],
+    leadershipPositions: [],
+    leadershipCurrentLevelId: null,
+    leadershipEditingId: null,
   },
 
   API: (method, endpoint, data, params, opts) =>
@@ -767,13 +772,7 @@ const manageWebsiteController = {
       {k:'event_title',l:'Title',type:'text',req:1},
       {k:'description',l:'Description',type:'textarea'},
       {k:'display_order',l:'Order',type:'number'} ] },
-    leadership: { title: 'Leadership Team',      fields: [
-      {k:'name',l:'Name',type:'text',req:1},
-      {k:'title',l:'Position',type:'text',req:1},
-      {k:'bio',l:'Bio',type:'textarea'},
-      {k:'avatar_url',l:'Photo URL',type:'text'},
-      {k:'email',l:'Email',type:'text'},
-      {k:'display_order',l:'Order',type:'number'} ] },
+    /* leadership moved to dedicated hierarchy UI — see loadLeadership() */
     programs:   { title: 'Academic Programs',    fields: [
       {k:'name',l:'Name',type:'text',req:1},
       {k:'level_range',l:'Level Range',type:'text'},
@@ -803,6 +802,14 @@ const manageWebsiteController = {
       {k:'description',l:'Description',type:'textarea'},
       {k:'icon',l:'Icon',type:'text'},
       {k:'display_order',l:'Order',type:'number'} ] },
+    testimonials:{ title: 'Testimonials',       fields: [
+      {k:'person_name',l:'Name',type:'text',req:1},
+      {k:'role_label',l:'Role',type:'text'},
+      {k:'testimonial',l:'Testimonial',type:'textarea',req:1},
+      {k:'video_url',l:'Video URL',type:'text',hint:'YouTube, Vimeo, or MP4 URL (optional)'},
+      {k:'stars',l:'Stars',type:'number'},
+      {k:'display_order',l:'Order',type:'number'},
+      {k:'is_active',l:'Active',type:'text'} ] },
   },
 
   stEscape(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); },
@@ -837,6 +844,7 @@ const manageWebsiteController = {
         this.renderStaticTable(resource, cfg, r.data.items || []);
       } catch(e) { card.innerHTML = `<div class="alert alert-danger small">${this.stEscape(e.message)}</div>`; }
     }
+    this.loadLeadership();
   },
 
   renderStaticTable(resource, cfg, items) {
@@ -851,7 +859,7 @@ const manageWebsiteController = {
         </td>
       </tr>`).join('') || `<tr><td colspan="${cfg.fields.length+1}" class="text-muted text-center small py-3">No records yet.</td></tr>`;
 
-    const icon = {values:'stars',history:'clock-history',leadership:'people',programs:'book',facilities:'building',departments:'diagram-3',steps:'list-check',benefits:'gift'}[resource] || 'grid-1x2';
+    const icon = {values:'stars',history:'clock-history',leadership:'people',programs:'book',facilities:'building',departments:'diagram-3',steps:'list-check',benefits:'gift',testimonials:'chat-quote'}[resource] || 'grid-1x2';
     card.innerHTML = `
       <div class="ws-stat-card mb-2">
         <div class="ws-stat-icon" style="background:#e9f7ef;color:#198754"><i class="bi bi-${icon}"></i></div>
@@ -916,6 +924,273 @@ const manageWebsiteController = {
       if (r.status === 'success') { this.notify('Deleted'); this.loadStaticTables(); }
       else this.notify(r.message,'warning');
     } catch(e){ this.notify(e.message,'danger'); }
+  },
+
+  /* ════════════════════════════════════════════════════════════════════════════
+     LEADERSHIP HIERARCHY
+  ════════════════════════════════════════════════════════════════════════════ */
+  async loadLeadership() {
+    const panel = document.getElementById('leadershipPanel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+    try {
+      const r = await this.API('GET', 'website/leadership');
+      this.state.leadershipData = (r.status === 'success' ? r.data : null) || [];
+      this.renderLeadership();
+    } catch(e) {
+      panel.innerHTML = `<div class="alert alert-danger small">${this.esc(e.message)}</div>`;
+    }
+  },
+
+  renderLeadership() {
+    const panel = document.getElementById('leadershipPanel');
+    if (!panel) return;
+    const levels = this.state.leadershipData;
+    if (!levels.length) {
+      panel.innerHTML = '<div class="text-muted small text-center py-3">No leadership levels configured.</div>';
+      return;
+    }
+    const accId = 'leadershipAccordion';
+    panel.innerHTML = `
+      <div class="accordion" id="${accId}">
+        ${levels.map((lvl, i) => {
+          const collapseId = `leadershipLevel${lvl.level_id}`;
+          const members = lvl.members || [];
+          return `
+          <div class="accordion-item border-0 mb-2 bg-white rounded-3 shadow-sm">
+            <h2 class="accordion-header">
+              <button class="accordion-button ${i > 0 ? 'collapsed' : ''} fw-semibold" type="button"
+                      data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                <i class="bi bi-people-fill text-success me-2"></i>
+                ${this.esc(lvl.level_name)}
+                <span class="badge bg-success ms-2">${members.length}</span>
+              </button>
+            </h2>
+            <div id="${collapseId}" class="accordion-collapse collapse ${i === 0 ? 'show' : ''}" data-bs-parent="#${accId}">
+              <div class="accordion-body pt-0">
+                <div class="d-flex justify-content-end mb-3">
+                  <button class="btn btn-sm btn-success rounded-pill px-3" onclick="wsOpenLeadershipModal(${lvl.level_id})">
+                    <i class="bi bi-plus-lg me-1"></i>Add Member
+                  </button>
+                </div>
+                ${members.length
+                  ? this.renderLeadershipCards(members)
+                  : '<div class="text-muted small text-center py-2">No members in this level yet.</div>'}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  },
+
+  renderLeadershipCards(members) {
+    return `<div class="row g-3">${members.map(m => `
+      <div class="col-md-6 col-lg-4">
+        <div class="card h-100 border-0 shadow-sm" style="transition:transform .15s">
+          <div class="card-body d-flex gap-3 py-3">
+            <img src="${this.esc(m.avatar_url || 'https://placehold.co/80x80/198754/fff?text=No+Photo')}"
+                 alt="${this.esc(m.name || '')}"
+                 class="rounded-circle flex-shrink-0" style="width:64px;height:64px;object-fit:cover"
+                 onerror="this.src='https://placehold.co/80x80/198754/fff?text=No+Photo'">
+            <div class="flex-grow-1 min-width-0">
+              <h6 class="mb-0 fw-semibold text-truncate">${this.esc(m.name || 'Unknown')}</h6>
+              <span class="badge bg-success bg-opacity-10 text-success mb-1">${this.esc(m.position_name || '')}</span>
+              ${m.bio ? `<p class="text-muted small mb-0" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${this.esc(m.bio)}</p>` : ''}
+            </div>
+          </div>
+          <div class="card-footer bg-transparent border-0 pt-0 pb-2 d-flex justify-content-end gap-1">
+            <button class="btn btn-sm btn-outline-primary rounded-pill px-2" title="Edit"
+                    onclick="wsOpenLeadershipModal(${m.level_id},${m.id})"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-sm btn-outline-danger rounded-pill px-2" title="Remove"
+                    onclick="wsDeleteLeadership(${m.id},'${this.esc(m.name || '').replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>`).join('')}</div>`;
+  },
+
+  async wsOpenLeadershipModal(levelId, entryId = null) {
+    this.state.leadershipCurrentLevelId = levelId;
+    this.state.leadershipEditingId = entryId;
+
+    const modal   = document.getElementById('wsLeadershipModal');
+    const title   = document.getElementById('wsLeadershipModalTitle');
+    const editId  = document.getElementById('leadEditId');
+    const levelIdField = document.getElementById('leadLevelId');
+    const posSel  = document.getElementById('leadPosition');
+    const bioEl   = document.getElementById('leadBio');
+    const photoEl = document.getElementById('leadPhotoUrl');
+    const orderEl = document.getElementById('leadDisplayOrder');
+    const personExisting = document.getElementById('leadPersonExisting');
+    const personNew      = document.getElementById('leadPersonNew');
+    const searchWrap     = document.getElementById('leadPersonSearchWrap');
+    const newWrap        = document.getElementById('leadPersonNewWrap');
+    const searchInput    = document.getElementById('leadPersonSearch');
+    const personIdField  = document.getElementById('leadPersonId');
+    const firstNameEl    = document.getElementById('leadFirstName');
+    const lastNameEl     = document.getElementById('leadLastName');
+    const selectedName   = document.getElementById('leadPersonSelectedName');
+    const selectedWrap   = document.getElementById('leadPersonSelected');
+    const searchResults  = document.getElementById('leadPersonSearchResults');
+
+    title.textContent = entryId ? 'Edit Leadership Entry' : 'Add Member';
+    editId.value = entryId || '';
+    levelIdField.value = levelId;
+    posSel.innerHTML = '<option value="">Loading...</option>';
+    bioEl.value = '';
+    photoEl.value = '';
+    orderEl.value = '0';
+    personExisting.checked = true;
+    searchWrap.classList.remove('d-none');
+    newWrap.classList.add('d-none');
+    searchInput.value = '';
+    personIdField.value = '';
+    firstNameEl.value = '';
+    lastNameEl.value = '';
+    selectedName.textContent = '';
+    selectedWrap.classList.add('d-none');
+    searchResults.style.display = 'none';
+    searchResults.innerHTML = '';
+
+    try {
+      const pr = await this.API('GET', 'website/leadership/positions', { level_id: levelId });
+      this.state.leadershipPositions = (pr.status === 'success' ? pr.data : null) || [];
+      posSel.innerHTML = '<option value="">Select position\u2026</option>' +
+        this.state.leadershipPositions.map(p =>
+          `<option value="${p.id}">${this.esc(p.name)}</option>`
+        ).join('');
+    } catch(_) { posSel.innerHTML = '<option value="">No positions available</option>'; }
+
+    if (entryId) {
+      const existing = this.findLeadershipMember(entryId);
+      if (existing) {
+        const posMatch = this.state.leadershipPositions.find(p => p.name === existing.position_name);
+        if (posMatch) posSel.value = posMatch.id;
+        bioEl.value = existing.bio || '';
+        photoEl.value = existing.avatar_url || '';
+        orderEl.value = existing.display_order || 0;
+        personIdField.value = existing.person_id;
+        personExisting.checked = true;
+        searchWrap.classList.remove('d-none');
+        newWrap.classList.add('d-none');
+        selectedName.textContent = existing.name;
+        selectedWrap.classList.remove('d-none');
+      }
+    }
+
+    new bootstrap.Modal(modal).show();
+  },
+
+  findLeadershipMember(id) {
+    for (const lvl of this.state.leadershipData) {
+      const found = (lvl.members || []).find(m => m.id === id);
+      if (found) return found;
+    }
+    return null;
+  },
+
+  async wsSaveLeadership() {
+    const editId   = document.getElementById('leadEditId').value;
+    const levelId  = document.getElementById('leadLevelId').value;
+    const posId    = document.getElementById('leadPosition').value;
+    const bio      = document.getElementById('leadBio').value.trim();
+    const photoUrl = document.getElementById('leadPhotoUrl').value.trim();
+    const order    = document.getElementById('leadDisplayOrder').value || '0';
+    const isExternal = document.getElementById('leadPersonNew').checked;
+
+    if (!posId) return this.notify('Position is required.', 'warning');
+
+    const payload = {
+      position_id: parseInt(posId, 10),
+      public_bio: bio || null,
+      public_photo_url: photoUrl || null,
+      display_order: parseInt(order, 10),
+    };
+
+    if (isExternal) {
+      const fn = document.getElementById('leadFirstName').value.trim();
+      const ln = document.getElementById('leadLastName').value.trim();
+      if (!fn || !ln) return this.notify('First and last name are required for external persons.', 'warning');
+      payload.first_name = fn;
+      payload.last_name = ln;
+    } else {
+      const pid = document.getElementById('leadPersonId').value;
+      if (!pid) return this.notify('Please select or enter a person.', 'warning');
+      payload.person_id = parseInt(pid, 10);
+    }
+
+    const btn = document.getElementById('leadSubmitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving\u2026';
+    try {
+      const r = editId
+        ? await this.API('PUT', `website/leadership/${editId}`, payload)
+        : await this.API('POST', 'website/leadership', payload);
+      if (r.status === 'success') {
+        this.notify(editId ? 'Entry updated' : 'Member added');
+        bootstrap.Modal.getInstance(document.getElementById('wsLeadershipModal'))?.hide();
+        this.loadLeadership();
+      } else { this.notify(r.message || 'Save failed', 'danger'); }
+    } catch(e) { this.notify(e.message || 'Error', 'danger'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Save'; }
+  },
+
+  async wsDeleteLeadership(id, name) {
+    if (!(await window.confirmAction('Confirm Deletion', `Remove "${name}" from leadership? This cannot be undone.`, { confirmText: 'Delete', danger: true }))) return;
+    try {
+      await this.API('DELETE', `website/leadership/${id}`);
+      this.notify('Member removed');
+      this.loadLeadership();
+    } catch(e) { this.notify(e.message, 'danger'); }
+  },
+
+  wsLeadershipPersonMode(mode) {
+    const searchWrap = document.getElementById('leadPersonSearchWrap');
+    const newWrap    = document.getElementById('leadPersonNewWrap');
+    if (mode === 'new') {
+      searchWrap.classList.add('d-none');
+      newWrap.classList.remove('d-none');
+    } else {
+      searchWrap.classList.remove('d-none');
+      newWrap.classList.add('d-none');
+    }
+  },
+
+  _leadershipSearchTimer: null,
+  wsLeadershipPersonSearch(query) {
+    clearTimeout(this._leadershipSearchTimer);
+    const results = document.getElementById('leadPersonSearchResults');
+    const personIdField = document.getElementById('leadPersonId');
+    const selectedWrap  = document.getElementById('leadPersonSelected');
+    if (!query || query.length < 2) { results.style.display = 'none'; return; }
+    personIdField.value = '';
+    selectedWrap.classList.add('d-none');
+    this._leadershipSearchTimer = setTimeout(async () => {
+      try {
+        const r = await this.API('GET', 'website/leadership');
+        const levels = (r.status === 'success' ? r.data : null) || [];
+        const seen = new Set();
+        const matches = [];
+        for (const lvl of levels) {
+          for (const m of (lvl.members || [])) {
+            if (seen.has(m.person_id)) continue;
+            seen.add(m.person_id);
+            const fullName = (m.name || '').toLowerCase();
+            if (fullName.includes(query.toLowerCase())) {
+              matches.push({ person_id: m.person_id, name: m.name });
+            }
+          }
+        }
+        if (!matches.length) {
+          results.innerHTML = '<div class="list-group-item list-group-item-action text-muted small">No matches found — try "New external person" below.</div>';
+        } else {
+          results.innerHTML = matches.slice(0, 10).map(p =>
+            `<button type="button" class="list-group-item list-group-item-action small"
+                     onclick="wsSelectLeadershipPerson(${p.person_id},'${this.esc(p.name).replace(/'/g, "\\'")}')">${this.esc(p.name)}</button>`
+          ).join('');
+        }
+        results.style.display = '';
+      } catch(_) { results.style.display = 'none'; }
+    }, 300);
   },
 
   /* ── Event Listeners ──────────────────────────────────────────────────────── */
@@ -1004,6 +1279,19 @@ window.stEdit             = function(resource, id) { return manageWebsiteControl
 window.stSave             = function(resource, id) { return manageWebsiteController.stSave(resource, id); };
 window.stDelete           = function(resource, id) { return manageWebsiteController.stDelete(resource, id); };
 window.loadStaticTables   = function() { return manageWebsiteController.loadStaticTables(); };
+window.wsOpenLeadershipModal    = function(levelId, entryId) { return manageWebsiteController.wsOpenLeadershipModal(levelId, entryId); };
+window.wsSaveLeadership         = function() { return manageWebsiteController.wsSaveLeadership(); };
+window.wsDeleteLeadership       = function(id, name) { return manageWebsiteController.wsDeleteLeadership(id, name); };
+window.wsLeadershipPersonMode   = function(mode) { return manageWebsiteController.wsLeadershipPersonMode(mode); };
+window.wsLeadershipPersonSearch = function(q) { return manageWebsiteController.wsLeadershipPersonSearch(q); };
+window.wsSelectLeadershipPerson = function(pid, name) {
+  document.getElementById('leadPersonId').value = pid;
+  document.getElementById('leadPersonSearch').value = '';
+  document.getElementById('leadPersonSearchResults').style.display = 'none';
+  const sw = document.getElementById('leadPersonSelected');
+  document.getElementById('leadPersonSelectedName').textContent = name;
+  sw.classList.remove('d-none');
+};
 
 /* ── Bootstrap ──────────────────────────────────────────────────────────────── */
 if (document.readyState === 'loading') {

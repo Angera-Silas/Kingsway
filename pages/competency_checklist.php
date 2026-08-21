@@ -38,4 +38,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/competency_checklist.js"></script>
+<?php asset_script($appBase, 'js/pages/competency_checklist.js'); ?>

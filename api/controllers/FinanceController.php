@@ -868,6 +868,12 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getStaffForPayroll();
+        if (!$this->isPayrollReviewer() && ($result['status'] ?? '') === 'success') {
+            foreach ((array)($result['data'] ?? []) as &$staff) {
+                $staff['children_count'] = 0;
+            }
+            unset($staff);
+        }
         return $this->handleResponse($result);
     }
 
@@ -885,6 +891,12 @@ class FinanceController extends BaseController
         }
 
         $result = $this->api->getStaffPayrollDetails($staffId);
+        if (!$this->isPayrollReviewer() && ($result['status'] ?? '') === 'success' && is_array($result['data'] ?? null)) {
+            $result['data']['children'] = [];
+            $result['data']['has_children'] = false;
+            $result['data']['total_children_fees'] = 0;
+            $result['data']['invoice_warnings'] = [];
+        }
         return $this->handleResponse($result);
     }
 
@@ -897,7 +909,7 @@ class FinanceController extends BaseController
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $month = $_GET['month'] ?? $data['month'] ?? date('n');
         $year = $_GET['year'] ?? $data['year'] ?? date('Y');
-        $result = $this->api->getBulkPayrollPreview($month, $year);
+        $result = $this->api->getBulkPayrollPreview($month, $year, !$this->isPayrollReviewer());
         return $this->handleResponse($result);
     }
 
@@ -911,6 +923,9 @@ class FinanceController extends BaseController
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $payload = $data ?: $this->getRequestData();
+        if (!$this->isPayrollReviewer()) {
+            $payload['preparation_only'] = true;
+        }
         $result = $this->api->processBulkPayroll($payload);
         return $this->handleResponse($result);
     }
@@ -941,8 +956,29 @@ class FinanceController extends BaseController
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
-        $result = $this->api->processPayrollWithDeductions($data);
+        $payload = $eligibilityPayload;
+        if (!$this->isPayrollReviewer()) {
+            // Accountants prepare the draft from the approved salary profile and
+            // statutory configuration. Review-stage compensation and deductions
+            // belong to the director/school administrator.
+            $payload['allowances'] = [];
+            $payload['other_deductions'] = 0;
+            $payload['children_deductions'] = [];
+            $payload['preparation_only'] = true;
+            unset($payload['source_financial_account_id'], $payload['salary_advance_id']);
+        }
+        $result = $this->api->processPayrollWithDeductions($payload);
         return $this->handleResponse($result);
+    }
+
+    private function isPayrollReviewer(): bool
+    {
+        $roles = $this->staffAccess->roles();
+        if (in_array('accountant', $roles, true)) {
+            return false;
+        }
+        return $this->staffAccess->allows('staff.payroll.approve', ['director', 'school administrator', 'system administrator'])
+            || $this->userHasAny(['finance.approve', 'payroll_approve'], [3], ['director', 'school administrator', 'system administrator']);
     }
 
     /**
@@ -1003,7 +1039,9 @@ class FinanceController extends BaseController
 
         $paymentRef = $data['payment_reference'] ?? '';
         $paymentMode = $data['payment_mode'] ?? 'bank';
-        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode);
+        $data['user_id'] = $this->getUserId();
+        $sourceAccountId = $data['source_financial_account_id'] ?? null;
+        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode, $sourceAccountId, $data['user_id']);
         return $this->handleResponse($result);
     }
 
@@ -1185,60 +1223,6 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 4: Fee Structure Operations
     // ========================================
-
-    /**
-     * GET /api/finance/fee-types-list
-     */
-    public function getFeeTypesList($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->listFeeTypes();
-        return $this->handleResponse($result);
-    }
-
-    /**
-     * POST /api/finance/fee-types
-     */
-    public function postFeeTypesList($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->createFeeType($data);
-        return $this->handleResponse($result);
-    }
-
-    /**
-     * PUT /api/finance/fee-types/{id}
-     */
-    public function putFeeTypes($id = null, $data = [], $segments = [])
-    {
-        if (!$id) return $this->badRequest('Fee type ID is required');
-        $result = $this->api->updateFeeType($id, $data);
-        return $this->handleResponse($result);
-    }
-
-    /**
-     * Backward-compatible alias for clients using the fee-types-list resource name.
-     */
-    public function putFeeTypesList($id = null, $data = [], $segments = [])
-    {
-        return $this->putFeeTypes($id, $data, $segments);
-    }
-
-    /**
-     * PATCH /api/finance/fee-types/{id}
-     */
-    public function patchFeeTypes($id = null, $data = [], $segments = [])
-    {
-        if (!$id) return $this->badRequest('Fee type ID is required');
-        $result = $this->api->toggleFeeTypeStatus($id);
-        return $this->handleResponse($result);
-    }
-
-    /**
-     * Backward-compatible alias for clients using the fee-types-list resource name.
-     */
-    public function patchFeeTypesList($id = null, $data = [], $segments = [])
-    {
-        return $this->patchFeeTypes($id, $data, $segments);
-    }
 
     /**
      * GET /api/finance/student-types-list
@@ -2312,11 +2296,16 @@ return $this->error('An internal error occurred.');
     // EXTRA CHARGES — flexible charges on the fee structure
     // =========================================================================
 
-    /** GET /api/finance/extra-charges */
+    /** GET /api/finance/extra-charges[/{id}] */
     public function getExtraCharges($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
             return $this->forbidden('Insufficient permissions.');
+        }
+        // Router resolves GET /extra-charges/{id} to this list method with the
+        // numeric id as first argument — delegate to the single-charge handler.
+        if ($id !== null && $id !== '' && is_numeric($id)) {
+            return $this->getExtraChargesGet($id, $data, $segments);
         }
         $filters = $_GET;
         $result = $this->api->getExtraCharges($filters);
@@ -2377,11 +2366,12 @@ return $this->error('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
-    /** POST /api/finance/extra-charges/{id}/approve */
+    /** POST /api/finance/extra-charges/approve/{id} */
     public function postExtraChargesApprove($id = null, $data = [], $segments = [])
     {
-        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_approve'], [3, 4, 10])) {
-            return $this->forbidden('Insufficient permissions.');
+        // Approval authority: Director, School Administrator (and System Administrator) only.
+        if (!$this->userHasAny(['fee_structure_approve', 'fee_structure_manage'], [2, 3, 4])) {
+            return $this->forbidden('Only the School Administrator or Director can approve fee structure items.');
         }
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         $notes = $data['notes'] ?? '';
@@ -2389,15 +2379,36 @@ return $this->error('An internal error occurred.');
         return $this->handleResponse($result);
     }
 
-    /** POST /api/finance/extra-charges/{id}/reject */
+    /** POST /api/finance/extra-charges/reject/{id} */
     public function postExtraChargesReject($id = null, $data = [], $segments = [])
     {
-        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_approve'], [3, 4, 10])) {
-            return $this->forbidden('Insufficient permissions.');
+        // Rejection authority mirrors approval: Director / School Administrator only.
+        if (!$this->userHasAny(['fee_structure_approve', 'fee_structure_manage'], [2, 3, 4])) {
+            return $this->forbidden('Only the School Administrator or Director can reject fee structure items.');
         }
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         $notes = $data['notes'] ?? '';
         $result = $this->api->rejectExtraCharge((int) $id, (int) $userId, $notes);
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/academic-years */
+    public function getExtraChargesAcademicYears($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getAcademicYearsList();
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/gl-accounts */
+    public function getExtraChargesGlAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getGLAccounts();
         return $this->handleResponse($result);
     }
 }

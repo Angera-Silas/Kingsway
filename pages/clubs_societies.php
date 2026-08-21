@@ -121,4 +121,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/clubs_societies.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/clubs_societies.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/clubs_societies.js'); ?>

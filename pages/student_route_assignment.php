@@ -74,4 +74,4 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_route_assignment.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_route_assignment.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/student_route_assignment.js'); ?>

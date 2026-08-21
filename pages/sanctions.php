@@ -193,5 +193,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/sanctions.js"></script>
+<?php asset_script($appBase, 'js/pages/sanctions.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => sanctionsController.init());</script>

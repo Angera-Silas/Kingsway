@@ -74,6 +74,29 @@ document.addEventListener('DOMContentLoaded', () => {
     onScroll();
   }
 
+  /* ── Announcement ticker — render + pause on hover (shared site-wide) ───── */
+  // Markup lives in public/layout/header.php; this fills #site-ticker on every
+  // public page. Items are duplicated so the CSS marquee (translateX(-50%))
+  // loops seamlessly.
+  async function renderSiteTicker() {
+    const track = document.getElementById('site-ticker');
+    if (!track || !window.PublicSite) return;
+    try {
+      const data = await window.PublicSite.get('news', { limit: 3 }, { tier: 'dynamic' });
+      const list = window.PublicSite.items(data).slice(0, 3);
+      if (!list.length) return;
+      const base = String(window.APP_BASE || '').replace(/\/+$/, '');
+      const S = window.PublicSite.escapeHtml;
+      const spans = list.map((n) =>
+        '<span><a href="' + base + '/news-article.php?id=' + encodeURIComponent(n.id) + '">' + S(n.title) + '</a></span>'
+      ).join('');
+      track.innerHTML = spans + spans;
+    } catch (err) {
+      if (window.KINGSWAY_DEBUG) console.warn('[ticker] render failed:', err);
+    }
+  }
+  renderSiteTicker();
+
   /* ── Announcement ticker pause on hover ──────────────────────────────────── */
   const ticker = document.querySelector('.ticker-track');
   if (ticker) {

@@ -42,12 +42,12 @@ const LessonPlanApprovalController = (() => {
   async function loadReferenceData() {
     try {
       const [teacherResp, subjectResp] = await Promise.all([
-        // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+        // Reference data: network-first with a 1 h offline fallback (freshness wins).
         DataStore.fetchPage('teachers', {
           endpoint: '/staff/teachers', storeName: 'reference_teachers',
           ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
         }).catch(() => []),
-        // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+        // Reference data: network-first with a 5 min offline fallback (freshness wins).
         DataStore.fetchPage('subjects', {
           endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
           ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'

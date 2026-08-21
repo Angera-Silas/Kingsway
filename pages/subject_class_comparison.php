@@ -94,4 +94,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_class_comparison.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/subject_class_comparison.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/subject_class_comparison.js'); ?>

@@ -53,4 +53,4 @@
   </div>
 </div>
 
-<script src="js/pages/manage_library.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_library.js'); ?>

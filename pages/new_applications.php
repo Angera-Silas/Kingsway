@@ -551,8 +551,4 @@ if ($appBase === '.')
     console.log("new_applications.php loaded. APP_BASE:", window.APP_BASE);
 </script>
 
-<script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= filemtime(__DIR__ . '/../js/pages/new_applications.js') ?>"
-    onload="console.log('new_applications.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load new_applications.js. Check path:', this.src)">
-</script>
+<?php asset_script($appBase, 'js/pages/new_applications.js'); ?>

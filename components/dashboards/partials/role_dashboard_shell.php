@@ -173,5 +173,5 @@ $escape = static function ($value): string {
     <?php endif; ?>
 </div>
 
-<script src="<?= $escape($appBase) ?>/js/dashboards/dashboard_base_controller.js?v=<?= filemtime(__DIR__ . '/../../../js/dashboards/dashboard_base_controller.js') ?>"></script>
-<script src="<?= $escape($appBase) ?>/js/dashboards/<?= $escape($controllerFile) ?>?v=<?= filemtime(__DIR__ . '/../../../js/dashboards/' . $controllerFile) ?>"></script>
+<?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/' . $controllerFile); ?>

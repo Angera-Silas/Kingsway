@@ -2045,7 +2045,7 @@ class SystemAdminManager extends BaseAPI
             'users', 'roles', 'permissions', 'role_permissions', 'role_routes',
             'routes_registry', 'sidebar_menu_items', 'role_sidebar_menus', 'dashboards',
             'staff', 'students', 'classes', 'academic_years',
-            'departments', 'school_settings', 'school_configuration',
+            'departments', 'school_settings', 'school_profile',
             'user_sessions', 'refresh_tokens',
             'notifications', 'communications', 'blocked_ips',
             'system_policies',

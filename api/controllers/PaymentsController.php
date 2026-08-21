@@ -263,7 +263,7 @@ class PaymentsController extends BaseController
             return $this->forbidden('Insufficient permissions');
         }
 
-        return $this->handleResponse($this->api->getUnmatchedMpesa());
+        return $this->handleResponse($this->api->getUnmatchedMpesa($data));
     }
 
     /**

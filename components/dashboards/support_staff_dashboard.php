@@ -287,5 +287,5 @@
     </div>
 </div>
 
-<script src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/dashboards/dashboard_base_controller.js?v=<?= filemtime(__DIR__ . '/../../js/dashboards/dashboard_base_controller.js') ?>"></script>
-<script src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/dashboards/support_staff_dashboard.js?v=<?= filemtime(__DIR__ . '/../../js/dashboards/support_staff_dashboard.js') ?>"></script>
+<?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/support_staff_dashboard.js'); ?>

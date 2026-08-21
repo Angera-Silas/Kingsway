@@ -262,5 +262,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_timeline.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/student_timeline.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/student_timeline.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => studentTimelineController.init());</script>

@@ -1,6 +1,6 @@
 /**
  * manage_job_applications.js — Job Applications Controller (standalone page).
- * Read-only review of applications received via the public Careers page.
+ * Recruitment review: shortlist, schedule/record interviews, and progress applicants.
  */
 const jobAppsController = {
   state: { items: [] },
@@ -20,10 +20,51 @@ const jobAppsController = {
   esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
   fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2014'; },
   badgeStatus(s) {
-    const colors = { new: 'primary', shortlisted: 'info', interview_scheduled: 'warning', accepted: 'success', rejected: 'danger' };
+    const colors = { received: 'primary', shortlisted: 'info', interview_scheduled: 'warning', interviewed: 'secondary', hired: 'success', rejected: 'danger' };
     const c = colors[s] || 'secondary';
     const label = (s || '').replace(/_/g, ' ');
     return `<span class="badge bg-${c}">${label || '\u2014'}</span>`;
+  },
+
+  async updateStatus(id, status) {
+    try { await this.API('PUT', `website/job-applications/${id}`, { status }); this.notify('Application status updated'); await this.loadData(); }
+    catch (e) { this.notify(e.message || 'Could not update application', 'danger'); }
+  },
+
+  openInterview(application, complete = false) {
+    document.getElementById('jobInterviewApplicationId').value = application.id;
+    document.getElementById('jobInterviewId').value = application.interview_id || '';
+    document.getElementById('jobInterviewModalTitle').textContent = complete ? 'Record interview outcome' : 'Schedule interview';
+    document.getElementById('jobInterviewScheduleFields').classList.toggle('d-none', complete);
+    document.getElementById('jobInterviewCompletionFields').classList.toggle('d-none', !complete);
+    document.getElementById('jobInterviewScheduledAt').value = application.interview_scheduled_at ? application.interview_scheduled_at.replace(' ', 'T').slice(0, 16) : '';
+    document.getElementById('jobInterviewMode').value = application.interview_mode || 'in_person';
+    document.getElementById('jobInterviewLocation').value = application.interview_location || '';
+    document.getElementById('jobInterviewScore').value = application.interview_score || '';
+    document.getElementById('jobInterviewNotes').value = application.interview_notes || '';
+    document.getElementById('jobInterviewForm').dataset.complete = complete ? '1' : '0';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('jobInterviewModal')).show();
+  },
+
+  async saveInterview(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const complete = form.dataset.complete === '1';
+    try {
+      if (complete) {
+        const id = document.getElementById('jobInterviewId').value;
+        if (!id) throw new Error('No scheduled interview found');
+        await this.API('PUT', `website/job-applications/interviews/${id}`, { score: document.getElementById('jobInterviewScore').value || null, notes: document.getElementById('jobInterviewNotes').value || null });
+      } else {
+        const id = document.getElementById('jobInterviewApplicationId').value;
+        const scheduledAt = document.getElementById('jobInterviewScheduledAt').value;
+        if (!scheduledAt) throw new Error('Interview date and time are required');
+        await this.API('POST', `website/job-applications/${id}/interview`, { scheduled_at: scheduledAt.replace('T', ' '), mode: document.getElementById('jobInterviewMode').value, location: document.getElementById('jobInterviewLocation').value || null });
+      }
+      bootstrap.Modal.getInstance(document.getElementById('jobInterviewModal'))?.hide();
+      this.notify(complete ? 'Interview outcome recorded' : 'Interview scheduled');
+      await this.loadData();
+    } catch (e) { this.notify(e.message || 'Could not save interview', 'danger'); }
   },
 
   async loadData() {
@@ -60,6 +101,10 @@ const jobAppsController = {
         <td class="small text-muted">${this.fmtDate(a.created_at)}</td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" title="Copy email" onclick="jobAppsCopy('${this.esc(a.email)}')"><i class="bi bi-envelope"></i></button>
+          ${a.status === 'received' ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-2 ms-1" onclick="jobAppsAction('shortlist', ${a.id})" title="Shortlist"><i class="bi bi-check2"></i></button>` : ''}
+          ${['shortlisted','received'].includes(a.status) ? `<button class="btn btn-sm btn-outline-warning rounded-pill px-2 ms-1" onclick="jobAppsAction('schedule', ${a.id})" title="Schedule interview"><i class="bi bi-calendar-plus"></i></button>` : ''}
+          ${a.status === 'interview_scheduled' && a.interview_id ? `<button class="btn btn-sm btn-outline-success rounded-pill px-2 ms-1" onclick="jobAppsAction('complete', ${a.id})" title="Record interview"><i class="bi bi-clipboard-check"></i></button>` : ''}
+          ${a.status === 'interviewed' ? `<button class="btn btn-sm btn-success rounded-pill px-2 ms-1" onclick="jobAppsAction('hire', ${a.id})" title="Mark hired"><i class="bi bi-person-check"></i></button>` : ''}
         </td>
       </tr>`).join('');
   },
@@ -72,6 +117,7 @@ const jobAppsController = {
     document.getElementById('appStatusFilter')?.addEventListener('change', () => this.render());
     const searchEl = document.getElementById('appSearch');
     if (searchEl) searchEl.addEventListener('keyup', () => this.render());
+    document.getElementById('jobInterviewForm')?.addEventListener('submit', e => this.saveInterview(e));
   },
 
   async init() {
@@ -83,6 +129,14 @@ const jobAppsController = {
 
 window.jobAppsController = jobAppsController;
 window.jobAppsCopy       = (email) => jobAppsController.copy(email);
+window.jobAppsAction = (action, id) => {
+  const app = jobAppsController.state.items.find(x => Number(x.id) === Number(id));
+  if (!app) return;
+  if (action === 'schedule') return jobAppsController.openInterview(app, false);
+  if (action === 'complete') return jobAppsController.openInterview(app, true);
+  if (action === 'shortlist') return jobAppsController.updateStatus(id, 'shortlisted');
+  if (action === 'hire') return jobAppsController.updateStatus(id, 'hired');
+};
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => jobAppsController.init().catch(() => {}));

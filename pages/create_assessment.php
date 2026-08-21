@@ -153,4 +153,4 @@
     </div>
 </div>
 
-<script src="js/pages/create_assessment.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/create_assessment.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/create_assessment.js'); ?>

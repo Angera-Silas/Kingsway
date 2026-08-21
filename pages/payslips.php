@@ -53,7 +53,7 @@
               <th scope="col">Month</th>
               <th class="text-end">Gross Pay</th>
               <th class="text-end">PAYE</th>
-              <th class="text-end">NHIF</th>
+              <th class="text-end">SHIF</th>
               <th class="text-end">NSSF</th>
               <th class="text-end">Net Pay</th>
               <th scope="col">Status</th>
@@ -88,5 +88,5 @@
   </div>
 
 </div>
-<script src="js/pages/staff_access.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_access.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/payslips.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/payslips.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/payslips.js'); ?>

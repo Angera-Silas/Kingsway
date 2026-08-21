@@ -50,5 +50,5 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/components/fee_structure_matrix.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/fee_structure_matrix.js") ?>"></script>
-<script src="<?= $appBase ?>/js/pages/fee_structure_approvals.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/fee_structure_approvals.js") ?>"></script>
+<?php asset_script($appBase, 'js/components/fee_structure_matrix.js'); ?>
+<?php asset_script($appBase, 'js/pages/fee_structure_approvals.js'); ?>

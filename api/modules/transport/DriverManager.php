@@ -163,8 +163,8 @@ class DriverManager
     }
     private function nextStaffNumber(): string
     {
-        $stmt = $this->db->query("SELECT COALESCE(MAX(CAST(SUBSTRING(staff_no, 3) AS UNSIGNED)), 0) + 1 FROM staff");
-        return 'ST' . str_pad((string) $stmt->fetchColumn(), 4, '0', STR_PAD_LEFT);
+        $service = new \App\API\Services\StaffNumberService($this->db);
+        return $service->generate();
     }
     /**
      * Resolve the route context assigned to the authenticated staff driver.

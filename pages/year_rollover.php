@@ -180,5 +180,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/year_rollover.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/year_rollover.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/year_rollover.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => yearRolloverController.init());</script>

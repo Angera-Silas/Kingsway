@@ -157,7 +157,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/finance.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/finance.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/finance.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof FinanceController !== 'undefined') {

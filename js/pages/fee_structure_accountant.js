@@ -101,14 +101,12 @@ class FeeStructureAccountantController {
         yearsResponse,
         levelsResponse,
         studentTypesResponse,
-        feeTypesResponse,
         termsResponse,
         classesResponse,
       ] = await Promise.all([
         API.academic.getAllAcademicYears().catch(() => []),
         API.academic.listLevels().catch(() => []),
         API.finance.listStudentTypes().catch(() => []),
-        API.finance.listFeeTypes().catch(() => []),
         API.academic.listTerms().catch(() => []),
         API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
@@ -118,7 +116,7 @@ class FeeStructureAccountantController {
       this.studentTypes = Array.isArray(studentTypesResponse)
         ? studentTypesResponse
         : [];
-      this.feeTypes = Array.isArray(feeTypesResponse) ? feeTypesResponse : [];
+      this.feeTypes = [{ code: 'SCHOOL_FEES', name: 'School Fees' }];
       this.terms = Array.isArray(termsResponse) ? termsResponse : [];
       this.classes = Array.isArray(classesResponse) ? classesResponse : [];
 
@@ -453,6 +451,7 @@ class FeeStructureAccountantController {
 
       const structures = response?.fee_structures || response?.structures || [];
       const pagination = response?.pagination || {};
+      this.billingSummary = response?.billing_summary || response?.data?.billing_summary || { billed_students: 0, billed_amount: 0 };
 
       this.currentStructures = Array.isArray(structures) ? structures : [];
       const aggregated = this.aggregateFeeStructures(this.currentStructures);
@@ -669,11 +668,10 @@ class FeeStructureAccountantController {
     }
 
     const activeCount = structures.filter((s) => s.status === "active").length;
-    let totalExpected = 0;
+    let totalExpected = Number(this.billingSummary?.billed_amount || 0);
     let totalCollected = 0;
 
     structures.forEach((s) => {
-      totalExpected += s.total_expected_revenue || 0;
       totalCollected += s.total_collected || 0;
     });
 
@@ -1247,7 +1245,7 @@ class FeeStructureAccountantController {
   }
 
   viewDefaulters() {
-    window.location.href = (window.APP_BASE || "") + "/home.php?route=fee_defaulters";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=students_with_balance";
   }
 
   generateInvoices() {

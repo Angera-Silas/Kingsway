@@ -109,4 +109,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/performance_trends.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/performance_trends.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/performance_trends.js'); ?>

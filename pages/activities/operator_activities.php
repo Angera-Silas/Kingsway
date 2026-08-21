@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
-<link rel="stylesheet" href="/css/roles/operator-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/operator-theme.css') ?>">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/operator-theme.css?v=<?= asset_version('css/roles/operator-theme.css') ?>">
 
 <div class="operator-layout">
     <!-- Mini Sidebar -->
@@ -90,5 +90,5 @@
     </main>
 </div>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
-<script src="js/pages/activities.js"></script>
+<?php asset_script($appBase, 'js/components/RoleBasedUI.js'); ?>
+<?php asset_script($appBase, 'js/pages/activities.js'); ?>

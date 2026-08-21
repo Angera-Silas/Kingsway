@@ -146,12 +146,16 @@ class StudentService
             $stmt->execute();
             $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get school settings
-            $stmt = $db->prepare("SELECT setting_key, setting_value, label FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature', 'card_expiry_years', 'card_prefix')");
-            $stmt->execute();
-            $settingsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $schoolSettings = [];
-            foreach ($settingsRows as $row) {
+            // Get school profile
+            $stmt = $db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $schoolSettings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Get headteacher from staff table
+            $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $schoolSettings['headteacher_name'] = $hStmt->fetchColumn() ?: '';
+            // Add ID-card-specific settings from school_settings
+            $stmt2 = $db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('authorized_signature', 'card_expiry_years', 'card_prefix')");
+            $stmt2->execute();
+            foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $schoolSettings[$row['setting_key']] = $row['setting_value'];
             }
 
@@ -409,14 +413,12 @@ class StudentService
                 return null;
             }
 
-            // Get school settings
-            $stmt = $db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature')");
-            $stmt->execute();
-            $settingsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $schoolSettings = [];
-            foreach ($settingsRows as $row) {
-                $schoolSettings[$row['setting_key']] = $row['setting_value'];
-            }
+            // Get school profile
+            $stmt = $db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $schoolSettings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            // Get headteacher from staff table
+            $hStmt = $db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $schoolSettings['headteacher_name'] = $hStmt->fetchColumn() ?: '';
 
             // Get card history
             $stmt = $db->prepare("SELECT 

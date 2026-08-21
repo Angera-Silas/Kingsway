@@ -27,4 +27,4 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/rewards_recognition.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/rewards_recognition.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/rewards_recognition.js'); ?>

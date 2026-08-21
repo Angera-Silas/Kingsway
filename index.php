@@ -10,14 +10,6 @@ require_once __DIR__ . '/public/layout/public_data.php';
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
-<!-- ═══ ANNOUNCEMENT TICKER ══════════════════════════════════════════════════ -->
-<div class="ticker-bar d-flex align-items-center gap-3 px-3">
-  <span class="ticker-label"><i class="bi bi-megaphone-fill me-1"></i>News</span>
-  <div class="overflow-hidden flex-grow-1">
-    <div class="ticker-track" id="home-ticker"></div>
-  </div>
-</div>
-
 <!-- ═══ HERO ══════════════════════════════════════════════════════════════════ -->
 <section class="hero">
   <div class="hero-bg-img"></div>
@@ -326,30 +318,86 @@ require_once __DIR__ . '/public/layout/public_data.php';
       <div class="section-label justify-content-center"><span>Parent &amp; Alumni Voices</span></div>
       <h2 class="section-title">What Our <span>Community Says</span></h2>
     </div>
-    <div class="row g-4">
-      <?php
-      $testi = [
-        ['text'=>"Kingsway has transformed my daughter completely. The teachers genuinely care, the CBC teaching is excellent, and she has grown so much in confidence and character.",'name'=>'Mrs. Akinyi Otieno','role'=>'Parent, Grade 6','stars'=>5],
-        ['text'=>"As an alumni who went through KCPE here, I can say the foundation Kingsway gave me opened doors to the best secondary schools and beyond. The values still guide me.",'name'=>'Brian Kiprotich','role'=>'Alumni, Class of 2019','stars'=>5],
-        ['text'=>"The boarding facilities and pastoral care are exceptional. My son feels at home here. The staff treats every child as their own. We are extremely satisfied.",'name'=>'Mr. Samuel Cheruiyot','role'=>'Parent, Grade 8','stars'=>5],
-      ];
-      foreach ($testi as $i => $t): ?>
-      <div class="col-lg-4 col-md-6">
-        <div class="testimonial-card reveal delay-<?= $i+1 ?>">
-          <div class="stars"><?= str_repeat('★',$t['stars']) ?></div>
-          <p class="testimonial-text"><?= $t['text'] ?></p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar d-flex align-items-center justify-content-center bg-success text-white rounded-circle" style="width:46px;height:46px;font-size:1.1rem;font-weight:700;flex-shrink:0;">
-              <?= strtoupper(substr($t['name'],0,1)) ?>
+    <?php
+    $testi = [];
+    $db = null;
+    try { $db = kw_db(); } catch (\Throwable $e) {}
+    if ($db) {
+        try { $testi = $db->query("SELECT person_name AS name, role_label AS role, testimonial AS text, video_url, stars FROM school_testimonials WHERE is_active = 1 ORDER BY display_order ASC LIMIT 20")->fetchAll(\PDO::FETCH_ASSOC) ?: []; } catch (\Throwable $e) { $testi = []; }
+    }
+    if (empty($testi)) {
+        $testi = [
+          ['text'=>"Kingsway has transformed my daughter completely. The teachers genuinely care, the CBC teaching is excellent, and she has grown so much in confidence and character.",'name'=>'Mrs. Akinyi Otieno','role'=>'Parent, Grade 6','stars'=>5,'video_url'=>null],
+          ['text'=>"As an alumni who went through KCPE here, I can say the foundation Kingsway gave me opened doors to the best secondary schools and beyond. The values still guide me.",'name'=>'Brian Kiprotich','role'=>'Alumni, Class of 2019','stars'=>5,'video_url'=>null],
+          ['text'=>"The boarding facilities and pastoral care are exceptional. My son feels at home here. The staff treats every child as their own. We are extremely satisfied.",'name'=>'Mr. Samuel Cheruiyot','role'=>'Parent, Grade 8','stars'=>5,'video_url'=>null],
+        ];
+    }
+    ?>
+    <?php
+    $carouselId = 'testimonialsCarousel';
+    $perSlide = 3;
+    $slides = [];
+    for ($i = 0; $i < count($testi); $i += $perSlide) {
+        $slides[] = array_slice($testi, $i, $perSlide);
+    }
+    ?>
+    <div id="<?= $carouselId ?>" class="carousel slide" data-bs-ride="carousel" data-bs-interval="7000">
+      <?php if (count($slides) > 1): ?>
+      <div class="carousel-indicators mb-4">
+        <?php foreach ($slides as $si => $sl): ?>
+        <button type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide-to="<?= $si ?>" <?= $si === 0 ? 'class="active" aria-current="true"' : '' ?> aria-label="Slide <?= $si+1 ?>"></button>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+      <div class="carousel-inner">
+        <?php foreach ($slides as $si => $slide): ?>
+        <div class="carousel-item<?= $si === 0 ? ' active' : '' ?>">
+          <div class="row g-4 justify-content-center">
+            <?php foreach ($slide as $t): ?>
+            <div class="col-lg-4 col-md-6">
+              <div class="testimonial-card h-100">
+                <?php if (!empty($t['video_url'])): ?>
+                <div class="ratio ratio-16x9 mb-3 rounded-3 overflow-hidden">
+                  <?php
+                  $vUrl = htmlspecialchars($t['video_url'], ENT_QUOTES, 'UTF-8');
+                  if (preg_match('#(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]+)#', $t['video_url'], $m)) {
+                      echo '<iframe src="https://www.youtube.com/embed/' . htmlspecialchars($m[1]) . '" title="Testimonial video" allowfullscreen loading="lazy"></iframe>';
+                  } elseif (preg_match('#vimeo\.com/(\d+)#', $t['video_url'], $m)) {
+                      echo '<iframe src="https://player.vimeo.com/video/' . htmlspecialchars($m[1]) . '" title="Testimonial video" allowfullscreen loading="lazy"></iframe>';
+                  } else {
+                      echo '<video controls preload="none" class="w-100 h-100 object-fit-cover"><source src="' . $vUrl . '" type="video/mp4"></video>';
+                  }
+                  ?>
+                </div>
+                <?php endif; ?>
+                <div class="stars"><?= str_repeat('★', $t['stars'] ?? 5) ?></div>
+                <p class="testimonial-text"><?= htmlspecialchars($t['text']) ?></p>
+                <div class="testimonial-author">
+                  <div class="testimonial-avatar d-flex align-items-center justify-content-center bg-success text-white rounded-circle" style="width:46px;height:46px;font-size:1.1rem;font-weight:700;flex-shrink:0;">
+                    <?= strtoupper(substr($t['name'],0,1)) ?>
+                  </div>
+                  <div>
+                    <div class="testimonial-name"><?= htmlspecialchars($t['name']) ?></div>
+                    <div class="testimonial-role"><?= htmlspecialchars($t['role']) ?></div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <div class="testimonial-name"><?= $t['name'] ?></div>
-              <div class="testimonial-role"><?= $t['role'] ?></div>
-            </div>
+            <?php endforeach; ?>
           </div>
         </div>
+        <?php endforeach; ?>
       </div>
-      <?php endforeach; ?>
+      <?php if (count($slides) > 1): ?>
+      <button class="carousel-control-prev" type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Previous</span>
+      </button>
+      <button class="carousel-control-next" type="button" data-bs-target="#<?= $carouselId ?>" data-bs-slide="next">
+        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+        <span class="visually-hidden">Next</span>
+      </button>
+      <?php endif; ?>
     </div>
   </div>
 </section>
@@ -386,24 +434,6 @@ require_once __DIR__ . '/public/layout/public_data.php';
   </div>
 </section>
 
-<!-- ═══ CONTACT STRIP ═════════════════════════════════════════════════════════ -->
-<section class="section-sm" style="background:var(--green-dark)">
-  <div class="container">
-    <div class="row g-4 text-white">
-      <?php foreach ([
-        ['bi-geo-alt-fill','Location',    'location'],
-        ['bi-telephone-fill','Call Us',   'phone'],
-        ['bi-envelope-fill','Email',      'email'],
-        ['bi-clock-fill','Office Hours',  'hours'],
-      ] as $c): ?>
-      <div class="col-md-3 col-6 text-center">
-        <div class="mb-2 opacity-75"><i class="bi <?= $c[0] ?> fs-2" style="color:var(--gold)"></i></div>
-        <div class="small text-uppercase fw-semibold opacity-75 mb-1"><?= $c[1] ?></div>
-        <div class="small opacity-90" id="contact-<?= $c[2] ?>"></div>
-      </div>
-      <?php endforeach; ?>
-    </div>
-  </div>
-</section>
+
 
 <?php include __DIR__ . '/public/layout/footer.php'; ?>

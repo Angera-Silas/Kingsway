@@ -48,7 +48,9 @@ const draftFeeStructureController = {
         selectedStudentType: 1,
         dirty: false,
         bundleIdCounter: 0,
-        feeCode: 'TUITION',
+        // The rejected itemized fee catalog was removed. The approved school
+        // fee matrix is represented by the single normalized technical code.
+        feeCode: 'SCHOOL_FEES',
     },
 
     async init() {

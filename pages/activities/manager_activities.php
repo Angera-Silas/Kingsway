@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/school-theme.css') ?>">
-<link rel="stylesheet" href="/css/roles/manager-theme.css?v=<?= filemtime(APP_BASE_PATH . '/css/roles/manager-theme.css') ?>">
+<link rel="stylesheet" href="/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>">
+<link rel="stylesheet" href="/css/roles/manager-theme.css?v=<?= asset_version('css/roles/manager-theme.css') ?>">
 
 <div class="manager-layout">
     <!-- Compact Sidebar -->
@@ -169,5 +169,5 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= filemtime(APP_BASE_PATH . "/js/components/RoleBasedUI.js") ?>"></script>
-<script src="js/pages/activities.js"></script>
+<?php asset_script($appBase, 'js/components/RoleBasedUI.js'); ?>
+<?php asset_script($appBase, 'js/pages/activities.js'); ?>

@@ -94,5 +94,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/transaction_approvals.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/transaction_approvals.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/transaction_approvals.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => transactionApprovalsController.init());</script>

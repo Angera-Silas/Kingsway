@@ -24,6 +24,7 @@ const StudentsWithBalanceController = {
     }
     this.attachEventListeners();
     await this.loadClasses();
+    await this.loadAcademicYear();
     await this.loadData();
   },
 
@@ -84,6 +85,18 @@ const StudentsWithBalanceController = {
     }
   },
 
+  loadAcademicYear: async function () {
+    try {
+      const resp = await window.API.academic.listYears();
+      const payload = this.unwrapPayload(resp);
+      const years = Array.isArray(payload) ? payload : (payload?.items || []);
+      const current = years.find((year) => year.is_current || year.is_current_year) || years[0];
+      if (current) this.data.academicYearId = current.id;
+    } catch (error) {
+      console.warn("Failed to load current academic year:", error);
+    }
+  },
+
   populateClassFilter: function () {
     const select = document.getElementById("filterClass");
     if (!select) return;
@@ -110,6 +123,8 @@ const StudentsWithBalanceController = {
         balance_only: 1,
       };
 
+      if (this.data.academicYearId) params.academic_year = this.data.academicYearId;
+
       if (this.filters.search) params.search = this.filters.search;
       if (this.filters.class_id) params.class_id = this.filters.class_id;
       if (this.filters.amount_range) params.amount_range = this.filters.amount_range;
@@ -125,7 +140,9 @@ const StudentsWithBalanceController = {
 
       // Also try loading outstanding fees summary
       try {
-        const summaryResp = await window.API.finance.getOutstandingFees();
+        const summaryResp = await window.API.finance.getOutstandingFees(
+          this.data.academicYearId ? { academic_year: this.data.academicYearId } : {},
+        );
         const summaryPayload = this.unwrapPayload(summaryResp);
         if (summaryPayload) {
           this.data.summary = {

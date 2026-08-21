@@ -128,4 +128,4 @@
 </div>
 
 <?php $allTeachersJs = __DIR__ . '/../js/pages/all_teachers.js'; ?>
-<script src="<?= $appBase ?>/js/pages/all_teachers.js?v=<?= file_exists($allTeachersJs) ? filemtime($allTeachersJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/all_teachers.js'); ?>

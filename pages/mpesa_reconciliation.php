@@ -92,4 +92,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/mpesa_reconciliation.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/mpesa_reconciliation.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/mpesa_reconciliation.js'); ?>

@@ -462,6 +462,85 @@ img { max-width: 100%; height: auto; display: block; }
 .program-card h5 { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; color: var(--gray-800); }
 .program-card p { font-size: .88rem; color: var(--gray-600); line-height: 1.65; }
 
+/* ─── Leadership Team ───────────────────────────────────────────────────────── */
+.leadership-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: 30px 22px 24px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: var(--transition);
+}
+.leadership-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--lead-accent, var(--green)), var(--gold));
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.leadership-card:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+.leadership-card:hover::before { opacity: 1; }
+
+.leadership-avatar {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 16px;
+  padding: 4px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--green), var(--green-light));
+  box-shadow: 0 8px 20px rgba(25, 135, 84, .22);
+}
+.leadership-avatar-img,
+.leadership-avatar-initials {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid var(--white);
+  object-fit: cover;
+}
+.leadership-avatar-initials {
+  background: var(--green);
+  color: var(--white);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.leadership-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--gray-800);
+  margin: 0 0 8px;
+  line-height: 1.35;
+}
+.leadership-role {
+  display: inline-block;
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .7px;
+  color: var(--green-dark);
+  background: rgba(25, 135, 84, .08);
+  border: 1px solid rgba(25, 135, 84, .18);
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+.leadership-bio {
+  font-size: .82rem;
+  color: var(--gray-600);
+  line-height: 1.6;
+  margin: 14px 0 0;
+}
+
 /* ─── Events ────────────────────────────────────────────────────────────────── */
 .event-item {
   display: flex;
@@ -799,7 +878,7 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* ─── Footer ────────────────────────────────────────────────────────────────── */
 .site-footer {
-  background: var(--dark);
+  background: var(--green-dark);
   color: rgba(255,255,255,.75);
   padding: 72px 0 0;
 }

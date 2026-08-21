@@ -236,11 +236,11 @@ class IDCardTemplateRenderer
      *
      * This reproduces the APPROVED browser preview (renderCardPreview in
      * js/pages/student_id_cards.js) using the SAME field set and the school's
-     * school_settings-derived profile so the printed card is identical to the
+     * school_profile-derived profile so the printed card is identical to the
      * preview. Print-safe CSS (no gradients/box-shadow) is used in the wrapper.
      *
      * @param array $student Student record (may include school_profile + qr_code_path)
-     * @param array $school  School profile from school_settings (school_name, school_address, etc.)
+     * @param array $school  School profile from school_profile (school_name, school_address, etc.)
      * @param array $card    Card record (card_number, issue_date, expiry_year)
      */
     public function renderStudentFront($student, $school, $card)

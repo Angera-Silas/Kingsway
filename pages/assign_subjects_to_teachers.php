@@ -168,5 +168,5 @@
     </div>
 </div>
 
-<script src="js/pages/staff_access.js"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
 <script src="<?= $appBase ?>/js/pages/assign_subjects_to_teachers.js?v=<?php echo time(); ?>"></script>

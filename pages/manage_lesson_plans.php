@@ -305,4 +305,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_lesson_plans.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_lesson_plans.js'); ?>

@@ -29,12 +29,10 @@ const payrollController = {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    await Promise.all([this.loadStaffList(), this.populatePayPeriods()]);
+    // This legacy route is read-only. Do not generate browser-side pay periods,
+    // calculate salary values, or invoke the old staff payslip writer here.
     this.bindEvents();
-    // Director / finance managers: load all payroll records immediately
-    if (AuthContext.hasPermission('finance_view') || AuthContext.hasPermission('finance_approve')) {
-      await this.loadReport();
-    }
+    await this.loadReport();
   },
 
   bindEvents: function () {
@@ -124,13 +122,8 @@ const payrollController = {
 
     const [year, month] = period.split("-");
     try {
-      await window.API.staff.generateDetailedPayslip(
-        staffId,
-        parseInt(month),
-        parseInt(year),
-      );
-      this.notify("Payroll processed successfully!", "success");
-      this.loadReport();
+      this.notify("Payroll processing is handled in the Finance payroll workflow. This legacy page is read-only.", "warning");
+      return;
     } catch (error) {
       console.error("Error processing payroll:", error);
       this.notify(
@@ -262,7 +255,7 @@ const payrollController = {
             <tr><td>Allowances</td><td class="text-end">${fmt(payslip.allowances || payslip.total_allowances)}</td></tr>
             <tr class="table-success"><td><strong>Gross Pay</strong></td><td class="text-end"><strong>${fmt(payslip.gross_pay || payslip.gross_salary)}</strong></td></tr>
             <tr><td>PAYE</td><td class="text-end text-danger">-${fmt(payslip.paye || payslip.tax)}</td></tr>
-            <tr><td>NHIF</td><td class="text-end text-danger">-${fmt(payslip.nhif_deduction)}</td></tr>
+            <tr><td>SHIF</td><td class="text-end text-danger">-${fmt(payslip.shif_deduction ?? payslip.nhif_deduction)}</td></tr>
             <tr><td>NSSF</td><td class="text-end text-danger">-${fmt(payslip.nssf_deduction)}</td></tr>
             <tr><td>Other Deductions</td><td class="text-end text-danger">-${fmt(payslip.other_deductions)}</td></tr>
             <tr class="table-primary"><td><strong>Net Pay</strong></td><td class="text-end"><strong>${fmt(payslip.net_pay || payslip.net_salary)}</strong></td></tr>

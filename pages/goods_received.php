@@ -42,4 +42,4 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/goods_received.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/goods_received.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/goods_received.js'); ?>

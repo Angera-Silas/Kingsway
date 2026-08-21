@@ -156,5 +156,5 @@
 .ss-free-cell  { color: #adb5bd; font-size: 11px; text-align:center; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/staff_schedule.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/staff_schedule.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_schedule.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => staffScheduleController.init());</script>

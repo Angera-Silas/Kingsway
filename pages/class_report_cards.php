@@ -100,4 +100,4 @@
     </div>
 </div>
 
-<script src="js/pages/class_report_cards.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/class_report_cards.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/class_report_cards.js'); ?>

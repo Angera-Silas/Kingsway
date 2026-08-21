@@ -5,6 +5,7 @@ namespace App\API\Modules\transport;
 
 use PDO;
 use RuntimeException;
+use App\API\Services\FinancialPostingCoordinator;
 
 /**
  * Transport access is based on date-bounded entitlements, not on a monthly
@@ -70,6 +71,96 @@ class StudentTransportEntitlementManager
         return $this->getEntitlement($id);
     }
 
+    /**
+     * Enrol a learner for transport in one transaction. The administrator
+     * chooses the route, pickup/dropoff points, exact dates, period type, and
+     * agreed amount. No distance or automatic tariff is assumed.
+     */
+    public function enrollStudent(array $data, int $userId): array
+    {
+        $studentId = (int) ($data['student_id'] ?? 0);
+        $routeId = (int) ($data['route_id'] ?? 0);
+        $pickupStopId = (int) ($data['pickup_stop_id'] ?? $data['stop_id'] ?? 0);
+        $dropoffStopId = (int) ($data['dropoff_stop_id'] ?? $data['stop_id'] ?? 0);
+        $type = strtolower(trim((string) ($data['period_type'] ?? '')));
+        $start = (string) ($data['period_start'] ?? '');
+        $end = (string) ($data['period_end'] ?? '');
+        $amount = (float) ($data['amount_due'] ?? 0);
+
+        if (!$studentId || !$routeId || !$pickupStopId || !$dropoffStopId || !$start || !$end) {
+            throw new RuntimeException('student_id, route_id, pickup/dropoff stops, period dates and amount_due are required');
+        }
+        if ($amount < 0 || $end < $start) throw new RuntimeException('Invalid transport amount or date range');
+        if (!in_array($type, ['day', 'week', 'month', 'term', 'year', 'custom'], true)) {
+            throw new RuntimeException('Invalid transport period type');
+        }
+
+        $stopCheck = $this->db->prepare(
+            'SELECT COUNT(*) FROM transport_stops WHERE route_id=? AND id IN (?,?) AND status=\'active\''
+        );
+        $stopCheck->execute([$routeId, $pickupStopId, $dropoffStopId]);
+        if ((int) $stopCheck->fetchColumn() !== ($pickupStopId === $dropoffStopId ? 1 : 2)) {
+            throw new RuntimeException('Pickup and dropoff points must belong to the selected route and be active');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $periodId = $this->ensurePeriod(
+                $type,
+                $start,
+                $end,
+                !empty($data['academic_year_term_id']) ? (int) $data['academic_year_term_id'] : null,
+                $data['label'] ?? null,
+                $userId
+            );
+
+            $month = (int) date('n', strtotime($start));
+            $year = (int) date('Y', strtotime($start));
+            $assignment = $this->db->prepare(
+                'SELECT id FROM student_transport_assignments WHERE student_id=? AND month=? AND year=? ORDER BY id DESC LIMIT 1 FOR UPDATE'
+            );
+            $assignment->execute([$studentId, $month, $year]);
+            $assignmentId = (int) ($assignment->fetchColumn() ?: 0);
+            if ($assignmentId) {
+                $this->db->prepare(
+                    "UPDATE student_transport_assignments
+                     SET route_id=?, stop_id=?, pickup_stop_id=?, dropoff_stop_id=?,
+                         expected_amount=?, assignment_date=?, assigned_by=?, notes=?, status='active'
+                     WHERE id=?"
+                )->execute([$routeId, $pickupStopId, $pickupStopId, $dropoffStopId, $amount, $start, $userId, $data['notes'] ?? null, $assignmentId]);
+            } else {
+                $insertAssignment = $this->db->prepare(
+                    "INSERT INTO student_transport_assignments
+                     (student_id,route_id,stop_id,pickup_stop_id,dropoff_stop_id,assignment_date,assigned_by,notes,month,year,expected_amount,status)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,'active')"
+                );
+                $insertAssignment->execute([$studentId, $routeId, $pickupStopId, $pickupStopId, $dropoffStopId, $start, $userId, $data['notes'] ?? null, $month, $year, $amount]);
+                $assignmentId = (int) $this->db->lastInsertId();
+            }
+
+            $entitlement = $this->db->prepare(
+                "INSERT INTO student_transport_entitlements
+                 (student_id,assignment_id,route_id,period_id,amount_due,source_type,created_by)
+                 VALUES (?,?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE assignment_id=VALUES(assignment_id), amount_due=VALUES(amount_due), entitlement_status='active'"
+            );
+            $source = in_array(($data['source_type'] ?? 'subscription'), ['subscription','prepaid','bursary','waiver','override'], true)
+                ? $data['source_type'] : 'subscription';
+            $entitlement->execute([$studentId, $assignmentId, $routeId, $periodId, $amount, $source, $userId]);
+            $id = (int) $this->db->lastInsertId();
+            if (!$id) {
+                $lookup = $this->db->prepare('SELECT id FROM student_transport_entitlements WHERE student_id=? AND route_id=? AND period_id=?');
+                $lookup->execute([$studentId, $routeId, $periodId]);
+                $id = (int) $lookup->fetchColumn();
+            }
+            $this->db->commit();
+            return $this->getEntitlement($id) + ['assignment_id' => $assignmentId, 'pickup_stop_id' => $pickupStopId, 'dropoff_stop_id' => $dropoffStopId];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+    }
+
     public function recordPayment(int $entitlementId, array $data, int $userId): array
     {
         $this->db->beginTransaction();
@@ -98,6 +189,17 @@ class StudentTransportEntitlementManager
             $paymentId = (int)$this->db->lastInsertId();
             $allocation = $this->db->prepare("INSERT INTO transport_entitlement_payment_allocations (payment_id,entitlement_id,amount) VALUES (?,?,?)");
             $allocation->execute([$paymentId, $entitlementId, $amount]);
+            if (!empty($data['financial_account_id'])) {
+                (new FinancialPostingCoordinator($this->db))->postIncoming(
+                    'transport_entitlement_payment',
+                    $paymentId,
+                    (int) $data['financial_account_id'],
+                    'transport',
+                    number_format($amount, 2, '.', ''),
+                    $userId,
+                    $ref
+                );
+            }
             $this->db->commit();
             return ['payment_id'=>$paymentId, 'entitlement_id'=>$entitlementId, 'amount'=>$amount, 'remaining_balance'=>max(0,$remaining-$amount), 'period_start'=>$e['period_start'], 'period_end'=>$e['period_end']];
         } catch (\Throwable $error) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $error; }

@@ -106,4 +106,4 @@
     </div>
 </div>
 
-<script src="js/pages/enter_marks.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/enter_marks.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/enter_marks.js'); ?>

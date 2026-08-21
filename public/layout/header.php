@@ -26,8 +26,8 @@ $activePage = $activePage ?? 'home';
   <!-- CSS -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="<?= $appBase ?>/public/css/public.css?v=<?= filemtime(__DIR__ . '/../css/public.css') ?>">
-  <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css"></noscript>
+  <link rel="stylesheet" href="<?= $appBase ?>/public/css/public.css?v=<?= asset_version('public/css/public.css') ?>">
+  <noscript><link rel="stylesheet" href="<?= $appBase ?>/css/no-script.css?v=<?= asset_version('css/no-script.css') ?>"></noscript>
 </head>
 <body>
 
@@ -120,6 +120,14 @@ $activePage = $activePage ?? 'home';
     </div>
   </div>
 </nav>
+
+<!-- ═══ ANNOUNCEMENT TICKER ══════════════════════════════════════════════════ -->
+<div class="ticker-bar d-flex align-items-center gap-3 px-3">
+  <span class="ticker-label"><i class="bi bi-megaphone-fill me-1"></i>News</span>
+  <div class="overflow-hidden flex-grow-1">
+    <div class="ticker-track" id="site-ticker"></div>
+  </div>
+</div>
 
 <!-- ═══ LOGIN MODAL ══════════════════════════════════════════════════════════ -->
 <div class="modal fade modal-login" id="loginModal" tabindex="-1" aria-hidden="true">

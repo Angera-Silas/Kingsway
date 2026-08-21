@@ -29,13 +29,21 @@ class MessageService
             'address' => defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : '',
             'phone' => defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '',
             'email' => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingsway.ac.ke',
-            'principal_name' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr, Bett Junior',
-            'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher',
+            'principal_name' => '',
+            'principal_title' => 'Headteacher',
             'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '',
             'name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School',
             'motto' => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'Learning, character and service',
             'portal_url' => defined('APP_URL') ? APP_URL : '#'
         ];
+
+        // Get headteacher from staff table
+        try {
+            $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $defaultDetails['principal_name'] = $hStmt->fetchColumn() ?: '';
+        } catch (\Exception $e) {
+            $defaultDetails['principal_name'] = defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : '';
+        }
 
         $schoolDetails = array_merge($defaultDetails, $schoolDetails);
 

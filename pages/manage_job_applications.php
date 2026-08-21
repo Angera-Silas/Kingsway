@@ -33,10 +33,11 @@ if ($appBase === '.') $appBase = '';
     <div class="d-flex gap-2 flex-wrap">
       <select id="appStatusFilter" class="form-select form-select-sm" style="width:180px">
         <option value="">All statuses</option>
-        <option value="new">New</option>
+        <option value="received">Received</option>
         <option value="shortlisted">Shortlisted</option>
         <option value="interview_scheduled">Interview Scheduled</option>
-        <option value="accepted">Accepted</option>
+        <option value="interviewed">Interviewed</option>
+        <option value="hired">Hired</option>
         <option value="rejected">Rejected</option>
       </select>
       <input type="text" id="appSearch" class="form-control form-control-sm" placeholder="Search name / position…" style="width:220px">
@@ -57,4 +58,25 @@ if ($appBase === '.') $appBase = '';
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_job_applications.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/manage_job_applications.js") ?>"></script>
+<div class="modal fade" id="jobInterviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form id="jobInterviewForm">
+        <div class="modal-header"><h5 class="modal-title" id="jobInterviewModalTitle">Schedule interview</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="jobInterviewApplicationId">
+          <input type="hidden" id="jobInterviewId">
+          <div class="mb-3" id="jobInterviewScheduleFields">
+            <label class="form-label">Date and time *</label>
+            <input class="form-control" type="datetime-local" id="jobInterviewScheduledAt">
+            <div class="row g-2 mt-1"><div class="col-6"><label class="form-label">Mode</label><select class="form-select" id="jobInterviewMode"><option value="in_person">In person</option><option value="online">Online</option><option value="phone">Phone</option></select></div><div class="col-6"><label class="form-label">Location / link</label><input class="form-control" id="jobInterviewLocation"></div></div>
+          </div>
+          <div class="mb-3 d-none" id="jobInterviewCompletionFields"><label class="form-label">Score (optional)</label><input class="form-control" type="number" min="0" max="100" id="jobInterviewScore"><label class="form-label mt-3">Interview notes</label><textarea class="form-control" rows="4" id="jobInterviewNotes"></textarea></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">Save</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<?php asset_script($appBase, 'js/pages/manage_job_applications.js'); ?>

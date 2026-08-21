@@ -198,4 +198,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/budget_overview.js?v=<?= filemtime(APP_BASE_PATH . "/js/pages/budget_overview.js") ?>"></script>
+<?php asset_script($appBase, 'js/pages/budget_overview.js'); ?>

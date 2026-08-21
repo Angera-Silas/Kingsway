@@ -87,4 +87,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/my_mentor.js"></script>
+<?php asset_script($appBase, 'js/pages/my_mentor.js'); ?>

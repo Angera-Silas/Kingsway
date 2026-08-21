@@ -900,13 +900,11 @@ return formatResponse(false, null, 'An internal error occurred.');
             $academicYear = $academicYear ?? date('Y');
 
 $sql = "SELECT 
-                        ft.name as fee_type,
+                        'School Fees' as fee_type,
                         COUNT(DISTINCT sfo.student_academic_enrollment_id) as student_count,
                         COALESCE(SUM(sfo.amount_due), 0) as total_due
                     FROM student_fee_obligations sfo
                     JOIN academic_year_fee_schedules fsd ON sfo.academic_year_fee_schedule_id = fsd.id
-                    JOIN fee_catalog fc ON fsd.fee_catalog_id = fc.id
-                    JOIN fee_types ft ON fc.fee_type_id = ft.id
                     WHERE sfo.academic_year_id = ?";
 
             $params = [$academicYear];
@@ -916,7 +914,7 @@ $sql = "SELECT
                 $params[] = $termId;
             }
 
-            $sql .= " GROUP BY ft.id, ft.name ORDER BY total_due DESC";
+            $sql .= " GROUP BY fee_type ORDER BY total_due DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -1043,4 +1041,3 @@ return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }
-

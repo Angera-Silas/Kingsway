@@ -1024,6 +1024,42 @@ function inferResourceKey(endpoint = "") {
   return segments.slice(0, 2).join("/");
 }
 
+// DataStore policy keys that must be dropped when the matching API route is
+// mutated. Controllers read reference data through DataStore keys ("subjects",
+// "classes", ...) while apiCall infers route keys ("academic/subjects-list", ...);
+// invalidating only the route key would leave the day-old IndexedDB snapshot alive.
+const DATASTORE_KEY_BY_ROUTE = {
+  "academic/classes": ["classes"],
+  "academic/classes-list": ["classes"],
+  "academic/streams": ["streams"],
+  "academic/streams-list": ["streams"],
+  "academic/subjects": ["subjects"],
+  "academic/subjects-list": ["subjects"],
+  "academic/terms": ["terms"],
+  "academic/terms-list": ["terms"],
+  "academic/years": ["academic_years"],
+  "academic/academic-years": ["academic_years"],
+  "staff/departments": ["departments"],
+  "staff/departments-get": ["departments"],
+  "staff/teachers": ["staff"],
+  "staff/staff": ["staff"],
+  "students/students": ["students"],
+  "attendance/attendance": ["attendance"],
+  "attendance/roster": ["attendance"],
+  "admissions/admissions": ["admissions"],
+  "admissions/applications": ["admissions"],
+  "website/school-profile": ["school_profile"],
+  "school/profile": ["school_profile"],
+};
+
+function dataStoreKeysForRoute(route = "") {
+  if (!route) return [];
+  const direct = DATASTORE_KEY_BY_ROUTE[route];
+  if (direct) return direct;
+  const prefix = route.split("/").slice(0, 2).join("/");
+  return DATASTORE_KEY_BY_ROUTE[prefix] || [];
+}
+
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const PERMISSION_ACTIONS = [
   "view",
@@ -2424,7 +2460,14 @@ async function apiCall(
 
     // Auto-invalidate cached data on mutations
     if (MUTATION_METHODS.has(String(method).toUpperCase())) {
-      const targets = options.invalidate || [inferResourceKey(endpoint)];
+      const routeTargets = (options.invalidate || [inferResourceKey(endpoint)])
+        .filter(Boolean);
+      // Drop both the route-scoped key and the DataStore policy keys controllers
+      // actually read, so a create/edit/delete is visible on the next view.
+      const targets = [...new Set([
+        ...routeTargets,
+        ...routeTargets.flatMap((key) => dataStoreKeysForRoute(key)),
+      ])];
 
       // Use DataStore for automatic cache invalidation if available
       if (typeof DataStore !== "undefined") {
@@ -4003,6 +4046,8 @@ window.API = {
     getPolicy: async () => apiCall("/admission/policy", "GET"),
     getPayments: async (applicationId) =>
       apiCall(`/admission/payments/${applicationId}`, "GET"),
+    getPaidPayments: async (params = {}) =>
+      apiCall("/admission/paid-payments", "GET", null, params),
     // Get single application details with workflow state
     getApplication: async (id) =>
       apiCall(`/admission/application/${id}`, "GET"),
@@ -4034,6 +4079,8 @@ window.API = {
       apiCall("/admission/generate-placement-offer", "POST", data),
     recordFeePayment: async (data) =>
       apiCall("/admission/record-fee-payment", "POST", data),
+    promptPayment: async (data) =>
+      apiCall("/admission/prompt-payment", "POST", data),
     completeEnrollment: async (data) =>
       apiCall("/admission/complete-enrollment", "POST", data),
     confirmEnrollment: async (data) =>
@@ -4428,11 +4475,12 @@ window.API = {
         payroll_id: payrollId,
         approved_by: approvedBy,
       }),
-    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank") =>
+    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null) =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
         payment_reference: paymentRef,
         payment_mode: paymentMode,
+        source_financial_account_id: sourceFinancialAccountId,
       }),
 
     // Payments
@@ -4482,13 +4530,6 @@ window.API = {
       apiCall("/finance/fees-update-annual-structure", "POST", data),
     deleteAnnualStructure: async (data) =>
       apiCall("/finance/fees-delete-annual-structure", "POST", data),
-    listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
-    createFeeType: async (data) =>
-      apiCall("/finance/fee-types-list", "POST", data),
-    updateFeeType: async (id, data) =>
-      apiCall(`/finance/fee-types-list/${id}`, "PUT", data),
-    toggleFeeTypeStatus: async (id) =>
-      apiCall(`/finance/fee-types-list/${id}`, "PATCH"),
     listStudentTypes: async () => apiCall("/finance/student-types-list", "GET"),
     createFeeStructureBundle: async (data) =>
       apiCall("/finance/fees-create-bundle", "POST", data),
@@ -4500,6 +4541,32 @@ window.API = {
       apiCall("/finance/fee-invoices-generate-batch", "POST", data),
     getFeeInvoice: async (params) =>
       apiCall("/finance/fee-invoices-get", "GET", null, params),
+
+    // Extra Charges
+    listExtraCharges: async (params = {}) =>
+      apiCall("/finance/extra-charges", "GET", null, params),
+    getExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/${id}`, "GET"),
+    createExtraCharge: async (data) =>
+      apiCall("/finance/extra-charges", "POST", data),
+    updateExtraCharge: async (id, data) =>
+      apiCall(`/finance/extra-charges/${id}`, "PUT", data),
+    deleteExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/${id}`, "DELETE"),
+    submitExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/submit/${id}`, "POST"),
+    approveExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/approve/${id}`, "POST"),
+    rejectExtraCharge: async (id, data) =>
+      apiCall(`/finance/extra-charges/reject/${id}`, "POST", data),
+    getExtraChargesAcademicYears: async () =>
+      apiCall("/finance/extra-charges/academic-years", "GET"),
+    getExtraChargesGLAccounts: async () =>
+      apiCall("/finance/extra-charges/gl-accounts", "GET"),
+
+    // Fee Structures List
+    getFeeStructuresList: async (params = {}) =>
+      apiCall("/finance/fee-structures-list", "GET", null, params),
 
     // Students
     getStudentPaymentStatusList: async (params = {}) =>
@@ -4542,8 +4609,8 @@ window.API = {
     getStats: async () => apiCall("/finance", "GET"),
     getSupplierPayables: async () => apiCall("/finance/supplier-payables", "GET"),
     submitSupplierPayments: async (data) => apiCall("/finance/supplier-payments", "POST", data),
-    getOutstandingFees: async () =>
-      apiCall("/finance/fees-annual-summary", "GET"),
+    getOutstandingFees: async (params = {}) =>
+      apiCall("/finance/fees-annual-summary", "GET", null, params),
     getPaymentHistory: async (params = {}) =>
       apiCall("/finance/payrolls-history", "GET", null, params),
   },
@@ -5185,6 +5252,8 @@ window.API = {
       apiCall("/transport/assignments", "GET", null, params),
     createEntitlement: async (data) =>
       apiCall("/transport/entitlements", "POST", data),
+    enrollStudentForTransport: async (data) =>
+      apiCall("/transport/enrollments", "POST", data),
     allocateEntitlementPayment: async (entitlementId, data) =>
       apiCall(`/transport/entitlements-payment/${entitlementId}`, "POST", data),
     getEntitlementAccess: async (studentId, params = {}) =>
@@ -5729,6 +5798,8 @@ window.API = {
     // Unmatched M-Pesa payments (for reconciliation)
     getUnmatchedMpesa: async (params = {}) =>
       apiCall("/payments/unmatched-mpesa", "GET", null, params),
+    getMpesaSettlements: async (params = {}) =>
+      apiCall("/payments/unmatched-mpesa", "GET", null, { ...params, scope: "settlements" }),
 
     // Reconcile M-Pesa payment (with optional student_id to allocate to fees)
     reconcileMpesa: async (
