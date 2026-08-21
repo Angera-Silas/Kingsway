@@ -31,7 +31,7 @@ BASE_URL=http://localhost/Kingsway
 
 DB_HOST=127.0.0.1
 DB_USER=root
-DB_PASS=admin123
+DB_PASS=your_local_db_password
 DB_NAME=KingsWayAcademy
 
 JWT_SECRET=your_secure_secret_key_here
@@ -246,7 +246,7 @@ APP_ENV=development
 ```env
 DB_HOST=127.0.0.1
 DB_USER=root
-DB_PASS=admin123
+DB_PASS=your_local_db_password
 DB_NAME=KingsWayAcademy
 ```
 

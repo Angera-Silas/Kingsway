@@ -107,7 +107,7 @@ submission remain separate controlled actions.
 Run migrations with the project’s migration command or, on the configured XAMPP database:
 
 ```bash
-/opt/lampp/bin/mysql -u root -padmin123 KingsWayAcademy < database/migrations/*.sql
+/opt/lampp/bin/mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy < database/migrations/*.sql
 ```
 
 Run the worker timer and inspect `communication_delivery_attempts`, `payment_provider_attempts`, `payment_provider_callbacks`, `disbursement_transactions`, and the relevant business row before declaring a payment complete.

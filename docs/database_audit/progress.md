@@ -467,7 +467,7 @@ Ordered by priority:
 php -l $(git diff --name-only -- '*.php')                 # lint touched PHP
 node --check <touched>.js                                  # lint touched JS
 vendor/bin/phpunit                                         # PHPUnit (176 tests, 1 pre-existing skip)
-mysql -u root -padmin123 KingsWayAcademy -e "EXPLAIN <rewritten query>"   # spot-check SQL
+mysql -u root -pYOUR_DB_PASSWORD KingsWayAcademy -e "EXPLAIN <rewritten query>"   # spot-check SQL
 scripts/check_legacy_sql.sh                                # strict grep (once created)
 ```
 
