@@ -28,6 +28,7 @@ class HeadteacherAnalyticsService
     public function getAttendanceToday()
     {
         // Uses student_attendance table with status enum: 'present', 'absent', 'late'
+        // Map: student_attendance uses student_academic_enrollment_id now
         $stmt = $this->db->query("SELECT 
             SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
             SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent,
@@ -51,8 +52,8 @@ class HeadteacherAnalyticsService
 
     public function getSchedules()
     {
-        // Uses class_schedules table - count today's sessions based on day_of_week
-        $today = date('l'); // Get today's day name (Monday, Tuesday, etc.)
+        // Count today's timetable sessions based on day_of_week (1=Mon..7=Sun)
+        $today = date('N');
         $currentTime = date('H:i:s');
 
         $stmt = $this->db->query("SELECT 
@@ -60,8 +61,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN start_time <= ? AND end_time >= ? THEN 1 ELSE 0 END) as in_progress,
             SUM(CASE WHEN end_time < ? THEN 1 ELSE 0 END) as completed,
             SUM(CASE WHEN start_time > ? THEN 1 ELSE 0 END) as upcoming
-            FROM class_schedules 
-            WHERE day_of_week = ? AND status = 'active'",
+            FROM vw_timetable_entries 
+            WHERE day_of_week = ? AND status = 'scheduled'",
             [$currentTime, $currentTime, $currentTime, $currentTime, $today]
         );
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -70,8 +71,20 @@ class HeadteacherAnalyticsService
             'in_progress' => (int) ($row['in_progress'] ?? 0),
             'completed' => (int) ($row['completed'] ?? 0),
             'upcoming' => (int) ($row['upcoming'] ?? 0),
+            'total' => (int) ($row['total_sessions'] ?? 0),
+            'unassigned' => $this->countUnassignedLessons(),
             'card_type' => 'schedules'
         ];
+    }
+
+    private function countUnassignedLessons(): int
+    {
+        try {
+            $stmt = $this->db->query("SELECT COUNT(*) FROM vw_timetable_entries WHERE status = 'scheduled' AND (teacher_id IS NULL OR teacher_id = 0)");
+            return (int) $stmt->fetchColumn();
+        } catch (Exception $e) {
+            return 0;
+        }
     }
 
     public function getAdmissionsStats()
@@ -103,16 +116,15 @@ class HeadteacherAnalyticsService
 
     public function getDisciplineStats()
     {
-        // Uses student_discipline table with status enum: 'pending', 'resolved', 'escalated'
-        // and severity enum: 'low', 'medium', 'high'
+        // Map: student_discipline → discipline_incidents
         $stmt = $this->db->query("SELECT 
             SUM(CASE WHEN status IN ('pending', 'escalated') THEN 1 ELSE 0 END) as open_cases,
-            SUM(CASE WHEN status = 'resolved' AND MONTH(resolution_date) = MONTH(NOW()) THEN 1 ELSE 0 END) as resolved_this_month,
+            SUM(CASE WHEN status = 'resolved' AND MONTH(updated_at) = MONTH(NOW()) THEN 1 ELSE 0 END) as resolved_this_month,
             SUM(CASE WHEN severity = 'low' THEN 1 ELSE 0 END) as low_severity,
             SUM(CASE WHEN severity = 'medium' THEN 1 ELSE 0 END) as medium_severity,
             SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) as high_severity,
             SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated
-            FROM student_discipline");
+            FROM discipline_incidents");
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
             'open_cases' => (int) ($row['open_cases'] ?? 0),
@@ -215,10 +227,11 @@ class HeadteacherAnalyticsService
                 aa.status,
                 aa.created_at as submitted_at,
                 DATEDIFF(NOW(), aa.created_at) as days_pending,
-                CONCAT(p.first_name, ' ', p.last_name) as parent_name,
-                COALESCE(p.phone_1, p.phone_2, 'N/A') as contact
+                CONCAT(pp.first_name, ' ', pp.last_name) as parent_name,
+                COALESCE(pp.phone, pp.email, 'N/A') as contact
             FROM admission_applications aa
-            LEFT JOIN parents p ON aa.parent_id = p.id
+            LEFT JOIN parents pa ON aa.parent_id = pa.id
+            LEFT JOIN persons pp ON pa.person_id = pp.id
             WHERE aa.status IN ('submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending')
             ORDER BY aa.created_at ASC
             LIMIT 20
@@ -233,33 +246,40 @@ class HeadteacherAnalyticsService
 
     public function getDisciplineCases()
     {
+        // Map: student_discipline → discipline_incidents
+        // Map: students with stream_id → student_academic_enrollments
+        // Map: class_streams → academic_year_class_streams
         $query = "
             SELECT 
-                sd.id,
-                sd.incident_date,
-                sd.description as violation,
-                sd.severity,
-                sd.status,
-                sd.action_taken,
-                CONCAT(s.first_name, ' ', s.last_name) as student_name,
-                s.admission_no,
+                di.id,
+                di.incident_date,
+                di.description as violation,
+                di.severity,
+                di.status,
+                di.action_taken,
+                CONCAT(p.first_name, ' ', p.last_name) as student_name,
+                st.admission_no,
                 CASE 
-                    WHEN c.name = cs.stream_name THEN c.name
-                    WHEN cs.stream_name IS NULL THEN COALESCE(c.name, 'Unknown')
-                    ELSE CONCAT(c.name, ' - ', cs.stream_name)
+                    WHEN c.name = s.name THEN c.name
+                    WHEN s.name IS NULL THEN COALESCE(c.name, 'Unknown')
+                    ELSE CONCAT(c.name, ' - ', s.name)
                 END as class_name
-            FROM student_discipline sd
-            LEFT JOIN students s ON sd.student_id = s.id
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
-            LEFT JOIN classes c ON cs.class_id = c.id
-            WHERE sd.status IN ('pending', 'escalated')
+            FROM discipline_incidents di
+            LEFT JOIN student_academic_enrollments sae ON di.student_academic_enrollment_id = sae.id
+            LEFT JOIN students st ON sae.student_id = st.id
+            LEFT JOIN persons p ON st.person_id = p.id
+            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+            LEFT JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
+            LEFT JOIN classes c ON aac.class_id = c.id
+            LEFT JOIN streams s ON aycs.stream_id = s.id
+            WHERE di.status IN ('pending', 'escalated')
             ORDER BY 
-                CASE sd.severity 
+                CASE di.severity 
                     WHEN 'high' THEN 1 
                     WHEN 'medium' THEN 2 
                     WHEN 'low' THEN 3 
                 END,
-                sd.incident_date DESC
+                di.incident_date DESC
             LIMIT 20
         ";
         $stmt = $this->db->query($query);
@@ -278,7 +298,7 @@ class HeadteacherAnalyticsService
     public function getWeeklyAttendanceTrend(int $weeks = 4): array
     {
         try {
-            // Uses student_attendance table with 'date' column
+            // Map: student_attendance uses student_academic_enrollment_id now
             $query = "SELECT 
                         DATE(date) as attendance_date,
                         ROUND(AVG(CASE WHEN status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
@@ -310,21 +330,23 @@ class HeadteacherAnalyticsService
     public function getClassPerformanceChart(): array
     {
         try {
-            // Uses assessment_results and assessments tables for class performance
+            // Map: students with stream_id → student_academic_enrollments
+            // Map: class_streams → academic_year_class_streams
             $query = "SELECT 
                         CASE 
-                            WHEN c.name = cs.stream_name THEN c.name
-                            WHEN cs.stream_name IS NULL THEN COALESCE(c.name, 'Unknown')
-                            ELSE CONCAT(c.name, ' ', cs.stream_name)
+                            WHEN c.name = s.name THEN c.name
+                            WHEN s.name IS NULL THEN COALESCE(c.name, 'Unknown')
+                            ELSE CONCAT(c.name, ' ', s.name)
                         END as class_name,
                         AVG(ar.marks_obtained) as average_score
                       FROM assessment_results ar
-                      JOIN assessments a ON ar.assessment_id = a.id
-                      JOIN students s ON ar.student_id = s.id
-                      LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                      LEFT JOIN classes c ON cs.class_id = c.id
-                      WHERE ar.is_submitted = 1 AND s.status = 'active'
-                      GROUP BY c.id, c.name, cs.stream_name
+                      JOIN student_academic_enrollments sae ON ar.student_academic_enrollment_id = sae.id
+                      JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                      JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
+                      JOIN classes c ON aac.class_id = c.id
+                      JOIN streams s ON aycs.stream_id = s.id
+                      WHERE ar.is_submitted = 1 AND sae.enrollment_status = 'active'
+                      GROUP BY c.id, c.name, s.name
                       ORDER BY average_score DESC
                       LIMIT 10";
             $stmt = $this->db->query($query);
@@ -352,27 +374,23 @@ class HeadteacherAnalyticsService
     public function getUpcomingEvents(int $limit = 10): array
     {
         try {
-            // Uses school_calendar table for upcoming events
-            $query = "SELECT 
-                        id,
-                        date as event_date,
-                        title,
-                        description,
-                        day_type as type,
-                        requires_attendance
-                      FROM school_calendar 
-                      WHERE date >= CURDATE()
-                        AND day_type IN ('special_event', 'exam_day', 'half_day', 'public_holiday', 'school_holiday')
-                      ORDER BY date ASC
-                      LIMIT ?";
-            $stmt = $this->db->query($query, [$limit]);
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Reuse the unified calendar feed so every dashboard shows the SAME
+            // deduplicated events (one row per logical event spanning its full
+            // start -> end range) instead of one row per calendar day.
+            $calendarSync = new CalendarSyncService($this->db->getConnection());
+            $all = $calendarSync->getUnifiedEvents();
+            $today = date('Y-m-d');
 
-            // Format the type labels for display
-            foreach ($data as &$row) {
-                $row['type'] = ucwords(str_replace('_', ' ', $row['type']));
-            }
+            $upcoming = array_values(array_filter($all, function ($ev) use ($today) {
+                return ($ev['start_date'] ?? '') >= $today
+                    && ($ev['status'] ?? '') !== 'cancelled';
+            }));
 
+            usort($upcoming, function ($a, $b) {
+                return strcmp($a['start_date'], $b['start_date']);
+            });
+
+            $data = array_slice($upcoming, 0, $limit);
             return [
                 'data' => $data,
                 'total' => count($data)

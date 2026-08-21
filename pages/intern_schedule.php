@@ -67,7 +67,7 @@
             <thead class="table-light">
               <tr>
                 <th style="min-width:90px;">Period / Time</th>
-                <th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th><th>Friday</th>
+                <th scope="col">Monday</th><th scope="col">Tuesday</th><th scope="col">Wednesday</th><th scope="col">Thursday</th><th scope="col">Friday</th>
               </tr>
             </thead>
             <tbody id="isTableBody"></tbody>
@@ -82,4 +82,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/intern_schedule.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/intern_schedule.js'); ?>

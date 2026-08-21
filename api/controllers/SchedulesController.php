@@ -22,6 +22,14 @@ class SchedulesController extends BaseController
         $this->api = new SchedulesAPI();
     }
 
+    private function guardSchedules(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Schedules API is running']);
@@ -34,21 +42,17 @@ class SchedulesController extends BaseController
     /**
      * GET /api/schedules - List all schedules
      * GET /api/schedules/{id} - Get single schedule
+     * No bare schedules resource exists (legacy `schedules` table was dropped in
+     * the normalized schema); all schedules data is served via named sub-resources.
      */
     public function get($id = null, $data = [], $segments = [])
     {
-        if ($id !== null && empty($segments)) {
-            $result = $this->api->get($id);
-            return $this->handleResponse($result);
-        }
-        
         if (!empty($segments)) {
             $resource = array_shift($segments);
             return $this->routeNestedGet($resource, $id, $data, $segments);
         }
-        
-        $result = $this->api->list($data);
-        return $this->handleResponse($result);
+
+        return $this->notFound('Schedules resource not found; use /schedules/{resource}');
     }
 
     /**
@@ -65,8 +69,7 @@ class SchedulesController extends BaseController
             return $this->routeNestedPost($resource, $id, $data, $segments);
         }
         
-        $result = $this->api->create($data);
-        return $this->handleResponse($result);
+        return $this->notFound('Schedules resource not found; use /schedules/{resource}');
     }
 
     /**
@@ -74,12 +77,7 @@ class SchedulesController extends BaseController
      */
     public function put($id = null, $data = [], $segments = [])
     {
-        if ($id === null) {
-            return $this->badRequest('Schedule ID is required for update');
-        }
-        
-        $result = $this->api->update($id, $data);
-        return $this->handleResponse($result);
+        return $this->notFound('Schedules resource not found; use /schedules/{resource}');
     }
 
     /**
@@ -87,12 +85,7 @@ class SchedulesController extends BaseController
      */
     public function delete($id = null, $data = [], $segments = [])
     {
-        if ($id === null) {
-            return $this->badRequest('Schedule ID is required for deletion');
-        }
-        
-        $result = $this->api->delete($id);
-        return $this->handleResponse($result);
+        return $this->notFound('Schedules resource not found; use /schedules/{resource}');
     }
 
     // ========================================
@@ -113,6 +106,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createTimetableEntry($data);
         return $this->handleResponse($result);
     }
@@ -122,6 +116,7 @@ class SchedulesController extends BaseController
      */
     public function putTimetableUpdate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $entryId = $id ?? ($data['id'] ?? null);
         $result = $this->api->updateTimetableEntry($entryId, $data);
         return $this->handleResponse($result);
@@ -133,6 +128,7 @@ class SchedulesController extends BaseController
      */
     public function deleteTimetableDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->deleteTimetableEntry($id, $data);
         return $this->handleResponse($result);
     }
@@ -142,6 +138,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableDelete($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->deleteTimetableEntry($id, $data);
         return $this->handleResponse($result);
     }
@@ -160,6 +157,7 @@ class SchedulesController extends BaseController
      */
     public function postTimetableReportConflict($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         // Inject authenticated user if available
         if (!empty($this->user['id'])) {
             $data['reported_by'] = $this->user['id'];
@@ -195,7 +193,19 @@ class SchedulesController extends BaseController
      */
     public function postExamCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createExamSchedule($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/exam/bulk-generate
+     * Delegates to sp_create_exam_schedule for every active class stream x learning area.
+     */
+    public function postExamBulkGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->bulkGenerateExamSchedule($data);
         return $this->handleResponse($result);
     }
 
@@ -217,7 +227,103 @@ class SchedulesController extends BaseController
      */
     public function postEventsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createEvent($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/schedules/events-update/{id}
+     */
+    public function putEventsUpdate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->updateEvent($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/schedules/events-delete/{id}
+     */
+    public function deleteEventsDelete($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->deleteEvent($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/events-sync
+     * Full calendar <-> events reconciliation.
+     */
+    public function postEventsSync($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->syncEvents($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/calendar-mark-exam-week
+     * Mark the whole Mon-Fri week containing the given date as exam week.
+     */
+    public function postCalendarMarkExamWeek($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->markExamWeek($data);
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
+    // SECTION 4b: Holiday Registry (UI-managed)
+    // ========================================
+
+    /**
+     * GET /api/schedules/holidays-get - list holidays from the registry
+     */
+    public function getHolidaysGet($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getHolidays($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/holidays-create - add a holiday
+     */
+    public function postHolidayCreate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->createHoliday($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/schedules/holidays-update/{id} - edit/re-date a holiday
+     */
+    public function putHolidayUpdate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->updateHoliday($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/schedules/holidays-delete/{id} - remove a holiday
+     */
+    public function deleteHolidayDelete($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->deleteHoliday($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/holidays-apply - re-apply the registry to the calendar
+     */
+    public function postHolidayApply($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $result = $this->api->applyHolidays($data);
         return $this->handleResponse($result);
     }
 
@@ -239,6 +345,7 @@ class SchedulesController extends BaseController
      */
     public function postActivityCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createActivitySchedule($data);
         return $this->handleResponse($result);
     }
@@ -261,34 +368,13 @@ class SchedulesController extends BaseController
      */
     public function postRoomsCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createRoom($data);
         return $this->handleResponse($result);
     }
 
     // ========================================
-    // SECTION 7: Scheduled Reports
-    // ========================================
-
-    /**
-     * GET /api/schedules/reports/get
-     */
-    public function getReportsGet($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->getScheduledReports($data);
-        return $this->handleResponse($result);
-    }
-
-    /**
-     * POST /api/schedules/reports/create
-     */
-    public function postReportsCreate($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->createScheduledReport($data);
-        return $this->handleResponse($result);
-    }
-
-    // ========================================
-    // SECTION 8: Route Schedules (Transport)
+    // SECTION 7: Route Schedules (Transport)
     // ========================================
 
     /**
@@ -305,6 +391,7 @@ class SchedulesController extends BaseController
      */
     public function postRouteCreate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->createRouteSchedule($data);
         return $this->handleResponse($result);
     }
@@ -505,6 +592,7 @@ class SchedulesController extends BaseController
     // Term & Holiday Workflow Endpoints
     public function postDefineTermDates($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->defineTermDates($data);
         return $this->handleResponse($result);
     }
@@ -522,6 +610,9 @@ class SchedulesController extends BaseController
         $resourceId = $data['resource_id'] ?? null;
         $start = $data['start'] ?? null;
         $end = $data['end'] ?? null;
+        if (!$resourceType || !$resourceId) {
+            return $this->badRequest('resource_type and resource_id are required');
+        }
         $result = $this->api->checkResourceAvailability($resourceType, $resourceId, $start, $end);
         return $this->handleResponse($result);
     }
@@ -535,6 +626,7 @@ class SchedulesController extends BaseController
     }
     public function postDetectScheduleConflicts($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $entityType = $data['entity_type'] ?? null;
         $entityId = $data['entity_id'] ?? null;
         $proposedSchedule = $data['proposed_schedule'] ?? [];
@@ -558,11 +650,13 @@ class SchedulesController extends BaseController
     // Scheduling Workflow Methods
     public function postStartSchedulingWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $result = $this->api->startSchedulingWorkflow($data);
         return $this->handleResponse($result);
     }
     public function postAdvanceSchedulingWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardSchedules()) return $guard;
         $workflowId = $data['workflow_id'] ?? null;
         $action = $data['action'] ?? null;
         $payload = $data['data'] ?? [];
@@ -589,42 +683,11 @@ class SchedulesController extends BaseController
     public function getWeekly($id = null, $data = [], $segments = [])
     {
         try {
-            $startDate = new \DateTime('monday this week');
-            $endDate = new \DateTime('sunday this week');
-
-            $days = [];
-            $counts = [];
-
-            // Get lessons count for each day of the week
-            for ($date = clone $startDate; $date <= $endDate; $date->modify('+1 day')) {
-                $dayName = $date->format('D');
-                // Convert short day name to full day name for database query
-                $dayMap = ['Mon' => 'Monday', 'Tue' => 'Tuesday', 'Wed' => 'Wednesday', 'Thu' => 'Thursday', 'Fri' => 'Friday', 'Sat' => 'Saturday', 'Sun' => 'Sunday'];
-                $fullDayName = $dayMap[$dayName] ?? $dayName;
-                $dateStr = $date->format('Y-m-d');
-                $days[] = $dayName;
-
-                $result = $this->db->query(
-                    "SELECT COUNT(*) as total FROM class_schedules WHERE day_of_week = ? AND status = 'active'",
-                    [$fullDayName]
-                );
-                $row = $result->fetch();
-                $counts[] = $row['total'] ?? 0;
-            }
-
-            $totalWeekly = array_sum($counts);
-            $dailyAverage = count($counts) > 0 ? round($totalWeekly / count($counts), 1) : 0;
-
-            return $this->success([
-                'days' => $days,
-                'data' => $counts,
-                'total_weekly' => $totalWeekly,
-                'daily_average' => $dailyAverage,
-                'week_start' => $startDate->format('Y-m-d'),
-                'week_end' => $endDate->format('Y-m-d')
-            ], 'Weekly lessons statistics retrieved');
+            $result = $this->api->getWeeklyLessonStats();
+            return $this->handleResponse($result);
         } catch (Exception $e) {
-            return $this->error('Failed to retrieve weekly lessons: ' . $e->getMessage());
+            error_log('[SchedulesController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
         }
     }
 

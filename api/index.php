@@ -21,12 +21,10 @@ $emitError = function (array $payload): void {
 };
 
 set_exception_handler(function (\Throwable $e) use ($emitError) {
+    error_log('Unhandled exception: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     $emitError([
         'status'  => 'error',
-        'message' => 'Unhandled exception: ' . $e->getMessage(),
-        'file'    => $e->getFile(),
-        'line'    => $e->getLine(),
-        'trace'   => explode("\n", $e->getTraceAsString()),
+        'message' => 'An internal error occurred',
         'code'    => 500,
     ]);
 });
@@ -41,10 +39,10 @@ set_error_handler(function (int $severity, string $message, string $file, int $l
 register_shutdown_function(function () use ($emitError) {
     $e = error_get_last();
     if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        error_log('Fatal error: ' . $e['message'] . ' in ' . $e['file'] . ':' . $e['line']);
         $emitError([
             'status'  => 'error',
-            'message' => 'Fatal error: ' . $e['message'],
-            'details' => $e,
+            'message' => 'An internal error occurred',
             'code'    => 500,
         ]);
     }
@@ -59,7 +57,24 @@ require_once __DIR__ . '/includes/helpers.php';
 
 Config::init();
 
-header('Content-Type: application/json; charset=utf-8');
+if (!headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Referrer-Policy: strict-origin');
+    // Camera access is required by the authenticated QR scanner page. Keep
+    // microphone and geolocation disabled; the page still requires HTTPS and
+    // the browser's explicit camera permission.
+    header('Permissions-Policy: camera=(self), microphone=(), geolocation=()');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Content-Security-Policy: default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com; style-src \'self\' \'unsafe-inline\' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src \'self\' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src \'self\' data: blob: https://placehold.co https://images.unsplash.com; connect-src \'self\'; frame-ancestors \'none\'');
+    if (($_ENV['APP_ENV'] ?? 'production') === 'production') {
+        header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+    }
+    header_remove('X-Powered-By');
+}
 
 $router = new Router();
 $response = $router->handle();

@@ -532,8 +532,10 @@ const ManageUsersController = {
       `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
       user.username ||
       `user ${userId}`;
-    const confirmed = window.confirm(
+    const confirmed = await window.confirmAction(
+      'Confirm Deletion',
       `Delete ${label}? The server will reject deletion when protected school records depend on this account.`,
+      { confirmText: 'Delete', danger: true },
     );
     if (!confirmed) return;
 

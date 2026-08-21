@@ -104,13 +104,24 @@
 </style>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        loadStaffDirectory();
+    (function () {
+        function boot() {
+            loadStaffDirectory();
 
-        document.getElementById('staffSearch').addEventListener('input', function () {
-            filterStaff(this.value);
-        });
-    });
+            const search = document.getElementById('staffSearch');
+            if (search) {
+                search.addEventListener('input', function () {
+                    filterStaff(this.value);
+                });
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+        } else {
+            boot();
+        }
+    })();
 
     let allStaff = [];
 
@@ -118,20 +129,19 @@
         const directory = document.getElementById('staffDirectory');
 
         try {
-            const response = await fetch('/api/?route=staff&action=list');
-            const data = await response.json();
-
-            if (data.success) {
-                allStaff = data.data;
-                document.getElementById('totalStaff').textContent = allStaff.length;
-                renderStaffList(allStaff);
-            } else {
-                directory.innerHTML = '<div class="empty-item">Unable to load staff</div>';
-            }
+            const response = await window.API.staff.index();
+            const data = response?.data || response || {};
+            allStaff = Array.isArray(data.staff) ? data.staff : (Array.isArray(data) ? data : []);
+            document.getElementById('totalStaff').textContent = allStaff.length;
+            renderStaffList(allStaff);
         } catch (error) {
             console.error('Error loading staff:', error);
             directory.innerHTML = '<div class="error-item">Error loading staff directory</div>';
         }
+    }
+
+    function staffRole(s) {
+        return s.role_names || s.role_name || s.position || s.role || '-';
     }
 
     function renderStaffList(staff) {
@@ -144,11 +154,11 @@
 
         directory.innerHTML = staff.map(s => `
             <div class="staff-card">
-                <img src="${s.photo || KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')}" alt="${escapeHtml(s.name)}" class="staff-avatar">
+                <img src="${s.photo || KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')}" alt="${escapeHtml(s.full_name || s.name)}" class="staff-avatar">
                 <div class="staff-info">
-                    <div class="staff-name">${escapeHtml(s.name)}</div>
-                    <div class="staff-role">${escapeHtml(s.role || '-')}</div>
-                    <div class="staff-department">${escapeHtml(s.department || '-')}</div>
+                    <div class="staff-name">${escapeHtml(s.full_name || s.name)}</div>
+                    <div class="staff-role">${escapeHtml(staffRole(s))}</div>
+                    <div class="staff-department">${escapeHtml(s.department || s.department_name || '-')}</div>
                 </div>
                 <div class="staff-contact">
                     <div class="staff-phone">${escapeHtml(s.phone || '-')}</div>
@@ -161,9 +171,9 @@
     function filterStaff(query) {
         const q = query.toLowerCase();
         const filtered = allStaff.filter(s =>
-            (s.name && s.name.toLowerCase().includes(q)) ||
-            (s.department && s.department.toLowerCase().includes(q)) ||
-            (s.role && s.role.toLowerCase().includes(q))
+            ((s.full_name || s.name || '') && (s.full_name || s.name).toLowerCase().includes(q)) ||
+            ((s.department || s.department_name || '') && (s.department || s.department_name).toLowerCase().includes(q)) ||
+            (staffRole(s).toLowerCase().includes(q))
         );
         renderStaffList(filtered);
     }

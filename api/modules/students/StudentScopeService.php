@@ -5,6 +5,18 @@ namespace App\API\Modules\students;
 
 use PDO;
 
+/**
+ * Normalized student visibility scoping (3NF/4NF).
+ *
+ * Teacher scope resolves through `academic_year_class_learning_area_teachers`
+ * (the canonical year-scoped teacher→class-learning-area binding) joined to
+ * `academic_year_class_learning_areas` → `academic_year_classes` (class) and
+ * the stream context. Parent scope resolves through `student_parents` →
+ * `parents` → `persons`. Transport scope uses `student_transport_assignments`.
+ *
+ * Never references retired tables: staff_class_assignments, class_streams,
+ * students.stream_id.
+ */
 class StudentScopeService
 {
     private PDO $db;
@@ -39,7 +51,7 @@ class StudentScopeService
         }
 
         if ($context === 'subject_teacher') {
-            $scope = array_merge($scope, $this->staffClassScope($user, ['subject_teacher', 'assistant_teacher', 'head_of_department']));
+            $scope = array_merge($scope, $this->staffClassScope($user, ['subject_teacher', 'assistant', 'hod']));
         }
 
         if ($context === 'parent_children') {
@@ -51,6 +63,48 @@ class StudentScopeService
         }
 
         return $scope;
+    }
+
+    /**
+     * Visibility WHERE-clause fragments built against the normalized projection
+     * (students s, persons p, academic_year_class_streams aycs, academic_year_classes
+     * ayc, student_types st, student_transport_assignments sta). Caller owns the
+     * FROM/JOINs and must alias them consistently with StudentRepository::joins().
+     */
+    public function whereClause(array $scope): array
+    {
+        $conditions = [];
+        $bindings = [];
+
+        if (!empty($scope['boarding_only'])) {
+            $conditions[] = "UPPER(COALESCE(st.code, '')) IN ('BOARD', 'WEEKLY')";
+        }
+
+        if (!empty($scope['restricted'])) {
+            $clauses = [];
+            if (!empty($scope['student_ids'])) {
+                $clauses[] = 's.id IN (' . implode(',', array_fill(0, count($scope['student_ids']), '?')) . ')';
+                $bindings = array_merge($bindings, $scope['student_ids']);
+            }
+            if (!empty($scope['stream_ids'])) {
+                $clauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
+                $bindings = array_merge($bindings, $scope['stream_ids']);
+            }
+            if (!empty($scope['class_ids'])) {
+                $clauses[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
+                $bindings = array_merge($bindings, $scope['class_ids']);
+            }
+            if (!empty($scope['transport_route_ids'])) {
+                $clauses[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+                $bindings = array_merge($bindings, $scope['transport_route_ids']);
+            }
+            $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
+        } elseif (!empty($scope['transport_route_ids'])) {
+            $conditions[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
+            $bindings = array_merge($bindings, $scope['transport_route_ids']);
+        }
+
+        return [$conditions, $bindings];
     }
 
     public function canAccessStudent(int $studentId, array $scope): bool
@@ -76,11 +130,11 @@ class StudentScopeService
 
         $classClauses = [];
         if (!empty($scope['stream_ids'])) {
-            $classClauses[] = 's.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
+            $classClauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
             $bindings = array_merge($bindings, $scope['stream_ids']);
         }
         if (!empty($scope['class_ids'])) {
-            $classClauses[] = 'cs.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
+            $classClauses[] = 'ayc.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
             $bindings = array_merge($bindings, $scope['class_ids']);
         }
         if (!empty($classClauses)) {
@@ -96,11 +150,17 @@ class StudentScopeService
             return false;
         }
 
+        // Use the canonical normalized projection join shape so placement filters
+        // resolve through academic_year_class_streams/academic_year_classes.
         $sql = "
             SELECT s.id
             FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
             LEFT JOIN student_types st ON st.id = s.student_type_id
+            LEFT JOIN academic_years ay ON ay.is_current = 1
+            LEFT JOIN student_academic_enrollments sae
+                ON sae.student_id = s.id AND sae.academic_year_id = ay.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
             LEFT JOIN student_transport_assignments sta ON sta.student_id = s.id AND sta.status = 'active'
             WHERE " . implode(' AND ', $where) . "
             LIMIT 1
@@ -110,42 +170,11 @@ class StudentScopeService
         return (bool) $stmt->fetchColumn();
     }
 
-    public function whereClause(array $scope): array
-    {
-        $conditions = [];
-        $bindings = [];
-
-        if (!empty($scope['boarding_only'])) {
-            $conditions[] = "UPPER(COALESCE(st.code, '')) IN ('BOARD', 'WEEKLY')";
-        }
-
-        if (!empty($scope['restricted'])) {
-            $clauses = [];
-            if (!empty($scope['student_ids'])) {
-                $clauses[] = 's.id IN (' . implode(',', array_fill(0, count($scope['student_ids']), '?')) . ')';
-                $bindings = array_merge($bindings, $scope['student_ids']);
-            }
-            if (!empty($scope['stream_ids'])) {
-                $clauses[] = 's.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
-                $bindings = array_merge($bindings, $scope['stream_ids']);
-            }
-            if (!empty($scope['class_ids'])) {
-                $clauses[] = 'cs.class_id IN (' . implode(',', array_fill(0, count($scope['class_ids']), '?')) . ')';
-                $bindings = array_merge($bindings, $scope['class_ids']);
-            }
-            if (!empty($scope['transport_route_ids'])) {
-                $clauses[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
-                $bindings = array_merge($bindings, $scope['transport_route_ids']);
-            }
-            $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
-        } elseif (!empty($scope['transport_route_ids'])) {
-            $conditions[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
-            $bindings = array_merge($bindings, $scope['transport_route_ids']);
-        }
-
-        return [$conditions, $bindings];
-    }
-
+    /**
+     * Resolve the year-scoped class/stream scope for a staff member through
+     * `academic_year_class_learning_area_teachers` joined to its learning-area
+     * context → `academic_year_classes` (class) and the stream layer.
+     */
     private function staffClassScope(array $user, array $roles): array
     {
         $staffId = $this->staffId($user);
@@ -155,17 +184,23 @@ class StudentScopeService
 
         $yearId = $this->currentAcademicYearId();
         $bindings = [$staffId];
-        $where = ['staff_id = ?', "status = 'active'"];
+        $where = ['la_teachers.staff_id = ?'];
         if ($yearId) {
-            $where[] = 'academic_year_id = ?';
+            $where[] = 'ayc.academic_year_id = ?';
             $bindings[] = $yearId;
         }
-        $where[] = 'role IN (' . implode(',', array_fill(0, count($roles), '?')) . ')';
+        $where[] = 'la_teachers.role IN (' . implode(',', array_fill(0, count($roles), '?')) . ')';
         $bindings = array_merge($bindings, $roles);
 
         $stmt = $this->db->prepare("
-            SELECT DISTINCT class_id, stream_id
-            FROM staff_class_assignments
+            SELECT DISTINCT ayc.class_id, aycs.stream_id, aycs.id AS academic_year_class_stream_id
+            FROM academic_year_class_learning_area_teachers la_teachers
+            JOIN academic_year_class_learning_areas la
+                ON la.id = la_teachers.academic_year_class_learning_area_id
+            JOIN academic_year_classes ayc
+                ON ayc.id = la.academic_year_class_id
+            LEFT JOIN academic_year_class_streams aycs
+                ON aycs.academic_year_class_id = ayc.id
             WHERE " . implode(' AND ', $where)
         );
         $stmt->execute($bindings);
@@ -177,6 +212,10 @@ class StudentScopeService
         ];
     }
 
+    /**
+     * Parent scope: resolve through student_parents → parents → persons.
+     * Parent identity contact (email/phone) lives on `persons`, not `parents`.
+     */
     private function parentStudentIds(array $user): array
     {
         $parentIds = [];
@@ -188,9 +227,23 @@ class StudentScopeService
 
         if (empty($parentIds)) {
             $email = strtolower(trim((string) ($user['email'] ?? '')));
+            $phone = trim((string) ($user['phone'] ?? $user['phone_number'] ?? ''));
+            $conditions = [];
+            $bindings = [];
             if ($email !== '') {
-                $stmt = $this->db->prepare('SELECT id FROM parents WHERE LOWER(email) = ?');
-                $stmt->execute([$email]);
+                $conditions[] = 'LOWER(pp.email) = ?';
+                $bindings[] = $email;
+            }
+            if ($phone !== '') {
+                $conditions[] = 'pp.phone = ?';
+                $bindings[] = $phone;
+            }
+            if (!empty($conditions)) {
+                $stmt = $this->db->prepare(
+                    'SELECT par.id FROM parents par JOIN persons pp ON pp.id = par.person_id WHERE '
+                    . implode(' OR ', $conditions)
+                );
+                $stmt->execute($bindings);
                 $parentIds = array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
             }
         }
@@ -199,22 +252,21 @@ class StudentScopeService
             return [];
         }
 
-        $stmt = $this->db->prepare('SELECT DISTINCT student_id FROM student_parents WHERE parent_id IN (' . implode(',', array_fill(0, count($parentIds), '?')) . ')');
+        $stmt = $this->db->prepare(
+            'SELECT DISTINCT student_id FROM student_parents WHERE parent_id IN ('
+            . implode(',', array_fill(0, count($parentIds), '?')) . ')'
+        );
         $stmt->execute($parentIds);
         return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'student_id'));
     }
 
     private function driverRouteIds(array $user): array
     {
-        if (!$this->columnExists('transport_routes', 'driver_id')) {
-            return [];
-        }
-
         $driverId = $user['driver_id'] ?? null;
         if (!$driverId) {
             $staffId = $this->staffId($user);
-            if ($staffId && $this->columnExists('drivers', 'staff_id')) {
-                $stmt = $this->db->prepare("SELECT id FROM drivers WHERE staff_id = ? AND status = 'active' LIMIT 1");
+            if ($staffId && $this->columnExists('staff', 'position')) {
+                $stmt = $this->db->prepare("SELECT id FROM staff WHERE id = ? AND position = 'Driver' AND status = 'active' LIMIT 1");
                 $stmt->execute([$staffId]);
                 $driverId = $stmt->fetchColumn();
             }
@@ -224,9 +276,18 @@ class StudentScopeService
             return [];
         }
 
-        $stmt = $this->db->prepare("SELECT id FROM transport_routes WHERE driver_id = ? AND status = 'active'");
+        if (!$this->columnExists('transport_vehicle_routes', 'route_id')) {
+            return [];
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT tvr.route_id
+             FROM transport_vehicle_routes tvr
+             JOIN transport_vehicles v ON v.id = tvr.vehicle_id
+             WHERE v.driver_id = ? AND tvr.status = 'active'"
+        );
         $stmt->execute([(int) $driverId]);
-        return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'id'));
+        return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'route_id'));
     }
 
     private function staffId(array $user): ?int
@@ -234,11 +295,14 @@ class StudentScopeService
         if (!empty($user['staff_id'])) {
             return (int) $user['staff_id'];
         }
+        // staff has no user_id; the link is users.person_id = staff.person_id.
         $userId = $user['user_id'] ?? $user['id'] ?? null;
         if (!$userId) {
             return null;
         }
-        $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? AND status = 'active' LIMIT 1");
+        $stmt = $this->db->prepare(
+            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? AND s.status = 'active' LIMIT 1"
+        );
         $stmt->execute([(int) $userId]);
         $staffId = $stmt->fetchColumn();
         return $staffId ? (int) $staffId : null;

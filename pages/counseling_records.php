@@ -16,18 +16,18 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-hand-holding-heart me-2"></i>Counseling Records</h4>
+                    <h4 class="mb-1"><i class="bi bi-heart me-2"></i>Counseling Records</h4>
                     <p class="text-muted mb-0">Confidential student counseling and support records</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newSessionModal">
-                    <i class="fas fa-plus me-1"></i> New Session
+                    <i class="bi bi-plus-lg me-1"></i> New Session
                 </button>
             </div>
         </div>
     </div>
 
     <div class="alert alert-info">
-        <i class="fas fa-lock me-2"></i>
+        <i class="bi bi-lock me-2"></i>
         <strong>Confidential:</strong> All records on this page are strictly confidential and access is restricted.
     </div>
 
@@ -45,7 +45,7 @@
             <div class="card">
                 <div class="card-body text-center">
                     <h3 id="activeStudents">--</h3>
-                    <p class="text-muted mb-0">Students in Counseling</p>
+                    <p class="text-muted mb-0">Active Counselees</p>
                 </div>
             </div>
         </div>
@@ -72,7 +72,7 @@
         <div class="card-header">
             <div class="row g-2">
                 <div class="col-md-4">
-                    <input type="text" class="form-control" id="searchStudent" placeholder="Search by student name...">
+                    <input type="text" class="form-control" id="searchStudent" placeholder="Search by counselee name...">
                 </div>
                 <div class="col-md-3">
                     <select class="form-select" id="filterType">
@@ -94,13 +94,13 @@
                 <table class="table table-hover" id="sessionsTable">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Student</th>
-                            <th>Class</th>
-                            <th>Type</th>
-                            <th>Counselor</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Counselee</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Counselor</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -110,4 +110,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/counseling_records.js"></script>
+<?php asset_script($appBase, 'js/pages/counseling_records.js'); ?>

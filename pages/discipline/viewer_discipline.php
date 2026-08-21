@@ -36,84 +36,8 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        loadDisciplineRecords();
-    });
+<?php asset_script($appBase, 'js/pages/discipline.js'); ?>
 
-    async function loadDisciplineRecords() {
-        const container = document.getElementById('casesList');
-        const user = AuthContext.getUser();
-
-        if (!user) {
-            container.innerHTML = '<div class="empty-list">Please log in to view records</div>';
-            return;
-        }
-
-        try {
-            let response;
-            if (user.role === 'Student') {
-                response = await API.discipline.getMyRecords();
-            } else if (['Parent', 'Guardian'].includes(user.role)) {
-                response = await API.discipline.getChildRecords();
-            } else {
-                container.innerHTML = '<div class="info-card">Access restricted</div>';
-                return;
-            }
-
-            if (response.success && response.data.length > 0) {
-                renderCasesList(response.data);
-                updateSummary(response.data);
-            } else {
-                container.innerHTML = '<div class="empty-list">🎉 No discipline cases on record</div>';
-            }
-        } catch (error) {
-            console.error('Error loading records:', error);
-            container.innerHTML = '<div class="error-card">Unable to load records</div>';
-        }
-    }
-
-    function renderCasesList(cases) {
-        const container = document.getElementById('casesList');
-        container.innerHTML = '';
-
-        cases.forEach(c => {
-            const item = document.createElement('div');
-            item.className = 'viewer-list-item';
-            item.innerHTML = `
-            <div class="list-item-icon ${getSeverityColor(c.severity)}">⚖️</div>
-            <div class="list-item-content">
-                <div class="list-item-header">
-                    <span class="list-item-title">${escapeHtml(c.category)}</span>
-                    <span class="list-item-date">${formatDate(c.incident_date)}</span>
-                </div>
-                <div class="list-item-body">
-                    <p>${escapeHtml(c.description)}</p>
-                    ${c.action_taken ? `<p class="action-taken"><strong>Action:</strong> ${escapeHtml(c.action_taken)}</p>` : ''}
-                </div>
-                <div class="list-item-footer">
-                    <span class="status-badge status-${c.status}">${c.status}</span>
-                    ${c.student_name ? `<span class="student-name">${escapeHtml(c.student_name)}</span>` : ''}
-                </div>
-            </div>
-        `;
-            container.appendChild(item);
-        });
-    }
-
-    function updateSummary(cases) {
-        document.getElementById('totalCases').textContent = cases.length;
-        document.getElementById('resolvedCases').textContent = cases.filter(c => c.status === 'resolved').length;
-    }
-
-    function getSeverityColor(severity) {
-        const colors = { minor: 'bg-yellow', moderate: 'bg-orange', major: 'bg-red', critical: 'bg-darkred' };
-        return colors[severity] || 'bg-gray';
-    }
-
-    function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'; }
-    function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
-</script>
 
 <style>
     /* Viewer-specific styles for discipline list */

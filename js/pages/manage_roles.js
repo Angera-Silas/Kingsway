@@ -597,9 +597,11 @@ const ManageRolesController = {
     }
 
     if (
-      !window.confirm(
+      !(await window.confirmAction(
+        'Confirm Deletion',
         `Delete the role "${role.name}"? This action cannot be undone.`,
-      )
+        { confirmText: 'Delete', danger: true },
+      ))
     ) {
       return;
     }
@@ -754,7 +756,7 @@ const ManageRolesController = {
       record_permissions: "record permissions",
       time_bound_access: "time-bound access records",
       delegations: "role delegations",
-      allowance_templates: "allowance templates",
+      allowances: "allowance templates",
     };
 
     const blockers = Object.entries(role.blockers)

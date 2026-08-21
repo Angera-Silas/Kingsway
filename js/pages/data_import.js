@@ -24,6 +24,7 @@ const dataImportController = {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -59,7 +60,7 @@ const dataImportController = {
     const grid = document.getElementById('diCategoryCards');
     try {
       const r = await callAPI('/import/types', 'GET');
-      this._allTypes = r?.data ?? {};
+      this._allTypes = r ?? {};
       this._renderTypeCards();
     } catch (e) {
       if (grid) grid.innerHTML = `<div class="col-12"><div class="alert alert-danger">Failed to load import types: ${this._esc(e.message)}</div></div>`;
@@ -359,7 +360,7 @@ const dataImportController = {
     tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
       const r = await callAPI('/import/logs', 'GET');
-      const logs = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const logs = Array.isArray(r) ? r : [];
       if (!logs.length) { tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No imports yet.</td></tr>'; return; }
       const stCls = { completed:'success', partial:'warning', failed:'danger', preview:'secondary' };
       tbody.innerHTML = logs.map(l => `<tr>

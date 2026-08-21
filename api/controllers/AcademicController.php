@@ -3,6 +3,14 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\academic\AcademicAPI;
+use App\API\Modules\academic\AcademicManager;
+use App\API\Modules\academic\AcademicExamService;
+use App\API\Modules\academic\AcademicReportService;
+use App\API\Modules\academic\AcademicCurriculumService;
+use App\API\Modules\academic\AcademicYearService;
+use App\API\Modules\students\StudentProfileManager;
+use App\API\Modules\students\FamilyGroupsManager;
+use PDO;
 use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
@@ -116,10 +124,16 @@ class AcademicController extends BaseController
     private $api;
     private $contextService;
     private $cohortProjectionService;
+    private AcademicManager $academicManager;
+    private AcademicExamService $examService;
+    private AcademicReportService $reportService;
+    private AcademicCurriculumService $curriculumService;
+    private AcademicYearService $yearService;
 
     public function __construct()
     {
         parent::__construct();
+        $this->academicManager = new AcademicManager();
         $this->api = new AcademicAPI();
         $this->staffAccess = new StaffDomainAccessService($this->user);
         $this->teachingAssignments = new StaffTeachingAssignmentService();
@@ -131,6 +145,10 @@ class AcademicController extends BaseController
         // Initialize Cohort Projection Service (Admission Stage 5)
         require_once __DIR__ . '/../modules/academic/AcademicCohortProjectionService.php';
         $this->cohortProjectionService = new \App\API\Modules\academic\AcademicCohortProjectionService();
+        $this->examService = new AcademicExamService($this->api);
+        $this->reportService = new AcademicReportService($this->api);
+        $this->curriculumService = new AcademicCurriculumService($this->api);
+        $this->yearService = new AcademicYearService($this->api);
     }
 
     public function index()
@@ -160,7 +178,8 @@ class AcademicController extends BaseController
             $context = $this->contextService->getCurrentContext();
             return $this->success($context);
         } catch (Exception $e) {
-            return $this->error('Failed to get academic context: ' . $e->getMessage());
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -185,7 +204,8 @@ class AcademicController extends BaseController
             ], 'Academic KPIs retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch academic KPIs: ' . $e->getMessage());
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -208,7 +228,8 @@ class AcademicController extends BaseController
             ], 'Performance matrix retrieved');
 
         } catch (Exception $e) {
-            return $this->serverError('Failed to fetch performance matrix: ' . $e->getMessage());
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->serverError('An internal error occurred.');
         }
     }
 
@@ -233,7 +254,8 @@ class AcademicController extends BaseController
             ? (int) $data['applied_academic_year'] : null;
 
         if (!$targetYearId || !$targetClassId) {
-            return $this->error('target_academic_year_id and target_class_id are required.');
+            error_log('[AcademicController] getCohortProjection: target year/class required');
+            return $this->error('Target academic year and class are required.');
         }
 
         $result = $this->cohortProjectionService->projectClassCapacity(
@@ -253,6 +275,7 @@ class AcademicController extends BaseController
         $applicationId = isset($data['application_id'])
             ? (int) $data['application_id'] : null;
         if (!$applicationId) {
+            error_log('[AcademicController] getCohortProjection: application_id required');
             return $this->error('application_id is required.');
         }
         $result = $this->cohortProjectionService->projectCapacityForApplication($applicationId);
@@ -264,141 +287,17 @@ class AcademicController extends BaseController
     // Unified listing across teaching_materials and past_papers (all statuses).
     public function getResources($id = null, $data = [], $segments = [])
     {
-        $type = isset($data['type']) ? $data['type'] : 'material';
-        $db = \App\Database\Database::getInstance();
-
-        $where = [];
-        $params = [];
-        $classId = isset($data['class_id']) && $data['class_id'] !== '' ? (int) $data['class_id'] : null;
-        $subjectId = isset($data['subject_id']) && $data['subject_id'] !== '' ? (int) $data['subject_id'] : null;
-        $termId = isset($data['term_id']) && $data['term_id'] !== '' ? (int) $data['term_id'] : null;
-        $q = isset($data['q']) && trim($data['q']) !== '' ? trim($data['q']) : null;
-
-        try {
-            if ($type === 'past_paper') {
-                if ($termId) { $where[] = 'p.term_id = ?'; $params[] = $termId; }
-                if ($subjectId) { $where[] = 'p.subject_id = ?'; $params[] = $subjectId; }
-                if ($q) { $where[] = 'p.title LIKE ?'; $params[] = "%{$q}%"; }
-                $sql = "SELECT p.id, 'past_paper' AS type, p.title, p.description,
-                                p.subject_id, p.learning_area_id, p.exam_year, p.exam_type,
-                                p.term_id, NULL AS class_id, p.file_name, p.file_type,
-                                p.file_size, p.file_path, p.status, p.download_count,
-                                p.created_at,
-                                la.name AS learning_area, la.name AS subject_name
-                        FROM past_papers p
-                        LEFT JOIN learning_areas la ON la.id = p.learning_area_id";
-            } else {
-                if ($classId) { $where[] = 'm.class_id = ?'; $params[] = $classId; }
-                if ($termId) { $where[] = 'm.term_id = ?'; $params[] = $termId; }
-                if ($subjectId) { $where[] = 'm.subject_id = ?'; $params[] = $subjectId; }
-                if ($q) { $where[] = 'm.title LIKE ?'; $params[] = "%{$q}%"; }
-                $sql = "SELECT m.id, 'material' AS type, m.title, m.description,
-                                m.subject_id, m.learning_area_id, NULL AS exam_year, m.resource_type AS exam_type,
-                                m.term_id, m.class_id, m.file_name, m.file_type,
-                                m.file_size, m.file_path, m.status, m.download_count,
-                                m.created_at,
-                                la.name AS learning_area, la.name AS subject_name,
-                                c.name AS class_name,
-                                CONCAT(s.first_name, ' ', s.last_name) AS uploaded_by_name
-                        FROM teaching_materials m
-                        LEFT JOIN learning_areas la ON la.id = m.learning_area_id
-                        LEFT JOIN classes c ON c.id = m.class_id
-                        LEFT JOIN staff s ON s.id = m.teacher_id";
-            }
-            if ($where) {
-                $sql .= ' WHERE ' . implode(' AND ', $where);
-            }
-            $sql .= ' ORDER BY created_at DESC LIMIT 200';
-
-            $rows = $db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows);
-        } catch (\Exception $e) {
-            return $this->error('Failed to list resources: ' . $e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getResources($data));
     }
 
     // POST /api/academic/resources  (multipart FormData upload to teaching_materials)
     // Fields: file, title, subject_id, class, type, term, description
     public function postResources($id = null, $data = [], $segments = [])
     {
-        if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            return $this->error('A file is required.');
-        }
-        $f = $_FILES['file'];
-        $title = trim($_POST['title'] ?? '');
-        if ($title === '') {
-            return $this->error('Title is required.');
-        }
-        $allowedExt = ['pdf','doc','docx','ppt','pptx','xls','xlsx','txt','jpg','jpeg','png','gif','mp4','mp3','zip'];
-        $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedExt, true)) {
-            return $this->error('Unsupported file type.');
-        }
-
-        // UPLOAD_PATH may be an absolute path or a relative one; normalize to
-        // absolute against the application base so mkdir is CWD-independent.
-        $base = defined('UPLOAD_PATH') ? UPLOAD_PATH : __DIR__ . '/../../uploads';
-        if (!preg_match('#^(/|\\\\|[A-Za-z]:\\\\)#', $base)) {
-            $base = dirname(__DIR__, 2) . '/' . $base;
-        }
-        $destDir = $base . '/teaching_materials';
-        if (!is_dir($destDir) && !@mkdir($destDir, 0775, true) && !is_dir($destDir)) {
-            return $this->error('Could not create upload directory: ' . $destDir);
-        }
-        $safeName = bin2hex(random_bytes(12)) . '.' . $ext;
-        $destPath = $destDir . '/' . $safeName;
-        if (!move_uploaded_file($f['tmp_name'], $destPath)) {
-            return $this->error('Failed to save uploaded file.');
-        }
-
-        $relPath = 'uploads/teaching_materials/' . $safeName;
-        $db = \App\Database\Database::getInstance();
-        $userId = $this->user['id'] ?? null;
-
-        // Resolve the uploading teacher (staff row) from the auth user.
-        // teacher_id is nullable: non-staff uploaders (admins, system/test
-        // accounts) have no staff row, and that is a legitimate state.
-        $teacherId = null;
-        if ($userId) {
-            $t = $db->query('SELECT id FROM staff WHERE user_id = ?', [$userId])->fetch(\PDO::FETCH_ASSOC);
-            $teacherId = $t['id'] ?? null;
-        }
-
-        // The frontend "type" is a pedagogical category (Worksheet, Notes,
-        // Past Paper, Presentation, Other) but resource_type is a media-kind
-        // enum (document|presentation|video|audio|image|other). Normalize at
-        // the API boundary; unrecognized values fall back to 'document'.
-        $typeMap = [
-            'worksheet'    => 'document',
-            'notes'        => 'document',
-            'past paper'   => 'document',
-            'presentation' => 'presentation',
-            'other'        => 'other',
-        ];
-        $resourceType = $typeMap[strtolower(trim($_POST['type'] ?? ''))] ?? 'document';
-
-        $db->query(
-            "INSERT INTO teaching_materials
-                (title, description, subject_id, learning_area_id, teacher_id, class_id,
-                 term_id, file_path, file_name, file_type, file_size, resource_type, status, academic_year_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL)",
-            [
-                $title,
-                trim($_POST['description'] ?? ''),
-                !empty($_POST['subject_id']) ? (int) $_POST['subject_id'] : null,
-                null,
-                $teacherId,
-                !empty($_POST['class']) ? (int) $_POST['class'] : null,
-                !empty($_POST['term']) ? (int) $_POST['term'] : null,
-                $relPath,
-                $f['name'],
-                $f['type'] ?: $ext,
-                $f['size'],
-                $resourceType,
-            ]
-        );
-
-        return $this->success(['id' => $db->lastInsertId()], 'Resource uploaded successfully.');
+        $payload = array_merge($_POST, is_array($data) ? $data : []);
+        $file = isset($_FILES['file']) ? $_FILES['file'] : null;
+        $userId = (int) ($this->user['id'] ?? $this->user['user_id'] ?? 0);
+        return $this->handleResponse($this->academicManager->postResources($payload, $file, $userId));
     }
 
     // GET /api/academic/resources/{id}/download  — serve the file (browser must hit this directly)
@@ -407,33 +306,12 @@ class AcademicController extends BaseController
         if (!$id) {
             return $this->error('Resource id is required.');
         }
-        $db = \App\Database\Database::getInstance();
-        $row = $db->query(
-            "SELECT id, file_path, file_name, file_type FROM teaching_materials WHERE id = ?
-             UNION ALL
-             SELECT id, file_path, file_name, file_type FROM past_papers WHERE id = ?",
-            [$id, $id]
-        )->fetch(\PDO::FETCH_ASSOC);
-
-        if (!$row || empty($row['file_path'])) {
-            return $this->error('Resource not found.', 404);
+        $result = $this->academicManager->getResourceDownloadMeta((int) $id);
+        if (($result['success'] ?? false) !== true) {
+            return $this->handleResponse($result);
         }
-        $abs = (strpos($row['file_path'], '/') === 0)
-            ? $row['file_path']
-            : __DIR__ . '/../../' . $row['file_path'];
-        if (!is_file($abs)) {
-            return $this->error('File is missing on the server.', 404);
-        }
-
-        // Track the download (increment whichever table owns the row).
-        $db->query(
-            "UPDATE teaching_materials SET download_count = download_count + 1 WHERE id = ?",
-            [$id]
-        );
-        $db->query(
-            "UPDATE past_papers SET download_count = download_count + 1 WHERE id = ?",
-            [$id]
-        );
+        $row = $result['data'] ?? [];
+        $abs = $row['absolute_path'] ?? '';
 
         header('Content-Type: ' . ($row['file_type'] ?: 'application/octet-stream'));
         header('Content-Disposition: inline; filename="' . basename($row['file_name'] ?: 'download') . '"');
@@ -590,13 +468,29 @@ class AcademicController extends BaseController
     /**
      * Handle API response and format appropriately
      */
-    private function handleResponse($result)
+    public function handleResponse($result)
     {
         if (is_array($result)) {
             if (isset($result['success'])) {
-                return $result['success']
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
-                    : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? []);
+                if ($result['success']) {
+                    return $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful');
+                }
+                $message = $result['message'] ?? 'Operation failed';
+                $data = $result['data'] ?? [];
+                $code = (int) ($result['code'] ?? 400);
+                if ($code === 401) {
+                    return $this->unauthorized($message);
+                }
+                if ($code === 403) {
+                    return $this->forbidden($message);
+                }
+                if ($code === 404) {
+                    return $this->notFound($message);
+                }
+                if ($code >= 500) {
+                    return $this->serverError($message, $data);
+                }
+                return $this->badRequest($message, is_array($data) ? $data : []);
             }
 
             if (isset($result['status'])) {
@@ -629,7 +523,7 @@ class AcademicController extends BaseController
 
         return $this->success(['result' => $result]);
     }
-    private function requireAcademicWorkflowAccess(array $permissions = ['academic_manage', 'academic_approve'])
+    public function requireAcademicWorkflowAccess(array $permissions = ['academic_manage', 'academic_approve'])
     {
         $aliases = [];
         foreach ($permissions as $permission) {
@@ -657,17 +551,13 @@ class AcademicController extends BaseController
      */
     public function postExamsStartWorkflow($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess()) {
-            return $guard;
-        }
-
-        $result = $this->api->startExaminationWorkflow($data);
-        return $this->handleResponse($result);
+        return $this->examService->postExamsStartWorkflow($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/academic/exams/create-schedule - Create exam schedule
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsCreateSchedule($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -685,6 +575,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/submit-questions - Submit question papers
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsSubmitQuestions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -703,6 +594,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/prepare-logistics - Prepare exam logistics
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsPrepareLogistics($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -716,6 +608,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/conduct - Conduct examination
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsConduct($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -729,6 +622,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/assign-marking - Assign exam marking
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsAssignMarking($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess()) {
@@ -746,6 +640,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/record-marks - Record exam marks
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsRecordMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
@@ -763,6 +658,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/verify-marks - Verify exam marks
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsVerifyMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -776,6 +672,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/moderate-marks - Moderate exam marks
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsModerateMarks($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -793,6 +690,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/exams/compile-results - Compile exam results
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsCompileResults($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -807,6 +705,7 @@ class AcademicController extends BaseController
      * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
      * Body: { instance_id, approved (bool, default true), comments }
      */
+    // TODO: Delegate to AcademicExamService
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -844,6 +743,12 @@ class AcademicController extends BaseController
             $result = $this->api->listExamSchedules($data);
         }
         return $this->handleResponse($result);
+    }
+
+    /** Backward-compatible plural alias used by the exam schedule route. */
+    public function getExamSchedules($id = null, $data = [], $segments = [])
+    {
+        return $this->getExamSchedule($id, $data, $segments);
     }
 
     /**
@@ -891,6 +796,89 @@ class AcademicController extends BaseController
             return $this->badRequest('Exam schedule ID is required for deletion');
         }
         $result = $this->api->deleteExamScheduleEntry($id);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== SUPERVISION ROSTER CRUD ====================
+    // URLs: GET/POST/PUT/DELETE /api/academic/supervision-roster
+    //       POST /api/academic/supervision-roster-auto-generate
+    // Used by: js/pages/supervision_roster.js
+
+    /**
+     * GET /api/academic/supervision-roster - List supervision roster
+     * GET /api/academic/supervision-roster/{id} - Get single entry
+     * Router calls: getSupervisionRoster($id, $data, $segments)
+     */
+    public function getSupervisionRoster($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $result = $this->api->getSupervisionRosterById($id);
+        } else {
+            $result = $this->api->listSupervisionRosters($data);
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/supervision-roster - Create supervision roster entry
+     * Router calls: postSupervisionRoster(null, $data, $segments)
+     */
+    public function postSupervisionRoster($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
+        $result = $this->api->createSupervisionRoster($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/supervision-roster/{id} - Update supervision roster entry
+     * Router calls: putSupervisionRoster($id, $data, $segments)
+     */
+    public function putSupervisionRoster($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
+        if ($id === null) {
+            return $this->badRequest('Supervision roster ID is required for update');
+        }
+        $result = $this->api->updateSupervisionRoster($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/supervision-roster/{id} - Delete supervision roster entry
+     * Router calls: deleteSupervisionRoster($id, $data, $segments)
+     */
+    public function deleteSupervisionRoster($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage'])) {
+            return $guard;
+        }
+
+        if ($id === null) {
+            return $this->badRequest('Supervision roster ID is required for deletion');
+        }
+        $result = $this->api->deleteSupervisionRoster($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/supervision-roster-auto-generate - Auto-generate roster
+     * for the current term's unassigned upcoming exam schedules.
+     * Router calls: postSupervisionRosterAutoGenerate(null, $data, $segments)
+     */
+    public function postSupervisionRosterAutoGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
+        $result = $this->api->autoGenerateSupervisionRoster($data);
         return $this->handleResponse($result);
     }
 
@@ -1067,17 +1055,13 @@ class AcademicController extends BaseController
      */
     public function postReportsStartWorkflow($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
-            return $guard;
-        }
-
-        $result = $this->api->startReportWorkflow($data);
-        return $this->handleResponse($result);
+        return $this->reportService->postReportsStartWorkflow($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/academic/reports/compile-data - Compile report data
      */
+    // TODO: Delegate to AcademicReportService
     public function postReportsCompileData($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1091,6 +1075,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/generate-student-reports - Generate student reports
      */
+    // TODO: Delegate to AcademicReportService
     public function postReportsGenerateStudentReports($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1104,6 +1089,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/review-and-approve - Review and approve reports
      */
+    // TODO: Delegate to AcademicReportService
     public function postReportsReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1117,6 +1103,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/distribute - Distribute reports
      */
+    // TODO: Delegate to AcademicReportService
     public function postReportsDistribute($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
@@ -1180,18 +1167,13 @@ class AcademicController extends BaseController
      */
     public function postCurriculumStartWorkflow($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
-            return $guard;
-        }
-
-        $payload = is_array($data) ? $data : [];
-        $result = $this->api->startCurriculumWorkflow($payload);
-        return $this->handleResponse($result);
+        return $this->curriculumService->postCurriculumStartWorkflow($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/academic/curriculum/map-outcomes - Map curriculum outcomes
      */
+    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumMapOutcomes($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -1205,6 +1187,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum/create-scheme - Create curriculum scheme
      */
+    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumCreateScheme($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
@@ -1220,6 +1203,7 @@ class AcademicController extends BaseController
      * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
      * Body: { instance_id, action (approve|reject), comments }
      */
+    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
@@ -1251,20 +1235,18 @@ class AcademicController extends BaseController
     {
         if (!$this->userHasAny(
             ['academic_year_manage', 'system_admin'],
-            [1, 3],
-            ['director', 'system admin']
+            [1, 3, 4, 5, 6],
+            ['director', 'system admin', 'school administrator', 'head teacher', 'deputy head']
         )) {
-            return $this->forbidden('Only Director or System Admin can start year transition workflows');
+            return $this->forbidden('You do not have permission to start year transition workflows');
         }
-
-        $payload = is_array($data) ? $data : [];
-        $result = $this->api->startYearTransitionWorkflow($payload);
-        return $this->handleResponse($result);
+        return $this->yearService->postYearTransitionStartWorkflow($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/academic/year-transition/archive-data - Archive academic data
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearTransitionArchiveData($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -1278,6 +1260,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/execute-promotions - Execute year promotions
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearTransitionExecutePromotions($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) {
@@ -1288,18 +1271,43 @@ class AcademicController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** GET /api/academic/year-transition/promotion-candidates */
+    public function getYearTransitionPromotionCandidates($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->getYearPromotionCandidates($instanceId));
+    }
+
+    /** POST /api/academic/year-transition/assign-promotion-streams */
+    public function postYearTransitionAssignPromotionStreams($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->assignYearPromotionStreams($instanceId, $data));
+    }
+
+    /** POST /api/academic/year-transition/complete-stage */
+    public function postYearTransitionCompleteStage($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) return $guard;
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        return $this->handleResponse($this->api->completeYearTransitionStage($instanceId, $data));
+    }
+
     /**
      * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
      * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(
             ['academic_year_manage', 'system_admin'],
-            [1, 3],
-            ['director', 'system admin']
+            [1, 3, 4, 5, 6],
+            ['director', 'system admin', 'school administrator', 'head teacher', 'deputy head']
         )) {
-            return $this->forbidden('Only Director or System Admin can setup new academic year');
+            return $this->forbidden('You do not have permission to setup the new academic year');
         }
 
         $instanceId = $data['instance_id'] ?? ($id ?? null);
@@ -1311,6 +1319,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/migrate-competency-baselines - Migrate competency baselines
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearTransitionMigrateCompetencyBaselines($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
@@ -1324,9 +1333,113 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/validate-readiness - Validate year readiness
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearTransitionValidateReadiness($id = null, $data = [], $segments = [])
     {
         $result = $this->api->validateYearReadiness($data['instance_id'] ?? null, $data);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== ACADEMIC CALENDAR ====================
+
+    /**
+     * POST /api/academic/calendar/generate - Generate/regenerate term calendar
+     * Body: { year_id, week_counts: {1:14, 2:14, 3:10} } (week_counts optional)
+     */
+    public function postCalendarGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
+        $yearId = $data['year_id'] ?? ($id ?? null);
+        if (!$yearId) {
+            return $this->badRequest('year_id is required');
+        }
+
+        $result = $this->api->generateAcademicCalendar((int) $yearId, $data['week_counts'] ?? []);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/calendar/get/{year_id} - Get generated calendar summary
+     */
+    public function getCalendarGet($id = null, $data = [], $segments = [])
+    {
+        $yearId = $id ?? ($data['year_id'] ?? null);
+        if (!$yearId) {
+            return $this->badRequest('year_id is required');
+        }
+
+        $result = $this->api->getAcademicCalendar((int) $yearId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/calendar/list - Get calendar summary for a year
+     * Query: ?year_id= (defaults to current year)
+     */
+    public function getCalendarList($id = null, $data = [], $segments = [])
+    {
+        $yearId = $id ?? ($data['year_id'] ?? null);
+        if (!$yearId) {
+            $yearId = $this->academicManager->resolveCurrentAcademicYearId();
+        }
+        if (!$yearId) {
+            return $this->badRequest('No academic year found');
+        }
+
+        $result = $this->api->getAcademicCalendar((int) $yearId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/calendar/validate - Readiness check for the calendar
+     * Body: { year_id }
+     */
+    public function postCalendarValidate($id = null, $data = [], $segments = [])
+    {
+        $yearId = $data['year_id'] ?? ($id ?? null);
+        if (!$yearId) {
+            return $this->badRequest('year_id is required');
+        }
+
+        $result = $this->api->validateAcademicCalendar((int) $yearId);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== LEARNING AREAS ====================
+
+    /**
+     * POST /api/academic/learning-areas/seed - Seed per-class CBC learning areas
+     * Body: { academic_year_id }
+     */
+    public function postLearningAreasSeed($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
+        $yearId = $data['academic_year_id'] ?? ($id ?? null);
+        if (!$yearId) {
+            return $this->badRequest('academic_year_id is required');
+        }
+
+        $result = $this->api->seedAcademicLearningAreas(['academic_year_id' => (int) $yearId]);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/learning-areas/coverage/{ayc_id} - Class curriculum coverage
+     */
+    public function getLearningAreasCoverage($id = null, $data = [], $segments = [])
+    {
+        $aycId = $id ?? ($data['academic_year_class_id'] ?? null);
+        if (!$aycId) {
+            return $this->badRequest('academic_year_class_id is required');
+        }
+
+        $result = $this->api->getClassLearningAreaCoverage(['academic_year_class_id' => (int) $aycId]);
         return $this->handleResponse($result);
     }
 
@@ -1377,61 +1490,62 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/years/list - Get all academic years
      */
+    // TODO: Delegate to AcademicYearService
     public function getYearsList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAcademicYears($data);
-        return $this->handleResponse($result);
+        return $this->yearService->getYearsList($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/academic/years/current - Get current academic year
      */
+    // TODO: Delegate to AcademicYearService
     public function getYearsCurrent($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getCurrentAcademicYear($data);
-        return $this->handleResponse($result);
+        return $this->yearService->getYearsCurrent($id, $data, $segments, $this);
     }
 
     /**
      * GET /api/academic/years/get/{id} - Get academic year by ID
      */
+    // TODO: Delegate to AcademicYearService
     public function getYearsGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAcademicYear($id);
-        return $this->handleResponse($result);
+        return $this->yearService->getYearsGet($id, $data, $segments, $this);
     }
 
     /**
      * POST /api/academic/years/create - Create academic year
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearsCreate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->createAcademicYear($data);
-        return $this->handleResponse($result);
+        return $this->yearService->postYearsCreate($id, $data, $segments, $this);
     }
 
     /**
      * PUT /api/academic/years/update/{id} - Update academic year
      */
+    // TODO: Delegate to AcademicYearService
     public function putYearsUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateAcademicYear($id, $data);
-        return $this->handleResponse($result);
+        return $this->yearService->putYearsUpdate($id, $data, $segments, $this);
     }
 
     /**
      * DELETE /api/academic/years/delete/{id} - Delete academic year
      */
+    // TODO: Delegate to AcademicYearService
     public function deleteYearsDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteAcademicYear($id);
-        return $this->handleResponse($result);
+        return $this->yearService->deleteYearsDelete($id, $data, $segments, $this);
     }
 
     /**
      * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
      * Accepts year_id from URL segment (/set-current/5) or from request body (year_id or id)
      */
+    // TODO: Delegate to AcademicYearService
     public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
         // Only Director (role_id=3) or System Admin (role_id=1) may change the current year
@@ -1482,6 +1596,37 @@ class AcademicController extends BaseController
     }
 
     /**
+     * GET /api/academic/timetable-stats?term_id= - Timetable coverage for a term
+     * (backed by the live timetable_entries table, unlike /schedules/timetable-get).
+     */
+    public function getTimetableStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getTimetableStats($data));
+    }
+
+    /**
+     * GET /api/academic/term-transition/context - Normalized term transition context
+     */
+    public function getTermTransitionContext($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getTermTransitionContext($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/term-transition/execute - Atomic term transition
+     */
+    public function postTermTransitionExecute($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
+        $result = $this->api->executeTermTransition($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * DELETE /api/academic/terms/delete/{id} - Delete academic term
      */
     public function deleteTermsDelete($id = null, $data = [], $segments = [])
@@ -1492,7 +1637,7 @@ class AcademicController extends BaseController
 
     /**
      * GET /api/academic/terms - Bare alias of getTermsList.
-     * term_dates.js calls the bare `/academic/terms?academic_year_id=` route.
+     * manage_terms.js calls the bare `/academic/terms?academic_year_id=` route.
      */
     public function getTerms($id = null, $data = [], $segments = [])
     {
@@ -1501,7 +1646,7 @@ class AcademicController extends BaseController
 
     /**
      * POST /api/academic/terms - Bare alias of postTermsCreate.
-     * term_dates.js POSTs a new term to the bare `/academic/terms` route.
+     * manage_terms.js POSTs a new term to the bare `/academic/terms` route.
      */
     public function postTerms($id = null, $data = [], $segments = [])
     {
@@ -1510,7 +1655,7 @@ class AcademicController extends BaseController
 
     /**
      * PUT /api/academic/terms/{id} - Bare alias of putTermsUpdate.
-     * term_dates.js PUTs updates to `/academic/terms/{id}`.
+     * manage_terms.js PUTs updates to `/academic/terms/{id}`.
      */
     public function putTerms($id = null, $data = [], $segments = [])
     {
@@ -1526,6 +1671,15 @@ class AcademicController extends BaseController
     {
         $result = $this->api->getLearningAreasList($data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/learning-areas - Alias for learning-areas-list.
+     * Router convention: /academic/learning-areas → getLearningAreas().
+     */
+    public function getLearningAreas($id = null, $data = [], $segments = [])
+    {
+        return $this->getLearningAreasList($id, $data, $segments);
     }
 
     /**
@@ -1634,43 +1788,8 @@ class AcademicController extends BaseController
      */
     public function getAssessmentsList($id = null, $data = [], $segments = [])
     {
-        try {
-            $where  = ['1=1'];
-            $params = [];
-            if (!empty($_GET['class_id']))           { $where[] = 'a.class_id=:cid';     $params[':cid']  = (int)$_GET['class_id']; }
-            if (!empty($_GET['term_id']))             { $where[] = 'a.term_id=:tid';      $params[':tid']  = (int)$_GET['term_id']; }
-            if (!empty($_GET['subject_id']))          { $where[] = 'a.subject_id=:sid';   $params[':sid']  = (int)$_GET['subject_id']; }
-            if (!empty($_GET['status']))              { $where[] = 'a.status=:st';        $params[':st']   = $_GET['status']; }
-            if (!empty($_GET['assessment_type_id'])) { $where[] = 'a.assessment_type_id=:atid'; $params[':atid'] = (int)$_GET['assessment_type_id']; }
-
-            $stmt = $this->db->query(
-                "SELECT a.id, a.class_id, a.subject_id, a.term_id, a.title, a.max_marks,
-                        a.assessment_date, a.status, a.assessment_type_id,
-                        c.name  AS class_name,
-                        la.name AS learning_area_name, la.code AS learning_area_code,
-                        at.name AS type_name, at.is_formative, at.is_summative,
-                        t.name  AS term_name, t.term_number,
-                        COUNT(DISTINCT fs.student_id) AS graded_count,
-                        COUNT(DISTINCT ce.student_id) AS total_students,
-                        ROUND(AVG(fs.percentage), 2)  AS average_pct
-                 FROM assessments a
-                 LEFT JOIN classes c           ON c.id  = a.class_id
-                 LEFT JOIN learning_areas la   ON la.id = a.subject_id
-                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
-                 LEFT JOIN academic_terms t    ON t.id  = a.term_id
-                 LEFT JOIN formative_scores fs ON fs.assessment_id = a.id
-                 LEFT JOIN class_enrollments ce ON ce.class_id = a.class_id
-                        AND ce.enrollment_status IN ('active','completed')
-                 WHERE " . implode(' AND ', $where) . "
-                 GROUP BY a.id
-                 ORDER BY a.assessment_date DESC, a.id DESC
-                 LIMIT 500",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getAssessmentsList($filters));
     }
 
     /**
@@ -1718,6 +1837,26 @@ class AcademicController extends BaseController
      * Returns normalized student-results data consumable by frontend exporters.
      */
     public function getReportCardsDownload($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $data['student_id'] = (int) $id;
+        }
+
+        if (empty($data['student_id'])) {
+            return $this->badRequest('student_id is required');
+        }
+
+        $result = $this->api->getStudentResults($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/report-cards - Full report card payload for one student.
+     * Accepts student_id (+ optional term_id) via query params. Returns normalized
+     * subject rows, attendance, averages and grades consumable by the report-card
+     * print/export flow. Mirrors getReportCardsDownload but sources ids from data.
+     */
+    public function getReportCards($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
             $data['student_id'] = (int) $id;
@@ -1918,26 +2057,25 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum-units/create - Create curriculum unit
      */
+    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnitsCreate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->createCurriculumUnit($data);
-        return $this->handleResponse($result);
+        return $this->curriculumService->postCurriculumUnitsCreate($id, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AcademicCurriculumService
     public function postCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->postCurriculumUnitsCreate($id, $data, $segments);
     }
 
-    /**
-     * GET /api/academic/curriculum-units/list - List curriculum units
-     */
+    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getCurriculumUnits($data);
-        return $this->handleResponse($result);
+        return $this->curriculumService->getCurriculumUnitsList($id, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnits($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
@@ -1947,38 +2085,31 @@ class AcademicController extends BaseController
         return $this->getCurriculumUnitsList($id, $data, $segments);
     }
 
-    /**
-     * GET /api/academic/curriculum-units/get/{id} - Get specific curriculum unit
-     */
+    // TODO: Delegate to AcademicCurriculumService
     public function getCurriculumUnitsGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getCurriculumUnit($id ?? ($data['id'] ?? null));
-        return $this->handleResponse($result);
+        return $this->curriculumService->getCurriculumUnitsGet($id, $data, $segments, $this);
     }
 
-    /**
-     * PUT /api/academic/curriculum-units/update/{id} - Update curriculum unit
-     */
+    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnitsUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateCurriculumUnit($id ?? ($data['id'] ?? null), $data);
-        return $this->handleResponse($result);
+        return $this->curriculumService->putCurriculumUnitsUpdate($id, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AcademicCurriculumService
     public function putCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->putCurriculumUnitsUpdate($id, $data, $segments);
     }
 
-    /**
-     * DELETE /api/academic/curriculum-units/delete/{id} - Delete curriculum unit
-     */
+    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnitsDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteCurriculumUnit($id ?? ($data['id'] ?? null));
-        return $this->handleResponse($result);
+        return $this->curriculumService->deleteCurriculumUnitsDelete($id, $data, $segments, $this);
     }
 
+    // TODO: Delegate to AcademicCurriculumService
     public function deleteCurriculumUnits($id = null, $data = [], $segments = [])
     {
         return $this->deleteCurriculumUnitsDelete($id, $data, $segments);
@@ -2208,6 +2339,18 @@ class AcademicController extends BaseController
     }
 
     /**
+     * POST /api/academic/schemes-of-work/generate
+     * Auto-generate weekly scheme-of-work entries from the seeded CBC curriculum
+     * (strands -> sub-strands -> learning outcomes) for a selected learning area/class/term.
+     */
+    public function postSchemesOfWorkGenerate($id = null, $data = [], $segments = [])
+    {
+        $data['created_by'] = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->generateSchemeOfWork($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * GET /api/academic/scheme-of-work/get/{id} - Get scheme of work
      */
     public function getSchemeOfWorkGet($id = null, $data = [], $segments = [])
@@ -2374,77 +2517,61 @@ class AcademicController extends BaseController
      */
     public function getFormativeAssessments($id = null, $data = [], $segments = [])
     {
-        try {
-            $db     = $this->db;
-            $where  = ["a.assessment_type_id IS NOT NULL"];
-            $params = [];
-
-            // Join to assessment_types and filter is_formative=1
-            $where[] = "at.is_formative = 1";
-
-            if (!empty($_GET['class_id']))    { $where[] = "a.class_id=:cid";     $params[':cid'] = (int)$_GET['class_id']; }
-            if (!empty($_GET['subject_id']))  { $where[] = "a.subject_id=:sid";   $params[':sid'] = (int)$_GET['subject_id']; }
-            if (!empty($_GET['term_id']))     { $where[] = "a.term_id=:tid";      $params[':tid'] = (int)$_GET['term_id']; }
-            if (!empty($_GET['type_id']))     { $where[] = "a.assessment_type_id=:atid"; $params[':atid'] = (int)$_GET['type_id']; }
-
-            $stmt = $db->query(
-                "SELECT a.*,
-                        at.name AS type_name, at.is_formative, at.is_summative,
-                        la.name AS subject_name, la.code AS subject_code,
-                        c.name AS class_name,
-                        t.name AS term_name,
-                        CONCAT(st.first_name,' ',st.last_name) AS assigned_by_name
-                 FROM assessments a
-                 JOIN assessment_types at ON at.id = a.assessment_type_id
-                 LEFT JOIN learning_areas la ON la.id = a.subject_id
-                 LEFT JOIN classes c ON c.id = a.class_id
-                 LEFT JOIN academic_terms t ON t.id = a.term_id
-                 LEFT JOIN staff st ON st.user_id = a.assigned_by
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY a.assessment_date DESC
-                 LIMIT 500",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getFormativeAssessments($filters, $this->getCurrentStaffId()));
     }
 
     public function postFormativeAssessments($id = null, $data = [], $segments = [])
     {
-        try {
-            $required = ['class_id','subject_id','term_id','title','assessment_type_id','max_marks'];
-            foreach ($required as $f) {
-                if (empty($data[$f])) return $this->badRequest("$f is required");
-            }
-            // Verify type is formative
-            $typeCheck = $this->db->query("SELECT is_formative FROM assessment_types WHERE id=:id LIMIT 1", [':id' => (int)$data['assessment_type_id']]);
-            $type = $typeCheck->fetch(\PDO::FETCH_ASSOC);
-            if (!$type || !$type['is_formative']) return $this->badRequest('assessment_type_id must refer to a formative type');
+        return $this->handleResponse($this->academicManager->postFormativeAssessments(is_array($data) ? $data : [], $this->user));
+    }
 
-            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
-            $this->db->query(
-                "INSERT INTO assessments
-                    (class_id, subject_id, term_id, title, max_marks, assessment_date, assigned_by, assessment_type_id, learning_outcome_id, status)
-                 VALUES
-                    (:cid, :sid, :tid, :title, :marks, :dt, :aby, :atid, :loid, 'pending_submission')",
-                [
-                    ':cid'   => (int)$data['class_id'],
-                    ':sid'   => (int)$data['subject_id'],
-                    ':tid'   => (int)$data['term_id'],
-                    ':title' => trim($data['title']),
-                    ':marks' => (float)$data['max_marks'],
-                    ':dt'    => $data['assessment_date'] ?? date('Y-m-d'),
-                    ':aby'   => $userId,
-                    ':atid'  => (int)$data['assessment_type_id'],
-                    ':loid'  => !empty($data['learning_outcome_id']) ? (int)$data['learning_outcome_id'] : null,
-                ]
-            );
-            return $this->created(['id' => (int)$this->db->lastInsertId()], 'Formative assessment created');
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+    /**
+     * PUT /api/academic/formative-assessments/{id} → update a formative assessment
+     */
+    public function putFormativeAssessments($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) return $this->badRequest('assessment id is required');
+        return $this->handleResponse($this->academicManager->putFormativeAssessments((int) $id, is_array($data) ? $data : []));
+    }
+
+    /**
+     * DELETE /api/academic/formative-assessments/{id} → delete a formative assessment
+     */
+    public function deleteFormativeAssessments($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) return $this->badRequest('assessment id is required');
+        return $this->handleResponse($this->academicManager->deleteFormativeAssessments((int) $id));
+    }
+
+    /**
+     * GET /api/academic/conduct-grades?class=self&term= → conduct ratings for a class
+     */
+    public function getConductGrades($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        return $this->handleResponse($this->academicManager->getConductGrades($staffId, $filters));
+    }
+
+    /**
+     * GET /api/academic/results?year_id=&term_id=&subject_id=&class_id= → result rows
+     */
+    public function getResults($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getResults($filters, $this->getCurrentStaffId()));
+    }
+
+    /**
+     * GET /api/academic/reports?report_type=&year_id=&term_id=&class_id=&subject_id=
+     * Returns { columns, rows, summary } for printable performance/attendance/behavior reports.
+     */
+    public function getReports($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getReports($filters, $this->getCurrentStaffId()));
     }
 
     /**
@@ -2456,37 +2583,9 @@ class AcademicController extends BaseController
      */
     public function getFormativeAssessmentMarks($id = null, $data = [], $segments = [])
     {
-        try {
-            $id = $id ?? (int)($_GET['assessment_id'] ?? 0);
-            if (!$id) return $this->badRequest('assessment_id is required');
-
-            // Get assessment + class info
-            $aStmt = $this->db->query(
-                "SELECT a.id, a.class_id, a.max_marks, a.title,
-                        c.name AS class_name
-                 FROM assessments a
-                 LEFT JOIN classes c ON c.id = a.class_id
-                 WHERE a.id=:id LIMIT 1",
-                [':id' => (int)$id]
-            );
-            $assessment = $aStmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$assessment) return $this->notFound('Assessment not found');
-
-            // Get all active students in the class
-            $sStmt = $this->db->query(
-                "SELECT s.id AS student_id, s.first_name, s.last_name, s.admission_no,
-                        fs.score, fs.max_score, fs.percentage, fs.cbc_grade, fs.remarks
-                 FROM students s
-                 JOIN class_streams cs ON cs.id = s.stream_id AND cs.class_id = :cid
-                 LEFT JOIN formative_scores fs ON fs.student_id = s.id AND fs.assessment_id = :aid
-                 WHERE s.status = 'active'
-                 ORDER BY s.last_name, s.first_name",
-                [':cid' => (int)$assessment['class_id'], ':aid' => (int)$id]
-            );
-            return $this->success($sStmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $assessmentId = $id ?? (int) ($_GET['assessment_id'] ?? 0);
+        if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        return $this->handleResponse($this->academicManager->getFormativeAssessmentMarks((int) $assessmentId));
     }
 
     /**
@@ -2495,111 +2594,73 @@ class AcademicController extends BaseController
      */
     public function postFormativeAssessmentMarks($id = null, $data = [], $segments = [])
     {
-        try {
-            $assessmentId = $id ?? (int)($data['assessment_id'] ?? 0);
-            if (!$assessmentId) return $this->badRequest('assessment_id is required');
-            $id = $assessmentId;
-            // Accept both 'marks' and 'scores' keys for compatibility
-            $scores = $data['marks'] ?? $data['scores'] ?? [];
-            if (empty($scores)) return $this->badRequest('marks array is required');
-
-            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
-
-            // Get max_marks for this assessment
-            $maxStmt = $this->db->query("SELECT max_marks FROM assessments WHERE id=:id LIMIT 1", [':id' => (int)$id]);
-            $asmnt = $maxStmt->fetch(\PDO::FETCH_ASSOC);
-            if (!$asmnt) return $this->notFound('Assessment not found');
-            $maxMarks = (float)$asmnt['max_marks'];
-
-            $this->db->beginTransaction();
-            $ins = $this->db->getConnection()->prepare(
-                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, remarks, entered_by)
-                 VALUES (:aid, :sid, :score, :max, :rmk, :eby)
-                 ON DUPLICATE KEY UPDATE score=:score, max_score=:max, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
-            );
-            foreach ($scores as $entry) {
-                $ins->execute([
-                    ':aid'   => (int)$id,
-                    ':sid'   => (int)$entry['student_id'],
-                    ':score' => min((float)($entry['marks_obtained'] ?? $entry['score'] ?? 0), $maxMarks),
-                    ':max'   => $maxMarks,
-                    ':rmk'   => $entry['remarks'] ?? null,
-                    ':eby'   => $userId,
-                ]);
-            }
-            $this->db->commit();
-            return $this->success(['saved' => count($scores)], 'Marks saved successfully');
-        } catch (\Exception $e) {
-            if ($this->db->inTransaction()) $this->db->rollback();
-            return $this->serverError($e->getMessage());
-        }
+        $assessmentId = $id ?? (int) ($data['assessment_id'] ?? 0);
+        if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $this->handleResponse($this->academicManager->postFormativeAssessmentMarks((int) $assessmentId, is_array($data) ? $data : [], $userId));
     }
 
     /**
-     * GET /api/academic/formative-summary?class_id=&subject_id=&term_id=
-     * Returns per-student per-learning-area formative averages
+     * GET /api/academic/formative-summary?class_id=&subject_id=&term_id=&strand_id=&sub_strand_id=&group_by=
+     *
+     * Returns per-student formative averages grouped by learning area, strand,
+     * or sub-strand. `group_by` accepts 'learning_area' (default), 'strand',
+     * or 'sub_strand'. Passing strand_id/sub_strand_id forces the matching
+     * grouping level so CBC per-strand/sub-strand reporting is supported.
      */
     public function getFormativeSummary($id = null, $data = [], $segments = [])
     {
-        try {
-            $classId   = (int)($_GET['class_id']   ?? 0);
-            $subjectId = (int)($_GET['subject_id']  ?? 0);
-            $termId    = (int)($_GET['term_id']     ?? 0);
-            if (!$classId || !$termId) return $this->success([], 'No filters selected — specify class_id and term_id');
-
-            $stmt = $this->db->query(
-                "SELECT
-                    s.id AS student_id,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.admission_no,
-                    la.id AS learning_area_id,
-                    la.name AS learning_area_name,
-                    COUNT(fs.id) AS assessment_count,
-                    ROUND(AVG(fs.percentage),2) AS formative_avg_pct,
-                    CASE
-                        WHEN AVG(fs.percentage) >= 75 THEN 'EE'
-                        WHEN AVG(fs.percentage) >= 60 THEN 'ME'
-                        WHEN AVG(fs.percentage) >= 40 THEN 'AE'
-                        ELSE 'BE'
-                    END AS formative_grade
-                 FROM students s
-                 JOIN class_streams cs ON cs.id = s.stream_id
-                 JOIN formative_scores fs ON fs.student_id = s.id
-                 JOIN assessments a ON a.id = fs.assessment_id AND a.term_id = :tid
-                 JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_formative = 1
-                 JOIN learning_areas la ON la.id = a.subject_id
-                 WHERE cs.class_id = :cid
-                   AND (:sid1 = 0 OR la.id = :sid2)
-                   AND s.status = 'active'
-                 GROUP BY s.id, la.id
-                 ORDER BY s.last_name, la.name",
-                [':tid' => $termId, ':cid' => $classId, ':sid1' => $subjectId, ':sid2' => $subjectId]
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getFormativeSummary($filters));
     }
 
     // ==================== CBC: ASSESSMENT TYPES ====================
+
+    /**
+     * GET /api/academic/assessment-tools → list all CBC assessment tools
+     */
+    public function getAssessmentTools($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getAssessmentTools());
+    }
+
+    /** POST /api/academic/assessment-tools */
+    public function postAssessmentTools($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        $createdBy = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+        return $this->handleResponse($this->academicManager->postAssessmentTools(is_array($data) ? $data : [], $createdBy));
+    }
+
+    /** PUT /api/academic/assessment-tools/{id} */
+    public function putAssessmentTools($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Assessment tool ID is required');
+        return $this->handleResponse($this->academicManager->putAssessmentTools((int) $id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/assessment-tools/{id} */
+    public function deleteAssessmentTools($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Assessment tool ID is required');
+        return $this->handleResponse($this->academicManager->deleteAssessmentTools((int) $id));
+    }
 
     /**
      * GET /api/academic/assessment-types → list all CBC assessment types
      */
     public function getAssessmentTypes($id = null, $data = [], $segments = [])
     {
-        try {
-            $filter = $_GET['filter'] ?? 'all'; // all | formative | summative | national
-            $where  = ["status='active'"];
-            if ($filter === 'formative')  $where[] = "is_formative=1";
-            if ($filter === 'summative')  $where[] = "is_summative=1";
-            if ($filter === 'national')   $where[] = "name IN ('KNEC Grade 3 Assessment','KPSEA','KJSEA')";
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getAssessmentTypes($filters));
+    }
 
-            $stmt = $this->db->query("SELECT * FROM assessment_types WHERE " . implode(' AND ', $where) . " ORDER BY is_formative DESC, name");
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+    /** GET /api/academic/assessment-classifications */
+    public function getAssessmentClassifications($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getAssessmentClassifications());
     }
 
     /**
@@ -2607,12 +2668,31 @@ class AcademicController extends BaseController
      */
     public function getCoreCompetenciesList($id = null, $data = [], $segments = [])
     {
-        try {
-            $stmt = $this->db->query("SELECT id, code, name, description FROM core_competencies WHERE status='active' ORDER BY sort_order, id");
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getCoreCompetenciesList());
+    }
+
+    /**
+     * GET /api/academic/core-competencies — Router-friendly alias.
+     */
+    public function getCoreCompetencies($id = null, $data = [], $segments = [])
+    {
+        return $this->getCoreCompetenciesList($id, $data, $segments);
+    }
+
+    /**
+     * GET /api/academic/core-values-list — CBC core values from DB
+     */
+    public function getCoreValuesList($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getCoreValuesList());
+    }
+
+    /**
+     * GET /api/academic/core-values — Router-friendly alias.
+     */
+    public function getCoreValues($id = null, $data = [], $segments = [])
+    {
+        return $this->getCoreValuesList($id, $data, $segments);
     }
 
     // ==================== CBC: COMPETENCY RATINGS ====================
@@ -2623,81 +2703,14 @@ class AcademicController extends BaseController
      */
     public function getCompetencyRatings($id = null, $data = [], $segments = [])
     {
-        try {
-            $termId    = (int)($_GET['term_id']    ?? 0);
-            $classId   = (int)($_GET['class_id']   ?? 0);
-            $studentId = (int)($_GET['student_id'] ?? 0);
-            if (!$termId) return $this->badRequest('term_id is required');
-
-            $where  = ['lc.term_id = :tid'];
-            $params = [':tid' => $termId];
-            if ($studentId) { $where[] = 'lc.student_id=:sid'; $params[':sid'] = $studentId; }
-            elseif ($classId) {
-                $where[] = 's.id IN (SELECT st.id FROM students st JOIN class_streams cs2 ON cs2.id=st.stream_id WHERE cs2.class_id=:cid)';
-                $params[':cid'] = $classId;
-            }
-
-            $stmt = $this->db->query(
-                "SELECT lc.*,
-                        cc.code AS competency_code, cc.name AS competency_name,
-                        plc.code AS level_code, plc.name AS level_name,
-                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                        s.admission_no
-                 FROM learner_competencies lc
-                 JOIN core_competencies cc ON cc.id = lc.competency_id
-                 LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
-                 JOIN students s ON s.id = lc.student_id
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY s.last_name, cc.sort_order",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getCompetencyRatings($filters));
     }
 
     public function postCompetencyRatings($id = null, $data = [], $segments = [])
     {
-        try {
-            $ratings = $data['ratings'] ?? []; // [{student_id, competency_id, level_code, evidence, notes}]
-            $termId  = (int)($data['term_id'] ?? 0);
-            $acadYear = $data['academic_year'] ?? date('Y');
-            if (!$termId || empty($ratings)) return $this->badRequest('term_id and ratings are required');
-
-            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
-
-            // Map level_code to performance_level_id
-            $lvlStmt = $this->db->query("SELECT id, code FROM performance_levels_cbc");
-            $lvlMap  = [];
-            foreach ($lvlStmt->fetchAll(\PDO::FETCH_ASSOC) as $lv) $lvlMap[$lv['code']] = $lv['id'];
-
-            $this->db->beginTransaction();
-            $ins = $this->db->getConnection()->prepare(
-                "INSERT INTO learner_competencies
-                    (student_id, competency_id, academic_year, term_id, performance_level_id, evidence, teacher_notes, assessed_by, assessed_date)
-                 VALUES (:sid, :cid, :yr, :tid, :lvl, :ev, :notes, :aby, CURDATE())
-                 ON DUPLICATE KEY UPDATE performance_level_id=:lvl, evidence=:ev, teacher_notes=:notes, assessed_by=:aby, updated_at=NOW()"
-            );
-            foreach ($ratings as $r) {
-                $levelId = $lvlMap[$r['level_code'] ?? ''] ?? null;
-                $ins->execute([
-                    ':sid'   => (int)$r['student_id'],
-                    ':cid'   => (int)$r['competency_id'],
-                    ':yr'    => $acadYear,
-                    ':tid'   => $termId,
-                    ':lvl'   => $levelId,
-                    ':ev'    => $r['evidence']     ?? null,
-                    ':notes' => $r['notes']        ?? null,
-                    ':aby'   => $userId,
-                ]);
-            }
-            $this->db->commit();
-            return $this->success(['saved' => count($ratings)], 'Competency ratings saved');
-        } catch (\Exception $e) {
-            if ($this->db->inTransaction()) $this->db->rollback();
-            return $this->serverError($e->getMessage());
-        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $this->handleResponse($this->academicManager->postCompetencyRatings(is_array($data) ? $data : [], $userId));
     }
 
     // ==================== CBC: NATIONAL EXAMS ====================
@@ -2708,87 +2721,14 @@ class AcademicController extends BaseController
      */
     public function getNationalExams($id = null, $data = [], $segments = [])
     {
-        try {
-            $where  = ['1=1'];
-            $params = [];
-            foreach (['exam_type','exam_year'] as $f) {
-                if (!empty($_GET[$f])) { $where[] = "ne.$f=:$f"; $params[":$f"] = $_GET[$f]; }
-            }
-            if (!empty($_GET['student_id'])) { $where[] = 'ne.student_id=:sid'; $params[':sid'] = (int)$_GET['student_id']; }
-            if (!empty($_GET['class_id'])) {
-                $where[] = 'ne.student_id IN (SELECT s.id FROM students s JOIN class_streams cs ON cs.id=s.stream_id WHERE cs.class_id=:cid)';
-                $params[':cid'] = (int)$_GET['class_id'];
-            }
-
-            $stmt = $this->db->query(
-                "SELECT ne.*,
-                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                        s.admission_no,
-                        la.name AS learning_area_name
-                 FROM national_exam_results ne
-                 JOIN students s ON s.id = ne.student_id
-                 LEFT JOIN learning_areas la ON la.id = ne.learning_area_id
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY s.last_name, ne.learning_area_id",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getNationalExams($filters));
     }
 
     public function postNationalExams($id = null, $data = [], $segments = [])
     {
-        try {
-            $results  = $data['results'] ?? []; // [{student_id, learning_area_id, score, max_score, raw_grade, points, pathway}]
-            $examType = $data['exam_type'] ?? '';
-            $examYear = (int)($data['exam_year'] ?? date('Y'));
-            if (!$examType || empty($results)) return $this->badRequest('exam_type and results are required');
-
-            $validTypes = ['KNEC_G3','KPSEA_G6','KJSEA_G9'];
-            if (!in_array($examType, $validTypes)) return $this->badRequest('Invalid exam_type');
-
-            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
-
-            $this->db->beginTransaction();
-            $ins = $this->db->getConnection()->prepare(
-                "INSERT INTO national_exam_results
-                    (student_id, exam_type, exam_year, learning_area_id, score, max_score, percentage,
-                     cbc_grade, raw_grade, points, pathway, remarks, entered_by, academic_year_id)
-                 VALUES (:sid, :et, :ey, :la, :sc, :mx, :pct, :cg, :rg, :pt, :pw, :rmk, :eby, :ayid)
-                 ON DUPLICATE KEY UPDATE
-                    score=:sc, max_score=:mx, percentage=:pct, cbc_grade=:cg,
-                    raw_grade=:rg, points=:pt, pathway=:pw, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
-            );
-            foreach ($results as $r) {
-                $score   = (float)($r['score']     ?? 0);
-                $max     = (float)($r['max_score'] ?? 100);
-                $pct     = $max > 0 ? round(($score / $max) * 100, 2) : 0;
-                $grade   = $pct >= 75 ? 'EE' : ($pct >= 60 ? 'ME' : ($pct >= 40 ? 'AE' : 'BE'));
-                $ins->execute([
-                    ':sid'  => (int)$r['student_id'],
-                    ':et'   => $examType,
-                    ':ey'   => $examYear,
-                    ':la'   => (int)$r['learning_area_id'],
-                    ':sc'   => $score,
-                    ':mx'   => $max,
-                    ':pct'  => $pct,
-                    ':cg'   => $grade,
-                    ':rg'   => $r['raw_grade']  ?? null,
-                    ':pt'   => !empty($r['points']) ? (float)$r['points'] : null,
-                    ':pw'   => $r['pathway']    ?? null,
-                    ':rmk'  => $r['remarks']    ?? null,
-                    ':eby'  => $userId,
-                    ':ayid' => !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null,
-                ]);
-            }
-            $this->db->commit();
-            return $this->success(['saved' => count($results)], 'National exam results saved');
-        } catch (\Exception $e) {
-            if ($this->db->inTransaction()) $this->db->rollback();
-            return $this->serverError($e->getMessage());
-        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $this->handleResponse($this->academicManager->postNationalExams(is_array($data) ? $data : [], $userId));
     }
 
     // ==================== CBC: STRANDS ====================
@@ -2798,22 +2738,31 @@ class AcademicController extends BaseController
      */
     public function getStrands($id = null, $data = [], $segments = [])
     {
-        try {
-            $laId  = (int)($_GET['learning_area_id'] ?? 0);
-            $where = $laId ? 'WHERE learning_area_id=:la' : '';
-            $stmt  = $this->db->query(
-                "SELECT s.id, s.code, s.name, s.level_range, s.sort_order,
-                        la.id AS learning_area_id, la.name AS learning_area_name
-                 FROM strands s
-                 LEFT JOIN learning_areas la ON la.id = s.learning_area_id
-                 $where
-                 ORDER BY s.sort_order, s.id",
-                $laId ? [':la' => $laId] : []
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getStrands($filters));
+    }
+
+    /** POST /api/academic/strands */
+    public function postStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postStrands(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/strands/{id} */
+    public function putStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Strand ID is required');
+        return $this->handleResponse($this->academicManager->putStrands((int) $id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/strands/{id} */
+    public function deleteStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Strand ID is required');
+        return $this->handleResponse($this->academicManager->deleteStrands((int) $id));
     }
 
     // ==================== CBC: CLASS STUDENTS ====================
@@ -2824,25 +2773,9 @@ class AcademicController extends BaseController
      */
     public function getClassStudents($id = null, $data = [], $segments = [])
     {
-        try {
-            // Accept class_id from the resource id, query string, or request body
-            // so the endpoint works whether callers pass it as ?class_id= or in the JSON body.
-            $classId = (int)($id ?: ($data['class_id'] ?? ($_GET['class_id'] ?? 0)));
-            if (!$classId) return $this->badRequest('class_id is required');
-
-            $stmt = $this->db->query(
-                "SELECT DISTINCT s.id, s.first_name, s.last_name, s.admission_no, s.stream_id
-                 FROM students s
-                 JOIN class_enrollments ce ON ce.student_id = s.id AND ce.class_id = :cid
-                    AND ce.enrollment_status IN ('active','completed')
-                 WHERE s.status = 'active'
-                 ORDER BY s.last_name, s.first_name",
-                [':cid' => $classId]
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $classId = (int) ($id ?: ($data['class_id'] ?? ($_GET['class_id'] ?? 0)));
+        if (!$classId) return $this->badRequest('class_id is required');
+        return $this->handleResponse($this->academicManager->getClassStudents($classId));
     }
 
     // ==================== CBC: COMPUTE TERM SCORES ====================
@@ -2854,146 +2787,7 @@ class AcademicController extends BaseController
      */
     public function postComputeTermScores($id = null, $data = [], $segments = [])
     {
-        try {
-            $classId   = (int)($data['class_id']   ?? 0);
-            $termId    = (int)($data['term_id']     ?? 0);
-            $subjectId = (int)($data['subject_id']  ?? 0);
-            $asmtId    = (int)($data['assessment_id'] ?? 0);
-
-            // If only assessment_id given, derive class/term/subject from it
-            if ($asmtId && (!$classId || !$termId)) {
-                $r = $this->db->query(
-                    "SELECT class_id, term_id, subject_id FROM assessments WHERE id=:id LIMIT 1",
-                    [':id' => $asmtId]
-                )->fetch(\PDO::FETCH_ASSOC);
-                if (!$r) return $this->notFound('Assessment not found');
-                $classId   = $classId   ?: (int)$r['class_id'];
-                $termId    = $termId    ?: (int)$r['term_id'];
-                $subjectId = $subjectId ?: (int)$r['subject_id'];
-            }
-            if (!$classId || !$termId) return $this->badRequest('class_id and term_id are required');
-
-            // Build list of (student_id, subject_id) pairs to compute
-            $where  = ['a.class_id=:cid', 'a.term_id=:tid'];
-            $params = [':cid' => $classId, ':tid' => $termId];
-            if ($subjectId) { $where[] = 'a.subject_id=:sid'; $params[':sid'] = $subjectId; }
-
-            $scoreSourceSql = "
-                SELECT fs.assessment_id, fs.student_id, fs.score, fs.max_score, fs.id AS score_id
-                FROM formative_scores fs
-                UNION ALL
-                SELECT ar.assessment_id, ar.student_id, ar.marks_obtained AS score, a2.max_marks AS max_score, ar.id AS score_id
-                FROM assessment_results ar
-                JOIN assessments a2 ON a2.id = ar.assessment_id
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM formative_scores fs2
-                    WHERE fs2.assessment_id = ar.assessment_id
-                      AND fs2.student_id = ar.student_id
-                )
-            ";
-
-            $rows = $this->db->query(
-                "SELECT DISTINCT scored.student_id, a.subject_id
-                 FROM ({$scoreSourceSql}) scored
-                 JOIN assessments a ON a.id = scored.assessment_id
-                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
-                 WHERE " . implode(' AND ', $where),
-                $params
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            if (empty($rows)) return $this->success(['computed' => 0], 'No scored assessments found for these filters');
-
-            // Aggregate per student per subject
-            $combos = [];
-            foreach ($rows as $r) {
-                $key = $r['student_id'] . '_' . $r['subject_id'];
-                $combos[$key] = ['student_id' => (int)$r['student_id'], 'subject_id' => (int)$r['subject_id']];
-            }
-
-            $upsert = $this->db->getConnection()->prepare(
-                "INSERT INTO term_subject_scores
-                    (student_id, term_id, subject_id,
-                     formative_total, formative_max, formative_percentage, formative_grade, formative_count,
-                     summative_total, summative_max, summative_percentage, summative_grade, summative_count,
-                     overall_score, overall_percentage, overall_grade, overall_points, assessment_count, calculated_at)
-                 VALUES
-                    (:sid, :tid, :subid,
-                     :ft, :fm, :fp, :fg, :fc,
-                     :st, :sm, :sp, :sg, :sc,
-                     :ov, :op, :og, :opts, :ac, NOW())
-	                 ON DUPLICATE KEY UPDATE
-	                     formative_total=VALUES(formative_total),
-	                     formative_max=VALUES(formative_max),
-	                     formative_percentage=VALUES(formative_percentage),
-	                     formative_grade=VALUES(formative_grade),
-	                     formative_count=VALUES(formative_count),
-	                     summative_total=VALUES(summative_total),
-	                     summative_max=VALUES(summative_max),
-	                     summative_percentage=VALUES(summative_percentage),
-	                     summative_grade=VALUES(summative_grade),
-	                     summative_count=VALUES(summative_count),
-	                     overall_score=VALUES(overall_score),
-	                     overall_percentage=VALUES(overall_percentage),
-	                     overall_grade=VALUES(overall_grade),
-	                     overall_points=VALUES(overall_points),
-	                     assessment_count=VALUES(assessment_count),
-	                     calculated_at=NOW()"
-            );
-
-            $computed = 0;
-            foreach ($combos as $combo) {
-                $stu  = $combo['student_id'];
-                $subj = $combo['subject_id'];
-
-                $agg = $this->db->query(
-                    "SELECT
-                        SUM(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN scored.score ELSE 0 END)     AS ft,
-                        SUM(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN scored.max_score ELSE 0 END) AS fm,
-                        COUNT(CASE WHEN COALESCE(at.is_formative, 0)=1 THEN 1 END)                     AS fc,
-                        SUM(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN scored.score ELSE 0 END)     AS st,
-                        SUM(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN scored.max_score ELSE 0 END) AS sm,
-                        COUNT(CASE WHEN COALESCE(at.is_summative, 1)=1 THEN 1 END)                     AS sc,
-                        COUNT(scored.score_id) AS ac
-                     FROM ({$scoreSourceSql}) scored
-                     JOIN assessments a ON a.id = scored.assessment_id
-                        AND a.term_id=:tid AND a.subject_id=:subid
-                     LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
-                     WHERE scored.student_id=:stu",
-                    [':tid' => $termId, ':subid' => $subj, ':stu' => $stu]
-                )->fetch(\PDO::FETCH_ASSOC);
-
-                $ft = (float)($agg['ft'] ?? 0);
-                $fm = (float)($agg['fm'] ?? 0);
-                $fc = (int)  ($agg['fc'] ?? 0);
-                $fp = $fm > 0 ? round(($ft / $fm) * 100, 2) : 0;
-                $fg = $fp >= 75 ? 'EE' : ($fp >= 60 ? 'ME' : ($fp >= 40 ? 'AE' : 'BE'));
-
-                $st = (float)($agg['st'] ?? 0);
-                $sm = (float)($agg['sm'] ?? 0);
-                $sc = (int)  ($agg['sc'] ?? 0);
-                $sp = $sm > 0 ? round(($st / $sm) * 100, 2) : 0;
-                $sg = $sp >= 75 ? 'EE' : ($sp >= 60 ? 'ME' : ($sp >= 40 ? 'AE' : 'BE'));
-
-                // CBC: 40% formative + 60% summative
-                $op = round(($fp * 0.4) + ($sp * 0.6), 2);
-                $og = $op >= 75 ? 'EE' : ($op >= 60 ? 'ME' : ($op >= 40 ? 'AE' : 'BE'));
-                $opts = $og === 'EE' ? 4.0 : ($og === 'ME' ? 3.0 : ($og === 'AE' ? 2.0 : 1.0));
-                $ov = round(($ft + $st), 2);
-
-                $upsert->execute([
-                    ':sid'   => $stu,  ':tid' => $termId, ':subid' => $subj,
-                    ':ft'    => $ft,   ':fm'  => $fm,  ':fp' => $fp,  ':fg' => $fg,  ':fc' => $fc,
-                    ':st'    => $st,   ':sm'  => $sm,  ':sp' => $sp,  ':sg' => $sg,  ':sc' => $sc,
-                    ':ov'    => $ov,   ':op'  => $op,  ':og' => $og,  ':opts' => $opts,
-                    ':ac'    => (int)($agg['ac'] ?? 0),
-                ]);
-                $computed++;
-            }
-            return $this->success(['computed' => $computed], "$computed student-subject scores recomputed");
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->postComputeTermScores(is_array($data) ? $data : []));
     }
 
     // ==================== CBC: REPORT CARD DATA ====================
@@ -3004,86 +2798,10 @@ class AcademicController extends BaseController
      */
     public function getReportCardData($id = null, $data = [], $segments = [])
     {
-        try {
-            $studentId = $id ?? (int)($_GET['student_id'] ?? 0);
-            if (!$studentId) return $this->badRequest('student_id is required');
-            $termId    = (int)($_GET['term_id'] ?? 0);
-
-            // Student info
-            $student = $this->db->query(
-                "SELECT s.id, s.first_name, s.last_name, s.admission_no,
-                        c.name AS class_name, cs.stream_name
-                 FROM students s
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c        ON c.id  = cs.class_id
-                 WHERE s.id=:id LIMIT 1",
-                [':id' => $studentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-            if (!$student) return $this->notFound('Student not found');
-
-            // Term info
-            $termWhere  = $termId ? 'WHERE id=:tid LIMIT 1' : "WHERE status='current' LIMIT 1";
-            $termParams = $termId ? [':tid' => $termId] : [];
-            $term = $this->db->query("SELECT id, name, term_number, year FROM academic_terms $termWhere", $termParams)
-                             ->fetch(\PDO::FETCH_ASSOC);
-            $resolvedTermId = $term ? (int)$term['id'] : $termId;
-
-            // Subject scores
-            $scores = $this->db->query(
-                "SELECT tss.*,
-                        la.name AS subject_name, la.code AS subject_code
-                 FROM term_subject_scores tss
-                 JOIN learning_areas la ON la.id = tss.subject_id
-                 WHERE tss.student_id=:sid AND tss.term_id=:tid
-                 ORDER BY la.name",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Core competency ratings
-            $competencies = $this->db->query(
-                "SELECT lc.competency_id, lc.performance_level_id, lc.evidence, lc.notes,
-                        cc.code, cc.name AS competency_name,
-                        plc.code AS level_code, plc.name AS level_name
-                 FROM learner_competencies lc
-                 JOIN core_competencies cc ON cc.id = lc.competency_id
-                 LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
-                 WHERE lc.student_id=:sid AND lc.term_id=:tid",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Core values
-            $values = $this->db->query(
-                "SELECT sv.value_id, sv.rating, sv.evidence,
-                        cv.name AS value_name
-                 FROM student_core_values sv
-                 JOIN core_values cv ON cv.id = sv.value_id
-                 WHERE sv.student_id=:sid AND sv.term_id=:tid",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Attendance summary
-            $attendance = $this->db->query(
-                "SELECT
-                    COUNT(*) AS total_days,
-                    SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) AS days_present,
-                    SUM(CASE WHEN status='absent'  THEN 1 ELSE 0 END) AS days_absent,
-                    SUM(CASE WHEN status='late'    THEN 1 ELSE 0 END) AS days_late
-                 FROM student_attendance
-                 WHERE student_id=:sid AND term_id=:tid",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            return $this->success([
-                'student'      => $student,
-                'term'         => $term,
-                'scores'       => $scores,
-                'competencies' => $competencies,
-                'values'       => $values,
-                'attendance'   => $attendance,
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $studentId = $id ?? (int) ($_GET['student_id'] ?? 0);
+        if (!$studentId) return $this->badRequest('student_id is required');
+        $termId = (int) ($_GET['term_id'] ?? 0);
+        return $this->handleResponse($this->academicManager->getReportCardData((int) $studentId, $termId));
     }
 
     // ==================== CBC: STUDENT GROWTH ====================
@@ -3094,34 +2812,8 @@ class AcademicController extends BaseController
      */
     public function getStudentAssessmentHistory($id = null, $data = [], $segments = [])
     {
-        try {
-            $studentId = (int)($_GET['student_id'] ?? 0);
-            if (!$studentId) return $this->badRequest('student_id is required');
-
-            $where  = ['fs.student_id=:sid'];
-            $params = [':sid' => $studentId];
-            if (!empty($_GET['term_id']))    { $where[] = 'a.term_id=:tid';    $params[':tid']  = (int)$_GET['term_id']; }
-            if (!empty($_GET['subject_id'])) { $where[] = 'a.subject_id=:sub'; $params[':sub']  = (int)$_GET['subject_id']; }
-
-            $stmt = $this->db->query(
-                "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.max_marks,
-                        fs.score, fs.percentage, fs.cbc_grade,
-                        at.name AS type_name, at.is_formative, at.is_summative,
-                        la.name AS subject_name, la.code AS subject_code,
-                        t.name AS term_name, t.term_number, t.year
-                 FROM formative_scores fs
-                 JOIN assessments a       ON a.id  = fs.assessment_id
-                 JOIN assessment_types at ON at.id = a.assessment_type_id
-                 LEFT JOIN learning_areas la ON la.id = a.subject_id
-                 LEFT JOIN academic_terms t  ON t.id  = a.term_id
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY a.assessment_date ASC, a.id ASC",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getStudentAssessmentHistory($filters));
     }
 
     /**
@@ -3130,31 +2822,8 @@ class AcademicController extends BaseController
      */
     public function getStudentGrowthTrend($id = null, $data = [], $segments = [])
     {
-        try {
-            $studentId = (int)($_GET['student_id']       ?? 0);
-            $laId      = (int)($_GET['learning_area_id'] ?? 0);
-            if (!$studentId) return $this->badRequest('student_id is required');
-
-            $where  = ['tss.student_id=:sid'];
-            $params = [':sid' => $studentId];
-            if ($laId) { $where[] = 'tss.subject_id=:la'; $params[':la'] = $laId; }
-
-            $stmt = $this->db->query(
-                "SELECT t.id AS term_id, t.name AS term_name, t.term_number, t.year,
-                        la.id AS subject_id, la.name AS subject_name,
-                        tss.formative_percentage, tss.summative_percentage,
-                        tss.overall_percentage, tss.overall_grade, tss.overall_points
-                 FROM term_subject_scores tss
-                 JOIN academic_terms t  ON t.id  = tss.term_id
-                 JOIN learning_areas la ON la.id = tss.subject_id
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY t.year ASC, t.term_number ASC, la.name ASC",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $filters = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getStudentGrowthTrend($filters));
     }
 
     // ==================== HELPERS ====================
@@ -3168,166 +2837,10 @@ class AcademicController extends BaseController
     public function getStudentTimeline($id = null, $data = [], $segments = [])
     {
         $studentId = $id ?? ($segments[0] ?? null);
-        if (!$studentId) return $this->error('student_id required');
-
-        try {
-            $db = $this->db;
-
-            // Core student record
-            $student = $db->query(
-                "SELECT s.id, s.admission_no, s.first_name, s.middle_name, s.last_name,
-                        s.date_of_birth, s.gender, s.admission_date, s.status,
-                        s.is_sponsored, s.sponsor_name, s.sponsor_type, s.sponsor_waiver_percentage,
-                        s.photo_url, s.nemis_number,
-                        c.name AS current_class, cs.stream_name AS current_stream,
-                        st.type_name AS student_type
-                 FROM students s
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
-                 LEFT JOIN student_types st ON st.id = s.student_type_id
-                 WHERE s.id = ?",
-                [$studentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$student) return $this->error('Student not found', 404);
-
-            // Academic history per year
-            $academics = $db->query(
-                "SELECT ce.academic_year_id, ay.year_code, ay.year_name,
-                        c.name AS class_name, cs.stream_name,
-                        ce.term1_average, ce.term2_average, ce.term3_average,
-                        ce.year_average, ce.overall_grade, ce.class_rank,
-                        ce.attendance_percentage, ce.days_present, ce.days_absent,
-                        ce.promotion_status,
-                        pc.name AS promoted_to_class,
-                        ce.teacher_comments, ce.head_teacher_comments
-                 FROM class_enrollments ce
-                 JOIN academic_years ay ON ay.id = ce.academic_year_id
-                 JOIN classes c ON c.id = ce.class_id
-                 LEFT JOIN class_streams cs ON cs.id = ce.stream_id
-                 LEFT JOIN classes pc ON pc.id = ce.promoted_to_class_id
-                 WHERE ce.student_id = ?
-                 ORDER BY ay.start_date ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Term-level subject scores per year
-            $subjectScores = $db->query(
-                "SELECT tss.academic_year_id, ay.year_code, t.term_number, t.name AS term_name,
-                        la.name AS subject_name, la.code AS subject_code,
-                        tss.formative_percentage, tss.summative_percentage,
-                        tss.overall_percentage, tss.overall_grade
-                 FROM term_subject_scores tss
-                 JOIN academic_years ay ON ay.id = tss.academic_year_id
-                 JOIN academic_terms t ON t.id = tss.term_id
-                 JOIN learning_areas la ON la.id = tss.subject_id
-                 WHERE tss.student_id = ?
-                 ORDER BY ay.start_date ASC, t.term_number ASC, la.name ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Payment / finance history
-            $payments = $db->query(
-                "SELECT pt.academic_year, at2.term_number, at2.name AS term_name,
-                        pt.amount_paid, pt.payment_date, pt.payment_method,
-                        pt.receipt_no, pt.reference_no, pt.status
-                 FROM payment_transactions pt
-                 LEFT JOIN academic_terms at2 ON at2.id = pt.term_id
-                 WHERE pt.student_id = ?
-                 ORDER BY pt.payment_date ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Outstanding fee balances per year
-            $feeObligations = $db->query(
-                "SELECT o.academic_year, t.term_number, t.name AS term_name,
-                        ft.fee_name,
-                        o.amount_due, o.amount_paid, o.amount_waived, o.balance,
-                        o.payment_status
-                 FROM student_fee_obligations o
-                 JOIN academic_terms t ON t.id = o.term_id
-                 JOIN fee_structure_details fsd ON fsd.id = o.fee_structure_detail_id
-                 JOIN fee_types ft ON ft.id = fsd.fee_type_id
-                 WHERE o.student_id = ?
-                 ORDER BY o.academic_year ASC, t.term_number ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Discipline history
-            $discipline = $db->query(
-                "SELECT dc.incident_date, dc.incident_type, dc.severity,
-                        dc.description, dc.action_taken, dc.status,
-                        ay.year_code AS academic_year,
-                        t.term_number
-                 FROM discipline_cases dc
-                 LEFT JOIN academic_years ay ON ay.id = dc.academic_year_id
-                 LEFT JOIN academic_terms t ON t.id = dc.term_id
-                 WHERE dc.student_id = ?
-                 ORDER BY dc.incident_date ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Attendance summary per term
-            $attendance = $db->query(
-                "SELECT ay.year_code AS academic_year, t.term_number, t.name AS term_name,
-                        COUNT(CASE WHEN sa.status = 'present' THEN 1 END) AS days_present,
-                        COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) AS days_absent,
-                        COUNT(CASE WHEN sa.status = 'late' THEN 1 END) AS days_late,
-                        COUNT(sa.id) AS total_recorded
-                 FROM student_attendance sa
-                 JOIN academic_years ay ON ay.id = sa.academic_year_id
-                 JOIN academic_terms t ON t.id = sa.term_id
-                 WHERE sa.student_id = ?
-                 GROUP BY ay.id, t.id
-                 ORDER BY ay.start_date ASC, t.term_number ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Fee credit notes
-            $creditNotes = $db->query(
-                "SELECT credit_number, academic_year, credit_amount, credit_reason,
-                        status, applied_amount, remaining_amount, created_at
-                 FROM fee_credit_notes
-                 WHERE student_id = ? ORDER BY academic_year ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Transfer history
-            $transfers = $db->query(
-                "SELECT str.request_number, str.request_date, str.transfer_type,
-                        str.destination_school, str.reason, str.status,
-                        str.fee_balance_at_request, str.completed_at
-                 FROM student_transfer_requests str
-                 WHERE str.student_id = ? ORDER BY str.request_date ASC",
-                [$studentId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Summary stats
-            $totalPaid = array_sum(array_column($payments, 'amount_paid'));
-            $totalOwed = array_sum(array_column($feeObligations, 'amount_due'));
-            $totalOutstanding = array_sum(array_column($feeObligations, 'balance'));
-
-            return $this->success([
-                'student'        => $student,
-                'academics'      => $academics,
-                'subject_scores' => $subjectScores,
-                'payments'       => $payments,
-                'fee_obligations' => $feeObligations,
-                'discipline'     => $discipline,
-                'attendance'     => $attendance,
-                'credit_notes'   => $creditNotes,
-                'transfers'      => $transfers,
-                'summary' => [
-                    'years_enrolled'   => count($academics),
-                    'total_fees_billed' => $totalOwed,
-                    'total_fees_paid'  => $totalPaid,
-                    'current_balance'  => $totalOutstanding,
-                    'discipline_cases' => count($discipline),
-                ],
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+        if (!$studentId) {
+            return $this->error('Student id is required.');
         }
+        return $this->handleResponse($this->academicManager->getStudentTimeline((int) $studentId));
     }
 
     /**
@@ -3337,102 +2850,10 @@ class AcademicController extends BaseController
     {
         $staffId = $id ?? ($segments[0] ?? null);
         if (!$staffId && isset($data['staff_id'])) $staffId = $data['staff_id'];
-        if (!$staffId) return $this->error('staff_id required');
-
-        try {
-            $db = $this->db;
-
-            $staff = $db->query(
-                "SELECT s.id, s.staff_no, s.first_name, s.last_name,
-                        u.email AS email,
-                        s.phone, s.gender, s.date_of_birth, s.employment_date, s.status AS employment_status,
-                        s.salary AS basic_salary, s.profile_pic_url AS photo_url,
-                        d.name AS department_name, sc.category_name AS staff_category,
-                        s.position AS position_title
-                 FROM staff s
-                 LEFT JOIN users u ON u.id = s.user_id
-                 LEFT JOIN departments d ON d.id = s.department_id
-                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-                 WHERE s.id = ?",
-                [$staffId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$staff) return $this->error('Staff not found', 404);
-
-            $assignments = $db->query(
-                "SELECT ay.year_code AS academic_year, c.name AS class_name,
-                        cs.stream_name, sca.role, la.name AS subject_name,
-                        sca.status, sca.start_date, sca.end_date
-                 FROM staff_class_assignments sca
-                 JOIN academic_years ay ON ay.id = sca.academic_year_id
-                 JOIN classes c ON c.id = sca.class_id
-                 LEFT JOIN class_streams cs ON cs.id = sca.stream_id
-                 LEFT JOIN learning_areas la ON la.id = sca.subject_id
-                 WHERE sca.staff_id = ?
-                 ORDER BY ay.start_date ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $promotions = $db->query(
-                "SELECT sp.promotion_type, sp.from_position, sp.to_position,
-                        sp.from_salary, sp.to_salary, sp.effective_date, sp.status, sp.reason,
-                        fd.name AS from_department, td.name AS to_department
-                 FROM staff_promotions sp
-                 LEFT JOIN departments fd ON fd.id = sp.from_department_id
-                 LEFT JOIN departments td ON td.id = sp.to_department_id
-                 WHERE sp.staff_id = ? ORDER BY sp.effective_date ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $payrollHistory = $db->query(
-                "SELECT payroll_month, basic_salary, allowances, total_deductions,
-                        paye_tax, nssf_deduction, nhif_deduction, net_salary, status,
-                        payment_date
-                 FROM staff_payroll
-                 WHERE staff_id = ? ORDER BY payroll_month ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $advances = $db->query(
-                "SELECT advance_number, requested_amount, approved_amount,
-                        request_date, deduction_schedule, amount_deducted, balance_remaining, status
-                 FROM staff_salary_advances
-                 WHERE staff_id = ? ORDER BY request_date ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $leaves = $db->query(
-                "SELECT leave_type, start_date, end_date, days_requested, reason, status
-                 FROM staff_leaves WHERE staff_id = ? ORDER BY start_date ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $performance = $db->query(
-                "SELECT review_period, overall_rating, performance_grade, strengths,
-                        areas_for_improvement, recommendations, action_plan, status, review_date
-                 FROM staff_performance_reviews
-                 WHERE staff_id = ? ORDER BY review_date ASC",
-                [$staffId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success([
-                'staff'       => $staff,
-                'assignments' => $assignments,
-                'promotions'  => $promotions,
-                'payroll'     => $payrollHistory,
-                'advances'    => $advances,
-                'leaves'      => $leaves,
-                'performance' => $performance,
-                'summary' => [
-                    'years_of_service'   => count(array_unique(array_column($assignments, 'academic_year'))),
-                    'total_promotions'   => count($promotions),
-                    'leave_days_taken'   => array_sum(array_column($leaves, 'days_requested')),
-                    'active_advance'     => count(array_filter($advances, fn($a) => $a['status'] === 'active')),
-                ],
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+        if (!$staffId) {
+            return $this->error('Staff id is required.');
         }
+        return $this->handleResponse($this->academicManager->getStaffTimeline((int) $staffId));
     }
 
     // ==================== TRANSFER REQUESTS ====================
@@ -3443,130 +2864,17 @@ class AcademicController extends BaseController
      */
     public function getTransferRequests($id = null, $data = [], $segments = [])
     {
-        try {
-            if ($id) {
-                $row = $this->db->query(
-                    "SELECT tr.*, s.first_name, s.last_name, s.admission_no,
-                            c.name AS class_name, u.name AS requested_by_name,
-                            au.name AS approved_by_name
-                     FROM student_transfer_requests tr
-                     JOIN students s ON s.id = tr.student_id
-                     LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                     LEFT JOIN classes c ON c.id = cs.class_id
-                     LEFT JOIN users u ON u.id = tr.requested_by
-                     LEFT JOIN users au ON au.id = tr.approved_by
-                     WHERE tr.id = ?",
-                    [$id]
-                )->fetch(\PDO::FETCH_ASSOC);
-
-                // also get clearances
-                $clearances = $this->db->query(
-                    "SELECT sc.*, u.name AS checked_by_name
-                     FROM student_clearances sc
-                     LEFT JOIN users u ON u.id = sc.checked_by
-                     WHERE sc.transfer_request_id = ?",
-                    [$id]
-                )->fetchAll(\PDO::FETCH_ASSOC);
-
-                return $this->success(['request' => $row, 'clearances' => $clearances]);
-            }
-
-            $rows = $this->db->query(
-                "SELECT tr.id, tr.request_number, tr.request_date, tr.transfer_type,
-                        tr.destination_school, tr.clearance_status, tr.status,
-                        tr.fee_balance_at_request,
-                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                        s.admission_no, c.name AS class_name
-                 FROM student_transfer_requests tr
-                 JOIN students s ON s.id = tr.student_id
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
-                 ORDER BY tr.created_at DESC"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success($rows);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getTransferRequests($id ? (int) $id : null));
     }
 
     public function postTransferRequests($id = null, $data = [], $segments = [])
     {
         $studentId = $data['student_id'] ?? null;
-        if (!$studentId) return $this->error('student_id required');
-
-        try {
-            $db = $this->db;
-
-            // GUARD: Check for outstanding fees before allowing transfer
-            $feeCheck = $db->query(
-                "SELECT COALESCE(SUM(balance),0) AS outstanding
-                 FROM student_fee_obligations
-                 WHERE student_id = ? AND academic_year = YEAR(CURDATE())",
-                [$studentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            $outstanding = (float)($feeCheck['outstanding'] ?? 0);
-
-            // Log the business rule check
-            if ($outstanding > 0) {
-                $db->query(
-                    "INSERT INTO business_rule_violations_log
-                     (rule_code, rule_description, entity_type, entity_id,
-                      triggered_by, action_attempted, violation_data)
-                     VALUES ('TRANS_FEE_BLOCK','Student has outstanding fees — transfer blocked',
-                             'student', ?, ?, 'initiate_transfer',
-                             JSON_OBJECT('outstanding', ?, 'student_id', ?))",
-                    [
-                        $studentId,
-                        $this->user['id'] ?? null,
-                        $outstanding,
-                        $studentId,
-                    ]
-                );
-
-                return $this->error(
-                    "Cannot initiate transfer: student has outstanding fees of KES " .
-                    number_format($outstanding, 2) .
-                    ". Fees must be paid or waived before transfer can proceed.",
-                    422
-                );
-            }
-
-            // Generate request number
-            $reqNumber = 'TRF-' . date('Ymd') . '-' . str_pad(rand(1, 999), 3, '0', STR_PAD_LEFT);
-
-            $db->query(
-                "INSERT INTO student_transfer_requests
-                 (request_number, student_id, academic_year_id, request_date, requested_by,
-                  transfer_type, destination_school, reason, fee_balance_at_request, status)
-                 SELECT ?, ?, ay.id, CURDATE(), ?, ?, ?, ?, ?, 'pending_clearance'
-                 FROM academic_years ay WHERE ay.is_current = 1 LIMIT 1",
-                [
-                    $reqNumber,
-                    $studentId,
-                    $this->user['id'] ?? null,
-                    $data['transfer_type'] ?? 'inter_school',
-                    $data['destination_school'] ?? null,
-                    $data['reason'] ?? null,
-                    $outstanding,
-                ]
-            );
-            $requestId = $db->lastInsertId();
-
-            // Auto-create clearance items
-            foreach (['finance', 'library', 'uniform', 'property', 'academic'] as $type) {
-                $db->query(
-                    "INSERT INTO student_clearances (student_id, transfer_request_id, clearance_type, status)
-                     VALUES (?, ?, ?, 'pending')",
-                    [$studentId, $requestId, $type]
-                );
-            }
-
-            return $this->success(['request_id' => $requestId, 'request_number' => $reqNumber], 201);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+        if (!$studentId) {
+            return $this->error('student_id is required.');
         }
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->postTransferRequests(is_array($data) ? $data : [], $userId));
     }
 
     /**
@@ -3575,77 +2883,11 @@ class AcademicController extends BaseController
      */
     public function putTransferRequests($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('id required');
-        $action = $data['action'] ?? null;
-
-        try {
-            $db = $this->db;
-
-            if ($action === 'update_clearance') {
-                $db->query(
-                    "UPDATE student_clearances SET status = ?, checked_by = ?, checked_at = NOW(),
-                            amount_outstanding = ?, notes = ?
-                     WHERE transfer_request_id = ? AND clearance_type = ?",
-                    [
-                        $data['status'],
-                        $this->user['id'] ?? null,
-                        $data['amount_outstanding'] ?? 0,
-                        $data['notes'] ?? null,
-                        $id,
-                        $data['clearance_type'],
-                    ]
-                );
-
-                // Check if all clearances are done
-                $pending = $db->query(
-                    "SELECT COUNT(*) FROM student_clearances
-                     WHERE transfer_request_id = ? AND status != 'cleared'",
-                    [$id]
-                )->fetchColumn();
-
-                $blocked = $db->query(
-                    "SELECT COUNT(*) FROM student_clearances
-                     WHERE transfer_request_id = ? AND status = 'blocked'",
-                    [$id]
-                )->fetchColumn();
-
-                if ($blocked > 0) {
-                    $db->query("UPDATE student_transfer_requests SET clearance_status = 'blocked' WHERE id = ?", [$id]);
-                } elseif ($pending == 0) {
-                    $db->query(
-                        "UPDATE student_transfer_requests SET clearance_status = 'fully_cleared', status = 'clearance_passed' WHERE id = ?",
-                        [$id]
-                    );
-                }
-
-                return $this->success(['updated' => true]);
-            }
-
-            if ($action === 'approve') {
-                $db->query(
-                    "UPDATE student_transfer_requests SET status = 'approved', approved_by = ?, approval_date = NOW() WHERE id = ?",
-                    [$this->user['id'] ?? null, $id]
-                );
-                // Update student status
-                $req = $db->query("SELECT student_id FROM student_transfer_requests WHERE id = ?", [$id])->fetch();
-                if ($req) {
-                    $db->query("UPDATE students SET status = 'transferred' WHERE id = ?", [$req['student_id']]);
-                }
-                return $this->success(['approved' => true]);
-            }
-
-            if ($action === 'reject') {
-                $db->query(
-                    "UPDATE student_transfer_requests SET status = 'rejected', rejection_reason = ? WHERE id = ?",
-                    [$data['reason'] ?? null, $id]
-                );
-                return $this->success(['rejected' => true]);
-            }
-
-            return $this->error('Unknown action');
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+        if (!$id) {
+            return $this->error('Transfer request id is required.');
         }
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->putTransferRequests((int) $id, is_array($data) ? $data : [], $userId));
     }
 
     // ==================== YEAR-END ROLLOVER ====================
@@ -3654,66 +2896,10 @@ class AcademicController extends BaseController
      * GET /api/academic/year-rollover-status
      * Returns the current state of the rollover checklist.
      */
+    // TODO: Delegate to AcademicYearService
     public function getYearRolloverStatus($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = $this->db;
-
-            $currentYear = $db->query(
-                "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$currentYear) return $this->error('No active academic year');
-
-            // Check each prerequisite
-            $termsStatus = $db->query(
-                "SELECT term_number, name, status FROM academic_terms
-                 WHERE academic_year_id = ? ORDER BY term_number",
-                [$currentYear['id']]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $pendingResults = $db->query(
-                "SELECT COUNT(*) FROM class_enrollments
-                 WHERE academic_year_id = ? AND year_average IS NULL",
-                [$currentYear['id']]
-            )->fetchColumn();
-
-            $pendingPromotions = $db->query(
-                "SELECT COUNT(*) FROM class_enrollments
-                 WHERE academic_year_id = ? AND promotion_status IS NULL",
-                [$currentYear['id']]
-            )->fetchColumn();
-
-            $outstandingFees = $db->query(
-                "SELECT COUNT(DISTINCT student_id) FROM student_fee_obligations
-                 WHERE academic_year = ? AND balance > 0",
-                [$currentYear['year_code']]
-            )->fetchColumn();
-
-            $rolloverLog = $db->query(
-                "SELECT step, status, students_promoted, students_retained, fee_balances_carried,
-                        credit_notes_created, performed_at
-                 FROM academic_year_rollover_log
-                 WHERE from_year_id = ?
-                 ORDER BY performed_at DESC LIMIT 20",
-                [$currentYear['id']]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $allTermsComplete = !array_filter($termsStatus, fn($t) => $t['status'] !== 'completed');
-
-            return $this->success([
-                'current_year'        => $currentYear,
-                'terms'               => $termsStatus,
-                'all_terms_complete'  => $allTermsComplete,
-                'pending_results'     => (int)$pendingResults,
-                'pending_promotions'  => (int)$pendingPromotions,
-                'students_with_fees'  => (int)$outstandingFees,
-                'ready_for_rollover'  => $allTermsComplete && $pendingResults == 0 && $pendingPromotions == 0,
-                'rollover_log'        => $rolloverLog,
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getYearRolloverStatus());
     }
 
     /**
@@ -3721,164 +2907,14 @@ class AcademicController extends BaseController
      * Executes one step of the year-end rollover process.
      * Body: { step: 'fee_carryover' | 'staff_reassignment' | 'create_new_year' | ... }
      */
+    // TODO: Delegate to AcademicYearService
     public function postYearRollover($id = null, $data = [], $segments = [])
     {
-        $step = $data['step'] ?? null;
-        if (!$step) return $this->error('step required');
-
-        try {
-            $db = $this->db;
-            $userId = $this->user['id'] ?? null;
-
-            $currentYear = $db->query(
-                "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$currentYear) return $this->error('No active academic year');
-
-            $rolloverRef = 'ROL-' . date('Ymd');
-            $result = ['step' => $step, 'status' => 'completed'];
-
-            if ($step === 'fee_carryover') {
-                // For each student with outstanding balance, set previous_year_balance on new year obligations
-                // For students with surplus (credit), create fee_credit_notes
-                $students = $db->query(
-                    "SELECT student_id,
-                            SUM(balance) AS outstanding,
-                            SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) AS surplus
-                     FROM student_fee_obligations
-                     WHERE academic_year = ?
-                     GROUP BY student_id",
-                    [$currentYear['year_code']]
-                )->fetchAll(\PDO::FETCH_ASSOC);
-
-                $carried = 0; $credits = 0;
-                foreach ($students as $s) {
-                    if ((float)$s['outstanding'] > 0) {
-                        // Record carryover
-                        $db->query(
-                            "INSERT INTO student_fee_carryover
-                             (student_id, academic_year, previous_balance, action_taken, notes)
-                             VALUES (?, ?, ?, 'add_to_current', 'Year-end carryover')
-                             ON DUPLICATE KEY UPDATE previous_balance = VALUES(previous_balance)",
-                            [$s['student_id'], (int)$currentYear['year_code'] + 1, $s['outstanding']]
-                        );
-                        $carried++;
-                    }
-                    if ((float)$s['surplus'] > 0) {
-                        $creditNum = 'CRD-' . date('Ymd') . '-' . str_pad($credits + 1, 4, '0', STR_PAD_LEFT);
-                        $db->query(
-                            "INSERT INTO fee_credit_notes
-                             (credit_number, student_id, academic_year, credit_amount, credit_reason, expiry_date, created_by)
-                             VALUES (?, ?, ?, ?, 'overpayment', DATE_ADD(CURDATE(), INTERVAL 2 YEAR), ?)",
-                            [$creditNum, $s['student_id'], $currentYear['year_code'], $s['surplus'], $userId]
-                        );
-                        $credits++;
-                    }
-                }
-                $result['fee_balances_carried'] = $carried;
-                $result['credit_notes_created'] = $credits;
-
-            } elseif ($step === 'staff_reassignment') {
-                // Copy active staff_class_assignments to new year (admin adjusts class/stream after)
-                $count = $db->query(
-                    "SELECT COUNT(*) FROM staff_class_assignments WHERE academic_year_id = ? AND status = 'active'",
-                    [$currentYear['id']]
-                )->fetchColumn();
-                $result['staff_to_reassign'] = (int)$count;
-                $result['note'] = 'Use Manage Staff → Class Assignments to confirm new year assignments';
-
-            } elseif ($step === 'create_new_year') {
-                $newYearCode = (int)$currentYear['year_code'] + 1;
-                // Create new academic year
-                $existing = $db->query("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch();
-                if ($existing) {
-                    $result['note'] = "Academic year $newYearCode already exists";
-                    $result['new_year_id'] = $existing['id'];
-                } else {
-                    $db->query(
-                        "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, created_by)
-                         VALUES (?, ?, ?, ?, 'planning', ?)",
-                        [
-                            $newYearCode,
-                            "$newYearCode Academic Year",
-                            "$newYearCode-01-06",
-                            "$newYearCode-11-28",
-                            $userId,
-                        ]
-                    );
-                    $newYearId = $db->lastInsertId();
-
-                    // Create 3 terms
-                    $terms = [
-                        [1, "$newYearCode-01-06", "$newYearCode-04-04"],
-                        [2, "$newYearCode-04-28", "$newYearCode-08-01"],
-                        [3, "$newYearCode-08-25", "$newYearCode-11-28"],
-                    ];
-                    foreach ($terms as [$termNo, $start, $end]) {
-                        $db->query(
-                            "INSERT INTO academic_terms (academic_year_id, name, start_date, end_date, year, term_number, status)
-                             VALUES (?, ?, ?, ?, ?, ?, 'upcoming')",
-                            [$newYearId, "Term $termNo", $start, $end, $newYearCode, $termNo]
-                        );
-                    }
-                    $result['new_year_id'] = $newYearId;
-                    $result['new_year_code'] = $newYearCode;
-                    $result['terms_created'] = 3;
-                }
-
-            } elseif ($step === 'archive_old_year') {
-                $db->query(
-                    "UPDATE academic_years SET status = 'archived', is_current = 0 WHERE id = ?",
-                    [$currentYear['id']]
-                );
-                $db->query(
-                    "INSERT INTO academic_year_archives
-                     (academic_year, status, closure_initiated_by, closure_date)
-                     VALUES (?, 'archived', ?, NOW())
-                     ON DUPLICATE KEY UPDATE status = 'archived', archived_at = NOW()",
-                    [$currentYear['year_code'], $userId]
-                );
-                $result['archived_year'] = $currentYear['year_code'];
-
-            } elseif ($step === 'activate_new_year') {
-                $newYearCode = (int)$currentYear['year_code'] + 1;
-                $newYear = $db->query("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch();
-                if (!$newYear) return $this->error("New year $newYearCode not created yet. Run 'create_new_year' first.");
-
-                $db->query("UPDATE academic_years SET is_current = 0");
-                $db->query(
-                    "UPDATE academic_years SET is_current = 1, status = 'active' WHERE id = ?",
-                    [$newYear['id']]
-                );
-                $db->query(
-                    "UPDATE academic_terms SET status = 'current' WHERE academic_year_id = ? AND term_number = 1",
-                    [$newYear['id']]
-                );
-                $result['activated_year'] = $newYearCode;
-            }
-
-            // Log the rollover step
-            $db->query(
-                "INSERT INTO academic_year_rollover_log
-                 (rollover_id, from_year_id, step, status, fee_balances_carried,
-                  credit_notes_created, staff_reassigned, performed_by)
-                 VALUES (?, ?, ?, 'completed', ?, ?, ?, ?)",
-                [
-                    $rolloverRef,
-                    $currentYear['id'],
-                    $step,
-                    $result['fee_balances_carried'] ?? 0,
-                    $result['credit_notes_created'] ?? 0,
-                    $result['staff_to_reassign'] ?? 0,
-                    $userId,
-                ]
-            );
-
-            return $this->success($result);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
         }
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->postYearRollover(is_array($data) ? $data : [], $userId));
     }
 
     // =========================================================================
@@ -3889,125 +2925,8 @@ class AcademicController extends BaseController
     // =========================================================================
     public function getMyTeachingToday($id = null, $data = [], $segments = [])
     {
-        try {
-            $userId  = $this->user['user_id'] ?? null;
-            $today   = date('Y-m-d');
-            $dayName = date('l'); // Monday … Sunday
-
-            // Resolve current staff record
-            $staff = $this->db->query(
-                "SELECT s.id AS staff_id, s.first_name, s.last_name
-                 FROM staff s WHERE s.user_id = ? LIMIT 1",
-                [$userId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$staff) {
-                return $this->success([
-                    'class_name' => null, 'my_students' => 0,
-                    'my_attendance_rate' => null, 'my_lessons_today' => 0,
-                    'my_pending_plans' => 0, 'today_schedule' => [],
-                ]);
-            }
-
-            $staffId = $staff['staff_id'];
-
-            // Resolve current term
-            $term = $this->db->query(
-                "SELECT t.id, t.name, t.academic_year_id
-                 FROM academic_terms t
-                 JOIN academic_years ay ON ay.id = t.academic_year_id
-                 WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            $termId = $term['id'] ?? null;
-
-            // Class assignment — is the deputy a class teacher for a stream?
-            $classAssign = $this->db->query(
-                "SELECT cs.id AS stream_id, cs.stream_name, c.name AS class_name, c.id AS class_id
-                 FROM class_streams cs
-                 JOIN classes c ON c.id = cs.class_id
-                 JOIN class_teacher_assignments cta ON cta.stream_id = cs.id
-                 WHERE cta.staff_id = ? AND cta.academic_year_id = ?
-                 LIMIT 1",
-                [$staffId, $term['academic_year_id'] ?? 0]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            $streamId = $classAssign['stream_id'] ?? null;
-
-            // Student count in assigned class
-            $myStudents = 0;
-            if ($streamId) {
-                $myStudents = (int)$this->db->query(
-                    "SELECT COUNT(*) FROM class_enrollments
-                     WHERE stream_id = ? AND academic_year_id = ? AND status = 'active'",
-                    [$streamId, $term['academic_year_id'] ?? 0]
-                )->fetchColumn();
-            }
-
-            // Today's attendance for this class
-            $myAttendanceRate = null;
-            $myPresent = 0;
-            $myAbsent  = 0;
-            if ($streamId && $myStudents > 0) {
-                $attRow = $this->db->query(
-                    "SELECT
-                       SUM(sa.status = 'present') AS present_count,
-                       SUM(sa.status = 'absent')  AS absent_count
-                     FROM student_attendance sa
-                     JOIN class_enrollments ce ON ce.student_id = sa.student_id
-                     WHERE ce.stream_id = ? AND ce.academic_year_id = ?
-                       AND sa.date = ? AND sa.register_type = 'class'",
-                    [$streamId, $term['academic_year_id'] ?? 0, $today]
-                )->fetch(\PDO::FETCH_ASSOC);
-
-                $myPresent = (int)($attRow['present_count'] ?? 0);
-                $myAbsent  = (int)($attRow['absent_count'] ?? 0);
-                if ($myStudents > 0) {
-                    $myAttendanceRate = round(($myPresent / $myStudents) * 100);
-                }
-            }
-
-            // Today's teaching schedule (from timetable)
-            $todaySchedule = $this->db->query(
-                "SELECT ts.start_time, ts.end_time, subj.name AS subject, c.name AS class_name
-                 FROM timetable_sessions ts
-                 JOIN subjects subj ON subj.id = ts.subject_id
-                 JOIN classes c ON c.id = ts.class_id
-                 WHERE ts.staff_id = ? AND ts.day_of_week = ? AND ts.term_id = ?
-                 ORDER BY ts.start_time",
-                [$staffId, $dayName, $termId ?? 0]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $schedule = array_map(function ($row) {
-                return [
-                    'time'       => substr($row['start_time'] ?? '', 0, 5) . '–' . substr($row['end_time'] ?? '', 0, 5),
-                    'subject'    => $row['subject'],
-                    'class_name' => $row['class_name'],
-                ];
-            }, $todaySchedule);
-
-            // Pending lesson plans (created, not yet submitted)
-            $pendingPlans = (int)$this->db->query(
-                "SELECT COUNT(*) FROM lesson_plans
-                 WHERE staff_id = ? AND term_id = ?
-                   AND status IN ('draft', 'created')",
-                [$staffId, $termId ?? 0]
-            )->fetchColumn();
-
-            return $this->success([
-                'class_name'         => $classAssign['class_name'] ?? null,
-                'stream_name'        => $classAssign['stream_name'] ?? null,
-                'my_students'        => $myStudents,
-                'my_attendance_rate' => $myAttendanceRate,
-                'my_present'         => $myPresent,
-                'my_absent'          => $myAbsent,
-                'my_lessons_today'   => count($schedule),
-                'my_pending_plans'   => $pendingPlans,
-                'today_schedule'     => $schedule,
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->getMyTeachingToday($userId));
     }
 
     // =========================================================================
@@ -4016,140 +2935,7 @@ class AcademicController extends BaseController
     // =========================================================================
     public function getDeputyAcademicSummary($id = null, $data = [], $segments = [])
     {
-        try {
-            $term = $this->db->query(
-                "SELECT t.id, t.academic_year_id, t.name
-                 FROM academic_terms t WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-            $termId   = $term['id'] ?? 0;
-            $yearId   = $term['academic_year_id'] ?? 0;
-            $today    = date('Y-m-d');
-
-            // Pending admissions
-            $pendingAdm = (int)$this->db->query(
-                "SELECT COUNT(*) FROM student_admissions WHERE status IN ('pending','reviewing')"
-            )->fetchColumn();
-
-            // Lesson plans pending deputy review
-            $lpPending = (int)$this->db->query(
-                "SELECT COUNT(*) FROM lesson_plans WHERE status = 'submitted' AND term_id = ?",
-                [$termId]
-            )->fetchColumn();
-
-            // Exams scheduled this term
-            $examsScheduled = (int)$this->db->query(
-                "SELECT COUNT(*) FROM exam_schedules WHERE term_id = ?", [$termId]
-            )->fetchColumn();
-
-            // Teachers who haven't submitted results yet
-            $gradingPending = (int)$this->db->query(
-                "SELECT COUNT(DISTINCT sa.staff_id)
-                 FROM staff_assignments sa
-                 WHERE sa.term_id = ?
-                   AND NOT EXISTS (
-                     SELECT 1 FROM student_results sr WHERE sr.term_id = ? AND sr.staff_id = sa.staff_id
-                   )",
-                [$termId, $termId]
-            )->fetchColumn();
-
-            // Active timetable sessions
-            $activeTimetables = (int)$this->db->query(
-                "SELECT COUNT(*) FROM timetable_sessions WHERE term_id = ?", [$termId]
-            )->fetchColumn();
-
-            // School attendance today
-            $attRow = $this->db->query(
-                "SELECT SUM(status = 'present') AS p, SUM(status = 'absent') AS a,
-                        COUNT(*) AS total
-                 FROM student_attendance WHERE date = ? AND register_type = 'class'",
-                [$today]
-            )->fetch(\PDO::FETCH_ASSOC);
-            $present = (int)($attRow['p'] ?? 0);
-            $absent  = (int)($attRow['a'] ?? 0);
-            $total   = (int)($attRow['total'] ?? 0);
-            $attPct  = $total > 0 ? round(($present / $total) * 100) : null;
-
-            // Attendance trend (last 7 days)
-            $attTrend = $this->db->query(
-                "SELECT date, ROUND(AVG(status = 'present') * 100) AS pct
-                 FROM student_attendance
-                 WHERE date >= DATE_SUB(?, INTERVAL 7 DAY) AND register_type = 'class'
-                 GROUP BY date ORDER BY date",
-                [$today]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Class performance (avg score per class this term)
-            $classPerf = $this->db->query(
-                "SELECT c.name AS class_name, ROUND(AVG(sr.total_score), 1) AS avg_score
-                 FROM student_results sr
-                 JOIN class_enrollments ce ON ce.student_id = sr.student_id AND ce.academic_year_id = ?
-                 JOIN class_streams cs ON cs.id = ce.stream_id
-                 JOIN classes c ON c.id = cs.class_id
-                 WHERE sr.term_id = ?
-                 GROUP BY c.id ORDER BY c.name LIMIT 12",
-                [$yearId, $termId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Pending admissions table (first 10)
-            $admRows = $this->db->query(
-                "SELECT CONCAT(first_name,' ',last_name) AS name,
-                        requested_class AS class, DATE(created_at) AS date, status
-                 FROM student_admissions WHERE status IN ('pending','reviewing')
-                 ORDER BY created_at DESC LIMIT 10"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Lesson plans pending review table (first 10)
-            $lpRows = $this->db->query(
-                "SELECT lp.id,
-                        CONCAT(s.first_name,' ',s.last_name) AS teacher_name,
-                        c.name AS class_name,
-                        subj.name AS subject,
-                        lp.week_label
-                 FROM lesson_plans lp
-                 JOIN staff s ON s.id = lp.staff_id
-                 LEFT JOIN classes c ON c.id = lp.class_id
-                 LEFT JOIN subjects subj ON subj.id = lp.subject_id
-                 WHERE lp.status = 'submitted' AND lp.term_id = ?
-                 ORDER BY lp.created_at ASC LIMIT 10",
-                [$termId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Upcoming events (next 5)
-            $events = $this->db->query(
-                "SELECT title, DATE(start_date) AS date FROM school_events
-                 WHERE start_date >= CURDATE() ORDER BY start_date LIMIT 5"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success([
-                'cards' => [
-                    'pending_admissions'          => ['count' => $pendingAdm, 'details' => 'Awaiting placement'],
-                    'lesson_plans_pending_review' => $lpPending,
-                    'exams_scheduled'             => $examsScheduled,
-                    'grading_pending'             => $gradingPending,
-                    'active_timetables'           => $activeTimetables,
-                    'school_attendance'           => $attPct,
-                    'present'                     => $present,
-                    'absent'                      => $absent,
-                ],
-                'charts' => [
-                    'attendance_trend' => [
-                        'labels' => array_column($attTrend, 'date'),
-                        'values' => array_column($attTrend, 'pct'),
-                    ],
-                    'class_performance' => [
-                        'labels' => array_column($classPerf, 'class_name'),
-                        'values' => array_column($classPerf, 'avg_score'),
-                    ],
-                ],
-                'tables' => [
-                    'pending_admissions'   => $admRows,
-                    'lesson_plans_pending' => $lpRows,
-                    'upcoming_events'      => $events,
-                ],
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getDeputyAcademicSummary());
     }
 
     // =========================================================================
@@ -4158,137 +2944,7 @@ class AcademicController extends BaseController
     // =========================================================================
     public function getDeputyDisciplineSummary($id = null, $data = [], $segments = [])
     {
-        try {
-            $term = $this->db->query(
-                "SELECT t.id, t.academic_year_id
-                 FROM academic_terms t WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
-            )->fetch(\PDO::FETCH_ASSOC);
-            $termId = $term['id'] ?? 0;
-            $yearId = $term['academic_year_id'] ?? 0;
-            $today  = date('Y-m-d');
-
-            // Open discipline cases
-            $openCases = (int)$this->db->query(
-                "SELECT COUNT(*) FROM discipline_cases WHERE status IN ('open','investigating')"
-            )->fetchColumn();
-
-            // Suspensions this term
-            $suspensions = (int)$this->db->query(
-                "SELECT COUNT(*) FROM discipline_cases
-                 WHERE action_taken LIKE '%suspend%' AND term_id = ?",
-                [$termId]
-            )->fetchColumn();
-
-            // Chronic absenteeism / truancy (students absent > 5 days this term)
-            $truancy = (int)$this->db->query(
-                "SELECT COUNT(DISTINCT student_id) FROM student_attendance
-                 WHERE status = 'absent' AND academic_year_id = ? AND register_type = 'class'
-                 GROUP BY student_id HAVING COUNT(*) > 5",
-                [$yearId]
-            )->fetchColumn();
-
-            // Pending parent meetings
-            $parentMeetings = (int)$this->db->query(
-                "SELECT COUNT(*) FROM parent_meetings WHERE status = 'scheduled' AND meeting_date >= CURDATE()"
-            )->fetchColumn();
-
-            // Open counseling referrals
-            $counselingReferrals = (int)$this->db->query(
-                "SELECT COUNT(*) FROM counseling_sessions WHERE status = 'open'"
-            )->fetchColumn();
-
-            // School attendance today
-            $attRow = $this->db->query(
-                "SELECT SUM(status = 'present') AS p, SUM(status = 'absent') AS a, COUNT(*) AS t
-                 FROM student_attendance WHERE date = ? AND register_type = 'class'",
-                [$today]
-            )->fetch(\PDO::FETCH_ASSOC);
-            $present = (int)($attRow['p'] ?? 0);
-            $absent  = (int)($attRow['a'] ?? 0);
-            $total   = (int)($attRow['t'] ?? 0);
-            $attPct  = $total > 0 ? round(($present / $total) * 100) : null;
-
-            // Discipline trend (cases per week, last 8 weeks)
-            $discTrend = $this->db->query(
-                "SELECT YEARWEEK(created_at, 1) AS yw, COUNT(*) AS cases
-                 FROM discipline_cases
-                 WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK)
-                 GROUP BY yw ORDER BY yw"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Attendance trend (last 7 days)
-            $attTrend = $this->db->query(
-                "SELECT date,
-                        ROUND(AVG(status = 'present') * 100) AS present_pct,
-                        ROUND(AVG(status = 'absent') * 100) AS absent_pct
-                 FROM student_attendance
-                 WHERE date >= DATE_SUB(?, INTERVAL 7 DAY) AND register_type = 'class'
-                 GROUP BY date ORDER BY date",
-                [$today]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Open discipline cases table (first 10)
-            $caseRows = $this->db->query(
-                "SELECT CONCAT(st.first_name,' ',st.last_name) AS student,
-                        c.name AS class, dc.offence AS issue,
-                        DATE(dc.incident_date) AS date, dc.status
-                 FROM discipline_cases dc
-                 JOIN students st ON st.id = dc.student_id
-                 LEFT JOIN class_enrollments ce ON ce.student_id = dc.student_id AND ce.academic_year_id = ?
-                 LEFT JOIN class_streams cs ON cs.id = ce.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
-                 WHERE dc.status IN ('open','investigating')
-                 ORDER BY dc.incident_date DESC LIMIT 10",
-                [$yearId]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Pending parent meetings (next 5)
-            $meetingRows = $this->db->query(
-                "SELECT pm.meeting_date, CONCAT(p.first_name,' ',p.last_name) AS parent_name,
-                        CONCAT(s.first_name,' ',s.last_name) AS student_name, pm.purpose AS reason
-                 FROM parent_meetings pm
-                 JOIN parents p ON p.id = pm.parent_id
-                 JOIN students s ON s.id = pm.student_id
-                 WHERE pm.status = 'scheduled' AND pm.meeting_date >= CURDATE()
-                 ORDER BY pm.meeting_date LIMIT 5"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $events = $this->db->query(
-                "SELECT title, DATE(start_date) AS date FROM school_events
-                 WHERE start_date >= CURDATE() ORDER BY start_date LIMIT 5"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success([
-                'cards' => [
-                    'open_cases'                => $openCases,
-                    'suspensions_this_term'     => $suspensions,
-                    'truancy_cases'             => $truancy,
-                    'parent_meetings_pending'   => $parentMeetings,
-                    'counseling_referrals_open' => $counselingReferrals,
-                    'school_attendance'         => $attPct,
-                    'present'                   => $present,
-                    'absent'                    => $absent,
-                ],
-                'charts' => [
-                    'discipline_trend' => [
-                        'labels' => array_map(fn($r) => 'Wk ' . substr($r['yw'], -2), $discTrend),
-                        'values' => array_column($discTrend, 'cases'),
-                    ],
-                    'attendance_trend' => [
-                        'labels'  => array_column($attTrend, 'date'),
-                        'present' => array_column($attTrend, 'present_pct'),
-                        'absent'  => array_column($attTrend, 'absent_pct'),
-                    ],
-                ],
-                'tables' => [
-                    'discipline_cases' => $caseRows,
-                    'parent_meetings'  => $meetingRows,
-                    'upcoming_events'  => $events,
-                ],
-            ]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->academicManager->getDeputyDisciplineSummary());
     }
 
     // ========================================================================
@@ -4302,9 +2958,7 @@ class AcademicController extends BaseController
                 : ['system administrator','school administrator','headteacher','deputy head - academic'];
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     /** GET /api/academic/class-teachers or /{id} */
@@ -4317,10 +2971,8 @@ class AcademicController extends BaseController
                 return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
             }
             return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
-        } catch (RuntimeException $e) {
-            return $this->unprocessable($e->getMessage());
-        } catch (\Throwable $e) {
-            return $this->serverError('Failed to load class teacher assignments', $e->getMessage());
+        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
+            return $this->serverError('Failed to load class teacher assignments', 'An internal error occurred.');
         }
     }
 
@@ -4332,10 +2984,8 @@ class AcademicController extends BaseController
             $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
             $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
             return $this->created(['id'=>$newId], 'Class teacher assigned');
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
-        } catch (\Throwable $e) {
-            return $this->serverError('Failed to assign class teacher', $e->getMessage());
+        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); } catch (\Throwable $e) {
+            return $this->serverError('Failed to assign class teacher', 'An internal error occurred.');
         }
     }
 
@@ -4349,9 +2999,7 @@ class AcademicController extends BaseController
             $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
             $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
             return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** DELETE /api/academic/class-teachers/{id} */
@@ -4360,7 +3008,7 @@ class AcademicController extends BaseController
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if (!$id) return $this->badRequest('Assignment ID is required');
         $before = $this->teachingAssignments->getClassTeacher((int)$id);
-        $this->teachingAssignments->remove((int)$id);
+        $this->teachingAssignments->removeClassTeacher((int)$id);
         $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
         return $this->success(null, 'Class teacher assignment removed');
     }
@@ -4376,7 +3024,7 @@ class AcademicController extends BaseController
             }
             return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, $data)));
         } catch (\Throwable $e) {
-            return $this->serverError('Failed to load subject assignments', $e->getMessage());
+            return $this->serverError('Failed to load subject assignments', 'An internal error occurred.');
         }
     }
 
@@ -4388,9 +3036,7 @@ class AcademicController extends BaseController
             $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
             $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
             return $this->created(['id'=>$newId],'Subject assignment created');
-        } catch (RuntimeException $e) {
-            return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** PUT /api/academic/subject-assignments/{id} */
@@ -4399,7 +3045,7 @@ class AcademicController extends BaseController
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if(!$id)return $this->badRequest('Assignment ID is required');
         try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
-        catch(RuntimeException $e){return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());}
+        catch (RuntimeException $e) { error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return $this->serverError('An internal error occurred.'); }
     }
 
     /** DELETE /api/academic/subject-assignments/{id} */
@@ -4407,7 +3053,695 @@ class AcademicController extends BaseController
     {
         if ($denied = $this->guardTeachingAssignments()) return $denied;
         if(!$id)return $this->badRequest('Assignment ID is required');
-        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->remove((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
+        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->removeSubjectAssignment((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
     }
 
+    // ========================================================================
+    // STUDENT/PARENT TEACHER DIRECTORY (viewer_staff page)
+    // GET /api/academic/my-teachers           — current student's class/subject teachers
+    // GET /api/academic/parent-class-teachers — children's class teachers
+    // Both are self-scoped: the student id(s) are resolved from the authenticated
+    // user's own profile/parent links — never from client input.
+    // ========================================================================
+
+    /** GET /api/academic/my-teachers */
+    public function getMyTeachers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(['students_view_own', 'students_view', 'academic_view_own', 'academic_view', 'staff_view_own', 'staff_view'])) {
+            return $this->forbidden('Access to my teachers is not available for this account');
+        }
+        try {
+            $studentIds = (new StudentProfileManager())->resolveStudentIds($this->user);
+            if (empty($studentIds)) {
+                return $this->success([], 'No student profile is linked to the current user');
+            }
+            $contacts = [];
+            foreach ($studentIds as $studentId) {
+                $contacts = array_merge($contacts, $this->studentTeacherContacts((int)$studentId));
+            }
+            return $this->success($contacts, 'Teachers retrieved');
+        } catch (\Throwable $e) {
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('Failed to load teachers', 'An internal error occurred.');
+        }
+    }
+
+    /** GET /api/academic/parent-class-teachers */
+    public function getParentClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny(['students_parents_view', 'students_view_own', 'students_view', 'academic_view_own', 'academic_view', 'staff_view_own', 'staff_view'])) {
+            return $this->forbidden('Access to class teacher contacts is not available for this account');
+        }
+        try {
+            $profileManager = new StudentProfileManager();
+            $parentIds = $profileManager->resolveParentIds($this->user);
+            if (empty($parentIds)) {
+                return $this->success([], 'No linked student profiles found for the current user');
+            }
+            $children = (new FamilyGroupsManager())->getChildrenForParentIds($parentIds);
+            $studentIds = ($children['success'] ?? false) ? ($children['data'] ?? []) : [];
+            $contacts = [];
+            foreach ($studentIds as $studentId) {
+                $contacts = array_merge($contacts, $this->studentTeacherContacts((int)$studentId, true));
+            }
+            return $this->success($contacts, 'Class teachers retrieved');
+        } catch (\Throwable $e) {
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('Failed to load class teachers', 'An internal error occurred.');
+        }
+    }
+
+    /**
+     * Build contact rows for one student's current active class: class teacher
+     * (always) plus subject teachers unless $classTeacherOnly. The student id is
+     * resolved from the authenticated user by the callers above.
+     */
+    private function studentTeacherContacts(int $studentId, bool $classTeacherOnly = false): array
+    {
+        $enrollment = $this->db->query(
+            "SELECT aycs.id AS class_stream_id,
+                    aycs.class_teacher_id,
+                    ayc.academic_year_id,
+                    c.name AS class_name, st.name AS stream_name,
+                    CONCAT_WS(' ', sp.first_name, sp.last_name) AS student_name
+               FROM student_academic_enrollments sae
+               JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+               JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+               JOIN classes c ON c.id = ayc.class_id
+               LEFT JOIN streams st ON st.id = aycs.stream_id
+               JOIN students s ON s.id = sae.student_id
+               JOIN persons sp ON sp.id = s.person_id
+              WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+              ORDER BY ayc.academic_year_id DESC
+              LIMIT 1",
+            [$studentId]
+        )->fetch(PDO::FETCH_ASSOC);
+
+        if (!$enrollment || !$enrollment['class_teacher_id']) {
+            return [];
+        }
+
+        $context = trim(($enrollment['student_name'] ?? '') . ' — ' . trim($enrollment['class_name'] . ' ' . $enrollment['stream_name']));
+        $contacts = [];
+
+        $teacherRow = $this->db->query(
+            "SELECT CONCAT_WS(' ', p.first_name, p.last_name) AS name,
+                    p.phone AS phone, p.email AS email
+               FROM staff s
+               JOIN persons p ON p.id = s.person_id
+              WHERE s.id = ?",
+            [(int)$enrollment['class_teacher_id']]
+        )->fetch(PDO::FETCH_ASSOC);
+
+        if ($teacherRow) {
+            $contacts[] = [
+                'name' => $teacherRow['name'],
+                'role' => 'Class Teacher',
+                'phone' => $teacherRow['phone'],
+                'email' => $teacherRow['email'],
+                'icon' => '👩‍🏫',
+                'context' => $context,
+            ];
+        }
+
+        if ($classTeacherOnly) {
+            return $contacts;
+        }
+
+        $subjectRows = $this->db->query(
+            "SELECT v.staff_name AS name, v.subject_name AS subject,
+                    sp.phone AS phone, sp.email AS email
+               FROM vw_staff_assignments_detailed v
+               JOIN staff s ON s.id = v.staff_id
+               JOIN persons sp ON sp.id = s.person_id
+              WHERE v.class_stream_id = ? AND v.academic_year_id = ? AND v.role = 'subject_teacher'
+              GROUP BY v.staff_id, v.subject_name, sp.phone, sp.email
+              ORDER BY v.subject_name",
+            [(int)$enrollment['class_stream_id'], (int)$enrollment['academic_year_id']]
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($subjectRows as $row) {
+            $contacts[] = [
+                'name' => $row['name'],
+                'role' => $row['subject'] . ' Teacher',
+                'phone' => $row['phone'],
+                'email' => $row['email'],
+                'icon' => '👩‍🏫',
+                'context' => $context,
+            ];
+        }
+
+        return $contacts;
+    }
+
+    // ==================== CBC: SUB-STRANDS ====================
+
+    /**
+     * GET /api/academic/sub-strands?strand_id=X
+     * Get sub-strands, optionally filtered by strand_id. If numeric ID in URL, return single.
+     */
+    public function getSubStrands($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getSubStrands($id !== null ? (int)$id : null, $query));
+    }
+
+    /** POST /api/academic/sub-strands */
+    public function postSubStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postSubStrands(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/sub-strands/{id} */
+    public function putSubStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Sub-strand ID is required');
+        return $this->handleResponse($this->academicManager->putSubStrands((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/sub-strands/{id} */
+    public function deleteSubStrands($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Sub-strand ID is required');
+        return $this->handleResponse($this->academicManager->deleteSubStrands((int)$id));
+    }
+
+    /** POST /api/academic/sub-strands/bulk — auto-populate orphaned strands with default sub-strands */
+    public function postSubStrandsBulk($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+
+        // Curriculum records must come from an authoritative syllabus import.
+        // Never fabricate sub-strands from strand names: that creates data which
+        // looks complete but cannot support valid outcomes or assessment mapping.
+        return $this->badRequest(
+            'Bulk sub-strand creation is disabled. Import approved CBC curriculum data instead.'
+        );
+    }
+
+    // ==================== CBC: LEARNING OUTCOMES ====================
+
+    /**
+     * GET /api/academic/learning-outcomes?sub_strand_id=X&strand_id=X&learning_area_id=X
+     */
+    public function getLearningOutcomes($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getLearningOutcomes($id !== null ? (int)$id : null, $query));
+    }
+
+    /** POST /api/academic/learning-outcomes */
+    public function postLearningOutcomes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postLearningOutcomes(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/learning-outcomes/{id} */
+    public function putLearningOutcomes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Learning outcome ID is required');
+        return $this->handleResponse($this->academicManager->putLearningOutcomes((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/learning-outcomes/{id} */
+    public function deleteLearningOutcomes($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Learning outcome ID is required');
+        return $this->handleResponse($this->academicManager->deleteLearningOutcomes((int)$id));
+    }
+
+    // ==================== CBC: ASSESSMENT RUBRICS ====================
+
+    /** GET /api/academic/assessment-rubrics?tool_id=X */
+    public function getAssessmentRubrics($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getAssessmentRubrics($id !== null ? (int)$id : null, $query));
+    }
+
+    /** POST /api/academic/assessment-rubrics */
+    public function postAssessmentRubrics($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postAssessmentRubrics(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/assessment-rubrics/{id} */
+    public function putAssessmentRubrics($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Rubric ID is required');
+        return $this->handleResponse($this->academicManager->putAssessmentRubrics((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/assessment-rubrics/{id} */
+    public function deleteAssessmentRubrics($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Rubric ID is required');
+        return $this->handleResponse($this->academicManager->deleteAssessmentRubrics((int)$id));
+    }
+
+    // ==================== CBC: GRADING SCALE (DB-DRIVEN) ====================
+    // Single source of truth for grade boundaries lives in `grading_scales`
+    // (the scale header) and `grade_rules` (per-band rows: min/max marks,
+    // grade code, points, performance level, description). No thresholds are
+    // hardcoded in the frontend; all pages resolve grades from these rows.
+
+    /** GET /api/academic/grading-scale|/grading-scale/{id} - Fetch a grading scale + its grade rules */
+    public function getGradingScale($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getGradingScale($id !== null ? (int)$id : null, $query));
+    }
+
+    /** POST /api/academic/grading-scale - Create a grading scale */
+    public function postGradingScale($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postGradingScale(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/grading-scale/{id} - Update a grading scale */
+    public function putGradingScale($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Scale ID is required');
+        return $this->handleResponse($this->academicManager->putGradingScale((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** POST /api/academic/grade-rules - Create a grade rule (range → grade) */
+    public function postGradeRules($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postGradeRules(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/grade-rules/{id} - Update a grade rule */
+    public function putGradeRules($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Grade rule ID is required');
+        return $this->handleResponse($this->academicManager->putGradeRules((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/grade-rules/{id} - Delete a grade rule */
+    public function deleteGradeRules($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage', 'assessments_rubric_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Grade rule ID is required');
+        return $this->handleResponse($this->academicManager->deleteGradeRules((int)$id));
+    }
+
+    // ==================== CBC: STRAND-COMPETENCY CROSSWALK ====================
+
+    /** GET /api/academic/strand-competencies?strand_id=X&competency_id=X */
+    public function getStrandCompetencies($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getStrandCompetencies($id !== null ? (int)$id : null, $query));
+    }
+
+    /** POST /api/academic/strand-competencies */
+    public function postStrandCompetencies($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        return $this->handleResponse($this->academicManager->postStrandCompetencies(is_array($data) ? $data : []));
+    }
+
+    /** PUT /api/academic/strand-competencies/{id} */
+    public function putStrandCompetencies($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Mapping ID is required');
+        return $this->handleResponse($this->academicManager->putStrandCompetencies((int)$id, is_array($data) ? $data : []));
+    }
+
+    /** DELETE /api/academic/strand-competencies/{id} */
+    public function deleteStrandCompetencies($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) return $guard;
+        if (!$id) return $this->badRequest('Mapping ID is required');
+        return $this->handleResponse($this->academicManager->deleteStrandCompetencies((int)$id));
+    }
+
+    // ==================== CBC: CURRICULUM TREE ====================
+
+    /**
+     * GET /api/academic/curriculum-tree?learning_area_id=X&strand_id=X
+     * Returns the full CBC curriculum tree: learning areas -> strands -> sub-strands -> learning outcomes
+     */
+    public function getCurriculumTree($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getCurriculumTree($query));
+    }
+
+    // ==================== EXAM MODERATION ====================
+
+    /**
+     * GET /api/academic/pending-moderation?class_id=X&subject_id=X
+     * Returns assessments with results submitted but not yet approved (pending moderation).
+     */
+    public function getPendingModeration($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getPendingModeration($query));
+    }
+
+    /** POST /api/academic/approve-assessment — approve individual assessment results */
+    public function postApproveAssessment($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        try {
+            $assessmentId = (int)($data['assessment_id'] ?? 0);
+            $studentId = isset($data['student_id']) ? (int)$data['student_id'] : null;
+            if (!$assessmentId) return $this->badRequest('assessment_id is required');
+
+            if ($studentId) {
+                return $this->handleResponse($this->academicManager->approveAssessmentResults($assessmentId, $studentId));
+            }
+            $remarks = $data['remarks'] ?? '';
+            $result = $this->api->moderateExamMarks($assessmentId, $remarks, false);
+            return $this->handleResponse($result);
+        } catch (\Exception $e) {
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    /** POST /api/academic/reject-assessment — reject individual result */
+    public function postRejectAssessment($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        try {
+            $assessmentId = (int)($data['assessment_id'] ?? 0);
+            $studentId = (int)($data['student_id'] ?? 0);
+            $reason = $data['reason'] ?? '';
+            if (!$assessmentId || !$studentId) return $this->badRequest('assessment_id and student_id are required');
+
+            return $this->handleResponse($this->academicManager->rejectAssessmentResult($assessmentId, $studentId, $reason));
+        } catch (\Exception $e) {
+            error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
+
+    // ==================== LEGACY CURRICULUM ENDPOINT ====================
+
+    /**
+     * GET /api/academic/curriculum — backward-compatible flat curriculum list
+     * Returns strands + sub-strands in flat format for curriculum_cbc.js.
+     * With a trailing {id}, returns a single flattened entry for edit().
+     */
+    public function getCurriculum($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getCurriculum($query, $id ? (int) $id : null));
+    }
+
+    // ==================== TEACHER PORTAL (my-*/intern-*) ====================
+
+    private function getCurrentStaffId(): ?int
+    {
+        $userId = $this->getUserId();
+        if (!$userId) {
+            return null;
+        }
+        $stmt = $this->getDb()->getConnection()->prepare("SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1");
+        $stmt->execute([(int) $userId]);
+        $staffId = $stmt->fetchColumn();
+        return $staffId ? (int) $staffId : null;
+    }
+
+    /**
+     * GET /api/academic/my-classes — classes + subjects for the logged-in teacher.
+     */
+    public function getMyClasses($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getMyClasses($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/intern-classes — classes a teaching intern is attached to.
+     */
+    public function getInternClasses($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getInternClasses($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/intern-subjects — subjects assigned to a teaching intern.
+     */
+    public function getInternSubjects($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getInternSubjects($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/my-subjects — subjects the teacher teaches (with status).
+     */
+    public function getMySubjects($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getMySubjects($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/my-schemes — schemes of work owned by the teacher.
+     */
+    public function getMySchemes($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getMySchemes($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/subject-schemes — teacher's schemes for one subject.
+     */
+    public function getSubjectSchemes($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getSubjectSchemes($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/syllabus — read-only flat curriculum list.
+     */
+    public function getSyllabus($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getSyllabus($query));
+    }
+
+    /**
+     * GET /api/academic/my-syllabus — syllabus for the teacher's assigned subjects.
+     */
+    public function getMySyllabus($id = null, $data = [], $segments = [])
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->handleResponse(errorResponse('Staff account not found', 404));
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getMySyllabus($staffId, $query));
+    }
+
+    /**
+     * GET /api/academic/year-calendar — current year's calendar days.
+     */
+    public function getYearCalendar($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getYearCalendar());
+    }
+
+    /**
+     * GET /api/academic/calendar/days/{year_id} — calendar day rows for a year
+     * (including gazetted holidays) for the day editor.
+     */
+    public function getCalendarDays($id = null, $data = [], $segments = [])
+    {
+        $yearId = $id ? (int) $id : (int) ($_GET['academic_year_id'] ?? 0);
+        if (!$yearId) {
+            return $this->badRequest('academic_year_id is required');
+        }
+        return $this->handleResponse($this->academicManager->getCalendarDays($yearId));
+    }
+
+    /**
+     * PUT /api/academic/calendar/day/{id} — mark a calendar day as a holiday,
+     * closure or special event (or back to a normal school day).
+     */
+    public function putCalendarDay($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+        return $this->handleResponse($this->academicManager->updateCalendarDay($id, is_array($data) ? $data : []));
+    }
+
+    /**
+     * GET /api/academic/year-history — all academic years with enrolment counts.
+     */
+    public function getYearHistory($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->getYearHistory());
+    }
+
+    /**
+     * GET /api/academic/lesson-plans/by-class — class lesson-plan coverage.
+     * With a trailing {classId} returns per-subject detail for that class.
+     */
+    public function getLessonPlansByClass($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        if ($id) {
+            $query['class_id'] = (int) $id;
+        }
+        return $this->handleResponse($this->academicManager->getLessonPlansByClass($query));
+    }
+
+    /**
+     * POST /api/academic/curriculum — create a flat curriculum entry.
+     */
+    public function postCurriculum($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->createCurriculumEntry(is_array($data) ? $data : []));
+    }
+
+    /**
+     * PUT /api/academic/curriculum/{id} — update a flat curriculum entry.
+     */
+    public function putCurriculum($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->updateCurriculumEntry((int) $id, is_array($data) ? $data : []));
+    }
+
+    /**
+     * DELETE /api/academic/curriculum/{id} — delete a flat curriculum entry.
+     */
+    public function deleteCurriculum($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->deleteCurriculumEntry((int) $id));
+    }
+
+    // ==================== PORTFOLIO MANAGEMENT ====================
+
+    /**
+     * GET /api/academic/portfolio/all/{studentId}
+     * Returns cumulative portfolio data across ALL years for print/PDF.
+     * Response: { student, portfolios[], artifacts[], competencySummary[],
+     *             valuesSummary[], teacherFeedback, yearRange, totalArtifacts }
+     */
+    public function getPortfolioAll($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ? (int)$id : (int)($data['student_id'] ?? $_GET['student_id'] ?? 0);
+        if (!$studentId) return $this->badRequest('Student ID is required');
+        return $this->handleResponse($this->academicManager->getPortfolioAll($studentId));
+    }
+
+    /**
+     * GET /api/academic/portfolio/list — List portfolios for a student or class
+     * Query params: student_id, class_id, stream_id, status
+     */
+    public function getPortfolioList($id = null, $data = [], $segments = [])
+    {
+        $query = array_merge($_GET, is_array($data) ? $data : []);
+        return $this->handleResponse($this->academicManager->getPortfolioList($query));
+    }
+
+    /**
+     * GET /api/academic/portfolio/get/{studentId} — Get portfolio + artifacts for a student
+     */
+    public function getPortfolioGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ? (int)$id : (int)($data['student_id'] ?? $_GET['student_id'] ?? 0);
+        if (!$studentId) return $this->badRequest('student_id is required');
+        return $this->handleResponse($this->academicManager->getPortfolioGet($studentId));
+    }
+
+    /**
+     * POST /api/academic/portfolio/create — Create a portfolio for a student
+     */
+    public function postPortfolioCreate($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->academicManager->postPortfolioCreate(is_array($data) ? $data : []));
+    }
+
+    /**
+     * POST /api/academic/portfolio/artifact-add — Add artifact to portfolio
+     * Optional multipart `file` field stores evidence via MediaManager under
+     * UPLOAD_PATH/students/portfolios/{student_id}/, linked back to the
+     * portfolio_artifacts row via media_files.id.
+     */
+    public function postPortfolioArtifactAdd($id = null, $data = [], $segments = [])
+    {
+        $file = isset($_FILES['file']) ? $_FILES['file'] : null;
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->postPortfolioArtifactAdd(is_array($data) ? $data : [], $file, $userId));
+    }
+
+    /**
+     * PUT /api/academic/portfolio/artifact-update — Update artifact metadata
+     * (JSON body). File replacement is handled separately by
+     * POST /api/academic/portfolio/artifact-file-replace so multipart uploads
+     * keep using the POST path that PHP parses natively.
+     */
+    public function putPortfolioArtifactUpdate($id = null, $data = [], $segments = [])
+    {
+        $payload = is_array($data) ? $data : [];
+        $payload['id'] = $payload['id'] ?? $id ?? 0;
+        return $this->handleResponse($this->academicManager->putPortfolioArtifactUpdate($payload));
+    }
+
+    /**
+     * POST /api/academic/portfolio/artifact-file-replace — Replace an artifact's
+     * evidence file (multipart: id + file). Uploads the new file via MediaManager
+     * under UPLOAD_PATH/students/portfolios/{student_id}/, updates the artifact's
+     * file_path/media_id, then removes the previous media record and file.
+     */
+    public function postPortfolioArtifactFileReplace($id = null, $data = [], $segments = [])
+    {
+        $artifactId = (int)($data['id'] ?? $id ?? 0);
+        if (!$artifactId) return $this->badRequest('artifact id is required');
+        $file = isset($_FILES['file']) ? $_FILES['file'] : null;
+        $userId = $this->getUserId();
+        return $this->handleResponse($this->academicManager->postPortfolioArtifactFileReplace($artifactId, is_array($data) ? $data : [], $file, $userId));
+    }
+
+    /**
+     * DELETE /api/academic/portfolio/artifact-delete/{id} — Delete artifact
+     * Removes the DB row plus its linked media_files record and stored file.
+     */
+    public function deletePortfolioArtifactDelete($id = null, $data = [], $segments = [])
+    {
+        $artifactId = $id ? (int)$id : (int)($data['id'] ?? 0);
+        if (!$artifactId) return $this->badRequest('artifact id is required');
+        return $this->handleResponse($this->academicManager->deletePortfolioArtifactDelete($artifactId));
+    }
 }

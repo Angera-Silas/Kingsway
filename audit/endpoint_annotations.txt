@@ -1,0 +1,1401 @@
+api/controllers/TwoFactorController.php:9: *   POST /api/2fa/status          — Get 2FA status for current user
+api/controllers/TwoFactorController.php:10: *   POST /api/2fa/setup/totp      — Start TOTP setup (returns secret + QR URL)
+api/controllers/TwoFactorController.php:11: *   POST /api/2fa/setup/verify    — Verify first TOTP/OTP code to enable 2FA
+api/controllers/TwoFactorController.php:12: *   POST /api/2fa/setup/email     — Start email OTP setup (sends code)
+api/controllers/TwoFactorController.php:13: *   POST /api/2fa/setup/sms       — Start SMS OTP setup (sends code)
+api/controllers/TwoFactorController.php:14: *   POST /api/2fa/disable         — Disable 2FA (requires password + code)
+api/controllers/TwoFactorController.php:15: *   POST /api/2fa/backup/generate — Generate new backup codes
+api/controllers/TwoFactorController.php:16: *   POST /api/2fa/backup/verify   — Verify a backup code (used during login)
+api/controllers/TwoFactorController.php:17: *   POST /api/2fa/challenge       — Send OTP for login challenge
+api/controllers/TwoFactorController.php:18: *   POST /api/2fa/verify          — Verify OTP during login
+api/controllers/TwoFactorController.php:58:     * POST /api/2fa/status
+api/controllers/TwoFactorController.php:93:     * POST /api/2fa/setup/totp
+api/controllers/TwoFactorController.php:119:     * POST /api/2fa/setup/email
+api/controllers/TwoFactorController.php:143:     * POST /api/2fa/setup/sms
+api/controllers/TwoFactorController.php:180:     * POST /api/2fa/setup/verify
+api/controllers/TwoFactorController.php:229:     * POST /api/2fa/disable
+api/controllers/TwoFactorController.php:271:     * POST /api/2fa/backup/generate
+api/controllers/TwoFactorController.php:298:     * POST /api/2fa/challenge
+api/controllers/TwoFactorController.php:346:     * POST /api/2fa/verify
+api/controllers/DownloadController.php:49:    /** POST /api/download/export */
+api/controllers/InventoryController.php:57:     * GET /api/inventory - List all inventory items
+api/controllers/InventoryController.php:58:     * GET /api/inventory/{id} - Get single inventory item
+api/controllers/InventoryController.php:77:     * POST /api/inventory - Create new inventory item
+api/controllers/InventoryController.php:98:     * PUT /api/inventory/{id} - Update inventory item
+api/controllers/InventoryController.php:119:     * DELETE /api/inventory/{id} - Delete inventory item
+api/controllers/InventoryController.php:139:     * GET /api/inventory/items/list
+api/controllers/InventoryController.php:148:     * GET /api/inventory/items/{id}/with-stock
+api/controllers/InventoryController.php:165:     * GET /api/inventory/items/low-stock
+api/controllers/InventoryController.php:175:     * GET /api/inventory/items/stock-valuation
+api/controllers/InventoryController.php:184:     * GET /api/inventory/items/{id}/history
+api/controllers/InventoryController.php:206:     * GET /api/inventory/categories/list
+api/controllers/InventoryController.php:215:     * GET /api/inventory/categories/{id}/get
+api/controllers/InventoryController.php:232:     * POST /api/inventory/categories/create
+api/controllers/InventoryController.php:244:     * PUT /api/inventory/categories/{id}/update
+api/controllers/InventoryController.php:264:     * DELETE /api/inventory/categories/{id}/delete
+api/controllers/InventoryController.php:288:     * GET /api/inventory/locations/list
+api/controllers/InventoryController.php:297:     * GET /api/inventory/locations/{id}/get
+api/controllers/InventoryController.php:314:     * POST /api/inventory/locations/create
+api/controllers/InventoryController.php:326:     * PUT /api/inventory/locations/{id}/update
+api/controllers/InventoryController.php:346:     * DELETE /api/inventory/locations/{id}/delete
+api/controllers/InventoryController.php:370:     * GET /api/inventory/suppliers/list
+api/controllers/InventoryController.php:379:     * GET /api/inventory/suppliers/{id}/get
+api/controllers/InventoryController.php:396:     * POST /api/inventory/suppliers/create
+api/controllers/InventoryController.php:408:     * PUT /api/inventory/suppliers/{id}/update
+api/controllers/InventoryController.php:428:     * DELETE /api/inventory/suppliers/{id}/delete
+api/controllers/InventoryController.php:452:     * GET /api/inventory/purchase-orders/list
+api/controllers/InventoryController.php:461:     * GET /api/inventory/purchase-orders/{id}/get
+api/controllers/InventoryController.php:478:     * POST /api/inventory/purchase-orders/create
+api/controllers/InventoryController.php:490:     * PUT /api/inventory/purchase-orders/{id}/update
+api/controllers/InventoryController.php:510:     * POST /api/inventory/purchase-orders/{id}/receive
+api/controllers/InventoryController.php:534:     * GET /api/inventory/requisitions/list
+api/controllers/InventoryController.php:543:     * GET /api/inventory/requisitions/{id}/get
+api/controllers/InventoryController.php:560:     * POST /api/inventory/requisitions/create
+api/controllers/InventoryController.php:572:     * PUT /api/inventory/requisitions/{id}/update-status
+api/controllers/InventoryController.php:599:     * DELETE /api/inventory/requisitions/{id}/delete
+api/controllers/InventoryController.php:623:     * GET /api/inventory/movements/list
+api/controllers/InventoryController.php:632:     * GET /api/inventory/movements/summary
+api/controllers/InventoryController.php:641:     * POST /api/inventory/movements/adjust-stock
+api/controllers/InventoryController.php:653:     * POST /api/inventory/movements/record
+api/controllers/InventoryController.php:669:     * POST /api/inventory/procurement/initiate
+api/controllers/InventoryController.php:681:     * POST /api/inventory/procurement/{id}/verify-budget
+api/controllers/InventoryController.php:701:     * POST /api/inventory/procurement/{id}/request-quotations
+api/controllers/InventoryController.php:721:     * POST /api/inventory/procurement/{id}/evaluate-quotations
+api/controllers/InventoryController.php:741:     * POST /api/inventory/procurement/{id}/approve
+api/controllers/InventoryController.php:761:     * POST /api/inventory/procurement/{id}/create-po
+api/controllers/InventoryController.php:785:     * POST /api/inventory/disposal/initiate
+api/controllers/InventoryController.php:797:     * POST /api/inventory/disposal/{id}/assess-condition
+api/controllers/InventoryController.php:817:     * POST /api/inventory/disposal/{id}/perform-valuation
+api/controllers/InventoryController.php:837:     * POST /api/inventory/disposal/{id}/select-method
+api/controllers/InventoryController.php:857:     * POST /api/inventory/disposal/{id}/approve
+api/controllers/InventoryController.php:877:     * POST /api/inventory/disposal/{id}/execute
+api/controllers/InventoryController.php:901:     * POST /api/inventory/transfer/initiate
+api/controllers/InventoryController.php:913:     * POST /api/inventory/transfer/{id}/approve
+api/controllers/InventoryController.php:933:     * POST /api/inventory/transfer/{id}/pick-stock
+api/controllers/InventoryController.php:953:     * POST /api/inventory/transfer/{id}/quality-check
+api/controllers/InventoryController.php:973:     * POST /api/inventory/transfer/{id}/dispatch
+api/controllers/InventoryController.php:993:     * POST /api/inventory/transfer/{id}/receive
+api/controllers/InventoryController.php:1013:     * POST /api/inventory/transfer/{id}/inspect
+api/controllers/InventoryController.php:1037:     * POST /api/inventory/audit/initiate
+api/controllers/InventoryController.php:1049:     * POST /api/inventory/audit/{id}/schedule
+api/controllers/InventoryController.php:1069:     * POST /api/inventory/audit/{id}/prepare-count
+api/controllers/InventoryController.php:1089:     * POST /api/inventory/audit/{id}/perform-count
+api/controllers/InventoryController.php:1109:     * POST /api/inventory/audit/{id}/verify-count
+api/controllers/InventoryController.php:1129:     * POST /api/inventory/audit/{id}/analyze-variances
+api/controllers/InventoryController.php:1149:     * POST /api/inventory/audit/{id}/approve-adjustments
+api/controllers/InventoryController.php:1169:     * POST /api/inventory/audit/{id}/post-adjustments
+api/controllers/InventoryController.php:1193:     * GET /api/inventory/dashboard
+api/controllers/InventoryController.php:1202:     * GET /api/inventory/workflow/{id}/get
+api/controllers/InventoryController.php:1319:     * GET /api/inventory/uniforms - List all uniform items
+api/controllers/InventoryController.php:1329:     * GET /api/inventory/uniforms/{id}/sizes - Get size variants for uniform item
+api/controllers/InventoryController.php:1343:     * POST /api/inventory/uniforms/sales - Register a uniform sale
+api/controllers/InventoryController.php:1363:     * GET /api/inventory/uniforms/sales/{student_id} - Get student uniform sales history
+api/controllers/InventoryController.php:1377:     * PUT /api/inventory/uniforms/sales/{id}/payment - Update payment status
+api/controllers/InventoryController.php:1396:     * GET /api/inventory/uniforms/dashboard - Uniform sales dashboard metrics
+api/controllers/InventoryController.php:1406:     * GET /api/inventory/uniforms/payments/summary - Payment status summary
+api/controllers/InventoryController.php:1416:     * PUT /api/inventory/uniforms/students/{id}/profile - Update student uniform profile
+api/controllers/InventoryController.php:1433:     * GET /api/inventory/uniforms/students/{id}/profile - Get student uniform profile
+api/controllers/InventoryController.php:1447:     * GET /api/inventory/uniform-sales-list - List all uniform sales with filters
+api/controllers/InventoryController.php:1457:     * POST /api/inventory/uniform-restock - Restock a uniform size
+api/controllers/InventoryController.php:1470:     * GET /api/inventory/uniform-low-stock - Get low stock uniform items
+api/controllers/InventoryController.php:1480:     * GET /api/inventory/uniform-sales-report - Get uniform sales report
+api/controllers/InventoryController.php:1490:     * DELETE /api/inventory/uniform-sales/{id} - Delete a uniform sale
+api/controllers/InventoryController.php:1545:     * POST /api/inventory/uniform-sales-record-payment/{id}
+api/controllers/InventoryController.php:1558:    /** POST /api/inventory/uniform-payment-intents */
+api/controllers/InventoryController.php:1574:    /** GET /api/inventory/uniform-payment-intents/{id} */
+api/controllers/InventoryController.php:1581:    /** GET /api/inventory/uniform-catalog */
+api/controllers/InventoryController.php:1588:    /** POST /api/inventory/uniform-catalog-products */
+api/controllers/InventoryController.php:1596:    /** POST /api/inventory/uniform-catalog-images */
+api/controllers/InventoryController.php:1605:    /** POST /api/inventory/uniform-catalog-purchases — authorised staff sale */
+api/controllers/InventoryController.php:1614:    /** POST /api/inventory/uniform-payment-intent-confirm/{id} */
+api/controllers/InventoryController.php:1629:     * GET /api/inventory/uniform-sales-student-invoice/{id}
+api/controllers/InventoryController.php:1639:     * GET /api/inventory/uniform-sales-summary
+api/controllers/InventoryController.php:1664:    /** GET /api/inventory/assets — list fixed assets */
+api/controllers/InventoryController.php:1670:    /** POST /api/inventory/assets — register a new fixed asset */
+api/controllers/InventoryController.php:1682:    /** PUT /api/inventory/assets/{id} — update asset or record disposal */
+api/controllers/InventoryController.php:1692:    /** GET /api/inventory/asset-categories — list asset categories */
+api/controllers/InventoryController.php:1698:    /** GET /api/inventory/depreciation — depreciation schedule for assets */
+api/controllers/UsersController.php:39:     * GET /api/users/all - List all users
+api/controllers/UsersController.php:40:     * GET /api/users/{id} - Get single user
+api/controllers/UsersController.php:62:     * POST /api/users - Create new user
+api/controllers/UsersController.php:83:     * POST /api/users/bulk-create - Create multiple users
+api/controllers/UsersController.php:92:     * PUT /api/users/{id} - Update user
+api/controllers/UsersController.php:113:     * DELETE /api/users/{id} - Delete user
+api/controllers/UsersController.php:154:     * GET /api/users/profile/get
+api/controllers/UsersController.php:164:     * POST /api/users/login
+api/controllers/UsersController.php:173:     * PUT /api/users/password/change
+api/controllers/UsersController.php:183:     * POST /api/users/password/reset
+api/controllers/UsersController.php:196:     * GET /api/users/roles/get
+api/controllers/UsersController.php:205:     * GET /api/users/permissions/get
+api/controllers/UsersController.php:214:     * PUT /api/users/{id}/permissions/update
+api/controllers/UsersController.php:227:     * POST /api/users/{id}/role/assign
+api/controllers/UsersController.php:240:     * POST /api/users/{id}/permission/assign
+api/controllers/UsersController.php:253:     * GET /api/users/{id}/role/main
+api/controllers/UsersController.php:266:     * GET /api/users/{id}/role/extra
+api/controllers/UsersController.php:283:     * GET /api/users/{id}/permissions/effective - Get effective permissions (role + direct)
+api/controllers/UsersController.php:296:     * GET /api/users/{id}/permissions/direct - Get direct user permissions only
+api/controllers/UsersController.php:309:     * GET /api/users/{id}/permissions/denied - Get denied permissions
+api/controllers/UsersController.php:322:     * GET /api/users/{id}/permissions/by-entity - Get permissions organized by entity
+api/controllers/UsersController.php:335:     * GET /api/users/{id}/permissions/summary - Get permission summary stats
+api/controllers/UsersController.php:348:     * POST /api/users/{id}/permissions/check - Check if user has specific permission
+api/controllers/UsersController.php:365:     * POST /api/users/{id}/permissions/check-multiple - Check multiple permissions
+api/controllers/UsersController.php:382:     * GET /api/users/{id}/roles/detailed - Get roles with permission counts
+api/controllers/UsersController.php:395:     * GET /api/users/with-permission/{permission_code} - Get all users with specific permission
+api/controllers/UsersController.php:409:     * GET /api/users/with-role/{role_name} - Get all users with specific role
+api/controllers/UsersController.php:423:     * GET /api/users/with-multiple-roles - Get users with more than one role
+api/controllers/UsersController.php:432:     * GET /api/users/with-temporary-permissions - Get users with temporary permissions expiring soon
+api/controllers/UsersController.php:445:     * GET /api/users/sidebar/items
+api/controllers/AlertsController.php:18:     * GET /api/alerts - Return active system alerts
+api/controllers/PublicController.php:17: *   POST /api/public/job-applications
+api/controllers/PublicController.php:18: *   POST /api/public/inquiries
+api/controllers/PublicController.php:19: *   POST /api/public/applications
+api/controllers/PublicController.php:20: *   POST /api/public/subscribers
+api/controllers/PublicController.php:151:    /** GET /api/public/uniform-catalog */
+api/controllers/StudentsController.php:159:     * GET /api/students
+api/controllers/StudentsController.php:167:     * GET /api/students/context-list?context=academic
+api/controllers/StudentsController.php:189:     * GET /api/students/context-profile/{id}?context=welfare
+api/controllers/StudentsController.php:217:     * GET /api/students/context-meta?context=boarding
+api/controllers/StudentsController.php:311:     * POST /api/students/bulk-create
+api/controllers/StudentsController.php:328:     * POST /api/students/bulk-update
+api/controllers/StudentsController.php:345:     * POST /api/students/bulk-delete
+api/controllers/StudentsController.php:358:     * POST /api/students/bulk-promote
+api/controllers/StudentsController.php:371:     * POST /api/students/photo-upload
+api/controllers/StudentsController.php:396:     * POST /api/students/qr-code-generate
+api/controllers/StudentsController.php:416:     * POST /api/students/qr-code-generate-enhanced
+api/controllers/StudentsController.php:436:     * POST /api/students/id-card-generate-legacy
+api/controllers/StudentsController.php:457:     * POST /api/students/id-card-generate-class
+api/controllers/StudentsController.php:479:     * GET /api/students/id-card-get/{id}
+api/controllers/StudentsController.php:500:     * GET /api/students/id-card-statistics-get
+api/controllers/StudentsController.php:520:     * GET /api/students/id-card-meta
+api/controllers/StudentsController.php:538:     * GET /api/students/id-cards
+api/controllers/StudentsController.php:557:     * GET /api/students/id-card-details/{studentId}
+api/controllers/StudentsController.php:584:     * POST /api/students/id-card-mark-printed/{cardId}
+api/controllers/StudentsController.php:607:     * POST /api/students/id-card-mark-lost/{cardId}
+api/controllers/StudentsController.php:631:     * POST /api/students/id-cards/print
+api/controllers/StudentsController.php:675:     * POST /api/students/id-card/generate
+api/controllers/StudentsController.php:684:     * POST /api/students/id-card/generate-bulk
+api/controllers/StudentsController.php:721:     * POST /api/students/id-card/generate-bulk-pdf
+api/controllers/StudentsController.php:748:     * POST /api/students/id-card/print-single
+api/controllers/StudentsController.php:777:     * POST /api/students/id-card/{cardId}/generate-qr
+api/controllers/StudentsController.php:800:     * POST /api/students/id-card-mark-issued/{cardId}
+api/controllers/StudentsController.php:823:     * POST /api/students/id-card-renew/{cardId}
+api/controllers/StudentsController.php:846:     * POST /api/students/id-card-replace/{cardId}
+api/controllers/StudentsController.php:870:     * POST /api/students/id-card/{cardId}/revoke
+api/controllers/StudentsController.php:894:     * GET /api/students/id-card-history/{studentId}
+api/controllers/StudentsController.php:917:     * GET /api/students/id-card/verify/{cardNumber}
+api/controllers/StudentsController.php:942:     * POST /api/students/transfer/start-workflow
+api/controllers/StudentsController.php:950:     * POST /api/students/transfer/verify-eligibility
+api/controllers/StudentsController.php:964:     * POST /api/students/transfer/approve
+api/controllers/StudentsController.php:978:     * POST /api/students/transfer/execute
+api/controllers/StudentsController.php:992:     * GET /api/students/transfer/workflow-status
+api/controllers/StudentsController.php:1012:     * GET /api/students/transfer/history/{id}
+api/controllers/StudentsController.php:1036:     * POST /api/students/promotion/single
+api/controllers/StudentsController.php:1044:     * POST /api/students/promotion/multiple
+api/controllers/StudentsController.php:1058:     * POST /api/students/promotion/entire-class
+api/controllers/StudentsController.php:1072:     * POST /api/students/promotion/multiple-classes
+api/controllers/StudentsController.php:1086:     * POST /api/students/promotion/graduate-grade9
+api/controllers/StudentsController.php:1100:     * GET /api/students/promotion/batches
+api/controllers/StudentsController.php:1114:     * GET /api/students/promotion/history/{id}
+api/controllers/StudentsController.php:1134:     * GET /api/students/enrollment-history/{id}
+api/controllers/StudentsController.php:1153:     * GET /api/students/by-class-get/{id}
+api/controllers/StudentsController.php:1171:     * GET /api/students/by-stream-get/{id}
+api/controllers/StudentsController.php:1189:     * GET /api/students/roster-get/{classId}?stream_id={streamId}&year_id={yearId}
+api/controllers/StudentsController.php:1215:     * GET /api/students/academic-year-current
+api/controllers/StudentsController.php:1228:     * GET /api/students/academic-year-get/{id}
+api/controllers/StudentsController.php:1248:     * GET /api/students/academic-year-all
+api/controllers/StudentsController.php:1261:     * POST /api/students/academic-year-create
+api/controllers/StudentsController.php:1278:     * POST /api/students/academic-year-create-next
+api/controllers/StudentsController.php:1296:     * POST /api/students/academic-year-set-current
+api/controllers/StudentsController.php:1314:     * PUT /api/students/academic-year-update-status
+api/controllers/StudentsController.php:1333:     * POST /api/students/academic-year-archive
+api/controllers/StudentsController.php:1357:     * GET /api/students/academic-year-terms
+api/controllers/StudentsController.php:1375:     * GET /api/students/academic-year-current-term
+api/controllers/StudentsController.php:1388:     * GET /api/students/alumni-get
+api/controllers/StudentsController.php:1401:     * POST /api/students/alumni-update
+api/controllers/StudentsController.php:1414:     * POST /api/students/alumni-delete
+api/controllers/StudentsController.php:1427:     * GET /api/students/enrollment-current
+api/controllers/StudentsController.php:1445:     * GET /api/students/parents/get/{id}
+api/controllers/StudentsController.php:1453:     * GET /api/students/parents/list
+api/controllers/StudentsController.php:1468:     * GET /api/students/parents/children
+api/controllers/StudentsController.php:1491:     * POST /api/students/parents/add
+api/controllers/StudentsController.php:1505:     * POST /api/students/parents/create
+api/controllers/StudentsController.php:1520:     * POST /api/students/parents/update
+api/controllers/StudentsController.php:1540:     * PUT /api/students/parents/update/{id}
+api/controllers/StudentsController.php:1560:     * POST /api/students/parents/remove
+api/controllers/StudentsController.php:1574:     * POST /api/students/parents/delete
+api/controllers/StudentsController.php:1594:     * POST /api/students/parents/link-child
+api/controllers/StudentsController.php:1619:     * POST /api/students/parents/unlink-child
+api/controllers/StudentsController.php:1641:     * GET /api/students/parents/available-students
+api/controllers/StudentsController.php:1657:     * GET /api/students/without-parents
+api/controllers/StudentsController.php:1675:     * GET /api/students/profile-get/{id}
+api/controllers/StudentsController.php:1692:     * GET /api/students/attendance-get/{id}
+api/controllers/StudentsController.php:1709:     * GET /api/students/performance-get/{id}
+api/controllers/StudentsController.php:1726:     * GET /api/students/fees-get/{id}
+api/controllers/StudentsController.php:1743:     * GET /api/students/qr-info-get/{id}
+api/controllers/StudentsController.php:1760:     * GET /api/students/statistics-get
+api/controllers/StudentsController.php:1772:     * GET /api/students/my-profile
+api/controllers/StudentsController.php:1787:     * GET /api/students/my-children
+api/controllers/StudentsController.php:1823:     * GET /api/students/discipline-get
+api/controllers/StudentsController.php:1840:     * POST /api/students/discipline-record
+api/controllers/StudentsController.php:1860:     * PUT /api/students/discipline-update/{id}
+api/controllers/StudentsController.php:1880:     * POST /api/students/discipline-resolve
+api/controllers/StudentsController.php:1904:     * GET /api/students/medical/get/{id}
+api/controllers/StudentsController.php:2087:     * GET /api/students/special-needs
+api/controllers/StudentsController.php:2101:     * GET /api/students/performance-meta
+api/controllers/StudentsController.php:2124:     * GET /api/students/performance-overview
+api/controllers/StudentsController.php:2151:     * GET /api/students/performance-full/{studentId}
+api/controllers/StudentsController.php:2201:     * GET /api/students/discipline-meta
+api/controllers/StudentsController.php:2218:     * GET /api/students/discipline-cases
+api/controllers/StudentsController.php:2235:     * GET /api/students/discipline-case/{caseId}
+api/controllers/StudentsController.php:2262:     * PUT /api/students/discipline-case/{caseId}
+api/controllers/StudentsController.php:2289:     * GET /api/students/special-needs-meta
+api/controllers/StudentsController.php:2306:     * GET /api/students/special-needs
+api/controllers/StudentsController.php:2324:     * GET /api/students/special-needs-ieps/{iepId}
+api/controllers/StudentsController.php:2355:     * GET /api/students/family-groups-meta-v2
+api/controllers/StudentsController.php:2364:     * GET /api/students/family-groups-v2
+api/controllers/StudentsController.php:2373:     * GET /api/students/family-group/{parentId}
+api/controllers/StudentsController.php:2382:     * POST /api/students/family-group/{parentId}/link-student
+api/controllers/StudentsController.php:2395:     * GET /api/students/promotion-meta-v2
+api/controllers/StudentsController.php:2404:     * GET /api/students/promotion-candidates-v2
+api/controllers/StudentsController.php:2413:     * POST /api/students/promotion-execute-v2
+api/controllers/StudentsController.php:2426:     * GET /api/students/counseling-meta
+api/controllers/StudentsController.php:2443:     * GET /api/students/counseling-cases
+api/controllers/StudentsController.php:2461:     * GET /api/students/counseling-case/{caseId}
+api/controllers/StudentsController.php:2482:     * GET /api/students/health-meta
+api/controllers/StudentsController.php:2494:     * GET /api/students/health-records
+api/controllers/StudentsController.php:2507:     * GET /api/students/health-record/{recordId}
+api/controllers/StudentsController.php:2528:     * GET /api/students/catering-boarding-meta
+api/controllers/StudentsController.php:2545:     * GET /api/students/catering-boarding-students
+api/controllers/StudentsController.php:2563:     * GET /api/students/catering-boarding-summary
+api/controllers/StudentsController.php:2581:     * GET /api/students/catering-boarding-student/{studentId}
+api/controllers/StudentsController.php:2603:     * POST /api/students/catering-menu-plan
+api/controllers/StudentsController.php:2621:     * GET /api/students/catering-food-requisition
+api/controllers/StudentsController.php:2642:     * GET /api/students/boarding-meta
+api/controllers/StudentsController.php:2659:     * GET /api/students/boarding-students
+api/controllers/StudentsController.php:2677:     * GET /api/students/boarding-summary
+api/controllers/StudentsController.php:2694:     * GET /api/students/boarding-student/{studentId}
+api/controllers/StudentsController.php:2716:     * POST /api/students/boarding-assign-dorm
+api/controllers/StudentsController.php:2738:     * GET /api/students/transport-meta
+api/controllers/StudentsController.php:2755:     * GET /api/students/transport-passengers
+api/controllers/StudentsController.php:2773:     * GET /api/students/transport-summary
+api/controllers/StudentsController.php:2791:     * GET /api/students/transport-passenger/{studentId}
+api/controllers/StudentsController.php:2813:     * POST /api/students/transport-attendance
+api/controllers/StudentsController.php:2831:     * POST /api/students/transport-incident
+api/controllers/StudentsController.php:2853:     * GET /api/students/welfare-meta
+api/controllers/StudentsController.php:2870:     * GET /api/students/welfare-cases
+api/controllers/StudentsController.php:2888:     * GET /api/students/welfare-case/{caseId}
+api/controllers/StudentsController.php:2910:     * POST /api/students/welfare-case
+api/controllers/StudentsController.php:2928:     * POST /api/students/welfare-case/{caseId}/note
+api/controllers/StudentsController.php:2951:     * POST /api/students/welfare-case/{caseId}/follow-up
+api/controllers/StudentsController.php:2974:     * POST /api/students/welfare-case/{caseId}/resolve
+api/controllers/StudentsController.php:2997:     * POST /api/students/welfare-case/{caseId}/escalate
+api/controllers/StudentsController.php:3020:     * POST /api/students/counseling-case/{caseId}/session-note
+api/controllers/StudentsController.php:3043:     * POST /api/students/counseling-case/{caseId}/follow-up
+api/controllers/StudentsController.php:3066:     * POST /api/students/counseling-case/{caseId}/close
+api/controllers/StudentsController.php:3089:     * POST /api/students/boarding-note
+api/controllers/CounselingController.php:15: * GET  /api/counseling/index              → getIndex()
+api/controllers/CounselingController.php:16: * GET  /api/counseling/summary            → getSummary()
+api/controllers/CounselingController.php:17: * GET  /api/counseling/session            → getSession() - list all
+api/controllers/CounselingController.php:18: * GET  /api/counseling/session/{id}       → getSession($id) - get one
+api/controllers/CounselingController.php:19: * POST /api/counseling/session            → postSession() - create
+api/controllers/CounselingController.php:20: * PUT  /api/counseling/session/{id}       → putSession($id) - update
+api/controllers/CounselingController.php:21: * DELETE /api/counseling/session/{id}     → deleteSession($id) - delete
+api/controllers/CounselingController.php:42:     * GET /api/counseling/index
+api/controllers/CounselingController.php:50:     * GET /api/counseling/summary
+api/controllers/CounselingController.php:59:     * GET /api/counseling/session
+api/controllers/CounselingController.php:60:     * GET /api/counseling/session/{id}
+api/controllers/CounselingController.php:82:     * POST /api/counseling/session
+api/controllers/CounselingController.php:94:     * PUT /api/counseling/session/{id}
+api/controllers/CounselingController.php:109:     * DELETE /api/counseling/session/{id}
+api/controllers/CounselingController.php:156:     * GET /api/counseling/stats
+api/controllers/CounselingController.php:165:     * GET /api/counseling/sessions?limit=N&sort=recent
+api/controllers/PrintController.php:43:     * POST /api/print/table
+api/controllers/PrintController.php:106:     * POST /api/print/record
+api/controllers/PrintController.php:169:     * POST /api/print/certificate
+api/controllers/PrintController.php:229:     * POST /api/print/portfolio
+api/controllers/PrintController.php:283:     * POST /api/print/report-card
+api/controllers/PrintController.php:340:     * POST /api/print/academic-calendar
+api/controllers/PrintController.php:362:     * POST /api/print/fee-structure
+api/controllers/PrintController.php:387:     * POST /api/print/p9-form
+api/controllers/PrintController.php:409:     * POST /api/print/payslip
+api/controllers/PrintController.php:431:     * POST /api/print/fee-statement
+api/controllers/PrintController.php:453:     * POST /api/print/receipt-template
+api/controllers/PrintController.php:475:     * POST /api/print/invoice
+api/controllers/PrintController.php:497:     * POST /api/print/timetable
+api/controllers/PrintController.php:523:     * POST /api/print/html
+api/controllers/PrintController.php:578:     * POST /api/print/export-csv
+api/controllers/PaymentsController.php:25:     * GET /api/payments/trends - Alias for collection trends
+api/controllers/PaymentsController.php:33:     * GET /api/payments/collections - Cash collections for the cash reconciliation screen
+api/controllers/PaymentsController.php:41:     * GET /api/payments/revenue-sources - Returns revenue sources breakdown
+api/controllers/PaymentsController.php:49:     * GET /api/payments/stats - Get fees collection statistics for dashboard
+api/controllers/PaymentsController.php:57:     * GET /api/payments/collection-trends - Get fee collection trends over time
+api/controllers/PaymentsController.php:108:     * POST /api/payments/mpesa-b2c-callback
+api/controllers/PaymentsController.php:117:     * POST /api/payments/mpesa-b2c-timeout
+api/controllers/PaymentsController.php:126:     * POST /api/payments/c2b-validation
+api/controllers/PaymentsController.php:139:     * POST /api/payments/c2b-confirmation
+api/controllers/PaymentsController.php:150:     * POST /api/payments/mpesa-c2b-validation
+api/controllers/PaymentsController.php:160:     * POST /api/payments/mpesa-c2b-confirmation
+api/controllers/PaymentsController.php:171:     * POST /api/payments/mpesa-stk-callback
+api/controllers/PaymentsController.php:180:    /** POST /api/payments/kcb-mpesa-express-callback */
+api/controllers/PaymentsController.php:189:     * POST /api/payments/mpesa-result
+api/controllers/PaymentsController.php:201:     * POST /api/payments/kcb-validation
+api/controllers/PaymentsController.php:212:     * POST /api/payments/kcb-transfer-callback
+api/controllers/PaymentsController.php:224:     * POST /api/payments/kcb-notification
+api/controllers/PaymentsController.php:236:     * POST /api/payments/bank-webhook
+api/controllers/PaymentsController.php:247:     * GET /api/payments/unmatched-mpesa - List mpesa transactions not matched to payments
+api/controllers/PaymentsController.php:270:     * POST /api/payments/import-mpesa - Import MPESA transactions (stub)
+api/controllers/PaymentsController.php:298:     * POST /api/payments/reconcile-mpesa
+api/controllers/PaymentsController.php:345:     * GET /api/payments/mpesa-reconcile-history?mpesa_id=ID
+api/controllers/PaymentsController.php:363:     * GET /api/payments/lookup-by-phone?phone=07XXXXXXXX
+api/controllers/PaymentsController.php:381:     * POST /api/payments/link-student
+api/controllers/PaymentsController.php:453:    /** POST /api/payments/kcb-mpesa-express */
+api/controllers/BaseController.php:282:     * GET    /api/students/123/fees         → get student fees
+api/controllers/BaseController.php:283:     * POST   /api/students/123/fees         → create student fee
+api/controllers/BaseController.php:284:     * PUT    /api/students/123/fees/456     → update fee
+api/controllers/BaseController.php:285:     * DELETE /api/students/123/fees/456     → delete fee
+api/controllers/BaseController.php:322:     * POST /api/students/123 { "action": "promote", "new_class_id": 45 }
+api/controllers/BaseController.php:323:     * POST /api/students/123 { "action": "transfer", "destination_school": "XYZ" }
+api/controllers/BaseController.php:546:     *   GET  /api/academic/exam-schedules           → calls $api->getExamSchedules()
+api/controllers/BaseController.php:547:     *   POST /api/academic/verify-marks             → calls $api->verifyMarks($data)
+api/controllers/BaseController.php:548:     *   GET  /api/students/123/attendance           → calls $api->getAttendance(123, params)
+api/controllers/TransportController.php:65:     * POST /api/transport/verify-student
+api/controllers/TransportController.php:318:     * POST /api/transport - Create new transport record
+api/controllers/TransportController.php:331:     * PUT /api/transport/{id} - Update transport record
+api/controllers/TransportController.php:345:     * DELETE /api/transport/{id} - Delete transport record
+api/controllers/TransportController.php:363:     * GET /api/transport/routes/get
+api/controllers/TransportController.php:372:     * POST /api/transport/routes/assign
+api/controllers/TransportController.php:386:     * GET /api/transport/vehicles/get
+api/controllers/TransportController.php:395:     * POST /api/transport/vehicles/assign
+api/controllers/TransportController.php:409:     * GET /api/transport/drivers/get
+api/controllers/TransportController.php:418:     * POST /api/transport/drivers/assign
+api/controllers/TransportController.php:501:     * GET /api/transport/my-route
+api/controllers/TransportController.php:523:     * GET /api/transport/my-vehicle
+api/controllers/TransportController.php:545:     * POST /api/transport/attendance
+api/controllers/TransportController.php:568:     * POST /api/transport/entitlements
+api/controllers/TransportController.php:591:    /** POST /api/transport/entitlements-payment/{entitlementId} */
+api/controllers/TransportController.php:610:    /** POST /api/transport/payment-intents */
+api/controllers/TransportController.php:621:    /** POST /api/transport/payment-intents/{id}/confirm */
+api/controllers/TransportController.php:633:    /** GET /api/transport/payment-intents/{id} */
+api/controllers/TransportController.php:641:    /** GET /api/transport/entitlement-access/{studentId} */
+api/controllers/TransportController.php:652:    /** POST /api/transport/subscriptions — subscribe student to route */
+api/controllers/TransportController.php:669:    /** DELETE /api/transport/subscriptions/{id} — cancel subscription */
+api/controllers/TransportController.php:680:    /** GET /api/transport/subscriptions?student_id=&route_id=&status= */
+api/controllers/TransportController.php:691:    /** POST /api/transport/bills-generate — generate monthly bills */
+api/controllers/TransportController.php:706:    /** GET /api/transport/bills?billing_month=&student_id=&route_id=&status= */
+api/controllers/TransportController.php:720:    /** GET /api/transport/bills-summary?billing_month=YYYY-MM-01 */
+api/controllers/TransportController.php:727:    /** POST /api/transport/bills-record-payment/{id} */
+api/controllers/MeetingsController.php:12: *   GET    /api/meetings/meetings-get            - list (filters: type, status, department_id, search, mine)
+api/controllers/MeetingsController.php:13: *   GET    /api/meetings/meetings-get/{id}       - one meeting + attendees
+api/controllers/MeetingsController.php:14: *   GET    /api/meetings/staff-list              - active staff for the attendee picker
+api/controllers/MeetingsController.php:15: *   POST   /api/meetings/meetings-create         - schedule a meeting (+ attendees + calendar event + notifications)
+api/controllers/MeetingsController.php:16: *   PUT    /api/meetings/meetings-update/{id}    - edit / re-schedule
+api/controllers/MeetingsController.php:17: *   DELETE /api/meetings/meetings-delete/{id}    - delete meeting + its calendar event
+api/controllers/MeetingsController.php:18: *   POST   /api/meetings/meetings-respond        - RSVP { meeting_id, status: accepted|declined|maybe }
+api/controllers/MeetingsController.php:19: *   POST   /api/meetings/meetings-remind/{id}    - re-notify attendees
+api/controllers/VendorsController.php:165:    /** GET /api/vendors/{id}/payment-accounts */
+api/controllers/VendorsController.php:184:    /** POST /api/vendors/{id}/bank-account */
+api/controllers/VendorsController.php:202:    /** POST /api/vendors/{id}/mobile-account */
+api/controllers/VendorsController.php:220:    /** PUT /api/vendors/bank-account/{id} — verification/primary controls. */
+api/controllers/VendorsController.php:226:    /** PUT /api/vendors/mobile-account/{id} — verification/primary controls. */
+api/controllers/AdmissionController.php:38:     * GET /api/admissions/pending - Get pending admissions for dashboard
+api/controllers/AdmissionController.php:253:     * POST /api/admission/check-class-space/{id} - Record the class-space decision.
+api/controllers/AdmissionController.php:276:     * POST /api/admission/admit-student/{id} - Director/Headteacher admits the student.
+api/controllers/AdmissionController.php:294:     * POST /api/admission/generate-student-id-card/{id} - Generate the ID card.
+api/controllers/AdmissionController.php:312:     * POST /api/admission/final-approval/{id} - Final approval before enrollment.
+api/controllers/AdmissionController.php:330:     * GET /api/admission/check-class-space/{id} - Check class space availability for an application
+api/controllers/AdmissionController.php:347:     * POST /api/admission/advance-workflow-stage - Advance workflow stage with proper validation
+api/controllers/AdmissionController.php:355:     * POST /api/admission/create-provisional-student/{id} - Create provisional student record
+api/controllers/AdmissionController.php:375:     * GET /api/admission/queues - Get workflow queues by stage for role-based views
+api/controllers/AdmissionController.php:387:     * GET /api/admission/application/{id} - Get single application details with full workflow status
+api/controllers/AdmissionController.php:403:     * PUT /api/admission/application/{id} - Inline edit applicant/application fields.
+api/controllers/AdmissionController.php:415:     * GET /api/admission/windows - List admission intake windows.
+api/controllers/AdmissionController.php:427:     * POST /api/admission/windows - Create an admission intake window.
+api/controllers/AdmissionController.php:439:     * PUT /api/admission/windows/{id} - Update or toggle an admission intake window.
+api/controllers/AdmissionController.php:462:     * POST /api/admission/windows/{id}/toggle - Open or close an intake window.
+api/controllers/AdmissionController.php:477:     * GET /api/admission/open-terms - Open intake terms for the application form.
+api/controllers/AdmissionController.php:489:     * GET /api/admission/placement-classes - Get active classes for placement offers
+api/controllers/AdmissionController.php:501:     * GET /api/admission/stats - Get admission statistics for dashboards
+api/controllers/AdmissionController.php:513:     * GET /api/admission/placement-tests - List placement tests (optionally /{id})
+api/controllers/AdmissionController.php:526:     * POST /api/admission/placement-test - Create a placement test for an application
+api/controllers/AdmissionController.php:539:     * PUT /api/admission/placement-test/{id} - Record results for a placement test
+api/controllers/AdmissionController.php:556:     * GET /api/admission/notifications - Get role-specific admission notifications for dashboards
+api/controllers/SchedulesController.php:43:     * GET /api/schedules - List all schedules
+api/controllers/SchedulesController.php:44:     * GET /api/schedules/{id} - Get single schedule
+api/controllers/SchedulesController.php:59:     * POST /api/schedules - Create new schedule
+api/controllers/SchedulesController.php:76:     * PUT /api/schedules/{id} - Update schedule
+api/controllers/SchedulesController.php:84:     * DELETE /api/schedules/{id} - Delete schedule
+api/controllers/SchedulesController.php:96:     * GET /api/schedules/timetable/get
+api/controllers/SchedulesController.php:105:     * POST /api/schedules/timetable/create
+api/controllers/SchedulesController.php:115:     * PUT /api/schedules/timetable/update/{id}
+api/controllers/SchedulesController.php:126:     * DELETE /api/schedules/timetable/delete/{id}
+api/controllers/SchedulesController.php:127:     * POST /api/schedules/timetable/delete (with body data for day/time/class combo)
+api/controllers/SchedulesController.php:137:     * POST /api/schedules/timetable/delete (fallback for body-based delete)
+api/controllers/SchedulesController.php:147:     * GET /api/schedules/timetable/check-conflicts
+api/controllers/SchedulesController.php:156:     * POST /api/schedules/timetable/report-conflict
+api/controllers/SchedulesController.php:170:     * GET /api/schedules/timetable/time-slots
+api/controllers/SchedulesController.php:183:     * GET /api/schedules/exam/get
+api/controllers/SchedulesController.php:192:     * POST /api/schedules/exam/create
+api/controllers/SchedulesController.php:202:     * POST /api/schedules/exam/bulk-generate
+api/controllers/SchedulesController.php:217:     * GET /api/schedules/events/get
+api/controllers/SchedulesController.php:226:     * POST /api/schedules/events/create
+api/controllers/SchedulesController.php:236:     * PUT /api/schedules/events-update/{id}
+api/controllers/SchedulesController.php:246:     * DELETE /api/schedules/events-delete/{id}
+api/controllers/SchedulesController.php:256:     * POST /api/schedules/events-sync
+api/controllers/SchedulesController.php:267:     * POST /api/schedules/calendar-mark-exam-week
+api/controllers/SchedulesController.php:282:     * GET /api/schedules/holidays-get - list holidays from the registry
+api/controllers/SchedulesController.php:291:     * POST /api/schedules/holidays-create - add a holiday
+api/controllers/SchedulesController.php:301:     * PUT /api/schedules/holidays-update/{id} - edit/re-date a holiday
+api/controllers/SchedulesController.php:311:     * DELETE /api/schedules/holidays-delete/{id} - remove a holiday
+api/controllers/SchedulesController.php:321:     * POST /api/schedules/holidays-apply - re-apply the registry to the calendar
+api/controllers/SchedulesController.php:335:     * GET /api/schedules/activity/get
+api/controllers/SchedulesController.php:344:     * POST /api/schedules/activity/create
+api/controllers/SchedulesController.php:358:     * GET /api/schedules/rooms/get
+api/controllers/SchedulesController.php:367:     * POST /api/schedules/rooms/create
+api/controllers/SchedulesController.php:381:     * GET /api/schedules/route/get
+api/controllers/SchedulesController.php:390:     * POST /api/schedules/route/create
+api/controllers/SchedulesController.php:680:     * GET /api/schedules/weekly - Get weekly lessons statistics for dashboard
+api/modules/attendance/AttendanceManager.php:391:     * GET /api/attendance/today — today's combined student + staff counts.
+api/modules/attendance/AttendanceManager.php:435:     * GET /api/attendance/today-attendance — today's student attendance percentage.
+api/modules/attendance/AttendanceManager.php:468:     * GET /api/attendance/student-percentage/{student_id}
+api/modules/attendance/AttendanceManager.php:516:     * GET /api/attendance/classes — classes (streams) for attendance dropdowns.
+api/modules/attendance/AttendanceManager.php:566:     * GET /api/attendance/students-by-class/{stream_id}
+api/modules/attendance/AttendanceManager.php:619:     * POST /api/attendance/mark-bulk
+api/modules/attendance/AttendanceManager.php:725:     * GET /api/attendance/sessions — optionally filtered by type / applicable day.
+api/modules/attendance/AttendanceManager.php:758:     * GET /api/attendance/session-attendance — register for one session + date.
+api/modules/attendance/AttendanceManager.php:832:     * POST /api/attendance/mark-session
+api/modules/attendance/AttendanceManager.php:981:     * GET /api/attendance/academic-summary — aggregated learner attendance report.
+api/modules/attendance/AttendanceManager.php:1130:     * GET /api/attendance/daily-register — raw attendance rows for a day/session.
+api/modules/attendance/AttendanceManager.php:1205:     * GET /api/attendance/dormitories
+api/modules/attendance/AttendanceManager.php:1234:     * GET /api/attendance/dormitory-students — roll call roster for a dormitory.
+api/modules/attendance/AttendanceManager.php:1307:     * POST /api/attendance/mark-boarding
+api/modules/attendance/AttendanceManager.php:1404:     * GET /api/attendance/boarding-summary — per-dormitory roll call status for a date.
+api/modules/attendance/AttendanceManager.php:1452:     * GET /api/attendance/permissions — list student permissions (optionally filtered).
+api/modules/attendance/AttendanceManager.php:1563:     * POST /api/attendance/permissions — create a permission/exeat request.
+api/modules/attendance/AttendanceManager.php:1661:     * PUT /api/attendance/permissions/{id} — approve/reject/edit a permission.
+api/modules/attendance/AttendanceManager.php:1776:     * GET /api/attendance/staff-today — staff status for a date from the daily register view.
+api/modules/attendance/AttendanceManager.php:1870:     * POST /api/attendance/mark-staff
+api/modules/attendance/AttendanceManager.php:2028:     * GET /api/attendance/staff-register-context — full pre-computed register for a date.
+api/modules/attendance/AttendanceManager.php:2126:     * GET /api/attendance/duty-types
+api/modules/attendance/AttendanceManager.php:2148:     * GET /api/attendance/staff-report — per-staff daily statuses with aggregates.
+api/modules/attendance/AttendanceManager.php:2387:     * GET /api/attendance/calendar — school calendar days for a range.
+api/modules/attendance/AttendanceManager.php:2418:     * GET /api/attendance/is-school-day
+api/modules/attendance/AttendanceManager.php:2468:     * GET /api/attendance/register-context — calendar + sessions + term context for a date.
+api/modules/attendance/AttendanceManager.php:2587:     * GET /api/attendance/student-history-by-year/{student_id} — records grouped by year → term.
+api/controllers/AcademicController.php:172:     * GET /api/academic/context - Get current academic context
+api/controllers/AcademicController.php:187:     * GET /api/academics/kpis
+api/controllers/AcademicController.php:213:     * GET /api/academics/performance-matrix
+api/controllers/AcademicController.php:327:     * GET /api/academic - List all academic records
+api/controllers/AcademicController.php:344:     * GET /api/academic/levels-list - List active school levels
+api/controllers/AcademicController.php:353:     * POST /api/academic - Create new academic record
+api/controllers/AcademicController.php:375:     * PUT /api/academic/{id} - Update academic record
+api/controllers/AcademicController.php:389:     * DELETE /api/academic/{id} - Delete academic record
+api/controllers/AcademicController.php:549:     * POST /api/academic/exams/start-workflow - Start examination workflow
+api/controllers/AcademicController.php:558:     * POST /api/academic/exams/create-schedule - Create exam schedule
+api/controllers/AcademicController.php:576:     * POST /api/academic/exams/submit-questions - Submit question papers
+api/controllers/AcademicController.php:595:     * POST /api/academic/exams/prepare-logistics - Prepare exam logistics
+api/controllers/AcademicController.php:609:     * POST /api/academic/exams/conduct - Conduct examination
+api/controllers/AcademicController.php:623:     * POST /api/academic/exams/assign-marking - Assign exam marking
+api/controllers/AcademicController.php:641:     * POST /api/academic/exams/record-marks - Record exam marks
+api/controllers/AcademicController.php:659:     * POST /api/academic/exams/verify-marks - Verify exam marks
+api/controllers/AcademicController.php:673:     * POST /api/academic/exams/moderate-marks - Moderate exam marks
+api/controllers/AcademicController.php:691:     * POST /api/academic/exams/compile-results - Compile exam results
+api/controllers/AcademicController.php:705:     * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
+api/controllers/AcademicController.php:734:     * GET /api/academic/exam-schedule - List exam schedules with filters
+api/controllers/AcademicController.php:735:     * GET /api/academic/exam-schedule/{id} - Get single exam schedule
+api/controllers/AcademicController.php:749:     * POST /api/academic/exam-schedule - Create new exam schedule
+api/controllers/AcademicController.php:763:     * PUT /api/academic/exam-schedule/{id} - Update exam schedule
+api/controllers/AcademicController.php:780:     * DELETE /api/academic/exam-schedule/{id} - Delete exam schedule
+api/controllers/AcademicController.php:802:     * GET /api/academic/supervision-roster - List supervision roster
+api/controllers/AcademicController.php:803:     * GET /api/academic/supervision-roster/{id} - Get single entry
+api/controllers/AcademicController.php:817:     * POST /api/academic/supervision-roster - Create supervision roster entry
+api/controllers/AcademicController.php:831:     * PUT /api/academic/supervision-roster/{id} - Update supervision roster entry
+api/controllers/AcademicController.php:848:     * DELETE /api/academic/supervision-roster/{id} - Delete supervision roster entry
+api/controllers/AcademicController.php:865:     * POST /api/academic/supervision-roster-auto-generate - Auto-generate roster
+api/controllers/AcademicController.php:882:     * POST /api/academic/promotions/start-workflow - Start promotion workflow
+api/controllers/AcademicController.php:896:     * POST /api/academic/promotions/identify-candidates - Identify promotion candidates
+api/controllers/AcademicController.php:909:     * POST /api/academic/promotions/validate-eligibility - Validate promotion eligibility
+api/controllers/AcademicController.php:922:     * POST /api/academic/promotions/execute - Execute promotions (Director or students_promote)
+api/controllers/AcademicController.php:941:     * POST /api/academic/promotions/generate-reports - Generate promotion reports
+api/controllers/AcademicController.php:956:     * POST /api/academic/assessments/start-workflow - Start assessment workflow
+api/controllers/AcademicController.php:970:     * POST /api/academic/assessments/create-items - Create assessment items
+api/controllers/AcademicController.php:986:     * POST /api/academic/assessments/administer - Record assessment administration
+api/controllers/AcademicController.php:1002:     * POST /api/academic/assessments/mark-and-grade
+api/controllers/AcademicController.php:1033:     * POST /api/academic/assessments/analyze-results - Analyze assessment results
+api/controllers/AcademicController.php:1048:     * POST /api/academic/reports/start-workflow - Start report workflow
+api/controllers/AcademicController.php:1056:     * POST /api/academic/reports/compile-data - Compile report data
+api/controllers/AcademicController.php:1070:     * POST /api/academic/reports/generate-student-reports - Generate student reports
+api/controllers/AcademicController.php:1084:     * POST /api/academic/reports/review-and-approve - Review and approve reports
+api/controllers/AcademicController.php:1098:     * POST /api/academic/reports/distribute - Distribute reports
+api/controllers/AcademicController.php:1114:     * POST /api/academic/library/start-workflow - Start library workflow
+api/controllers/AcademicController.php:1119:     * POST /api/academic/library/review-request - Review library request
+api/controllers/AcademicController.php:1132:     * POST /api/academic/library/catalog-resources - Catalog library resources
+api/controllers/AcademicController.php:1145:     * POST /api/academic/library/distribute-and-track - Distribute and track resources
+api/controllers/AcademicController.php:1160:     * POST /api/academic/curriculum/start-workflow - Start curriculum workflow
+api/controllers/AcademicController.php:1168:     * POST /api/academic/curriculum/map-outcomes - Map curriculum outcomes
+api/controllers/AcademicController.php:1182:     * POST /api/academic/curriculum/create-scheme - Create curriculum scheme
+api/controllers/AcademicController.php:1197:     * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
+api/controllers/AcademicController.php:1225:     * POST /api/academic/year-transition/start-workflow - Start year transition workflow (Director only)
+api/controllers/AcademicController.php:1241:     * POST /api/academic/year-transition/archive-data - Archive academic data
+api/controllers/AcademicController.php:1255:     * POST /api/academic/year-transition/execute-promotions - Execute year promotions
+api/controllers/AcademicController.php:1269:     * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
+api/controllers/AcademicController.php:1290:     * POST /api/academic/year-transition/migrate-competency-baselines - Migrate competency baselines
+api/controllers/AcademicController.php:1304:     * POST /api/academic/year-transition/validate-readiness - Validate year readiness
+api/controllers/AcademicController.php:1316:     * POST /api/academic/calendar/generate - Generate/regenerate term calendar
+api/controllers/AcademicController.php:1335:     * GET /api/academic/calendar/get/{year_id} - Get generated calendar summary
+api/controllers/AcademicController.php:1349:     * GET /api/academic/calendar/list - Get calendar summary for a year
+api/controllers/AcademicController.php:1367:     * POST /api/academic/calendar/validate - Readiness check for the calendar
+api/controllers/AcademicController.php:1384:     * POST /api/academic/learning-areas/seed - Seed per-class CBC learning areas
+api/controllers/AcademicController.php:1403:     * GET /api/academic/learning-areas/coverage/{ayc_id} - Class curriculum coverage
+api/controllers/AcademicController.php:1419:     * POST /api/academic/competency/record-evidence - Record competency evidence
+api/controllers/AcademicController.php:1434:     * POST /api/academic/competency/record-core-value-evidence - Record core value evidence
+api/controllers/AcademicController.php:1448:     * GET /api/academic/competency/dashboard - Get competency dashboard
+api/controllers/AcademicController.php:1461:     * GET /api/academic/years/list - Get all academic years
+api/controllers/AcademicController.php:1470:     * GET /api/academic/years/current - Get current academic year
+api/controllers/AcademicController.php:1479:     * GET /api/academic/years/get/{id} - Get academic year by ID
+api/controllers/AcademicController.php:1488:     * POST /api/academic/years/create - Create academic year
+api/controllers/AcademicController.php:1497:     * PUT /api/academic/years/update/{id} - Update academic year
+api/controllers/AcademicController.php:1506:     * DELETE /api/academic/years/delete/{id} - Delete academic year
+api/controllers/AcademicController.php:1515:     * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
+api/controllers/AcademicController.php:1542:     * POST /api/academic/terms/create - Create academic term
+api/controllers/AcademicController.php:1551:     * GET /api/academic/terms/list - Get all academic terms
+api/controllers/AcademicController.php:1560:     * PUT /api/academic/terms/update/{id} - Update academic term
+api/controllers/AcademicController.php:1569:     * GET /api/academic/timetable-stats?term_id= - Timetable coverage for a term
+api/controllers/AcademicController.php:1578:     * GET /api/academic/term-transition/context - Normalized term transition context
+api/controllers/AcademicController.php:1587:     * POST /api/academic/term-transition/execute - Atomic term transition
+api/controllers/AcademicController.php:1600:     * DELETE /api/academic/terms/delete/{id} - Delete academic term
+api/controllers/AcademicController.php:1609:     * GET /api/academic/terms - Bare alias of getTermsList.
+api/controllers/AcademicController.php:1618:     * POST /api/academic/terms - Bare alias of postTermsCreate.
+api/controllers/AcademicController.php:1627:     * PUT /api/academic/terms/{id} - Bare alias of putTermsUpdate.
+api/controllers/AcademicController.php:1638:     * GET /api/academic/learning-areas/list - List all learning areas
+api/controllers/AcademicController.php:1647:     * GET /api/academic/learning-areas - Alias for learning-areas-list.
+api/controllers/AcademicController.php:1656:     * GET /api/academic/subjects-list - Alias for learning-areas-list.
+api/controllers/AcademicController.php:1677:     * GET /api/academic/learning-areas/get/{id} - Get specific learning area
+api/controllers/AcademicController.php:1686:     * POST /api/academic/learning-areas/create - Create learning area
+api/controllers/AcademicController.php:1700:     * PUT /api/academic/learning-areas/update/{id} - Update learning area
+api/controllers/AcademicController.php:1714:     * DELETE /api/academic/learning-areas/delete/{id} - Delete learning area
+api/controllers/AcademicController.php:1730:     * POST /api/academic/classes/create - Create class
+api/controllers/AcademicController.php:1739:     * GET /api/academic/classes/list - List all classes
+api/controllers/AcademicController.php:1748:     * GET /api/academic/class-capacity - Stream-level capacity and enrollment
+api/controllers/AcademicController.php:1757:     * GET /api/academic/assessments-list - List assessments with submission stats
+api/controllers/AcademicController.php:1766:     * GET /api/academic/grading-results - List student grading rows with filters
+api/controllers/AcademicController.php:1775:     * GET /api/academic/results-analysis - Aggregate class/subject performance metrics
+api/controllers/AcademicController.php:1784:     * GET /api/academic/performance-overview - Performance overview for student/class/stream/school views
+api/controllers/AcademicController.php:1793:     * GET /api/academic/student-results - Get result summary for one student
+api/controllers/AcademicController.php:1805:     * GET /api/academic/report-cards/download/{student_id}
+api/controllers/AcademicController.php:1824:     * GET /api/academic/report-cards - Full report card payload for one student.
+api/controllers/AcademicController.php:1844:     * GET /api/academic/classes/get/{id} - Get specific class
+api/controllers/AcademicController.php:1853:     * PUT /api/academic/classes/update/{id} - Update class
+api/controllers/AcademicController.php:1862:     * DELETE /api/academic/classes/delete/{id} - Delete class
+api/controllers/AcademicController.php:1871:     * POST /api/academic/classes/assign-teacher - Assign class teacher
+api/controllers/AcademicController.php:1880:     * POST /api/academic/classes/auto-create-streams - Auto-create class streams
+api/controllers/AcademicController.php:1891:     * POST /api/academic/streams/create - Create stream
+api/controllers/AcademicController.php:1900:     * GET /api/academic/streams/list - List class streams
+api/controllers/AcademicController.php:1910:     * GET /api/academic/streams/get/{id} - Get specific stream
+api/controllers/AcademicController.php:1920:     * PUT /api/academic/streams/update/{id} - Update class stream
+api/controllers/AcademicController.php:1930:     * DELETE /api/academic/streams/delete/{id} - Delete/deactivate stream
+api/controllers/AcademicController.php:1972:     * POST /api/academic/schedules/create - Create class schedule
+api/controllers/AcademicController.php:1981:     * GET /api/academic/schedules/list - List class schedules
+api/controllers/AcademicController.php:1990:     * GET /api/academic/schedules/get/{id} - Get specific schedule
+api/controllers/AcademicController.php:1999:     * PUT /api/academic/schedules/update/{id} - Update schedule
+api/controllers/AcademicController.php:2008:     * DELETE /api/academic/schedules/delete/{id} - Delete schedule
+api/controllers/AcademicController.php:2017:     * POST /api/academic/schedules/assign-room - Assign room to schedule
+api/controllers/AcademicController.php:2028:     * POST /api/academic/curriculum-units/create - Create curriculum unit
+api/controllers/AcademicController.php:2091:     * POST /api/academic/topics/create - Create unit topic
+api/controllers/AcademicController.php:2100:     * GET /api/academic/topics/list - List unit topics
+api/controllers/AcademicController.php:2109:     * GET /api/academic/topics/get/{id} - Get specific topic
+api/controllers/AcademicController.php:2118:     * PUT /api/academic/topics/update/{id} - Update topic
+api/controllers/AcademicController.php:2127:     * DELETE /api/academic/topics/delete/{id} - Delete topic
+api/controllers/AcademicController.php:2138:     * POST /api/academic/lesson-plans/create - Create lesson plan
+api/controllers/AcademicController.php:2147:     * GET /api/academic/lesson-plans/list - List lesson plans
+api/controllers/AcademicController.php:2158:     * GET /api/academic/lesson-plans/get/{id} - Get specific lesson plan
+api/controllers/AcademicController.php:2167:     * PUT /api/academic/lesson-plans/update/{id} - Update lesson plan
+api/controllers/AcademicController.php:2177:     * DELETE /api/academic/lesson-plans/delete/{id} - Delete lesson plan
+api/controllers/AcademicController.php:2187:     * POST /api/academic/lesson-plans/approve - Approve lesson plan
+api/controllers/AcademicController.php:2197:     * POST /api/academic/lesson-plans/reject - Reject lesson plan
+api/controllers/AcademicController.php:2207:     * POST /api/academic/lesson-plans/submit - Submit lesson plan for review
+api/controllers/AcademicController.php:2217:     * GET /api/academic/lesson-plans/approval - List plans pending approval (for headteacher)
+api/controllers/AcademicController.php:2230:     * PUT /api/academic/lesson-plans/review/{id} - Submit review (approve/reject) for a lesson plan
+api/controllers/AcademicController.php:2248:     * PUT /api/academic/lesson-plans/bulk-approve - Bulk approve multiple plans
+api/controllers/AcademicController.php:2277:     * POST /api/academic/lesson-observations/create - Create lesson observation
+api/controllers/AcademicController.php:2286:     * GET /api/academic/lesson-observations/list - List lesson observations
+api/controllers/AcademicController.php:2297:     * POST /api/academic/scheme-of-work/create - Create scheme of work
+api/controllers/AcademicController.php:2312:     * POST /api/academic/schemes-of-work/generate
+api/controllers/AcademicController.php:2324:     * GET /api/academic/scheme-of-work/get/{id} - Get scheme of work
+api/controllers/AcademicController.php:2382:     * GET /api/academic/teachers/classes - Get teacher's classes
+api/controllers/AcademicController.php:2392:     * GET /api/academic/teachers/subjects - Get teacher's subjects
+api/controllers/AcademicController.php:2402:     * GET /api/academic/teachers/schedule - Get teacher's schedule
+api/controllers/AcademicController.php:2412:     * GET /api/academic/teachers/list - List available teaching staff
+api/controllers/AcademicController.php:2421:     * GET /api/academic/subjects/teachers - Get subject teachers
+api/controllers/AcademicController.php:2430:     * GET /api/academic/subject-teachers - Bare alias of getSubjectsTeachers.
+api/controllers/AcademicController.php:2441:     * GET /api/academic/workflow/status - Get workflow status
+api/controllers/AcademicController.php:2457:     * GET /api/academic/custom - Handle custom GET operations
+api/controllers/AcademicController.php:2470:     * POST /api/academic/custom - Handle custom POST operations
+api/controllers/AcademicController.php:2485:     * GET  /api/academic/formative-assessments         → list formative assessments
+api/controllers/AcademicController.php:2486:     * POST /api/academic/formative-assessments         → create formative assessment
+api/controllers/AcademicController.php:2500:     * PUT /api/academic/formative-assessments/{id} → update a formative assessment
+api/controllers/AcademicController.php:2509:     * DELETE /api/academic/formative-assessments/{id} → delete a formative assessment
+api/controllers/AcademicController.php:2518:     * GET /api/academic/conduct-grades?class=self&term= → conduct ratings for a class
+api/controllers/AcademicController.php:2529:     * GET /api/academic/results?year_id=&term_id=&subject_id=&class_id= → result rows
+api/controllers/AcademicController.php:2538:     * GET /api/academic/reports?report_type=&year_id=&term_id=&class_id=&subject_id=
+api/controllers/AcademicController.php:2548:     * POST /api/academic/formative-assessments/{id}/marks → bulk mark entry
+api/controllers/AcademicController.php:2551:     * GET /api/academic/formative-assessment-marks?assessment_id=X
+api/controllers/AcademicController.php:2562:     * POST /api/academic/formative-assessment-marks
+api/controllers/AcademicController.php:2574:     * GET /api/academic/formative-summary?class_id=&subject_id=&term_id=&strand_id=&sub_strand_id=&group_by=
+api/controllers/AcademicController.php:2590:     * GET /api/academic/assessment-tools → list all CBC assessment tools
+api/controllers/AcademicController.php:2597:    /** POST /api/academic/assessment-tools */
+api/controllers/AcademicController.php:2605:    /** PUT /api/academic/assessment-tools/{id} */
+api/controllers/AcademicController.php:2613:    /** DELETE /api/academic/assessment-tools/{id} */
+api/controllers/AcademicController.php:2622:     * GET /api/academic/assessment-types → list all CBC assessment types
+api/controllers/AcademicController.php:2630:    /** GET /api/academic/assessment-classifications */
+api/controllers/AcademicController.php:2637:     * GET /api/academic/core-competencies-list → CBC 8 core competencies from DB
+api/controllers/AcademicController.php:2645:     * GET /api/academic/core-competencies — Router-friendly alias.
+api/controllers/AcademicController.php:2653:     * GET /api/academic/core-values-list — CBC core values from DB
+api/controllers/AcademicController.php:2661:     * GET /api/academic/core-values — Router-friendly alias.
+api/controllers/AcademicController.php:2671:     * GET  /api/academic/competency-ratings?class_id=&term_id=&student_id=
+api/controllers/AcademicController.php:2672:     * POST /api/academic/competency-ratings  → bulk upsert
+api/controllers/AcademicController.php:2689:     * GET  /api/academic/national-exams?exam_type=KPSEA_G6&exam_year=2024
+api/controllers/AcademicController.php:2690:     * POST /api/academic/national-exams → enter results
+api/controllers/AcademicController.php:2707:     * GET /api/academic/strands?learning_area_id=X
+api/controllers/AcademicController.php:2715:    /** POST /api/academic/strands */
+api/controllers/AcademicController.php:2722:    /** PUT /api/academic/strands/{id} */
+api/controllers/AcademicController.php:2730:    /** DELETE /api/academic/strands/{id} */
+api/controllers/AcademicController.php:2741:     * GET /api/academic/class-students?class_id=X
+api/controllers/AcademicController.php:2754:     * POST /api/academic/compute-term-scores
+api/controllers/AcademicController.php:2766:     * GET /api/academic/report-card-data/{student_id}?term_id=
+api/controllers/AcademicController.php:2780:     * GET /api/academic/student-assessment-history?student_id=X&term_id=&subject_id=
+api/controllers/AcademicController.php:2790:     * GET /api/academic/student-growth-trend?student_id=X&learning_area_id=Y
+api/controllers/AcademicController.php:2804:     * GET /api/academic/student-timeline/{student_id}
+api/controllers/AcademicController.php:2817:     * GET /api/academic/staff-timeline/{staff_id}
+api/controllers/AcademicController.php:2832:     * GET /api/academic/transfer-requests
+api/controllers/AcademicController.php:2833:     * POST /api/academic/transfer-requests
+api/controllers/AcademicController.php:2851:     * PUT /api/academic/transfer-requests/{id}
+api/controllers/AcademicController.php:2866:     * GET /api/academic/year-rollover-status
+api/controllers/AcademicController.php:2876:     * POST /api/academic/year-rollover
+api/controllers/AcademicController.php:2934:    /** GET /api/academic/class-teachers or /{id} */
+api/controllers/AcademicController.php:2949:    /** POST /api/academic/class-teachers */
+api/controllers/AcademicController.php:2962:    /** PUT /api/academic/class-teachers/{id} */
+api/controllers/AcademicController.php:2975:    /** DELETE /api/academic/class-teachers/{id} */
+api/controllers/AcademicController.php:2986:    /** GET /api/academic/subject-assignments or /{id} */
+api/controllers/AcademicController.php:3001:    /** POST /api/academic/subject-assignments */
+api/controllers/AcademicController.php:3012:    /** PUT /api/academic/subject-assignments/{id} */
+api/controllers/AcademicController.php:3021:    /** DELETE /api/academic/subject-assignments/{id} */
+api/controllers/AcademicController.php:3037:    /** GET /api/academic/my-teachers */
+api/controllers/AcademicController.php:3062:    /** GET /api/academic/parent-class-teachers */
+api/controllers/AcademicController.php:3176:     * GET /api/academic/sub-strands?strand_id=X
+api/controllers/AcademicController.php:3185:    /** POST /api/academic/sub-strands */
+api/controllers/AcademicController.php:3192:    /** PUT /api/academic/sub-strands/{id} */
+api/controllers/AcademicController.php:3200:    /** DELETE /api/academic/sub-strands/{id} */
+api/controllers/AcademicController.php:3208:    /** POST /api/academic/sub-strands/bulk — auto-populate orphaned strands with default sub-strands */
+api/controllers/AcademicController.php:3224:     * GET /api/academic/learning-outcomes?sub_strand_id=X&strand_id=X&learning_area_id=X
+api/controllers/AcademicController.php:3232:    /** POST /api/academic/learning-outcomes */
+api/controllers/AcademicController.php:3239:    /** PUT /api/academic/learning-outcomes/{id} */
+api/controllers/AcademicController.php:3247:    /** DELETE /api/academic/learning-outcomes/{id} */
+api/controllers/AcademicController.php:3257:    /** GET /api/academic/assessment-rubrics?tool_id=X */
+api/controllers/AcademicController.php:3264:    /** POST /api/academic/assessment-rubrics */
+api/controllers/AcademicController.php:3271:    /** PUT /api/academic/assessment-rubrics/{id} */
+api/controllers/AcademicController.php:3279:    /** DELETE /api/academic/assessment-rubrics/{id} */
+api/controllers/AcademicController.php:3293:    /** GET /api/academic/grading-scale|/grading-scale/{id} - Fetch a grading scale + its grade rules */
+api/controllers/AcademicController.php:3300:    /** POST /api/academic/grading-scale - Create a grading scale */
+api/controllers/AcademicController.php:3307:    /** PUT /api/academic/grading-scale/{id} - Update a grading scale */
+api/controllers/AcademicController.php:3315:    /** POST /api/academic/grade-rules - Create a grade rule (range → grade) */
+api/controllers/AcademicController.php:3322:    /** PUT /api/academic/grade-rules/{id} - Update a grade rule */
+api/controllers/AcademicController.php:3330:    /** DELETE /api/academic/grade-rules/{id} - Delete a grade rule */
+api/controllers/AcademicController.php:3340:    /** GET /api/academic/strand-competencies?strand_id=X&competency_id=X */
+api/controllers/AcademicController.php:3347:    /** POST /api/academic/strand-competencies */
+api/controllers/AcademicController.php:3354:    /** PUT /api/academic/strand-competencies/{id} */
+api/controllers/AcademicController.php:3362:    /** DELETE /api/academic/strand-competencies/{id} */
+api/controllers/AcademicController.php:3373:     * GET /api/academic/curriculum-tree?learning_area_id=X&strand_id=X
+api/controllers/AcademicController.php:3385:     * GET /api/academic/pending-moderation?class_id=X&subject_id=X
+api/controllers/AcademicController.php:3394:    /** POST /api/academic/approve-assessment — approve individual assessment results */
+api/controllers/AcademicController.php:3415:    /** POST /api/academic/reject-assessment — reject individual result */
+api/controllers/AcademicController.php:3435:     * GET /api/academic/curriculum — backward-compatible flat curriculum list
+api/controllers/AcademicController.php:3460:     * GET /api/academic/my-classes — classes + subjects for the logged-in teacher.
+api/controllers/AcademicController.php:3471:     * GET /api/academic/intern-classes — classes a teaching intern is attached to.
+api/controllers/AcademicController.php:3482:     * GET /api/academic/intern-subjects — subjects assigned to a teaching intern.
+api/controllers/AcademicController.php:3493:     * GET /api/academic/my-subjects — subjects the teacher teaches (with status).
+api/controllers/AcademicController.php:3504:     * GET /api/academic/my-schemes — schemes of work owned by the teacher.
+api/controllers/AcademicController.php:3515:     * GET /api/academic/subject-schemes — teacher's schemes for one subject.
+api/controllers/AcademicController.php:3526:     * GET /api/academic/syllabus — read-only flat curriculum list.
+api/controllers/AcademicController.php:3535:     * GET /api/academic/my-syllabus — syllabus for the teacher's assigned subjects.
+api/controllers/AcademicController.php:3546:     * GET /api/academic/year-calendar — current year's calendar days.
+api/controllers/AcademicController.php:3554:     * GET /api/academic/calendar/days/{year_id} — calendar day rows for a year
+api/controllers/AcademicController.php:3567:     * PUT /api/academic/calendar/day/{id} — mark a calendar day as a holiday,
+api/controllers/AcademicController.php:3579:     * GET /api/academic/year-history — all academic years with enrolment counts.
+api/controllers/AcademicController.php:3587:     * GET /api/academic/lesson-plans/by-class — class lesson-plan coverage.
+api/controllers/AcademicController.php:3600:     * POST /api/academic/curriculum — create a flat curriculum entry.
+api/controllers/AcademicController.php:3608:     * PUT /api/academic/curriculum/{id} — update a flat curriculum entry.
+api/controllers/AcademicController.php:3616:     * DELETE /api/academic/curriculum/{id} — delete a flat curriculum entry.
+api/controllers/AcademicController.php:3626:     * GET /api/academic/portfolio/all/{studentId}
+api/controllers/AcademicController.php:3639:     * GET /api/academic/portfolio/list — List portfolios for a student or class
+api/controllers/AcademicController.php:3649:     * GET /api/academic/portfolio/get/{studentId} — Get portfolio + artifacts for a student
+api/controllers/AcademicController.php:3659:     * POST /api/academic/portfolio/create — Create a portfolio for a student
+api/controllers/AcademicController.php:3667:     * POST /api/academic/portfolio/artifact-add — Add artifact to portfolio
+api/controllers/AcademicController.php:3680:     * PUT /api/academic/portfolio/artifact-update — Update artifact metadata
+api/controllers/AcademicController.php:3682:     * POST /api/academic/portfolio/artifact-file-replace so multipart uploads
+api/controllers/AcademicController.php:3693:     * POST /api/academic/portfolio/artifact-file-replace — Replace an artifact's
+api/controllers/AcademicController.php:3708:     * DELETE /api/academic/portfolio/artifact-delete/{id} — Delete artifact
+api/controllers/ParentPortalController.php:22: * POST /api/parent-portal/login                    → postLogin()
+api/controllers/ParentPortalController.php:23: * POST /api/parent-portal/login-otp-request        → postLoginOtpRequest()
+api/controllers/ParentPortalController.php:24: * POST /api/parent-portal/login-otp-verify         → postLoginOtpVerify()
+api/controllers/ParentPortalController.php:25: * POST /api/parent-portal/logout                   → postLogout()
+api/controllers/ParentPortalController.php:26: * GET  /api/parent-portal/dashboard                → getDashboard()
+api/controllers/ParentPortalController.php:27: * GET  /api/parent-portal/student-fees/{id}        → getStudentFees($id)
+api/controllers/ParentPortalController.php:28: * GET  /api/parent-portal/student-payment-history/{id} → getStudentPaymentHistory($id)
+api/controllers/ParentPortalController.php:29: * GET  /api/parent-portal/student-statement/{id}   → getStudentStatement($id)
+api/controllers/ParentPortalController.php:30: * GET  /api/parent-portal/fee-balance/{id}         → getFeeBalance($id)
+api/controllers/ParentPortalController.php:47:     * POST /api/parent-portal/login
+api/controllers/ParentPortalController.php:56:     * POST /api/parent-portal/login-otp-request
+api/controllers/ParentPortalController.php:65:     * POST /api/parent-portal/login-otp-verify
+api/controllers/ParentPortalController.php:74:     * POST /api/parent-portal/logout
+api/controllers/ParentPortalController.php:86:     * GET /api/parent-portal/dashboard
+api/controllers/ParentPortalController.php:93:    /** GET /api/parent-portal/community */
+api/controllers/ParentPortalController.php:97:    /** GET /api/parent-portal/uniform-catalog */
+api/controllers/ParentPortalController.php:101:    /** GET /api/parent-portal/uniform-cart */
+api/controllers/ParentPortalController.php:105:    /** POST /api/parent-portal/uniform-cart */
+api/controllers/ParentPortalController.php:109:    /** POST /api/parent-portal/uniform-wishlist */
+api/controllers/ParentPortalController.php:113:    /** POST /api/parent-portal/uniform-checkout-payment */
+api/controllers/ParentPortalController.php:118:     * GET /api/parent-portal/student-fees/{id}
+api/controllers/ParentPortalController.php:129:     * GET /api/parent-portal/student-payment-history/{id}
+api/controllers/ParentPortalController.php:140:     * GET /api/parent-portal/student-statement/{id}
+api/controllers/ParentPortalController.php:151:     * GET /api/parent-portal/fee-balance/{id}
+api/controllers/ParentPortalController.php:162:     * GET /api/parent-portal/student-attendance/{id}
+api/controllers/ParentPortalController.php:173:     * GET /api/parent-portal/student-performance/{id}
+api/controllers/ParentPortalController.php:184:     * GET /api/parent-portal/student-report-card/{id}
+api/controllers/ParentPortalController.php:195:     * GET /api/parent-portal/messages/{studentId?}
+api/controllers/ParentPortalController.php:204:     * POST /api/parent-portal/send-message
+api/controllers/ParentPortalController.php:213:     * GET /api/parent-portal/portfolio/{studentId}
+api/controllers/ParentPortalController.php:224:     * GET /api/parent-portal/grading-scale
+api/controllers/ParentPortalController.php:232:     * POST /api/parent-portal/initiate-mpesa-payment
+api/controllers/ParentPortalController.php:241:     * GET /api/parent-portal/mpesa-status/{checkoutRequestId}
+api/controllers/UploadsController.php:22:     * POST /api/uploads/school-document
+api/controllers/ImportController.php:13: *   POST  /api/import/preview   — parse file, return first 10 rows + validation errors
+api/controllers/ImportController.php:14: *   POST  /api/import/execute   — run full import, return counts + per-row errors
+api/controllers/ImportController.php:15: *   GET   /api/import/template  — download CSV template (?type=students)
+api/controllers/ImportController.php:16: *   GET   /api/import/types     — list all supported import types
+api/controllers/ImportController.php:17: *   GET   /api/import/logs      — import history
+api/controllers/ImportController.php:18: *   GET   /api/import/log/{id}  — specific import detail
+api/controllers/EventsController.php:13: * GET /api/events          → getEvents()   query params: upcoming=1, limit=N
+api/controllers/EventsController.php:31:     * GET /api/events
+api/controllers/ActivitiesController.php:32:     * GET /api/activities/list - Get recent activities for dashboard
+api/controllers/ActivitiesController.php:46:     * GET /api/activities - List all activities
+api/controllers/ActivitiesController.php:47:     * GET /api/activities/{id} - Get single activity
+api/controllers/ActivitiesController.php:66:     * POST /api/activities - Create new activity
+api/controllers/ActivitiesController.php:84:     * PUT /api/activities/{id} - Update activity
+api/controllers/ActivitiesController.php:97:     * DELETE /api/activities/{id} - Delete activity
+api/controllers/ActivitiesController.php:114:     * GET /api/activities/upcoming/list
+api/controllers/ActivitiesController.php:124:     * GET /api/activities/statistics/get
+api/controllers/ActivitiesController.php:137:     * GET /api/activities/categories/list
+api/controllers/ActivitiesController.php:146:     * GET /api/activities/categories/get/{id}
+api/controllers/ActivitiesController.php:163:     * POST /api/activities/categories/create
+api/controllers/ActivitiesController.php:172:     * PUT /api/activities/categories/update/{id}
+api/controllers/ActivitiesController.php:189:     * DELETE /api/activities/categories/delete/{id}
+api/controllers/ActivitiesController.php:206:     * GET /api/activities/categories/statistics
+api/controllers/ActivitiesController.php:215:     * POST /api/activities/categories/toggle-status
+api/controllers/ActivitiesController.php:234:     * GET /api/activities/participants/list
+api/controllers/ActivitiesController.php:243:     * GET /api/activities/participants/get/{id}
+api/controllers/ActivitiesController.php:260:     * POST /api/activities/participants/register
+api/controllers/ActivitiesController.php:269:     * PUT /api/activities/participants/update-status
+api/controllers/ActivitiesController.php:284:     * POST /api/activities/participants/withdraw
+api/controllers/ActivitiesController.php:300:     * GET /api/activities/participants/student-history
+api/controllers/ActivitiesController.php:315:     * GET /api/activities/participants/participation-stats
+api/controllers/ActivitiesController.php:330:     * POST /api/activities/participants/bulk-register
+api/controllers/ActivitiesController.php:350:     * GET /api/activities/resources/list
+api/controllers/ActivitiesController.php:359:     * GET /api/activities/resources/get/{id}
+api/controllers/ActivitiesController.php:376:     * POST /api/activities/resources/add
+api/controllers/ActivitiesController.php:385:     * PUT /api/activities/resources/update/{id}
+api/controllers/ActivitiesController.php:402:     * DELETE /api/activities/resources/delete/{id}
+api/controllers/ActivitiesController.php:419:     * GET /api/activities/resources/by-activity
+api/controllers/ActivitiesController.php:434:     * GET /api/activities/resources/check-availability
+api/controllers/ActivitiesController.php:451:     * GET /api/activities/resources/statistics
+api/controllers/ActivitiesController.php:460:     * PUT /api/activities/resources/update-status
+api/controllers/ActivitiesController.php:480:     * GET /api/activities/schedules/list
+api/controllers/ActivitiesController.php:489:     * GET /api/activities/schedules/get/{id}
+api/controllers/ActivitiesController.php:506:     * POST /api/activities/schedules/create
+api/controllers/ActivitiesController.php:515:     * PUT /api/activities/schedules/update/{id}
+api/controllers/ActivitiesController.php:532:     * DELETE /api/activities/schedules/delete/{id}
+api/controllers/ActivitiesController.php:549:     * GET /api/activities/schedules/by-activity
+api/controllers/ActivitiesController.php:564:     * GET /api/activities/schedules/weekly-timetable
+api/controllers/ActivitiesController.php:573:     * GET /api/activities/schedules/venue-availability
+api/controllers/ActivitiesController.php:590:     * POST /api/activities/schedules/bulk-create
+api/controllers/ActivitiesController.php:610:     * POST /api/activities/registration/initiate
+api/controllers/ActivitiesController.php:619:     * POST /api/activities/registration/review
+api/controllers/ActivitiesController.php:634:     * POST /api/activities/registration/approve
+api/controllers/ActivitiesController.php:649:     * POST /api/activities/registration/reject
+api/controllers/ActivitiesController.php:665:     * POST /api/activities/registration/confirm
+api/controllers/ActivitiesController.php:680:     * POST /api/activities/registration/complete
+api/controllers/ActivitiesController.php:699:     * POST /api/activities/planning/propose
+api/controllers/ActivitiesController.php:708:     * POST /api/activities/planning/approve-budget
+api/controllers/ActivitiesController.php:723:     * POST /api/activities/planning/schedule
+api/controllers/ActivitiesController.php:739:     * POST /api/activities/planning/prepare-resources
+api/controllers/ActivitiesController.php:755:     * POST /api/activities/planning/execute
+api/controllers/ActivitiesController.php:770:     * POST /api/activities/planning/review
+api/controllers/ActivitiesController.php:789:     * POST /api/activities/competition/register
+api/controllers/ActivitiesController.php:798:     * POST /api/activities/competition/prepare-team
+api/controllers/ActivitiesController.php:813:     * POST /api/activities/competition/record-participation
+api/controllers/ActivitiesController.php:828:     * POST /api/activities/competition/report-results
+api/controllers/ActivitiesController.php:843:     * POST /api/activities/competition/recognize-achievements
+api/controllers/ActivitiesController.php:865:     * GET /api/activities/sports/teams
+api/controllers/ActivitiesController.php:866:     * GET /api/activities/sports/teams/{id}
+api/controllers/ActivitiesController.php:879:     * POST /api/activities/sports/teams
+api/controllers/ActivitiesController.php:888:     * GET /api/activities/sports/team-members?team_id={id}
+api/controllers/ActivitiesController.php:897:     * GET /api/activities/sports/fixtures
+api/controllers/ActivitiesController.php:898:     * GET /api/activities/sports/fixtures/{id}
+api/controllers/ActivitiesController.php:911:     * POST /api/activities/sports/fixtures
+api/controllers/ActivitiesController.php:920:     * POST /api/activities/sports/fixtures/record-result/{id}
+api/controllers/ActivitiesController.php:929:     * GET /api/activities/sports/standings
+api/controllers/ActivitiesController.php:942:     * POST /api/activities/evaluation/initiate
+api/controllers/ActivitiesController.php:951:     * POST /api/activities/evaluation/submit-assessment
+api/controllers/ActivitiesController.php:966:     * POST /api/activities/evaluation/verify-assessment
+api/controllers/ActivitiesController.php:981:     * POST /api/activities/evaluation/approve
+api/controllers/ActivitiesController.php:996:     * POST /api/activities/evaluation/publish-results
+api/controllers/ActivitiesController.php:1084:     * GET /api/activities/stats
+api/controllers/FinanceController.php:49:     * GET /api/finance/supplier-payables
+api/controllers/FinanceController.php:96:    /** POST /api/finance/supplier-payments — submit one or many supplier payouts. */
+api/controllers/FinanceController.php:124:    /** GET /api/finance/parent-refund-requests */
+api/controllers/FinanceController.php:133:    /** GET /api/finance/refundable-credits */
+api/controllers/FinanceController.php:146:    /** POST /api/finance/parent-refund-requests */
+api/controllers/FinanceController.php:154:    /** GET /api/finance/student-fund-transfers */
+api/controllers/FinanceController.php:161:    /** GET /api/finance/student-fund-sources */
+api/controllers/FinanceController.php:168:    /** GET /api/finance/payment-routing-cases */
+api/controllers/FinanceController.php:175:    /** POST /api/finance/payment-references */
+api/controllers/FinanceController.php:183:    /** GET /api/finance/payment-collection-routes */
+api/controllers/FinanceController.php:190:    /** POST /api/finance/payment-collection-routes */
+api/controllers/FinanceController.php:198:    /** POST /api/finance/payment-routing-cases/{id}/resolve */
+api/controllers/FinanceController.php:207:    /** POST /api/finance/student-fund-transfers */
+api/controllers/FinanceController.php:215:    /** PUT /api/finance/student-fund-transfers/{id} */
+api/controllers/FinanceController.php:224:    /** POST /api/finance/student-fund-transfer-post/{id} */
+api/controllers/FinanceController.php:233:    /** PUT /api/finance/parent-refund-requests/{id} — approve or reject. */
+api/controllers/FinanceController.php:244:    /** POST /api/finance/parent-refund-requests/{id}/submit */
+api/controllers/FinanceController.php:252:    /** GET /api/finance/parent-payment-accounts?parent_id=... */
+api/controllers/FinanceController.php:263:    /** POST /api/finance/parent-payment-accounts */
+api/controllers/FinanceController.php:318:     * POST /api/finance/department-budgets/propose
+api/controllers/FinanceController.php:328:     * GET /api/finance/department-budgets/proposals
+api/controllers/FinanceController.php:338:     * POST /api/finance/department-budgets/approve
+api/controllers/FinanceController.php:356:     * POST /api/finance/department-budgets/allocate
+api/controllers/FinanceController.php:373:     * POST /api/finance/department-budgets/request-funds
+api/controllers/FinanceController.php:383:     * GET /api/finance/department-budgets/summary
+api/controllers/FinanceController.php:395:     * POST /api/finance/expenses/approve
+api/controllers/FinanceController.php:413:     * POST /api/finance/expenses/reject
+api/controllers/FinanceController.php:434:     * GET /api/finance - List all finance records
+api/controllers/FinanceController.php:435:     * GET /api/finance/{id} - Get single finance record
+api/controllers/FinanceController.php:454:     * POST /api/finance - Create new finance record
+api/controllers/FinanceController.php:472:     * PUT /api/finance/{id} - Update finance record
+api/controllers/FinanceController.php:490:     * DELETE /api/finance/{id} - Delete finance record
+api/controllers/FinanceController.php:507:     * GET /api/finance/payrolls — alias for list
+api/controllers/FinanceController.php:516:     * GET /api/finance/payrolls/list
+api/controllers/FinanceController.php:526:     * GET /api/finance/payrolls/{id}/get
+api/controllers/FinanceController.php:544:     * GET /api/finance/payrolls/{id}/staff-payments
+api/controllers/FinanceController.php:562:     * POST /api/finance/payrolls/create-draft
+api/controllers/FinanceController.php:574:     * POST /api/finance/payrolls/calculate
+api/controllers/FinanceController.php:586:     * POST /api/finance/payrolls/recalculate
+api/controllers/FinanceController.php:598:     * POST /api/finance/payrolls/verify
+api/controllers/FinanceController.php:610:     * POST /api/finance/payrolls/approve
+api/controllers/FinanceController.php:622:     * POST /api/finance/payrolls/reject
+api/controllers/FinanceController.php:633:     * POST /api/finance/payrolls/process
+api/controllers/FinanceController.php:643:     * POST /api/finance/payrolls/disburse
+api/controllers/FinanceController.php:653:     * POST /api/finance/payrolls/{id}/cancel
+api/controllers/FinanceController.php:671:     * GET /api/finance/payrolls/{id}/status
+api/controllers/FinanceController.php:689:     * GET /api/finance/payrolls/staff-payments/get
+api/controllers/FinanceController.php:699:     * GET /api/finance/payrolls/summary
+api/controllers/FinanceController.php:709:     * GET /api/finance/payrolls/history
+api/controllers/FinanceController.php:723:     * GET /api/finance/staff-for-payroll
+api/controllers/FinanceController.php:734:     * GET /api/finance/staff-payroll-details?staff_id=X
+api/controllers/FinanceController.php:751:     * GET /api/finance/bulk-payroll-preview?month=X&year=Y
+api/controllers/FinanceController.php:764:     * POST /api/finance/process-bulk-payroll
+api/controllers/FinanceController.php:778:     * POST /api/finance/approve-payroll
+api/controllers/FinanceController.php:795:     * POST /api/finance/process-payroll-with-deductions
+api/controllers/FinanceController.php:808:     * GET /api/finance/detailed-payslip?payroll_id=X
+api/controllers/FinanceController.php:825:     * GET /api/finance/payroll-stats?month=X&year=Y
+api/controllers/FinanceController.php:839:     * GET /api/finance/payroll-list
+api/controllers/FinanceController.php:851:     * POST /api/finance/mark-payroll-paid
+api/controllers/FinanceController.php:874:     * GET /api/finance/allowance-templates
+api/controllers/FinanceController.php:885:     * GET /api/finance/allowance-templates/{id}
+api/controllers/FinanceController.php:899:     * POST /api/finance/allowance-templates
+api/controllers/FinanceController.php:909:     * PUT /api/finance/allowance-templates/{id}
+api/controllers/FinanceController.php:922:     * DELETE /api/finance/allowance-templates/{id}
+api/controllers/FinanceController.php:935:     * GET /api/finance/allowance-templates/{id}/applicable-staff
+api/controllers/FinanceController.php:948:     * POST /api/finance/allowance-templates/{id}/apply
+api/controllers/FinanceController.php:966:     * POST /api/finance/fee-invoices/generate
+api/controllers/FinanceController.php:975:     * POST /api/finance/fee-invoices/generate-batch
+api/controllers/FinanceController.php:984:     * GET /api/finance/fee-invoices/get?student_id=X
+api/controllers/FinanceController.php:998:     * POST /api/finance/payments/generate-receipt
+api/controllers/FinanceController.php:1013:     * POST /api/finance/payments/generate-payslip
+api/controllers/FinanceController.php:1028:     * POST /api/finance/payments/send-notification
+api/controllers/FinanceController.php:1049:     * GET /api/finance/fee-types-list
+api/controllers/FinanceController.php:1058:     * POST /api/finance/fee-types
+api/controllers/FinanceController.php:1067:     * PUT /api/finance/fee-types/{id}
+api/controllers/FinanceController.php:1085:     * PATCH /api/finance/fee-types/{id}
+api/controllers/FinanceController.php:1103:     * GET /api/finance/student-types-list
+api/controllers/FinanceController.php:1113:     * POST /api/finance/fees/create-annual-structure
+api/controllers/FinanceController.php:1122:     * POST /api/finance/fees/review-structure
+api/controllers/FinanceController.php:1131:     * POST /api/finance/fees/approve-structure
+api/controllers/FinanceController.php:1142:     * POST /api/finance/fees/activate-structure
+api/controllers/FinanceController.php:1151:     * POST /api/finance/fees/deactivate-structure
+api/controllers/FinanceController.php:1160:     * POST /api/finance/fees/rollover-structure
+api/controllers/FinanceController.php:1169:     * POST /api/finance/fees/update-annual-structure
+api/controllers/FinanceController.php:1178:     * POST /api/finance/fees/delete-annual-structure
+api/controllers/FinanceController.php:1187:     * GET /api/finance/fees/term-breakdown
+api/controllers/FinanceController.php:1203:     * GET /api/finance/fees/pending-reviews
+api/controllers/FinanceController.php:1212:     * GET /api/finance/fees/annual-summary
+api/controllers/FinanceController.php:1227:     * GET /api/finance/fee-structures/list
+api/controllers/FinanceController.php:1241:     * GET /api/finance/fee-structures/{id}
+api/controllers/FinanceController.php:1257:     * POST /api/finance/fee-structures
+api/controllers/FinanceController.php:1267:     * PUT /api/finance/fee-structures/{id}
+api/controllers/FinanceController.php:1283:     * DELETE /api/finance/fee-structures/{id}
+api/controllers/FinanceController.php:1299:     * POST /api/finance/fee-structures/{id}/duplicate
+api/controllers/FinanceController.php:1319:     * GET /api/finance/students/payment-history
+api/controllers/FinanceController.php:1335:     * GET /api/finance/students/payment-status
+api/controllers/FinanceController.php:1351:     * GET /api/finance/students/fee-statement/{id}
+api/controllers/FinanceController.php:1373:     * GET /api/finance/students/balance/{id}
+api/controllers/FinanceController.php:1401:     * GET /api/finance/reports — summary of available reports + recent totals
+api/controllers/FinanceController.php:1410:     * POST /api/finance/reports/generate-payroll
+api/controllers/FinanceController.php:1419:     * GET /api/finance/reports/compare-yearly-collections
+api/controllers/FinanceController.php:1439:     * GET /api/finance/reconciliation/unreconciled
+api/controllers/FinanceController.php:1591:     * POST /api/finance/fees-bundle-submit
+api/controllers/FinanceController.php:1606:     * POST /api/finance/fees-bundle-review/{id}
+api/controllers/FinanceController.php:1621:     * POST /api/finance/fees-bundle-approve/{id}
+api/controllers/FinanceController.php:1637:     * GET /api/finance/fees-bundle-list
+api/controllers/FinanceController.php:1656:     * POST /api/finance/fees-activate-generate-obligations
+api/controllers/FinanceController.php:1672:     * POST /api/finance/fees-create-bundle
+api/controllers/FinanceController.php:1692:     * GET /api/finance/fees-bundle-grid
+api/controllers/FinanceController.php:1719:     * GET /api/finance/students-billing-history/{id}
+api/controllers/FinanceController.php:1730:     * GET /api/finance/class-billing-report/{id}
+api/controllers/FinanceController.php:1748:    /** GET /api/finance/expenses — list all expenses with filters */
+api/controllers/FinanceController.php:1764:    /** POST /api/finance/expenses — create expense */
+api/controllers/FinanceController.php:1775:    /** PUT /api/finance/expenses/{id} — update or change status */
+api/controllers/FinanceController.php:1794:    /** DELETE /api/finance/expenses/{id} — soft delete */
+api/controllers/FinanceController.php:1802:    /** GET /api/finance/expense-categories — list all expense categories */
+api/controllers/FinanceController.php:1812:    /** GET /api/finance/petty-cash — list transactions + fund summary */
+api/controllers/FinanceController.php:1822:    /** POST /api/finance/petty-cash — record a petty cash transaction */
+api/controllers/FinanceController.php:1843:    /** GET /api/finance/cash-reconciliation — list sessions or get one by date or id */
+api/controllers/FinanceController.php:1856:    /** POST /api/finance/cash-reconciliation — submit a daily cash count */
+api/controllers/FinanceController.php:1871:    /** GET /api/finance/adjustments — list all adjustments */
+api/controllers/FinanceController.php:1877:    /** POST /api/finance/adjustments — create adjustment */
+api/controllers/FinanceController.php:1888:    /** PUT /api/finance/adjustments/{id} — approve/reject/apply */
+api/controllers/FinanceController.php:1910:    /** GET /api/finance/exception-reports — list flagged exceptions */
+api/controllers/FinanceController.php:1916:    /** PUT /api/finance/exception-reports/{id} — update status */
+api/controllers/FinanceController.php:1929:    /** GET /api/finance/budgets — list all budgets */
+api/controllers/FinanceController.php:1940:    /** POST /api/finance/budgets — create budget */
+api/controllers/FinanceController.php:1951:    /** PUT /api/finance/budgets/{id} — update or approve/submit budget */
+api/controllers/FinanceController.php:1969:    /** GET /api/finance/fee-waivers — list all discounts/waivers */
+api/controllers/FinanceController.php:1975:    /** POST /api/finance/fee-waivers — create waiver/discount */
+api/controllers/FinanceController.php:1991:    /** GET /api/finance/sponsored-students — list sponsored students */
+api/controllers/FinanceController.php:2109:     * GET /api/finance/unmatched-payments
+api/controllers/FinanceController.php:2132:     * POST /api/finance/unmatched-payments/match
+api/controllers/TelemetryController.php:28:     * POST /api/telemetry/data
+api/controllers/TelemetryController.php:36:     * POST /api/telemetry/errors
+api/controllers/StaffController.php:114:     * GET /api/staff/stats - Get staff statistics for dashboard
+api/controllers/StaffController.php:126:     * GET /api/staff - List all staff
+api/controllers/StaffController.php:127:     * GET /api/staff/{id} - Get specific staff member
+api/controllers/StaffController.php:147:     * GET /api/staff/staff - Alias for base GET
+api/controllers/StaffController.php:148:     * GET /api/staff/staff/{id} - Alias for base GET with ID
+api/controllers/StaffController.php:156:     * POST /api/staff - Create new staff member
+api/controllers/StaffController.php:175:     * POST /api/staff/staff - Alias for base POST
+api/controllers/StaffController.php:183:     * POST /api/staff/upload-photo/{id}
+api/controllers/StaffController.php:189:     * POST /api/staff/upload-document/{id}
+api/controllers/StaffController.php:206:     * GET /api/staff/academic-kpi-summary/{staffId} - Get academic KPI summary
+api/controllers/StaffController.php:224:     * POST /api/staff/assign-role - Assign role to staff
+api/controllers/StaffController.php:242:     * DELETE /api/staff/revoke-role/{staffId}/{roleId} - Revoke role from staff
+api/controllers/StaffController.php:262:     * GET /api/staff/lifecycle - Get staff lifecycle records
+api/controllers/StaffController.php:282:     * POST /api/staff/lifecycle - Create lifecycle action
+api/controllers/StaffController.php:297:     * GET /api/staff/appointments - Get staff appointments
+api/controllers/StaffController.php:306:     * POST /api/staff/appointments - Create appointment
+api/controllers/StaffController.php:315:     * POST /api/staff/import-existing - Import existing staff records
+api/controllers/StaffController.php:378:     * PUT /api/staff/{id} - Update staff member
+api/controllers/StaffController.php:392:     * PUT /api/staff/staff/{id} - Alias for base PUT
+api/controllers/StaffController.php:400:     * DELETE /api/staff/{id} - Delete staff member
+api/controllers/StaffController.php:414:     * DELETE /api/staff/staff/{id} - Alias for base DELETE
+api/controllers/StaffController.php:424:     * GET /api/staff/profile/get - Get staff profile
+api/controllers/StaffController.php:442:     * GET /api/staff/schedule/get - Get staff schedule
+api/controllers/StaffController.php:460:     * GET /api/staff/departments/get - Get all departments
+api/controllers/StaffController.php:471:     * GET /api/staff/children-list?staff_id=X
+api/controllers/StaffController.php:484:     * POST /api/staff/children-add
+api/controllers/StaffController.php:497:     * PUT /api/staff/children-update/{id}
+api/controllers/StaffController.php:511:     * DELETE /api/staff/children-remove/{id}?staff_id=X
+api/controllers/StaffController.php:528:     * GET /api/staff/children-fee-config
+api/controllers/StaffController.php:537:     * GET /api/staff/children-calculate-deductions?staff_id=X&month=Y&year=Z
+api/controllers/StaffController.php:554:     * GET /api/staff/contracts/list
+api/controllers/StaffController.php:564:     * GET /api/staff/contracts/get/{id}
+api/controllers/StaffController.php:577:     * POST /api/staff/contracts/create
+api/controllers/StaffController.php:586:     * PUT /api/staff/contracts/update/{id}
+api/controllers/StaffController.php:601:     * GET /api/staff/payroll/list
+api/controllers/StaffController.php:613:     * GET /api/staff/payroll/summary
+api/controllers/StaffController.php:624:     * GET /api/staff/payroll/detailed-payslip?staff_id=&month=&year=
+api/controllers/StaffController.php:647:     * POST /api/staff/assign/class - Assign staff to class
+api/controllers/StaffController.php:662:     * POST /api/staff/assign/subject - Assign staff to subject
+api/controllers/StaffController.php:677:     * GET /api/staff/assignments/get - Get staff assignments
+api/controllers/StaffController.php:690:     * GET /api/staff/assignments/current - Get current assignments
+api/controllers/StaffController.php:700:     * GET /api/staff/workload/get - Get staff workload
+api/controllers/StaffController.php:712:     * POST /api/staff/assignment/initiate - Initiate assignment workflow
+api/controllers/StaffController.php:732:     * GET /api/staff/attendance/get - Get staff attendance records
+api/controllers/StaffController.php:743:     * POST /api/staff/attendance/mark - Mark staff attendance
+api/controllers/StaffController.php:755:     * GET /api/staff/leaves/list - List leave requests
+api/controllers/StaffController.php:766:     * POST /api/staff/leaves/apply - Apply for leave
+api/controllers/StaffController.php:785:     * PUT /api/staff/leaves/update-status - Update leave status
+api/controllers/StaffController.php:800:     * POST /api/staff/leave/initiate-request - Initiate leave request workflow
+api/controllers/StaffController.php:817:     * GET /api/staff/payroll/payslip - View payslip
+api/controllers/StaffController.php:837:     * GET /api/staff/payroll/history - Get payroll history
+api/controllers/StaffController.php:858:     * GET /api/staff/payroll/allowances - View allowances
+api/controllers/StaffController.php:869:     * GET /api/staff/payroll/deductions - View deductions
+api/controllers/StaffController.php:880:     * GET /api/staff/payroll/loan-details - Get loan details
+api/controllers/StaffController.php:893:     * POST /api/staff/payroll/request-advance - Request salary advance
+api/controllers/StaffController.php:903:     * POST /api/staff/payroll/apply-loan - Apply for loan
+api/controllers/StaffController.php:913:     * GET /api/staff/payroll/download-p9 - Download P9 form
+api/controllers/StaffController.php:932:     * GET /api/staff/payroll/download-payslip - Download payslip
+api/controllers/StaffController.php:952:     * GET /api/staff/payroll/export-history - Export payroll history
+api/controllers/StaffController.php:968:     * GET /api/staff/performance/review-history - Get review history
+api/controllers/StaffController.php:978:     * GET /api/staff/performance/generate-report - Generate performance report
+api/controllers/StaffController.php:992:     * GET /api/staff/performance/academic-kpi-summary - Get academic KPI summary
+api/controllers/StaffController.php:1096:     * GET /api/staff/promotions - List all promotions
+api/controllers/StaffController.php:1109:     * POST /api/staff/promotions - Create a promotion
+api/controllers/StaffController.php:1123:     * PUT /api/staff/promotions/{id}/approve - Approve or reject a promotion
+api/controllers/StaffController.php:1144:     * GET /api/staff/offboarding - List all offboarding records
+api/controllers/StaffController.php:1157:     * POST /api/staff/offboarding - Initiate offboarding
+api/controllers/StaffController.php:1171:     * PUT /api/staff/offboarding/{id} - Update offboarding record
+api/controllers/StaffController.php:1187:     * GET /api/staff/upcoming-retirements - Staff approaching retirement
+api/controllers/StaffController.php:1200:     * GET /api/staff/my-schedule
+api/controllers/StaffController.php:1217:     * GET /api/staff/onboarding        — list all onboardings
+api/controllers/StaffController.php:1218:     * GET /api/staff/onboarding/{id}   — single onboarding + tasks + documents
+api/controllers/StaffController.php:1230:     * POST /api/staff/onboarding
+api/controllers/StaffController.php:1241:     * PUT /api/staff/onboarding/{id}
+api/controllers/StaffController.php:1253:     * PUT /api/staff/onboarding-task/{id}
+api/controllers/StaffController.php:1265:     * POST /api/staff/onboarding-document
+api/controllers/StaffController.php:1276:     * POST /api/staff/probation-review
+api/controllers/StaffController.php:1287:     * GET /api/staff/onboarding-templates
+api/controllers/StaffController.php:1297:     * GET /api/staff/onboarding-pending
+api/controllers/StaffController.php:1313:     * POST /api/staff/id-card/generate
+api/controllers/StaffController.php:1338:     * POST /api/staff/id-card/generate-bulk-pdf
+api/controllers/StaffController.php:1367:     * POST /api/staff/id-card/print-single
+api/controllers/StaffController.php:1386:    /** POST /api/staff/id-cards-bulk-generate */
+api/controllers/StaffController.php:1464:     * POST /api/staff/id-card/upload-photo
+api/controllers/StaffController.php:1496:    /** GET /api/staff/access-context */
+api/controllers/StaffController.php:1533:    /** GET /api/staff/teachers */
+api/controllers/StaffController.php:1540:    /** GET /api/staff/non-teaching */
+api/controllers/StaffController.php:1548:     * GET /api/staff/key-contacts
+api/controllers/StaffController.php:1580:    /** GET /api/staff/payroll-eligibility/{staffId} */
+api/controllers/StaffController.php:1589:    /** POST /api/staff/payroll-eligibility/validate */
+api/controllers/StaffController.php:1601:    /** POST /api/staff/role-assignments */
+api/controllers/StaffController.php:1617:    /** DELETE /api/staff/role-assignments/{roleId}?staff_id=X */
+api/controllers/StaffController.php:1633:    /** GET /api/staff/id-cards — legacy route name, security-pass registry. */
+api/controllers/StaffController.php:1640:    /** POST /api/staff/id-cards/generate — generate and register one pass. */
+api/controllers/StaffController.php:1705:    /** POST /api/staff/id-cards/issue — mark a registered pass as issued. */
+api/controllers/StaffController.php:1739:    /** GET /api/staff/leave-requests — admin scope or own records */
+api/controllers/StaffController.php:1750:    /** GET /api/staff/leave-balance — authenticated staff member's own balance. */
+api/controllers/StaffController.php:1763:    /** POST /api/staff/leave-requests */
+api/controllers/StaffController.php:1777:    /** PUT /api/staff/leave-requests/{id}/status */
+api/controllers/StaffController.php:1790:    /** GET /api/staff/performance-reviews */
+api/controllers/StaffController.php:1801:    /** POST /api/staff/performance-reviews */
+api/controllers/StaffController.php:1816:    /** PUT /api/staff/performance-reviews/{id} */
+api/controllers/StaffController.php:1831:    /** DELETE /api/staff/performance-reviews/{id} — drafts only */
+api/controllers/StaffController.php:1847:    /** GET /api/staff/internal-opportunities */
+api/controllers/StaffController.php:1868:    /** POST /api/staff/internal-opportunities/apply */
+api/controllers/StaffController.php:1898:    /** GET /api/staff/incidents */
+api/controllers/StaffController.php:1919:    /** POST /api/staff/incidents */
+api/controllers/StaffController.php:1998:    /** GET /api/staff/leave-types */
+api/controllers/StaffController.php:2005:    /** GET /api/staff/available-roles */
+api/controllers/StaffController.php:2012:    /** GET /api/staff/role-assignments?staff_id=X */
+api/controllers/StaffController.php:2025:    /** GET /api/staff/statutory-remittances */
+api/controllers/StaffController.php:2071:    /** POST /api/staff/statutory-remittances */
+api/controllers/StaffController.php:2097:    /** PUT /api/staff/statutory-remittances/{id} */
+api/controllers/StaffController.php:2118:    /** POST /api/staff/statutory-remittances/{id}/initiate-payment */
+api/controllers/StaffController.php:2134:    /** GET /api/staff/statutory-agency-accounts?agency=KRA */
+api/controllers/StaffController.php:2151:    /** GET /api/staff/statutory-remittances/calc?agency=X&month=X&year=X */
+api/controllers/LibraryController.php:13: * GET  /api/library/summary                → getSummary()
+api/controllers/LibraryController.php:14: * GET  /api/library/categories             → getCategories()
+api/controllers/LibraryController.php:15: * POST /api/library/categories             → postCategories()
+api/controllers/LibraryController.php:16: * GET  /api/library/books                  → getBooks()
+api/controllers/LibraryController.php:17: * GET  /api/library/books/{id}             → getBooks($id)
+api/controllers/LibraryController.php:18: * POST /api/library/books                  → postBooks()
+api/controllers/LibraryController.php:19: * PUT  /api/library/books/{id}             → putBooks($id)
+api/controllers/LibraryController.php:20: * DELETE /api/library/books/{id}           → deleteBooks($id)
+api/controllers/LibraryController.php:21: * GET  /api/library/issues                 → getIssues()
+api/controllers/LibraryController.php:22: * POST /api/library/issues                 → postIssues()          — issue a book
+api/controllers/LibraryController.php:23: * PUT  /api/library/issues/{id}/return     → putIssuesReturn($id)  — return
+api/controllers/LibraryController.php:24: * GET  /api/library/overdue               → getOverdue()
+api/controllers/LibraryController.php:25: * GET  /api/library/fines                 → getFines()
+api/controllers/LibraryController.php:26: * PUT  /api/library/fines/{id}/pay        → putFinesPay($id)
+api/controllers/LibraryController.php:27: * PUT  /api/library/fines/{id}/waive      → putFinesWaive($id)
+api/controllers/HealthController.php:13: * GET  /api/health/summary                  → getSummary()
+api/controllers/HealthController.php:14: * GET  /api/health/records                  → getRecords()
+api/controllers/HealthController.php:15: * GET  /api/health/records/{id}             → getRecords($id)  — by student_id
+api/controllers/HealthController.php:16: * POST /api/health/records                  → postRecords()
+api/controllers/HealthController.php:17: * PUT  /api/health/records/{id}             → putRecords($id)
+api/controllers/HealthController.php:18: * GET  /api/health/sick-bay                 → getSickBay()
+api/controllers/HealthController.php:19: * POST /api/health/sick-bay                 → postSickBay()
+api/controllers/HealthController.php:20: * PUT  /api/health/sick-bay/{id}            → putSickBay($id)  — update / dismiss
+api/controllers/HealthController.php:21: * GET  /api/health/vaccinations             → getVaccinations()
+api/controllers/HealthController.php:22: * GET  /api/health/vaccinations/{id}        → getVaccinations($id)  — by student_id
+api/controllers/HealthController.php:23: * POST /api/health/vaccinations             → postVaccinations()
+api/controllers/PushController.php:10: *   POST /api/push/subscribe    -> postSubscribe()
+api/controllers/PushController.php:11: *   POST /api/push/unsubscribe  -> postUnsubscribe()
+api/controllers/PushController.php:31:     * POST /api/push/subscribe
+api/controllers/PushController.php:58:     * POST /api/push/unsubscribe
+api/controllers/NotificationsController.php:20: *   GET  /api/notifications                        -> getNotifications()
+api/controllers/NotificationsController.php:21: *   POST /api/notifications/mark-all-read          -> postMarkAllRead()
+api/controllers/NotificationsController.php:22: *   POST /api/notifications/push                   -> postPush() (admin broadcast)
+api/controllers/NotificationsController.php:27:     * GET /api/notifications
+api/controllers/NotificationsController.php:53:    /** PUT /api/notifications/{id} with {read: true|false}. */
+api/controllers/NotificationsController.php:74:     * POST /api/notifications/mark-all-read
+api/controllers/NotificationsController.php:129:     * POST /api/notifications/push
+api/controllers/AttendanceController.php:47:     * GET /api/attendance/today - Get today's attendance statistics for dashboard
+api/controllers/AttendanceController.php:56:     * GET /api/attendance/today-attendance - Get today's student attendance percentage for dashboard
+api/controllers/AttendanceController.php:87:     * GET /api/attendance/trends - Return attendance trends for last 30 days
+api/controllers/AttendanceController.php:207:     * GET /api/attendance/classes - Get all classes for attendance marking dropdown
+api/controllers/AttendanceController.php:215:     * GET /api/attendance/students-by-class/{stream_id} - Get students for a class
+api/controllers/AttendanceController.php:226:     * POST /api/attendance/mark-bulk - Mark attendance for multiple students at once
+api/controllers/AttendanceController.php:239:     * GET /api/attendance/sessions - Get all attendance sessions
+api/controllers/AttendanceController.php:248:     * GET /api/attendance/session-attendance - Get attendance for a specific session
+api/controllers/AttendanceController.php:259:     * POST /api/attendance/mark-session - Mark attendance for a specific session
+api/controllers/AttendanceController.php:268:     * GET /api/attendance/academic-summary
+api/controllers/AttendanceController.php:277:     * GET /api/attendance/daily-register
+api/controllers/AttendanceController.php:290:     * GET /api/attendance/dormitories - Get all dormitories
+api/controllers/AttendanceController.php:298:     * GET /api/attendance/dormitory-students - Get students in a dormitory for roll call
+api/controllers/AttendanceController.php:309:     * POST /api/attendance/mark-boarding - Mark boarding attendance (roll call)
+api/controllers/AttendanceController.php:318:     * GET /api/attendance/boarding-summary - Get boarding attendance summary for a date
+api/controllers/AttendanceController.php:330:     * GET /api/attendance/permission-types - Get all student permission types
+api/controllers/AttendanceController.php:338:     * GET /api/attendance/permissions - Get student permissions (optionally filtered)
+api/controllers/AttendanceController.php:351:     * POST /api/attendance/permissions - Create a new student permission/exeat
+api/controllers/AttendanceController.php:364:     * PUT /api/attendance/permissions/{id} - Approve/reject permission
+api/controllers/AttendanceController.php:389:     * GET /api/attendance/staff-today - Get staff attendance for today with leave/off-day info
+api/controllers/AttendanceController.php:398:     * POST /api/attendance/mark-staff - Mark staff attendance
+api/controllers/AttendanceController.php:408:     * GET /api/attendance/staff-register-context?date=X&department_id=Y
+api/controllers/AttendanceController.php:422:     * GET /api/attendance/duty-types - Get all staff duty types
+api/controllers/AttendanceController.php:431:     * GET /api/attendance/staff-report - Get staff attendance report with aggregates
+api/controllers/AttendanceController.php:445:     * GET /api/attendance/calendar - Get school calendar for a date range
+api/controllers/AttendanceController.php:453:     * GET /api/attendance/is-school-day - Check if a date is a school day
+api/controllers/AttendanceController.php:522:     * GET /api/attendance/register-context?date=2026-04-26&stream_id=3&session_id=1
+api/controllers/AttendanceController.php:536:     * GET /api/attendance/student-history-by-year/{student_id}
+api/controllers/BoardingController.php:11: * GET    /api/boarding                    → getStats()
+api/controllers/BoardingController.php:12: * GET    /api/boarding/stats              → getStats()
+api/controllers/BoardingController.php:13: * GET    /api/boarding/occupancy          → getOccupancy()
+api/controllers/BoardingController.php:14: * GET    /api/boarding/dormitories        → getDormitories()
+api/controllers/BoardingController.php:15: * POST   /api/boarding/dormitories        → postDormitories()
+api/controllers/BoardingController.php:16: * PUT    /api/boarding/dormitories/{id}   → putDormitories()
+api/controllers/BoardingController.php:17: * DELETE /api/boarding/dormitories/{id}   → deleteDormitories()
+api/controllers/BoardingController.php:18: * GET    /api/boarding/students           → getStudents()
+api/controllers/BoardingController.php:19: * GET    /api/boarding/roll-call          → getRollCall()
+api/controllers/BoardingController.php:20: * POST   /api/boarding/roll-call          → postRollCall()
+api/controllers/BoardingController.php:21: * GET    /api/boarding/exeats             → getExeats()
+api/controllers/BoardingController.php:22: * POST   /api/boarding/exeats             → postExeats()
+api/controllers/BoardingController.php:23: * PUT    /api/boarding/exeats/{id}        → putExeats()  (approve/reject)
+api/controllers/BoardingController.php:24: * GET    /api/boarding/activity           → getActivity()
+api/controllers/DashboardController.php:46:     * GET /api/dashboard/director/announcements
+api/controllers/DashboardController.php:67:     * GET /api/dashboard/director/payroll-summary
+api/controllers/DashboardController.php:89:     * GET /api/dashboard/director/system-status
+api/controllers/DashboardController.php:111:     * GET /api/dashboard/director/summary
+api/controllers/DashboardController.php:136:     * GET /api/payments/trends
+api/controllers/DashboardController.php:160:     * GET /api/payments/revenue-sources
+api/controllers/DashboardController.php:184:     * GET /api/attendance/trends
+api/controllers/DashboardController.php:212:     * GET /api/dashboard/fees-by-class-term
+api/controllers/DashboardController.php:235:     * GET /api/dashboard/academic-kpis-table
+api/controllers/DashboardController.php:258:     * GET /api/dashboard/student-distribution
+api/controllers/DashboardController.php:278:     * GET /api/dashboard/staff-deployment
+api/controllers/DashboardController.php:298:     * GET /api/dashboard/director/risks
+api/controllers/DashboardController.php:324:     * GET /api/dashboard/system-admin/auth-events
+api/controllers/DashboardController.php:344:     * GET /api/dashboard/system-admin/active-sessions
+api/controllers/DashboardController.php:364:     * GET /api/dashboard/system-admin/uptime
+api/controllers/DashboardController.php:384:     * GET /api/dashboard/system-admin/health-errors
+api/controllers/DashboardController.php:404:     * GET /api/dashboard/system-admin/health-warnings
+api/controllers/DashboardController.php:424:     * GET /api/dashboard/system-admin/api-load
+api/controllers/DashboardController.php:446:     * GET /api/dashboard/director/enrollment
+api/controllers/DashboardController.php:469:     * GET /api/dashboard/director/staff
+api/controllers/DashboardController.php:492:     * GET /api/dashboard/director/finance
+api/controllers/DashboardController.php:515:     * GET /api/dashboard/director/attendance
+api/controllers/DashboardController.php:540:     * GET /api/dashboard/headteacher/full
+api/controllers/DashboardController.php:570:     * GET /api/dashboard/deputy-academic/full
+api/controllers/DashboardController.php:590:     * GET /api/dashboard/deputy-discipline/full
+api/controllers/DashboardController.php:610:     * GET /api/dashboard/headteacher/overview
+api/controllers/DashboardController.php:632:     * GET /api/dashboard/headteacher/attendance-today
+api/controllers/DashboardController.php:654:     * GET /api/dashboard/headteacher/schedules
+api/controllers/DashboardController.php:676:     * GET /api/dashboard/headteacher/admissions
+api/controllers/DashboardController.php:698:     * GET /api/dashboard/headteacher/discipline
+api/controllers/DashboardController.php:720:     * GET /api/dashboard/headteacher/communications
+api/controllers/DashboardController.php:742:     * GET /api/dashboard/headteacher/assessments
+api/controllers/DashboardController.php:764:     * GET /api/dashboard/headteacher/performance
+api/controllers/DashboardController.php:788:     * GET /api/dashboard/accountant/financial
+api/controllers/DashboardController.php:867:     * GET /api/dashboard/accountant/payments
+api/controllers/DashboardController.php:917:     * GET /api/dashboard/headteacher/pending-admissions
+api/controllers/DashboardController.php:940:     * GET /api/dashboard/headteacher/discipline-cases
+api/controllers/DashboardController.php:966:     * GET /api/dashboard/subject-teacher/full
+api/controllers/DashboardController.php:986:     * GET /api/dashboard/subject-teacher/classes
+api/controllers/DashboardController.php:1008:     * GET /api/dashboard/subject-teacher/sections
+api/controllers/DashboardController.php:1030:     * GET /api/dashboard/subject-teacher/assessments-due
+api/controllers/DashboardController.php:1052:     * GET /api/dashboard/subject-teacher/graded
+api/controllers/DashboardController.php:1074:     * GET /api/dashboard/subject-teacher/exams
+api/controllers/DashboardController.php:1096:     * GET /api/dashboard/subject-teacher/lesson-plans
+api/controllers/DashboardController.php:1118:     * GET /api/dashboard/subject-teacher/pending-assessments
+api/controllers/DashboardController.php:1141:     * GET /api/dashboard/subject-teacher/exam-schedule
+api/controllers/DashboardController.php:1167:     * GET /api/dashboard/class-teacher/full
+api/controllers/DashboardController.php:1187:     * GET /api/dashboard/class-teacher/my-class
+api/controllers/DashboardController.php:1207:     * GET /api/dashboard/class-teacher/attendance
+api/controllers/DashboardController.php:1227:     * GET /api/dashboard/class-teacher/assessments
+api/controllers/DashboardController.php:1247:     * GET /api/dashboard/class-teacher/lesson-plans
+api/controllers/DashboardController.php:1267:     * GET /api/dashboard/class-teacher/students
+api/controllers/DashboardController.php:1289:     * GET /api/dashboard/teacher/my-class
+api/controllers/DashboardController.php:1314:     * GET /api/dashboard/teacher/my-attendance-today
+api/controllers/DashboardController.php:1338:     * GET /api/dashboard/school-admin/full
+api/controllers/DashboardController.php:1355:     * GET /api/dashboard/school-admin/students
+api/controllers/DashboardController.php:1376:     * GET /api/dashboard/school-admin/staff
+api/controllers/DashboardController.php:1396:     * GET /api/dashboard/school-admin/attendance
+api/controllers/DashboardController.php:1415:     * GET /api/dashboard/school-admin/admissions
+api/controllers/DashboardController.php:1431:     * GET /api/dashboard/school-admin/timetables
+api/controllers/DashboardController.php:1450:     * GET /api/dashboard/school-admin/announcements
+api/controllers/DashboardController.php:1466:     * GET /api/dashboard/school-admin/pending-items
+api/controllers/DashboardController.php:1486:     * GET /api/dashboard/school-admin/staff-directory
+api/controllers/DashboardController.php:1507:     * GET /api/dashboard/school-admin/class-distribution
+api/controllers/DashboardController.php:1524:     * GET /api/dashboard/school-admin/attendance-trend
+api/controllers/DashboardController.php:1541:     * GET /api/dashboard/school-admin/system-status
+api/controllers/DashboardController.php:1559:     * GET /api/dashboard/intern-teacher/full
+api/controllers/DashboardController.php:1579:     * GET /api/dashboard/intern-teacher/classes
+api/controllers/DashboardController.php:1599:     * GET /api/dashboard/intern-teacher/observations
+api/controllers/DashboardController.php:1621:     * GET /api/dashboard/config
+api/controllers/DashboardController.php:1645:     * GET /api/dashboard/route?role_id=X
+api/controllers/DashboardController.php:1668:     * GET /api/dashboard/sidebars
+api/controllers/ChapelController.php:13: * GET /api/chapel/services  → getServices()  query: limit=N, upcoming=1
+api/controllers/ChapelController.php:31:     * GET /api/chapel/services?limit=N&upcoming=1
+api/controllers/SettingsController.php:39:     * GET /api/settings/roles
+api/controllers/SettingsController.php:50:     * POST /api/settings/roles  (create a role)
+api/controllers/SettingsController.php:63:     * PUT /api/settings/roles/{id}  (update a role)
+api/controllers/SettingsController.php:76:     * DELETE /api/settings/roles/{id}
+api/controllers/SettingsController.php:87:     * GET /api/settings/permissions
+api/controllers/SettingsController.php:95:     * POST /api/settings/backup
+api/controllers/SessionController.php:31:     * GET /api/auth/session
+api/controllers/SessionController.php:108:     * POST /api/session/refresh
+api/controllers/SessionController.php:190:     * POST /api/session/validate-token
+api/controllers/SystemConfigController.php:190:     * GET /api/systemconfig/routes
+api/controllers/SystemConfigController.php:212:     * POST /api/systemconfig/routes
+api/controllers/SystemConfigController.php:224:     * PUT /api/systemconfig/routes/{id}
+api/controllers/SystemConfigController.php:240:     * DELETE /api/systemconfig/routes/{id}
+api/controllers/SystemConfigController.php:261:     * GET /api/systemconfig/routes-permissions/{routeId}
+api/controllers/SystemConfigController.php:277:     * POST /api/systemconfig/routes-permissions
+api/controllers/SystemConfigController.php:303:     * DELETE /api/systemconfig/routes-permissions/{routeId}/{permissionId}
+api/controllers/SystemConfigController.php:327:     * GET /api/systemconfig/role-routes/{roleId}
+api/controllers/SystemConfigController.php:343:     * POST /api/systemconfig/role-routes
+api/controllers/SystemConfigController.php:367:     * POST /api/systemconfig/role-routes-bulk
+api/controllers/SystemConfigController.php:389:     * DELETE /api/systemconfig/role-routes/{roleId}/{routeId}
+api/controllers/SystemConfigController.php:413:     * GET /api/systemconfig/menus
+api/controllers/SystemConfigController.php:429:     * POST /api/systemconfig/menus
+api/controllers/SystemConfigController.php:441:     * PUT /api/systemconfig/menus/{id}
+api/controllers/SystemConfigController.php:457:     * DELETE /api/systemconfig/menus/{id}
+api/controllers/SystemConfigController.php:474:     * POST /api/systemconfig/menus-reorder
+api/controllers/SystemConfigController.php:495:     * GET /api/systemconfig/role-menus/{roleId}
+api/controllers/SystemConfigController.php:511:     * POST /api/systemconfig/role-menus
+api/controllers/SystemConfigController.php:535:     * POST /api/systemconfig/role-menus-bulk
+api/controllers/SystemConfigController.php:561:     * GET /api/systemconfig/user-sidebar/{userId}
+api/controllers/SystemConfigController.php:584:     * GET /api/systemconfig/dashboards
+api/controllers/SystemConfigController.php:600:     * POST /api/systemconfig/dashboards
+api/controllers/SystemConfigController.php:612:     * PUT /api/systemconfig/dashboards/{id}
+api/controllers/SystemConfigController.php:628:     * DELETE /api/systemconfig/dashboards/{id}
+api/controllers/SystemConfigController.php:649:     * GET /api/systemconfig/policies
+api/controllers/SystemConfigController.php:665:     * POST /api/systemconfig/policies
+api/controllers/SystemConfigController.php:677:     * PUT /api/systemconfig/policies/{id}
+api/controllers/SystemConfigController.php:693:     * DELETE /api/systemconfig/policies/{id}
+api/controllers/SystemConfigController.php:714:     * POST /api/systemconfig/authorize
+api/controllers/SystemConfigController.php:771:     * POST /api/systemconfig/sync
+api/controllers/SystemConfigController.php:784:     * POST /api/systemconfig/import-menus
+api/controllers/SystemConfigController.php:797:     * POST /api/systemconfig/import-routes
+api/controllers/SystemConfigController.php:810:     * GET /api/systemconfig/index
+api/modules/academic/AcademicManager.php:433:     * PUT /api/academic/formative-assessments/{id} - Update a formative assessment.
+api/modules/academic/AcademicManager.php:515:     * DELETE /api/academic/formative-assessments/{id} - Delete a formative assessment
+api/modules/academic/AcademicManager.php:542:     * GET /api/academic/conduct-grades - Conduct ratings for students in a class.
+api/modules/academic/AcademicManager.php:652:     * GET /api/academic/results - Assessment result rows for the results summary page.
+api/modules/academic/AcademicManager.php:719:     * GET /api/academic/reports - Builds a printable report payload {columns, rows, summary}
+api/modules/academic/AcademicManager.php:2637:     * GET /api/academic/my-teaching-today
+api/modules/academic/AcademicManager.php:2766:     * GET /api/academic/deputy-academic-summary
+api/modules/academic/AcademicManager.php:2914:     * GET /api/academic/deputy-discipline-summary
+api/modules/academic/AcademicManager.php:3049:     * GET /api/academic/sub-strands?strand_id=X
+api/modules/academic/AcademicManager.php:3082:    /** POST /api/academic/sub-strands */
+api/modules/academic/AcademicManager.php:3120:    /** PUT /api/academic/sub-strands/{id} */
+api/modules/academic/AcademicManager.php:3148:    /** DELETE /api/academic/sub-strands/{id} */
+api/modules/academic/AcademicManager.php:3161:     * GET /api/academic/learning-outcomes?sub_strand_id=X&strand_id=X&learning_area_id=X
+api/modules/academic/AcademicManager.php:3200:    /** POST /api/academic/learning-outcomes */
+api/modules/academic/AcademicManager.php:3238:    /** PUT /api/academic/learning-outcomes/{id} */
+api/modules/academic/AcademicManager.php:3282:    /** DELETE /api/academic/learning-outcomes/{id} */
+api/modules/academic/AcademicManager.php:3294:    /** GET /api/academic/assessment-rubrics?tool_id=X */
+api/modules/academic/AcademicManager.php:3325:    /** POST /api/academic/assessment-rubrics */
+api/modules/academic/AcademicManager.php:3358:    /** PUT /api/academic/assessment-rubrics/{id} */
+api/modules/academic/AcademicManager.php:3386:    /** DELETE /api/academic/assessment-rubrics/{id} */
+api/modules/academic/AcademicManager.php:3398:    /** GET /api/academic/grading-scale|/grading-scale/{id} - Fetch a grading scale + its grade rules */
+api/modules/academic/AcademicManager.php:3445:    /** POST /api/academic/grading-scale - Create a grading scale */
+api/modules/academic/AcademicManager.php:3472:    /** PUT /api/academic/grading-scale/{id} - Update a grading scale */
+api/modules/academic/AcademicManager.php:3499:    /** POST /api/academic/grade-rules - Create a grade rule (range → grade) */
+api/modules/academic/AcademicManager.php:3531:    /** PUT /api/academic/grade-rules/{id} - Update a grade rule */
+api/modules/academic/AcademicManager.php:3555:    /** DELETE /api/academic/grade-rules/{id} - Delete a grade rule */
+api/modules/academic/AcademicManager.php:3567:    /** GET /api/academic/strand-competencies?strand_id=X&competency_id=X */
+api/modules/academic/AcademicManager.php:3603:    /** POST /api/academic/strand-competencies */
+api/modules/academic/AcademicManager.php:3627:    /** PUT /api/academic/strand-competencies/{id} */
+api/modules/academic/AcademicManager.php:3648:    /** DELETE /api/academic/strand-competencies/{id} */
+api/modules/academic/AcademicManager.php:3661:     * GET /api/academic/curriculum-tree?learning_area_id=X&strand_id=X
+api/modules/academic/AcademicManager.php:3735:     * GET /api/academic/pending-moderation?class_id=X&subject_id=X
+api/modules/academic/AcademicManager.php:3792:    /** POST /api/academic/approve-assessment — approve individual assessment results */
+api/modules/academic/AcademicManager.php:3810:    /** POST /api/academic/reject-assessment — reject individual result */
+api/modules/academic/AcademicManager.php:3826:     * GET /api/academic/curriculum — backward-compatible flat curriculum list
+api/modules/academic/AcademicManager.php:3923:     * GET /api/academic/my-classes
+api/modules/academic/AcademicManager.php:3966:     * GET /api/academic/intern-classes
+api/modules/academic/AcademicManager.php:4006:     * GET /api/academic/intern-subjects
+api/modules/academic/AcademicManager.php:4043:     * GET /api/academic/my-subjects
+api/modules/academic/AcademicManager.php:4086:     * GET /api/academic/my-schemes — schemes of work owned by the teacher.
+api/modules/academic/AcademicManager.php:4100:     * GET /api/academic/subject-schemes — teacher's schemes for one subject.
+api/modules/academic/AcademicManager.php:4154:     * GET /api/academic/syllabus
+api/modules/academic/AcademicManager.php:4205:     * GET /api/academic/my-syllabus
+api/modules/academic/AcademicManager.php:4258:     * GET /api/academic/year-calendar
+api/modules/academic/AcademicManager.php:4419:     * GET /api/academic/calendar/days/{year_id}
+api/modules/academic/AcademicManager.php:4457:     * PUT /api/academic/calendar/day/{id}
+api/modules/academic/AcademicManager.php:4507:     * GET /api/academic/year-history
+api/modules/academic/AcademicManager.php:4538:     * GET /api/academic/lesson-plans/by-class
+api/modules/academic/AcademicManager.php:4645:     * POST /api/academic/curriculum
+api/modules/academic/AcademicManager.php:4696:     * PUT /api/academic/curriculum/{id} — update a flat curriculum entry.
+api/modules/academic/AcademicManager.php:4780:     * DELETE /api/academic/curriculum/{id} — remove a flat curriculum entry
+api/modules/academic/AcademicManager.php:4835:     * GET /api/academic/portfolio/all/{studentId}
+api/modules/academic/AcademicManager.php:4933:     * GET /api/academic/portfolio/list — List portfolios for a student or class
+api/modules/academic/AcademicManager.php:4999:     * GET /api/academic/portfolio/get/{studentId} — Get portfolio + artifacts for a student
+api/modules/academic/AcademicManager.php:5038:     * POST /api/academic/portfolio/create — Create a portfolio for a student
+api/modules/academic/AcademicManager.php:5067:     * POST /api/academic/portfolio/artifact-add — Add artifact to portfolio
+api/modules/academic/AcademicManager.php:5135:     * PUT /api/academic/portfolio/artifact-update — Update artifact metadata
+api/modules/academic/AcademicManager.php:5177:     * POST /api/academic/portfolio/artifact-file-replace — Replace an artifact's evidence file
+api/modules/academic/AcademicManager.php:5237:     * DELETE /api/academic/portfolio/artifact-delete/{id} — Delete artifact
+api/modules/system/SystemConfigAPI.php:46:     * GET /api/system/routes
+api/modules/system/SystemConfigAPI.php:71:     * GET /api/system/routes/{id}
+api/modules/system/SystemConfigAPI.php:94:     * POST /api/system/routes
+api/modules/system/SystemConfigAPI.php:115:     * PUT /api/system/routes/{id}
+api/modules/system/SystemConfigAPI.php:139:     * DELETE /api/system/routes/{id}
+api/modules/system/SystemConfigAPI.php:165:     * GET /api/system/routes/{id}/permissions
+api/modules/system/SystemConfigAPI.php:183:     * POST /api/system/routes/{id}/permissions
+api/modules/system/SystemConfigAPI.php:209:     * DELETE /api/system/routes/{routeId}/permissions/{permissionId}
+api/modules/system/SystemConfigAPI.php:230:     * GET /api/system/roles/{roleId}/routes
+api/modules/system/SystemConfigAPI.php:248:     * POST /api/system/roles/{roleId}/routes
+api/modules/system/SystemConfigAPI.php:273:     * POST /api/system/roles/{roleId}/routes/bulk
+api/modules/system/SystemConfigAPI.php:295:     * DELETE /api/system/roles/{roleId}/routes/{routeId}
+api/modules/system/SystemConfigAPI.php:316:     * GET /api/system/users/{userId}/routes
+api/modules/system/SystemConfigAPI.php:334:     * POST /api/system/users/{userId}/routes
+api/modules/system/SystemConfigAPI.php:361:     * DELETE /api/system/users/{userId}/routes/{routeId}
+api/modules/system/SystemConfigAPI.php:382:     * GET /api/system/menus
+api/modules/system/SystemConfigAPI.php:406:     * GET /api/system/menus/{id}
+api/modules/system/SystemConfigAPI.php:432:     * POST /api/system/menus
+api/modules/system/SystemConfigAPI.php:459:     * PUT /api/system/menus/{id}
+api/modules/system/SystemConfigAPI.php:489:     * DELETE /api/system/menus/{id}
+api/modules/system/SystemConfigAPI.php:511:     * POST /api/system/menus/reorder
+api/modules/system/SystemConfigAPI.php:536:     * GET /api/system/roles/{roleId}/menus
+api/modules/system/SystemConfigAPI.php:559:     * POST /api/system/roles/{roleId}/menus
+api/modules/system/SystemConfigAPI.php:585:     * POST /api/system/roles/{roleId}/menus/bulk
+api/modules/system/SystemConfigAPI.php:607:     * DELETE /api/system/roles/{roleId}/menus/{menuItemId}
+api/modules/system/SystemConfigAPI.php:628:     * GET /api/system/users/{userId}/menus
+api/modules/system/SystemConfigAPI.php:646:     * POST /api/system/users/{userId}/menus
+api/modules/system/SystemConfigAPI.php:675:     * DELETE /api/system/users/{userId}/menus/{menuItemId}/{overrideType}
+api/modules/system/SystemConfigAPI.php:692:     * GET /api/system/users/{userId}/sidebar
+api/modules/system/SystemConfigAPI.php:711:     * GET /api/system/dashboards
+api/modules/system/SystemConfigAPI.php:730:     * GET /api/system/dashboards/{id}
+api/modules/system/SystemConfigAPI.php:760:     * POST /api/system/dashboards
+api/modules/system/SystemConfigAPI.php:780:     * PUT /api/system/dashboards/{id}
+api/modules/system/SystemConfigAPI.php:797:     * DELETE /api/system/dashboards/{id}
+api/modules/system/SystemConfigAPI.php:818:     * GET /api/system/policies
+api/modules/system/SystemConfigAPI.php:836:     * GET /api/system/policies/{id}
+api/modules/system/SystemConfigAPI.php:856:     * POST /api/system/policies
+api/modules/system/SystemConfigAPI.php:877:     * PUT /api/system/policies/{id}
+api/modules/system/SystemConfigAPI.php:894:     * DELETE /api/system/policies/{id}
+api/modules/system/SystemConfigAPI.php:915:     * POST /api/system/authorize
+api/modules/system/SystemConfigAPI.php:983:     * POST /api/system/sync
+api/modules/system/SystemConfigAPI.php:1005:     * POST /api/system/import/menus
+api/modules/system/SystemConfigAPI.php:1040:     * POST /api/system/import/routes
+api/modules/system/SystemConfigAPI.php:1112:     * GET /api/system/roles/{roleId}/dashboards
+api/modules/system/SystemConfigAPI.php:1130:     * POST /api/system/roles/{roleId}/dashboards

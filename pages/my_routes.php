@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-route"></i> My Routes</h4>
+            <h4 class="mb-0"><i class="bi bi-signpost"></i> My Routes</h4>
             <button class="btn btn-light btn-sm" id="startTripBtn">
                 <i class="bi bi-play-circle"></i> Start Trip
             </button>
@@ -79,13 +79,13 @@
                     <table class="table table-hover" id="routesTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Route Name</th>
-                                <th>Type</th>
-                                <th>Pickup Points</th>
-                                <th>Students</th>
-                                <th>Distance (KM)</th>
-                                <th>Schedule</th>
-                                <th>Actions</th>
+                                <th scope="col">Route Name</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Pickup Points</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Distance (KM)</th>
+                                <th scope="col">Schedule</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -104,11 +104,11 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Time</th>
-                                <th>Route</th>
-                                <th>Type</th>
-                                <th>Students</th>
-                                <th>Status</th>
+                                <th scope="col">Time</th>
+                                <th scope="col">Route</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Status</th>
                             </tr>
                         </thead>
                         <tbody id="scheduleBody">
@@ -149,10 +149,10 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Order</th>
-                                <th>Location</th>
-                                <th>Students</th>
-                                <th>Time</th>
+                                <th scope="col">Order</th>
+                                <th scope="col">Location</th>
+                                <th scope="col">Students</th>
+                                <th scope="col">Time</th>
                             </tr>
                         </thead>
                         <tbody id="pickupPointsBody">
@@ -167,10 +167,10 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th>Class</th>
-                                <th>Pickup Point</th>
-                                <th>Contact</th>
+                                <th scope="col">Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Pickup Point</th>
+                                <th scope="col">Contact</th>
                             </tr>
                         </thead>
                         <tbody id="studentsListBody">
@@ -232,4 +232,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/my_routes.js"></script>
+<?php asset_script($appBase, 'js/pages/my_routes.js'); ?>

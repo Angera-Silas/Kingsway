@@ -30,6 +30,9 @@ class ReportsController extends BaseController
     public function getEnrollmentSummary($id = null, $data = [], $segments = [])
     {
         $params = array_merge($_GET, $data ?? []);
+        $params['class_id'] = isset($params['class_id']) ? (int)$params['class_id'] : null;
+        $params['stream_id'] = isset($params['stream_id']) ? (int)$params['stream_id'] : null;
+        $params['year'] = isset($params['year']) && preg_match('/^\d{4}$/', $params['year']) ? $params['year'] : null;
         return $this->handleResponse([
             'by_class' => $this->api->totalStudents($params),
             'trends'   => $this->api->enrollmentTrends($params),
@@ -39,7 +42,10 @@ class ReportsController extends BaseController
     // --- Academic Performance (alias for Director dashboard) ---
     public function getAcademicPerformance($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->examReports(array_merge($_GET, $data ?? [])));
+        $params = array_merge($_GET, $data ?? []);
+        $params['class_id'] = isset($params['class_id']) ? (int)$params['class_id'] : null;
+        $params['term_id'] = isset($params['term_id']) ? (int)$params['term_id'] : null;
+        return $this->handleResponse($this->api->examReports($params));
     }
 
     // --- Admissions Reports ---

@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="js/pages/create_subject_cat.js"></script>
+<?php asset_script($appBase, 'js/pages/create_subject_cat.js'); ?>

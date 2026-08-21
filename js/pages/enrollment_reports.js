@@ -3,7 +3,6 @@
  * Comprehensive admissions and enrollment reporting dashboard
  */
 
-console.log("enrollment_reports.js loaded successfully");
 
 const enrollmentReportsController = {
     applications: [],
@@ -15,10 +14,11 @@ const enrollmentReportsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("enrollmentReportsController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("enrollmentReportsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -32,7 +32,6 @@ const enrollmentReportsController = {
             this.setupEventListeners();
             await this.loadReportData();
 
-            console.log("enrollmentReportsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Enrollment Reports Controller:", error);
             this.showError("Failed to load enrollment reports");
@@ -142,14 +141,12 @@ const enrollmentReportsController = {
 
         try {
             const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Enrollment reports response:", response);
 
             if (!this.isSuccessfulResponse(response)) {
                 throw new Error(response?.message || "Failed to load report data.");
             }
 
             const payload = this.unwrapPayload(response);
-            console.log("Payload:", payload);
 
             // Collect all applications from all queues
             const allApplications = [];
@@ -167,7 +164,6 @@ const enrollmentReportsController = {
             });
 
             this.applications = allApplications;
-            console.log("Applications loaded:", this.applications);
             this.updateSummaryCards();
             this.renderReportsTable();
             this.initCharts();
@@ -526,16 +522,13 @@ function initWhenAPIReady() {
         );
 
     if (hasApi) {
-        console.log("API is ready, initializing enrollment reports controller");
         window.enrollmentReportsController.init();
         return;
     }
 
-    console.log("API not ready yet, waiting...");
     setTimeout(initWhenAPIReady, 100);
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
 });

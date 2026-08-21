@@ -13,6 +13,9 @@
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
         </testsuite>
+        <testsuite name="Integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
@@ -20,6 +23,7 @@
             <directory>api/middleware</directory>
             <directory>api/router</directory>
             <directory>api/services</directory>
+            
         </include>
     </source>
 </phpunit>

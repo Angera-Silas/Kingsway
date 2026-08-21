@@ -61,13 +61,10 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             // Validate payroll data
             $this->validatePayrollData($data);
 
-            // Create payroll record
-            $payrollId = $this->db->insert('payrolls', [
+            // Create payroll record (3NF: payroll_runs)
+            $payrollId = $this->db->insert('payroll_runs', [
                 'month' => $data['month'],
                 'year' => $data['year'],
-                'total_gross' => 0,
-                'total_deductions' => 0,
-                'total_net' => 0,
                 'status' => 'draft',
                 'created_by' => $data['created_by'],
                 'created_at' => date('Y-m-d H:i:s')
@@ -103,7 +100,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function submitForApproval($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'draft', 'pending_approval', $userId);
+            $this->validateTransition('draft', 'pending_approval', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Validate all staff payments calculated
             $this->validatePayrollComplete($payrollId);
@@ -137,7 +134,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function approve($payrollId, $userId, $comments = '')
     {
         try {
-            $this->validateTransition($payrollId, 'pending_approval', 'approved', $userId);
+            $this->validateTransition('pending_approval', 'approved', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Final validation before approval
             $this->validatePayrollForApproval($payrollId);
@@ -170,7 +167,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function reject($payrollId, $userId, $reason)
     {
         try {
-            $this->validateTransition($payrollId, 'pending_approval', 'rejected', $userId);
+            $this->validateTransition('pending_approval', 'rejected', ['payroll_id' => $payrollId, 'user_id' => $userId, 'reason' => $reason]);
 
             $this->transition($payrollId, 'rejected', $userId, [
                 'rejected_at' => date('Y-m-d H:i:s'),
@@ -201,13 +198,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function startDisbursement($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'approved', 'processing', $userId);
-
-            // Check if within disbursement window (24th-30th)
-            $currentDay = (int) date('d');
-            if ($currentDay < 24) {
-                throw new Exception("Disbursement can only be processed from 24th-30th of the month");
-            }
+            $this->validateTransition('approved', 'processing', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             // Update status to processing
             $this->transition($payrollId, 'processing', $userId, [
@@ -238,12 +229,14 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function markCompleted($payrollId, $userId)
     {
         try {
-            $this->validateTransition($payrollId, 'processing', 'completed', $userId);
+            $this->validateTransition('processing', 'completed', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
-            // Verify all payments are successful
+            // Verify all payments are successful (3NF: payslips.payment_status)
             $failedCount = $this->db->fetchColumn(
-                "SELECT COUNT(*) FROM staff_payments 
-                 WHERE payroll_id = ? AND status = 'failed'",
+                "SELECT COUNT(*) FROM payslips ps
+                 JOIN payroll_runs pr ON pr.id = ?
+                 WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                   AND ps.payment_status = 'failed'",
                 [$payrollId]
             );
 
@@ -274,7 +267,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     public function markPartial($payrollId, $userId, $failedCount)
     {
         try {
-            $this->validateTransition($payrollId, 'processing', 'partial', $userId);
+            $this->validateTransition('processing', 'partial', ['payroll_id' => $payrollId, 'user_id' => $userId]);
 
             $this->transition($payrollId, 'partial', $userId, [
                 'partial_marked_at' => date('Y-m-d H:i:s'),
@@ -300,18 +293,18 @@ class PayrollApprovalWorkflow extends WorkflowHandler
      */
     private function calculateStaffPayments($payrollId, $data)
     {
-        // Get all active staff
+        // Get all active staff (3NF: staff JOIN persons for name + payroll_profiles for salary)
         $staff = $this->db->fetchAll(
-            "SELECT * FROM staff WHERE status = 'active'"
+            "SELECT st.*, p.first_name, p.last_name, spp.basic_salary
+             FROM staff st
+             JOIN persons p ON p.id = st.person_id
+             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
+             WHERE st.status = 'active'"
         );
-
-        $totalGross = 0;
-        $totalDeductions = 0;
-        $totalNet = 0;
 
         foreach ($staff as $member) {
             // Calculate salary components
-            $basicSalary = $member['basic_salary'];
+            $basicSalary = (float) ($member['basic_salary'] ?? 0);
             $allowances = $this->calculateAllowances($member);
             $grossSalary = $basicSalary + $allowances;
 
@@ -319,31 +312,20 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             $deductions = $this->calculateDeductions($member, $grossSalary);
             $netSalary = $grossSalary - $deductions;
 
-            // Insert staff payment record
-            $this->db->insert('staff_payments', [
-                'payroll_id' => $payrollId,
+            // Insert staff payment record (3NF: payslips)
+            $this->db->insert('payslips', [
                 'staff_id' => $member['id'],
+                'payroll_month' => $data['month'],
+                'payroll_year' => $data['year'],
                 'basic_salary' => $basicSalary,
-                'allowances' => $allowances,
+                'allowances_total' => $allowances,
                 'gross_salary' => $grossSalary,
-                'deductions' => $deductions,
+                'other_deductions_total' => $deductions,
                 'net_salary' => $netSalary,
-                'status' => 'pending',
+                'payslip_status' => 'draft',
                 'created_at' => date('Y-m-d H:i:s')
             ]);
-
-            $totalGross += $grossSalary;
-            $totalDeductions += $deductions;
-            $totalNet += $netSalary;
         }
-
-        // Update payroll totals
-        $this->db->query(
-            "UPDATE payrolls 
-             SET total_gross = ?, total_deductions = ?, total_net = ?
-             WHERE id = ?",
-            [$totalGross, $totalDeductions, $totalNet, $payrollId]
-        );
     }
 
     /**
@@ -447,9 +429,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             throw new Exception("Month and year are required");
         }
 
-        // Check if payroll already exists for this month/year
+        // Check if payroll already exists for this month/year (3NF: payroll_runs)
         $exists = $this->db->fetchOne(
-            "SELECT id FROM payrolls WHERE month = ? AND year = ? AND status != 'cancelled'",
+            "SELECT id FROM payroll_runs WHERE month = ? AND year = ? AND workflow != 'cancelled'",
             [$data['month'], $data['year']]
         );
 
@@ -463,9 +445,11 @@ class PayrollApprovalWorkflow extends WorkflowHandler
      */
     private function validatePayrollComplete($payrollId)
     {
+        // 3NF: check payslips for the payroll run month/year
+        $run = $this->db->fetchOne("SELECT month, year FROM payroll_runs WHERE id = ?", [$payrollId]);
         $paymentCount = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM staff_payments WHERE payroll_id = ?",
-            [$payrollId]
+            "SELECT COUNT(*) FROM payslips WHERE payroll_month = ? AND payroll_year = ?",
+            [$run['month'] ?? 0, $run['year'] ?? 0]
         );
 
         if ($paymentCount === 0) {
@@ -478,12 +462,16 @@ class PayrollApprovalWorkflow extends WorkflowHandler
      */
     private function validatePayrollForApproval($payrollId)
     {
-        $payroll = $this->db->fetchOne(
-            "SELECT total_net FROM payrolls WHERE id = ?",
+        // 3NF: payroll_runs doesn't store totals directly — derive from payslips
+        $totals = $this->db->fetchOne(
+            "SELECT COALESCE(SUM(ps.net_salary), 0) AS total_net
+             FROM payslips ps
+             JOIN payroll_runs pr ON pr.id = ?
+             WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year",
             [$payrollId]
         );
 
-        if ($payroll['total_net'] <= 0) {
+        if (($totals['total_net'] ?? 0) <= 0) {
             throw new Exception("Invalid payroll total. Cannot approve.");
         }
     }
@@ -526,8 +514,8 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 break;
 
             case 'processing':
-                // Ensure payroll is approved
-                $sql = "SELECT status FROM payrolls WHERE id = ?";
+                // Ensure payroll is approved (3NF: payroll_runs)
+                $sql = "SELECT status FROM payroll_runs WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -538,8 +526,11 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 break;
 
             case 'completed':
-                // Verify all payments are successful
-                $sql = "SELECT COUNT(*) FROM staff_payments WHERE payroll_id = ? AND payment_status = 'failed'";
+                // Verify all payments are successful (3NF: payslips)
+                $sql = "SELECT COUNT(*) FROM payslips ps
+                        JOIN payroll_runs pr ON pr.id = ?
+                        WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                          AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $failed = $stmt->fetchColumn();
@@ -550,8 +541,11 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 break;
 
             case 'partial':
-                // Verify some payments failed
-                $sql = "SELECT COUNT(*) FROM staff_payments WHERE payroll_id = ? AND payment_status = 'failed'";
+                // Verify some payments failed (3NF: payslips)
+                $sql = "SELECT COUNT(*) FROM payslips ps
+                        JOIN payroll_runs pr ON pr.id = ?
+                        WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                          AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $failed = $stmt->fetchColumn();
@@ -600,17 +594,18 @@ class PayrollApprovalWorkflow extends WorkflowHandler
         switch ($stage) {
             case 'draft':
                 // Initialize payroll draft
-                $sql = "UPDATE payrolls SET status = 'draft', updated_at = NOW() WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'draft' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $this->logAction("Payroll draft initialized", "Initialized payroll #{$payrollId}", $userId);
                 break;
 
             case 'pending_approval':
-                // Mark as pending approval
-                $sql = "UPDATE payrolls SET status = 'pending_approval', submitted_at = NOW(), submitted_by = ? WHERE id = ?";
+                // Mark as pending approval (payroll_runs.status has no pending_approval —
+                // keep status=draft and record the workflow stage in the workflow column)
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'pending_approval' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$userId, $payrollId]);
+                $stmt->execute([$payrollId]);
                 $this->logAction("Payroll submitted for approval", "Payroll #{$payrollId} submitted for Director approval", $userId);
 
                 // Send notification to Director
@@ -619,9 +614,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'approved':
                 // Mark as approved
-                $sql = "UPDATE payrolls SET status = 'approved', approved_at = NOW(), approved_by = ? WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'approved', workflow = 'approved' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$userId, $payrollId]);
+                $stmt->execute([$payrollId]);
                 $this->logAction("Payroll approved by Director", "Payroll #{$payrollId} approved and ready for processing", $userId);
 
                 // Notify HR/Accountant
@@ -629,11 +624,11 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 break;
 
             case 'rejected':
-                // Mark as rejected
+                // Mark as rejected (kept in draft status; stage recorded in workflow column)
                 $reason = $data['reason'] ?? 'No reason provided';
-                $sql = "UPDATE payrolls SET status = 'rejected', rejected_at = NOW(), rejected_by = ?, rejection_reason = ? WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'rejected' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$userId, $reason, $payrollId]);
+                $stmt->execute([$payrollId]);
                 $this->logAction("Payroll rejected", "Payroll #{$payrollId} rejected. Reason: {$reason}", $userId);
 
                 // Notify creator
@@ -642,15 +637,15 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'processing':
                 // Mark as processing
-                $sql = "UPDATE payrolls SET status = 'processing', processing_started_at = NOW() WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'processing', workflow = 'processing' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $this->logAction("Payroll disbursement started", "Disbursement process started for payroll #{$payrollId}", $userId);
                 break;
 
             case 'completed':
-                // Mark as completed
-                $sql = "UPDATE payrolls SET status = 'completed', completed_at = NOW() WHERE id = ?";
+                // Mark as completed (payroll_runs 'paid' = fully disbursed)
+                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'completed' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $this->logAction("Payroll completed successfully", "All payments for payroll #{$payrollId} completed successfully", $userId);
@@ -661,12 +656,12 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'partial':
                 // Mark as partial
-                $sql = "SELECT COUNT(*) FROM staff_payments WHERE payroll_id = ? AND payment_status = 'failed'";
+                $sql = "SELECT COUNT(*) FROM disbursement_transactions WHERE payroll_id = ? AND status = 'failed'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $failedCount = $stmt->fetchColumn();
 
-                $sql = "UPDATE payrolls SET status = 'partial', completed_at = NOW() WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'partial' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$payrollId]);
                 $this->logAction("Payroll partially completed", "Payroll #{$payrollId} partially completed. {$failedCount} payments failed", $userId);
@@ -677,9 +672,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'cancelled':
                 // Mark as cancelled
-                $sql = "UPDATE payrolls SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = ? WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'cancelled' WHERE id = ?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$userId, $payrollId]);
+                $stmt->execute([$payrollId]);
                 $this->logAction("Payroll cancelled", "Payroll #{$payrollId} cancelled", $userId);
                 break;
         }
@@ -745,11 +740,37 @@ class PayrollApprovalWorkflow extends WorkflowHandler
      */
     private function transition($payrollId, $toStage, $userId, $data = [])
     {
-        // Update payroll status in database
-        $this->db->update('payrolls', ['status' => $toStage], ['id' => $payrollId]);
+        // Update payroll status in database (payroll_runs.status is a fixed enum;
+        // the finer workflow stage lives in the workflow varchar column)
+        $this->db->update('payroll_runs', [
+            'status' => $this->mapStageToStatus($toStage),
+            'workflow' => $toStage,
+        ], ['id' => $payrollId]);
 
         // Log the transition
         $this->logAction('transition', $payrollId, "Transitioned to {$toStage}");
+    }
+
+    /**
+     * Map a workflow stage to the closest valid payroll_runs.status enum value.
+     */
+    private function mapStageToStatus($stage)
+    {
+        switch ($stage) {
+            case 'approved':
+                return 'approved';
+            case 'processing':
+                return 'processing';
+            case 'completed':
+            case 'partial':
+                return 'paid';
+            case 'pending_approval':
+            case 'rejected':
+            case 'cancelled':
+            case 'draft':
+            default:
+                return 'draft';
+        }
     }
 
     /**

@@ -12,7 +12,14 @@ class RateLimitMiddleware
     const ANONYMOUS_REQUESTS_LIMIT = 120;
     const AUTHENTICATED_REQUESTS_LIMIT = 600;
     const REFRESH_REQUESTS_LIMIT = 60;
+    const LOGIN_REQUESTS_LIMIT = 60;
     const TIME_WINDOW = 60; // seconds
+
+    // Login endpoints that get a stricter rate limit.
+    const LOGIN_PATHS = [
+        '/auth/login',
+        '/users/login',
+    ];
 
     /**
      * Check rate limiting by authenticated user when a bearer token is present,
@@ -28,6 +35,13 @@ class RateLimitMiddleware
 
         try {
             $db = Database::getInstance();
+
+            // The runtime counter store is optional: if it has not been
+            // provisioned, fail open (the nginx edge layer still enforces
+            // per-route limits).
+            if (!self::rateLimitStoreAvailable($db)) {
+                return;
+            }
 
             // Clean old entries (older than time window)
             $db->query(
@@ -61,15 +75,51 @@ class RateLimitMiddleware
         }
     }
 
+    private static $rateLimitStoreChecked = false;
+    private static $rateLimitStoreAvailable = false;
+
+    private static function rateLimitStoreAvailable($db): bool
+    {
+        if (self::$rateLimitStoreChecked) {
+            return self::$rateLimitStoreAvailable;
+        }
+
+        $stmt = $db->query(
+            "SELECT COUNT(*)
+             FROM information_schema.tables
+             WHERE table_schema = DATABASE()
+               AND table_name = 'rate_limit_logs'"
+        );
+        self::$rateLimitStoreAvailable = (int) $stmt->fetchColumn() === 1;
+        self::$rateLimitStoreChecked = true;
+
+        return self::$rateLimitStoreAvailable;
+    }
+
     private static function resolveLimit($rateKey)
     {
         if (self::isRefreshEndpoint()) {
             return self::REFRESH_REQUESTS_LIMIT;
         }
 
+        if (self::isLoginEndpoint()) {
+            return self::LOGIN_REQUESTS_LIMIT;
+        }
+
         return strpos($rateKey, 'user:') === 0
             ? self::AUTHENTICATED_REQUESTS_LIMIT
             : self::ANONYMOUS_REQUESTS_LIMIT;
+    }
+
+    private static function isLoginEndpoint()
+    {
+        $path = strtolower((string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH));
+        foreach (self::LOGIN_PATHS as $loginPath) {
+            if (strpos($path, $loginPath) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function resolveRateKey($ipAddress)

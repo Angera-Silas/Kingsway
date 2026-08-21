@@ -19,21 +19,21 @@
                 class="btn btn-outline-secondary"
                 id="resetIpRuleFiltersBtn"
             >
-                <i class="fas fa-undo me-1"></i> Reset filters
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
             </button>
             <button
                 type="button"
                 class="btn btn-outline-primary"
                 id="refreshIpRulesBtn"
             >
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="addIpRuleBtn"
             >
-                <i class="fas fa-plus me-1"></i> Add rule
+                <i class="bi bi-plus-lg me-1"></i> Add rule
             </button>
         </div>
     </div>
@@ -74,7 +74,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -137,12 +137,12 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>Type</th>
-                        <th>CIDR</th>
-                        <th>Description</th>
-                        <th>Status</th>
-                        <th>Schedule</th>
-                        <th>Updated by</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">CIDR</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Schedule</th>
+                        <th scope="col">Updated by</th>
                         <th class="text-end">Actions</th>
                     </tr>
                 </thead>
@@ -170,7 +170,7 @@
                         class="btn btn-outline-secondary"
                         id="ipRulePreviousPage"
                     >
-                        <i class="fas fa-chevron-left me-1"></i> Previous
+                        <i class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -183,7 +183,7 @@
                         class="btn btn-outline-secondary"
                         id="ipRuleNextPage"
                     >
-                        Next <i class="fas fa-chevron-right ms-1"></i>
+                        Next <i class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

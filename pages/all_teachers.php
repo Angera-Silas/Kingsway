@@ -12,11 +12,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-chalkboard-teacher me-2"></i>All Teachers</h4>
+                    <h4 class="mb-1"><i class="bi bi-person-workspace me-2"></i>All Teachers</h4>
                     <p class="text-muted mb-0">Teaching staff by learning areas, class assignments, school level, and teaching role</p>
                 </div>
                 <a href="home.php?route=manage_staff" class="btn btn-primary" data-permission-module="staff" data-permission-action="create">
-                    <i class="fas fa-plus me-1"></i> Add Teacher
+                    <i class="bi bi-plus-lg me-1"></i> Add Teacher
                 </a>
             </div>
         </div>
@@ -79,7 +79,7 @@
                 </div>
                 <div class="col-md-1">
                     <button class="btn btn-outline-secondary w-100" id="exportTeachers" data-permission-module="staff" data-permission-action="export">
-                        <i class="fas fa-download"></i>
+                        <i class="bi bi-download"></i>
                     </button>
                 </div>
             </div>
@@ -89,14 +89,14 @@
                 <table class="table table-hover" id="teachersTable">
                     <thead>
                         <tr>
-                            <th>Photo</th>
-                            <th>Teacher</th>
-                            <th>Staff No</th>
-                            <th>Teaching Role</th>
-                            <th>Learning Areas</th>
-                            <th>Classes / Levels</th>
-                            <th>Department</th>
-                            <th>Actions</th>
+                            <th scope="col">Photo</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Staff No</th>
+                            <th scope="col">Teaching Role</th>
+                            <th scope="col">Learning Areas</th>
+                            <th scope="col">Classes / Levels</th>
+                            <th scope="col">Department</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -119,7 +119,7 @@
             <div class="modal-body" id="teacherInsightModalBody"></div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary" id="teacherInsightPrintBtn">
-                    <i class="fas fa-print me-1"></i> Print Summary
+                    <i class="bi bi-printer me-1"></i> Print Summary
                 </button>
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
             </div>
@@ -128,4 +128,4 @@
 </div>
 
 <?php $allTeachersJs = __DIR__ . '/../js/pages/all_teachers.js'; ?>
-<script src="<?= $appBase ?>/js/pages/all_teachers.js?v=<?= file_exists($allTeachersJs) ? filemtime($allTeachersJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/all_teachers.js'); ?>

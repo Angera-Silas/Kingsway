@@ -389,5 +389,5 @@
 </div>
 
 <?php $staffOnboardingJs = __DIR__ . '/../js/pages/staff_onboarding.js'; ?>
-<script src="<?= $appBase ?>/js/pages/staff_onboarding.js?v=<?= file_exists($staffOnboardingJs) ? filemtime($staffOnboardingJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_onboarding.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>

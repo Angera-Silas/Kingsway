@@ -449,14 +449,13 @@ class PolicyEngine
     {
         try {
             foreach ($entries as $entry) {
-                $this->db->query(
-                    "INSERT INTO audit_logs (action, details, user_id, status, created_at)
-                     VALUES ('policy_audit', ?, ?, 'info', NOW())",
-                    [
-                        json_encode($entry),
-                        $entry['context']['user_id'] ?? null
-                    ]
-                );
+                \App\API\Includes\FileLogger::write('policy', [
+                    'type' => 'policy_audit',
+                    'action' => 'policy_audit',
+                    'details' => $entry,
+                    'user_id' => $entry['context']['user_id'] ?? null,
+                    'status' => 'info',
+                ]);
             }
         } catch (Exception $e) {
             error_log("Failed to log policy audit: " . $e->getMessage());

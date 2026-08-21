@@ -34,7 +34,7 @@ class MealReportManager extends BaseAPI
         $meal = $mealStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         $costStmt = $this->db->prepare(
-            "SELECT COALESCE(SUM(total_cost), 0) AS daily_cost,
+            "SELECT COALESCE(SUM(quantity_used * cost_per_unit), 0) AS daily_cost,
                     COALESCE(SUM(quantity_used), 0) AS quantity_used,
                     COALESCE(SUM(waste_quantity), 0) AS waste_quantity
              FROM food_consumption_records
@@ -146,7 +146,7 @@ class MealReportManager extends BaseAPI
                     fcr.unit,
                     COALESCE(SUM(fcr.quantity_used), 0) AS total_consumed,
                     COALESCE(SUM(fcr.waste_quantity), 0) AS total_waste,
-                    COALESCE(SUM(fcr.total_cost), 0) AS total_cost
+                    COALESCE(SUM(fcr.quantity_used * fcr.cost_per_unit), 0) AS total_cost
              FROM food_consumption_records fcr
              INNER JOIN inventory_items i ON i.id = fcr.inventory_item_id
              WHERE fcr.consumption_date BETWEEN ? AND ?

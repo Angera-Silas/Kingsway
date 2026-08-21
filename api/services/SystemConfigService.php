@@ -50,7 +50,7 @@ class SystemConfigService
      */
     public function getAllRoutes(bool $activeOnly = true): array
     {
-        $sql = "SELECT * FROM routes";
+        $sql = "SELECT * FROM routes_registry";
         if ($activeOnly) {
             $sql .= " WHERE is_active = 1";
         }
@@ -66,7 +66,7 @@ class SystemConfigService
     public function getRoutesByDomain(string $domain): array
     {
         $stmt = $this->db->query(
-            "SELECT * FROM routes WHERE domain = ? AND is_active = 1 ORDER BY name",
+            "SELECT * FROM routes_registry WHERE domain = ? AND is_active = 1 ORDER BY name",
             [$domain]
         );
         return $stmt->fetchAll();
@@ -78,7 +78,7 @@ class SystemConfigService
     public function getRouteByName(string $name): ?array
     {
         $stmt = $this->db->query(
-            "SELECT * FROM routes WHERE name = ? LIMIT 1",
+            "SELECT * FROM routes_registry WHERE name = ? LIMIT 1",
             [$name]
         );
         return $stmt->fetch() ?: null;
@@ -90,7 +90,7 @@ class SystemConfigService
     public function getRouteById(int $id): ?array
     {
         $stmt = $this->db->query(
-            "SELECT * FROM routes WHERE id = ? LIMIT 1",
+            "SELECT * FROM routes_registry WHERE id = ? LIMIT 1",
             [$id]
         );
         return $stmt->fetch() ?: null;
@@ -101,10 +101,13 @@ class SystemConfigService
      */
     public function createRoute(array $data): int
     {
+        $this->db->beginTransaction();
+        $nextId = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM routes_registry")->fetchColumn();
         $stmt = $this->db->query(
-            "INSERT INTO routes (name, url, domain, description, controller, action, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO routes_registry (id, name, url, domain, description, controller, action, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
+                $nextId,
                 $data['name'],
                 $data['url'],
                 $data['domain'] ?? 'SCHOOL',
@@ -114,7 +117,8 @@ class SystemConfigService
                 $data['is_active'] ?? 1
             ]
         );
-        return (int) $this->db->lastInsertId();
+        $this->db->commit();
+        return $nextId;
     }
 
     /**
@@ -138,7 +142,7 @@ class SystemConfigService
 
         $values[] = $id;
         $this->db->query(
-            "UPDATE routes SET " . implode(', ', $fields) . " WHERE id = ?",
+            "UPDATE routes_registry SET " . implode(', ', $fields) . " WHERE id = ?",
             $values
         );
         return true;
@@ -149,7 +153,7 @@ class SystemConfigService
      */
     public function deleteRoute(int $id): bool
     {
-        $this->db->query("DELETE FROM routes WHERE id = ?", [$id]);
+        $this->db->query("DELETE FROM routes_registry WHERE id = ?", [$id]);
         return true;
     }
 
@@ -163,7 +167,7 @@ class SystemConfigService
     public function getRoutePermissions(int $routeId): array
     {
         $stmt = $this->db->query(
-            "SELECT rp.*, p.name as permission_name, p.description as permission_description
+            "SELECT rp.*, p.code as permission_name, p.description as permission_description
              FROM route_permissions rp
              JOIN permissions p ON p.id = rp.permission_id
              WHERE rp.route_id = ?",
@@ -181,7 +185,7 @@ class SystemConfigService
         // keep calling code compatible.
         $stmt = $this->db->query(
             "SELECT p.code as name, p.id, rp.access_type, rp.is_required
-             FROM routes r
+             FROM routes_registry r
              JOIN route_permissions rp ON rp.route_id = r.id
              JOIN permissions p ON p.id = rp.permission_id
              WHERE r.name = ? AND r.is_active = 1",
@@ -226,7 +230,7 @@ class SystemConfigService
     public function getRoutesForRole(int $roleId): array
     {
         $stmt = $this->db->query(
-            "SELECT r.* FROM routes r
+            "SELECT r.* FROM routes_registry r
              JOIN role_routes rr ON rr.route_id = r.id
              WHERE rr.role_id = ? AND rr.is_allowed = 1 AND r.is_active = 1
              ORDER BY r.domain, r.name",
@@ -242,7 +246,7 @@ class SystemConfigService
     {
         $stmt = $this->db->query(
             "SELECT rr.is_allowed FROM role_routes rr
-             JOIN routes r ON r.id = rr.route_id
+             JOIN routes_registry r ON r.id = rr.route_id
              WHERE rr.role_id = ? AND r.name = ? AND r.is_active = 1
              LIMIT 1",
             [$roleId, $routeName]
@@ -309,7 +313,7 @@ class SystemConfigService
         $stmt = $this->db->query(
             "SELECT ur.*, r.name as route_name, r.domain
              FROM user_routes ur
-             JOIN routes r ON r.id = ur.route_id
+             JOIN routes_registry r ON r.id = ur.route_id
              WHERE ur.user_id = ?
              AND (ur.expires_at IS NULL OR ur.expires_at > NOW())",
             [$userId]
@@ -324,7 +328,7 @@ class SystemConfigService
     {
         $stmt = $this->db->query(
             "SELECT ur.* FROM user_routes ur
-             JOIN routes r ON r.id = ur.route_id
+             JOIN routes_registry r ON r.id = ur.route_id
              WHERE ur.user_id = ? AND r.name = ?
              AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
              LIMIT 1",
@@ -1150,11 +1154,24 @@ class SystemConfigService
     private function logConfigSync(string $type, string $filePath, string $checksum, int $count, string $status, ?string $error = null, ?int $syncedBy = null): void
     {
         try {
-            $this->db->query(
-                "INSERT INTO config_sync_log (config_type, file_path, checksum, records_count, sync_status, error_message, synced_by)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [$type, $filePath, $checksum, $count, $status, $error, $syncedBy]
-            );
+            \App\API\Includes\FileLogger::write('config', [
+                'type' => 'config_sync',
+                'action' => 'config_sync',
+                'entity' => 'config',
+                'entity_id' => null,
+                'user_id' => $syncedBy,
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+                'details' => [
+                    'config_type' => $type,
+                    'file_path' => $filePath,
+                    'checksum' => $checksum,
+                    'records_count' => $count,
+                    'sync_status' => $status,
+                    'error_message' => $error,
+                ],
+                'status' => $status === 'success' ? 'success' : 'failure',
+            ]);
         } catch (Exception $e) {
             error_log("Failed to log config sync: " . $e->getMessage());
         }

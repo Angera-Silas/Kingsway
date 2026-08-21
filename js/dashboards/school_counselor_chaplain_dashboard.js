@@ -24,8 +24,8 @@
         scopeId: 'chaplainDashboardScope',
         lastUpdatedId: 'chaplainDashboardLastUpdated',
 
-        async apiMethod() {
-            const summary = unwrap(await window.API.counseling.getSummary()) || {};
+        async apiMethod({ period } = {}) {
+            const summary = unwrap(await window.API.counseling.getSummary({ period })) || {};
             const byType = Array.isArray(summary.by_type) ? summary.by_type : [];
             const trend = Array.isArray(summary.session_trend) ? summary.session_trend : [];
 

@@ -44,7 +44,7 @@
                 <span
                     class="app-notification-badge"
                     id="header-notification-count"
-                >3</span>
+                >0</span>
             </button>
 
             <div
@@ -53,34 +53,75 @@
             >
                 <div class="app-menu-heading">
                     <strong>Notifications</strong>
-                    <button
-                        type="button"
-                        class="btn btn-sm btn-link text-decoration-none"
-                        id="mark-all-notifications-read"
-                    >
-                        Mark all read
-                    </button>
+                    <span class="d-flex gap-1">
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-link text-decoration-none d-none"
+                            id="notification-broadcast-toggle"
+                        >
+                            Broadcast
+                        </button>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-link text-decoration-none"
+                            id="mark-all-notifications-read"
+                        >
+                            Mark all read
+                        </button>
+                    </span>
+                </div>
+
+                <div id="notification-broadcast-wrap" class="d-none">
+                    <div class="app-notification-broadcast">
+                        <form id="notification-broadcast-form" class="px-2 pb-2 pt-1">
+                            <div class="mb-2">
+                                <input
+                                    type="text"
+                                    id="nb-title"
+                                    class="form-control form-control-sm"
+                                    placeholder="Title"
+                                    maxlength="200"
+                                    required
+                                >
+                            </div>
+                            <div class="mb-2">
+                                <textarea
+                                    id="nb-message"
+                                    class="form-control form-control-sm"
+                                    rows="2"
+                                    placeholder="Message"
+                                    maxlength="2000"
+                                    required
+                                ></textarea>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-6">
+                                    <select id="nb-type" class="form-select form-select-sm">
+                                        <option value="maintenance">Maintenance</option>
+                                        <option value="announcement">Announcement</option>
+                                        <option value="event">Event</option>
+                                        <option value="general">General</option>
+                                    </select>
+                                </div>
+                                <div class="col-6">
+                                    <select id="nb-audience" class="form-select form-select-sm">
+                                        <option value="all_staff">All staff</option>
+                                        <option value="all_users">All users</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-sm btn-primary" id="nb-submit">
+                                    Send broadcast
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
                 <div id="header-notification-list">
-                    <div class="app-notification-item">
-                        <span class="app-notification-icon bg-success-subtle text-success">
-                            <i class="bi bi-person-check"></i>
-                        </span>
-                        <div>
-                            <strong>Admissions update</strong>
-                            <small>2 applications are pending review.</small>
-                        </div>
-                    </div>
-
-                    <div class="app-notification-item">
-                        <span class="app-notification-icon bg-warning-subtle text-warning-emphasis">
-                            <i class="bi bi-calendar-event"></i>
-                        </span>
-                        <div>
-                            <strong>Academic schedule</strong>
-                            <small>Review this week’s timetable.</small>
-                        </div>
+                    <div class="app-notification-empty">
+                        Loading notifications…
                     </div>
                 </div>
             </div>

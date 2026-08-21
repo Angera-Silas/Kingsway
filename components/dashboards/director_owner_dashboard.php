@@ -397,7 +397,7 @@
         <div class="col-12">
             <div class="d-flex align-items-center mb-3">
                 <div class="rounded-circle bg-primary bg-opacity-10 p-2 me-3">
-                    <i class="fas fa-cogs text-primary fa-lg"></i>
+                    <i class="bi bi-gear text-primary fa-lg"></i>
                 </div>
                 <h4 class="mb-0">Operations & Compliance</h4>
             </div>
@@ -407,11 +407,11 @@
                 <div class="col-12">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <h6 class="mb-0 "><i class="fas fa-hourglass-half me-2"></i>Pending Approvals</h6>
+                            <h6 class="mb-0 "><i class="bi bi-hourglass-split me-2"></i>Pending Approvals</h6>
                         </div>
                         <div class="card-body p-0" id="pending_approvals_table">
                             <div class="text-center py-4">
-                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
+                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
@@ -423,11 +423,11 @@
                 <div class="col-12">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
-                            <h6 class="mb-0 "><i class="fas fa-user-graduate me-2"></i>Admissions Queue</h6>
+                            <h6 class="mb-0 "><i class="bi bi-mortarboard me-2"></i>Admissions Queue</h6>
                         </div>
                         <div class="card-body p-0" id="admissions_queue_table">
                             <div class="text-center py-4">
-                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
+                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
@@ -439,11 +439,11 @@
                 <div class="col-12">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);">
-                            <h6 class="mb-0 "><i class="fas fa-exclamation-triangle me-2"></i>Discipline Cases</h6>
+                            <h6 class="mb-0 "><i class="bi bi-exclamation-triangle me-2"></i>Discipline Cases</h6>
                         </div>
                         <div class="card-body p-0" id="discipline_summary_table">
                             <div class="text-center py-4">
-                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
+                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
@@ -455,11 +455,11 @@
                 <div class="col-12">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);">
-                            <h6 class="mb-0 "><i class="fas fa-history me-2"></i>Recent Audit Logs</h6>
+                            <h6 class="mb-0 "><i class="bi bi-clock-history me-2"></i>Recent Audit Logs</h6>
                         </div>
                         <div class="card-body p-0" id="audit_logs_table">
                             <div class="text-center py-4">
-                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
+                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
@@ -471,7 +471,7 @@
                 <div class="col-lg-6 col-md-8 mx-auto">
                     <div class="card border-0 shadow-sm">
                         <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <h6 class="mb-0 "><i class="fas fa-chart-pie me-2"></i>Approval Status Overview</h6>
+                            <h6 class="mb-0 "><i class="bi bi-pie-chart me-2"></i>Approval Status Overview</h6>
                         </div>
                         <div class="card-body d-flex align-items-center justify-content-center">
                             <canvas id="approval_status_chart" height="250"></canvas>
@@ -487,7 +487,7 @@
         <div class="col-12">
             <div class="d-flex align-items-center mb-3">
                 <div class="rounded-circle bg-success bg-opacity-10 p-2 me-3">
-                    <i class="fas fa-user-check text-success fa-lg"></i>
+                    <i class="bi bi-person-check text-success fa-lg"></i>
                 </div>
                 <h4 class="mb-0">Attendance & Discipline</h4>
             </div>
@@ -498,9 +498,9 @@
                     <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                         <div class="card-body text-white text-center py-3">
                             <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="fas fa-users fa-2x opacity-75"></i>
+                                <i class="bi bi-people fa-2x opacity-75"></i>
                             </div>
-                            <h3 class="mb-1" id="attendance_total_marked"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <h3 class="mb-1" id="attendance_total_marked"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
                             <small class="opacity-75">Marked Today</small>
                         </div>
                     </div>
@@ -509,9 +509,9 @@
                     <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
                         <div class="card-body text-white text-center py-3">
                             <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                                <i class="bi bi-check-lg-circle fa-2x opacity-75"></i>
                             </div>
-                            <h3 class="mb-1" id="attendance_present_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <h3 class="mb-1" id="attendance_present_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
                             <small class="opacity-75">Present Today</small>
                         </div>
                     </div>
@@ -520,9 +520,9 @@
                     <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
                         <div class="card-body text-white text-center py-3">
                             <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="fas fa-times-circle fa-2x opacity-75"></i>
+                                <i class="bi bi-x-lg-circle fa-2x opacity-75"></i>
                             </div>
-                            <h3 class="mb-1" id="attendance_absent_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <h3 class="mb-1" id="attendance_absent_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
                             <small class="opacity-75">Absent Today</small>
                         </div>
                     </div>
@@ -531,9 +531,9 @@
                     <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
                         <div class="card-body text-white text-center py-3">
                             <div class="d-flex align-items-center justify-content-center mb-2">
-                                <i class="fas fa-clock fa-2x opacity-75"></i>
+                                <i class="bi bi-clock fa-2x opacity-75"></i>
                             </div>
-                            <h3 class="mb-1" id="attendance_late_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <h3 class="mb-1" id="attendance_late_count"><i class="bi bi-arrow-clockwise fa-spin"></i></h3>
                             <small class="opacity-75">Late Today</small>
                         </div>
                     </div>
@@ -545,7 +545,7 @@
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient " style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Attendance Trends (30 days)</h6>
+                            <h6 class="mb-0"><i class="bi bi-graph-up me-2"></i>Attendance Trends (30 days)</h6>
                         </div>
                         <div class="card-body">
                             <canvas id="attendance_trends_chart" height="250"></canvas>
@@ -555,7 +555,7 @@
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient " style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                            <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Chronic Absenteeism by Date</h6>
+                            <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Chronic Absenteeism by Date</h6>
                         </div>
                         <div class="card-body">
                             <canvas id="chronic_absenteeism_chart" height="250"></canvas>
@@ -569,7 +569,7 @@
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient  d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
-                            <h6 class="mb-0"><i class="fas fa-user-times me-2"></i>Students Absent Today</h6>
+                            <h6 class="mb-0"><i class="bi bi-person-times me-2"></i>Students Absent Today</h6>
                             <span class="badge bg-white text-dark" id="students_absent_badge">0</span>
                         </div>
                         <div class="card-body p-0">
@@ -577,13 +577,13 @@
                                 <table class="table table-sm table-hover mb-0" id="students_absent_today_table">
                                     <thead class="table-light position-sticky top-0">
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Class</th>
-                                            <th>Reason</th>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Class</th>
+                                            <th scope="col">Reason</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr><td colspan="3" class="text-center py-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+                                        <tr><td colspan="3" class="text-center py-3"><i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -593,7 +593,7 @@
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient  d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
-                            <h6 class="mb-0"><i class="fas fa-user-tie me-2"></i>Staff Absent Today</h6>
+                            <h6 class="mb-0"><i class="bi bi-person-tie me-2"></i>Staff Absent Today</h6>
                             <span class="badge bg-white text-dark" id="staff_absent_badge">0</span>
                         </div>
                         <div class="card-body p-0">
@@ -601,13 +601,13 @@
                                 <table class="table table-sm table-hover mb-0" id="staff_absent_today_table">
                                     <thead class="table-light position-sticky top-0">
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Department</th>
-                                            <th>Reason</th>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Department</th>
+                                            <th scope="col">Reason</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr><td colspan="3" class="text-center py-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
+                                        <tr><td colspan="3" class="text-center py-3"><i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -623,7 +623,7 @@
         <div class="col-12">
             <div class="d-flex align-items-center mb-3">
                 <div class="rounded-circle bg-primary bg-opacity-10 p-2 me-3">
-                    <i class="fas fa-bullhorn text-primary fa-lg"></i>
+                    <i class="bi bi-megaphone text-primary fa-lg"></i>
                 </div>
                 <h4 class="mb-0">Communications & Announcements</h4>
             </div>
@@ -631,13 +631,13 @@
                 <div class="col-lg-8">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <h6 class="mb-0 bg-white text-dark"><i class="fas fa-newspaper me-2"></i>Announcements Feed</h6>
+                            <h6 class="mb-0 bg-white text-dark"><i class="bi bi-newspaper me-2"></i>Announcements Feed</h6>
                             <span class="badge bg-white text-dark" id="announcements_count">0</span>
                         </div>
                         <div class="card-body p-0" style="max-height: 400px; overflow-y: auto;">
                             <div id="announcements_feed" class="p-3">
                                 <div class="text-center py-4">
-                                    <i class="fas fa-spinner fa-spin fa-2x text-muted mb-2"></i>
+                                    <i class="bi bi-arrow-clockwise fa-spin fa-2x text-muted mb-2"></i>
                                     <p class="text-muted mb-0">Loading announcements...</p>
                                 </div>
                             </div>
@@ -647,13 +647,13 @@
                 <div class="col-lg-4">
                     <div class="card border-0 shadow-sm h-100">
                         <div class="card-header bg-gradient text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
-                            <h6 class="mb-0 bg-white text-dark"><i class="fas fa-clock me-2"></i>Expiring Soon</h6>
+                            <h6 class="mb-0 bg-white text-dark"><i class="bi bi-clock me-2"></i>Expiring Soon</h6>
                             <span class="badge bg-white text-dark" id="expiring_count">0</span>
                         </div>
                         <div class="card-body p-0">
                             <div id="expiring_notices" class="p-3">
                                 <div class="text-center py-4">
-                                    <i class="fas fa-spinner fa-spin text-muted"></i>
+                                    <i class="bi bi-arrow-clockwise fa-spin text-muted"></i>
                                     <p class="text-muted mb-0 mt-2">Loading...</p>
                                 </div>
                             </div>
@@ -669,7 +669,7 @@
         <div class="col-12">
             <div class="d-flex align-items-center mb-3">
                 <div class="rounded-circle bg-dark bg-opacity-10 p-2 me-3">
-                    <i class="fas fa-toolbox text-dark fa-lg"></i>
+                    <i class="bi bi-tools text-dark fa-lg"></i>
                 </div>
                 <h4 class="mb-0">Toolbox</h4>
             </div>

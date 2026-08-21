@@ -63,7 +63,8 @@ final class DownloadController extends BaseController
                 'download_url' => $this->generatedDownloadUrl($path),
             ], 'Export generated.');
         } catch (\Throwable $exception) {
-            return $this->serverError('Export generation failed.', $exception->getMessage());
+            error_log('[DownloadController] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return $this->serverError('Export generation failed.', 'An internal error occurred.');
         }
     }
 
@@ -121,7 +122,7 @@ final class DownloadController extends BaseController
         echo json_encode([
             'status' => 'error',
             'success' => false,
-            'message' => $exception->getMessage(),
+            'message' => $expired ? 'Download link has expired' : 'File not found',
             'data' => null,
             'code' => $expired ? 410 : 404,
         ], JSON_UNESCAPED_SLASHES);

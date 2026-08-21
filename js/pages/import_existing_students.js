@@ -1,10 +1,11 @@
 /**
  * Import Existing Students Page Controller
- * Handles CSV/Excel uploads via /students/bulk-create
+ * Handles CSV/Excel uploads for learners already enrolled at the school.
  */
 
 const ImportExistingStudentsController = {
-  init: function () {
+  init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -44,7 +45,7 @@ const ImportExistingStudentsController = {
 
     try {
       const resp = await window.API.apiCall(
-        "/students/bulk-create",
+        "/students/import-existing",
         "POST",
         formData,
         {},

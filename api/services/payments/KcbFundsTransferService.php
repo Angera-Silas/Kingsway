@@ -1,13 +1,15 @@
 <?php
+
 namespace App\API\Services\payments;
 
 use Exception;
 
 /**
- * KcbFundsTransferService
- * 
- * Handles KCB Bank funds transfer (B2C)
- * Used for: Staff salaries, supplier payments via bank transfer
+ * KCB Buni funds-transfer client.
+ *
+ * This class owns transport and authentication only. Payment/disbursement
+ * persistence remains in DisbursementManager and callback processing remains
+ * in PaymentsAPI so a provider retry cannot create a second business payment.
  */
 class KcbFundsTransferService
 {
@@ -15,227 +17,271 @@ class KcbFundsTransferService
     private $consumerSecret;
     private $apiKey;
     private $baseUrl;
-    private $debitAccount; // School's KCB account
+    private $tokenEndpoint;
+    private $revokeEndpoint;
+    private $debitAccount;
+    private $companyCode;
+    private $transactionType;
+
+    /** @var array<string, array{token:string, expires_at:int}> */
+    private static $tokenCache = [];
 
     public function __construct()
     {
-        $this->consumerKey = KCB_CONSUMER_KEY;
-        $this->consumerSecret = KCB_CONSUMER_SECRET;
-        $this->apiKey = KCB_API_KEY;
-        $this->baseUrl = KCB_BASE_URL;
-        $this->debitAccount = KCB_CREDIT_ACCOUNT; // School's account
+        $this->consumerKey = defined('KCB_CONSUMER_KEY') ? (string) KCB_CONSUMER_KEY : '';
+        $this->consumerSecret = defined('KCB_CONSUMER_SECRET') ? (string) KCB_CONSUMER_SECRET : '';
+        $this->apiKey = defined('KCB_API_KEY') ? (string) KCB_API_KEY : '';
+        $this->baseUrl = rtrim(defined('KCB_BASE_URL') ? (string) KCB_BASE_URL : '', '/');
+        $this->tokenEndpoint = defined('KCB_TOKEN_ENDPOINT') ? (string) KCB_TOKEN_ENDPOINT : $this->baseUrl . '/token';
+        $this->revokeEndpoint = defined('KCB_REVOKE_ENDPOINT') ? (string) KCB_REVOKE_ENDPOINT : $this->baseUrl . '/revoke';
+        // The source account is transaction-specific. Configuration is never
+        // used as an implicit debit account; callers must pass the verified
+        // financial-account identifier selected for this transaction.
+        $this->debitAccount = '';
+        $this->companyCode = defined('KCB_COMPANY_CODE') ? (string) KCB_COMPANY_CODE : '';
+        $this->transactionType = defined('KCB_FUNDS_TRANSFER_TRANSACTION_TYPE')
+            ? (string) KCB_FUNDS_TRANSFER_TRANSACTION_TYPE
+            : 'IF';
     }
 
     /**
-     * Transfer funds to staff/supplier
+     * Obtain a Buni OAuth client-credentials token.
+     *
+     * @throws Exception
      */
-    public function transferFunds($data)
+    public function getAccessToken(): string
+    {
+        if ($this->consumerKey === '' || $this->consumerSecret === '' || $this->baseUrl === '') {
+            throw new Exception('KCB Buni credentials or base URL are not configured.');
+        }
+
+        $cacheKey = hash('sha256', $this->baseUrl . '|' . $this->consumerKey);
+        $cached = self::$tokenCache[$cacheKey] ?? null;
+        if (is_array($cached) && $cached['expires_at'] > time() + 60) {
+            return $cached['token'];
+        }
+
+        $response = $this->requestAbsolute($this->tokenEndpoint, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query(['grant_type' => 'client_credentials']),
+            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+            CURLOPT_USERPWD => $this->consumerKey . ':' . $this->consumerSecret,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'],
+        ]);
+
+        $token = (string) ($response['access_token'] ?? '');
+        if ($token === '') {
+            throw new Exception('KCB Buni did not return an access token.');
+        }
+
+        self::$tokenCache[$cacheKey] = [
+            'token' => $token,
+            'expires_at' => time() + (int) ($response['expires_in'] ?? 3600),
+        ];
+
+        return $token;
+    }
+
+    /**
+     * Shared authenticated JSON request for the other Buni adapters.
+     * The operation-specific services own their payload and response mapping.
+     */
+    public function requestJson(string $path, array $payload, array $headers = []): array
+    {
+        $requestHeaders = array_merge($this->jsonHeaders($this->getAccessToken()), $headers);
+        return $this->request($path, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_HTTPHEADER => $requestHeaders,
+        ]);
+    }
+
+    /**
+     * Initiate a transfer. This method does not mark a payment complete;
+     * final state comes from the KCB callback/reconciliation path.
+     */
+    public function transferFunds(array $data): array
     {
         try {
-            $accountNumber = $data['account_number'];
-            $bankName = $data['bank_name'];
-            $amount = $data['amount'];
-            $narration = $data['narration'] ?? 'Payment';
-            $beneficiaryName = $data['beneficiary_name'] ?? '';
+            $accountNumber = preg_replace('/\s+/', '', (string) ($data['account_number'] ?? ''));
+            $bankName = trim((string) ($data['bank_name'] ?? ''));
+            $amount = (float) ($data['amount'] ?? 0);
 
-            // Get access token
-            $accessToken = $this->getAccessToken();
-
-            // KCB Funds Transfer API endpoint
-            $url = $this->baseUrl . '/fundstransfer/1.0.0/transfer';
-
-            $payload = [
-                'debitAccount' => $this->debitAccount,
-                'creditAccount' => $accountNumber,
-                'amount' => $amount,
-                'currency' => 'KES',
-                'narration' => $narration,
-                'beneficiaryName' => $beneficiaryName,
-                'transactionReference' => $this->generateReference(),
-                'callbackUrl' => BASE_URL . '/api/payments/kcb-transfer-notification.php'
-            ];
-
-            // If transferring to another bank (RTGS/EFT), add bank code
-            if (strtoupper($bankName) !== 'KCB') {
-                $payload['bankCode'] = $this->getBankCode($bankName);
+            if ($accountNumber === '' || !preg_match('/^[0-9]{6,30}$/', $accountNumber)) {
+                throw new Exception('A valid beneficiary account number is required.');
+            }
+            if ($bankName === '') {
+                throw new Exception('Beneficiary bank is required.');
+            }
+            if ($amount <= 0) {
+                throw new Exception('Transfer amount must be greater than zero.');
+            }
+            $debitAccount = preg_replace('/\s+/', '', (string) ($data['debit_account_number'] ?? $data['source_account_number'] ?? ''));
+            if ($debitAccount === '' || $this->companyCode === '') {
+                throw new Exception('KCB debit account is not configured.');
             }
 
-            $response = $this->makeRequest($url, $payload, $accessToken);
+            $reference = strtoupper(substr((string) ($data['transaction_reference'] ?? $this->generateReference()), 0, 12));
+            $payload = [
+                'companyCode' => $this->companyCode,
+                'transactionType' => $this->transactionType,
+                'debitAccountNumber' => $debitAccount,
+                'creditAccountNumber' => $accountNumber,
+                'debitAmount' => $amount,
+                'paymentDetails' => substr(trim((string) ($data['narration'] ?? 'Payment')), 0, 35),
+                'transactionReference' => $reference,
+                'currency' => 'KES',
+                'beneficiaryDetails' => substr(trim((string) ($data['beneficiary_name'] ?? '')), 0, 35),
+            ];
 
-            // Log the transaction
+            $normalizedBank = strtoupper($bankName);
+            if ($normalizedBank !== 'KCB' && $normalizedBank !== 'KCB BANK') {
+                $payload['beneficiaryBankCode'] = trim((string) ($data['bank_code'] ?? '')) !== ''
+                    ? trim((string) $data['bank_code'])
+                    : $this->getBankCode($bankName);
+            }
+
+            $path = defined('KCB_FUNDS_TRANSFER_PATH')
+                ? (string) KCB_FUNDS_TRANSFER_PATH
+                : '/fundstransfer/1.0.0/api/v1/transfer';
+            $response = $this->request($path, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => $this->jsonHeaders($this->getAccessToken()),
+            ]);
+
             $this->logTransaction($accountNumber, $amount, $response);
 
-            if (isset($response['status']) && $response['status'] === 'SUCCESS') {
+            $header = is_array($response['header'] ?? null) ? $response['header'] : [];
+            $statusCode = (string) ($header['statusCode'] ?? '1');
+            if ($statusCode === '0') {
                 return [
-                    'status' => 'success',
-                    'message' => 'Transfer initiated successfully',
-                    'transaction_ref' => $response['transactionReference'] ?? $payload['transactionReference'],
-                    'response' => $response
+                    'status' => 'pending',
+                    'message' => 'KCB transfer accepted for processing.',
+                    'transaction_ref' => $header['retrievalRefNumber'] ?? $reference,
+                    'request_id' => $header['messageID'] ?? null,
+                    'response' => $response,
                 ];
-            } else {
-                throw new Exception($response['message'] ?? 'Transfer failed');
             }
 
+            throw new Exception((string) ($header['statusDescription'] ?? $header['statusMessage'] ?? 'KCB transfer was rejected.'));
         } catch (Exception $e) {
-            $this->logError("KCB Transfer failed: " . $e->getMessage());
-            return [
-                'status' => 'failed',
-                'message' => $e->getMessage()
-            ];
+            error_log('[KcbFundsTransferService] ' . $e->getMessage());
+            $this->logError($e->getMessage());
+            return ['status' => 'error', 'message' => 'KCB transfer could not be initiated.'];
         }
     }
 
-    /**
-     * Check KCB account balance
-     */
-    public function checkAccountBalance()
+    private function request(string $path, array $options): array
     {
-        try {
-            $accessToken = $this->getAccessToken();
-
-            // KCB Account Balance API
-            $url = $this->baseUrl . '/fundstransfer/1.0.0/balance';
-
-            $payload = [
-                'accountNumber' => $this->debitAccount
-            ];
-
-            $response = $this->makeRequest($url, $payload, $accessToken);
-
-            if (isset($response['balance'])) {
-                return (float) $response['balance'];
-            }
-
-            return 0;
-
-        } catch (Exception $e) {
-            $this->logError("Balance check failed: " . $e->getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * Get OAuth access token from KCB
-     */
-    private function getAccessToken()
-    {
-        $url = KCB_TOKEN_ENDPOINT;
-
-        $payload = [
-            'grant_type' => 'client_credentials'
-        ];
-
-        $credentials = base64_encode($this->consumerKey . ':' . $this->consumerSecret);
-
+        $url = $this->baseUrl . '/' . ltrim($path, '/');
         $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Basic ' . $credentials,
-            'Content-Type: application/x-www-form-urlencoded'
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $defaults = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ];
+        if ($this->apiKey !== '') {
+            // Buni is backed by WSO2 API Manager; its API-key scheme uses
+            // the standard `apikey` header, not a database/API key payload.
+            $options[CURLOPT_HTTPHEADER][] = 'apikey: ' . $this->apiKey;
+        }
+        curl_setopt_array($ch, $options + $defaults);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        if ($httpCode !== 200) {
-            throw new Exception("Failed to get access token. HTTP Code: $httpCode");
+        if ($body === false) {
+            throw new Exception('KCB request failed: ' . $error);
         }
-
-        $result = json_decode($response, true);
-
-        if (!isset($result['access_token'])) {
-            throw new Exception("Access token not found in response");
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            throw new Exception('KCB returned a non-JSON response (HTTP ' . $httpCode . ').');
         }
-
-        return $result['access_token'];
+        if ($httpCode < 200 || $httpCode >= 300) {
+            throw new Exception('KCB returned HTTP ' . $httpCode . '.');
+        }
+        return $decoded;
     }
 
-    /**
-     * Make API request to KCB
-     */
-    private function makeRequest($url, $payload, $accessToken)
+    private function requestAbsolute(string $url, array $options): array
     {
         $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        $defaults = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ];
+        curl_setopt_array($ch, $options + $defaults);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($body === false) {
+            throw new Exception('KCB request failed: ' . $error);
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            throw new Exception('KCB returned a non-JSON response (HTTP ' . $httpCode . ').');
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            throw new Exception('KCB returned HTTP ' . $httpCode . '.');
+        }
+        return $decoded;
+    }
+
+    private function jsonHeaders(string $token): array
+    {
+        return [
+            'Accept: application/json',
             'Content-Type: application/json',
-            'Authorization: Bearer ' . $accessToken,
-            'X-Api-Key: ' . $this->apiKey
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        $result = json_decode($response, true);
-
-        if ($httpCode !== 200 && $httpCode !== 201) {
-            throw new Exception("API request failed. HTTP Code: $httpCode. Response: " . ($result['message'] ?? $response));
-        }
-
-        return $result;
-    }
-
-    /**
-     * Generate unique transaction reference
-     */
-    private function generateReference()
-    {
-        return 'TXN' . date('YmdHis') . rand(1000, 9999);
-    }
-
-    /**
-     * Get bank code for RTGS/EFT transfers
-     */
-    private function getBankCode($bankName)
-    {
-        $bankCodes = [
-            'EQUITY' => '68',
-            'EQUITY BANK' => '68',
-            'CO-OPERATIVE' => '11',
-            'COOP' => '11',
-            'COOPERATIVE BANK' => '11',
-            'ABSA' => '03',
-            'BARCLAYS' => '03',
-            'NCBA' => '07',
-            'STANBIC' => '31',
-            'STANDARD CHARTERED' => '02',
-            'I&M' => '57',
-            'FAMILY BANK' => '70',
-            'DTB' => '63',
-            'DIAMOND TRUST' => '63'
+            'Authorization: Bearer ' . $token,
         ];
-
-        $bankName = strtoupper($bankName);
-
-        return $bankCodes[$bankName] ?? '01'; // Default to KCB if unknown
     }
 
-    /**
-     * Log transaction
-     */
-    private function logTransaction($account, $amount, $response)
+    private function generateReference(): string
     {
-        $logFile = __DIR__ . '/../../../logs/kcb_transfers.log';
-        $timestamp = date('Y-m-d H:i:s');
-        $message = "[$timestamp] KCB Transfer - Account: $account, Amount: $amount, Response: " . json_encode($response) . "\n";
-        error_log($message, 3, $logFile);
+        return 'KWA' . strtoupper(substr(bin2hex(random_bytes(6)), 0, 9));
     }
 
-    /**
-     * Log errors
-     */
-    private function logError($message)
+    private function getBankCode(string $bankName): string
     {
-        $logFile = __DIR__ . '/../../../logs/kcb_transfer_errors.log';
-        $timestamp = date('Y-m-d H:i:s');
-        error_log("[$timestamp] $message\n", 3, $logFile);
+        $key = strtoupper(trim(preg_replace('/\s+/', ' ', $bankName)));
+        $bankCodes = [
+            'EQUITY' => '68', 'EQUITY BANK' => '68',
+            'CO-OPERATIVE' => '11', 'COOP' => '11', 'COOPERATIVE BANK' => '11',
+            'ABSA' => '03', 'BARCLAYS' => '03', 'NCBA' => '07', 'STANBIC' => '31',
+            'STANDARD CHARTERED' => '02', 'I&M' => '57', 'FAMILY BANK' => '70',
+            'DTB' => '63', 'DIAMOND TRUST' => '63',
+        ];
+        if (!isset($bankCodes[$key])) {
+            throw new Exception('Unsupported beneficiary bank; configure its official KCB bank code first.');
+        }
+        return $bankCodes[$key];
+    }
+
+    private function logTransaction(string $account, float $amount, array $response): void
+    {
+        error_log(
+            '[' . date('Y-m-d H:i:s') . '] KCB Transfer - Account: ' . $account .
+            ', Amount: ' . $amount . ', Response: ' . json_encode($response) . "\n",
+            3,
+            __DIR__ . '/../../../logs/kcb_transfers.log'
+        );
+    }
+
+    private function logError(string $message): void
+    {
+        error_log(
+            '[' . date('Y-m-d H:i:s') . '] ' . $message . "\n",
+            3,
+            __DIR__ . '/../../../logs/kcb_transfer_errors.log'
+        );
     }
 }

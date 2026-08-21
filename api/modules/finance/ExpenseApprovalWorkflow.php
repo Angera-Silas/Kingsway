@@ -7,6 +7,7 @@ use App\API\Modules\finance\ExpenseManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use App\API\Services\payments\SupplierDisbursementService;
 
 /**
  * Expense Approval Workflow
@@ -46,8 +47,12 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             // Verify expense exists
             $stmt = $this->db->prepare("
                 SELECT e.*, 
-                       bli.category, bli.available_balance
+                       ec.name AS category_name,
+                       s.name AS vendor_name,
+                       (bli.allocated_amount - bli.spent_amount - bli.committed_amount) AS available_balance
                 FROM expenses e
+                LEFT JOIN expense_categories ec ON e.category_id = ec.id
+                LEFT JOIN suppliers s ON e.vendor_id = s.id
                 LEFT JOIN budget_line_items bli ON e.budget_line_item_id = bli.id
                 WHERE e.id = ?
             ");
@@ -62,11 +67,11 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             // Check for existing active workflow
             $stmt = $this->db->prepare("
                 SELECT wi.* FROM workflow_instances wi
-                WHERE wi.workflow_type = 'expense_approval'
+                WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
-                AND JSON_EXTRACT(wi.workflow_data, '$.expense_id') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.expense_id') = ?
             ");
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
 
             if ($stmt->fetch()) {
                 $this->db->rollBack();
@@ -89,8 +94,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 'expense_id' => $expenseId,
                 'description' => $expense['description'],
                 'amount' => $expense['amount'],
-                'category' => $expense['category'] ?? 'Uncategorized',
-                'vendor' => $expense['vendor'] ?? '',
+                'category' => $expense['category_name'] ?? 'Uncategorized',
+                'vendor' => $expense['vendor_name'] ?? '',
                 'budget_validation' => $budgetValidation,
                 'validation_notes' => $validationNotes,
                 'initiated_by' => $userId,
@@ -134,7 +139,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -180,7 +186,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected during validation');
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'rejected',
@@ -207,7 +213,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to validate expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -248,7 +255,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 ]);
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'approved',
@@ -266,7 +273,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by manager');
 
                 // Update expense status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
                     UPDATE expenses 
                     SET status = 'rejected',
@@ -293,7 +300,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -323,30 +331,44 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             }
 
             // Update expense with payment details
-            $workflowData = json_decode($instance['workflow_data'], true);
+            $workflowData = json_decode($instance['data_json'], true);
+            $expenseId = (int) ($workflowData['expense_id'] ?? 0);
+            $method = strtolower((string) ($data['payment_method'] ?? 'cash'));
+            $supplierPayment = null;
+            if (in_array($method, ['bank_transfer', 'kcb_bank'], true)) {
+                $supplierCheck = $this->db->prepare("SELECT vendor_id FROM expenses WHERE id = ? LIMIT 1");
+                $supplierCheck->execute([$expenseId]);
+                $vendorId = $supplierCheck->fetchColumn();
+                if ($vendorId) {
+                    $supplierPayment = (new SupplierDisbursementService($this->db))->initiateExpensePayment($expenseId, (int) $userId, $data);
+                }
+            }
             $stmt = $this->db->prepare("
                 UPDATE expenses 
-                SET status = 'paid',
+                SET status = ?,
                     payment_method = ?,
-                    payment_reference = ?,
-                    payment_date = NOW(),
+                    reference_number = ?,
+                    paid_at = IF(? = 'paid', NOW(), paid_at),
                     paid_by = ?
                 WHERE id = ?
             ");
+            $expenseStatus = $supplierPayment ? ($supplierPayment['status'] === 'pending' ? 'payment_pending' : 'approved') : 'paid';
             $stmt->execute([
-                $data['payment_method'] ?? 'cash',
-                $data['payment_reference'] ?? '',
+                $expenseStatus,
+                $method,
+                $supplierPayment['transaction_ref'] ?? ($data['payment_reference'] ?? ''),
+                $expenseStatus,
                 $userId,
-                $workflowData['expense_id']
+                $expenseId
             ]);
 
             // Complete workflow
             $this->completeWorkflow($instanceId, [
                 'completed_by' => $userId,
                 'completed_at' => date('Y-m-d H:i:s'),
-                'outcome' => 'paid',
-                'payment_method' => $data['payment_method'] ?? 'cash',
-                'payment_reference' => $data['payment_reference'] ?? ''
+                'outcome' => $supplierPayment ? 'payment_submitted' : 'paid',
+                'payment_method' => $method,
+                'payment_reference' => $supplierPayment['transaction_ref'] ?? ($data['payment_reference'] ?? '')
             ]);
 
             $this->db->commit();
@@ -356,7 +378,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to record payment: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -373,14 +396,14 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                        e.description as expense_description,
                        e.status as expense_status
                 FROM workflow_instances wi
-                INNER JOIN expenses e ON JSON_EXTRACT(wi.workflow_data, '$.expense_id') = e.id
-                WHERE wi.workflow_type = 'expense_approval'
-                AND JSON_EXTRACT(wi.workflow_data, '$.expense_id') = ?
-                ORDER BY wi.created_at DESC
+                INNER JOIN expenses e ON JSON_EXTRACT(wi.data_json, '$.expense_id') = e.id
+                WHERE wi.workflow_id = ?
+                AND JSON_EXTRACT(wi.data_json, '$.expense_id') = ?
+                ORDER BY wi.started_at DESC
                 LIMIT 1
             ");
 
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
             $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$workflow) {
@@ -391,7 +414,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 SELECT * FROM workflow_stage_history
                 WHERE instance_id = ?
-                ORDER BY created_at ASC
+                ORDER BY processed_at ASC
             ");
             $stmt->execute([$workflow['id']]);
             $workflow['stage_history'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -399,7 +422,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -442,7 +466,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return $this->managerApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -484,7 +509,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['message' => 'Expense rejected']);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject expense: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -508,7 +534,8 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             return $this->recordPayment($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+            error_log('[ExpenseApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -523,14 +550,13 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
         try {
             $stmt = $this->db->prepare("
                 SELECT id FROM workflow_instances
-                WHERE workflow_type = 'expense_approval'
-                AND JSON_EXTRACT(workflow_data, '$.expense_id') = ?
-                AND current_stage != 'completed'
-                AND current_stage != 'rejected'
-                ORDER BY created_at DESC
+                WHERE workflow_id = ?
+                AND JSON_EXTRACT(data_json, '$.expense_id') = ?
+                AND status IN ('pending', 'in_progress')
+                ORDER BY started_at DESC
                 LIMIT 1
             ");
-            $stmt->execute([$expenseId]);
+            $stmt->execute([$this->workflow_id, $expenseId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $result ? $result['id'] : null;
@@ -592,7 +618,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             // Stage-specific actions
             if ($stage === 'validation') {
                 if (!empty($data['expense_id'])) {
-                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'pending_validation' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'pending_approval' WHERE id = ?");
                     $stmt->execute([$data['expense_id']]);
                 }
             } elseif ($stage === 'approval') {
@@ -602,7 +628,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 }
             } elseif ($stage === 'payment') {
                 if (!empty($data['expense_id'])) {
-                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'approved_for_payment' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE expenses SET status = 'approved' WHERE id = ?");
                     $stmt->execute([$data['expense_id']]);
                 }
             } elseif ($stage === 'completed') {

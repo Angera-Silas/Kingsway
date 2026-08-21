@@ -1,115 +1,114 @@
 <?php
 namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
+use App\API\Includes\FileLogger;
 
 class SystemReportManager extends BaseAPI
 {
     public function getLoginActivity($filters = [])
     {
-        // Login activity from system_logs (action = 'login')
-        try {
-            $where = ["sl.action IN ('login','logout','failed_login','account_locked')"];
-            $params = [];
-            if (!empty($filters['user_id'])) {
-                $where[] = 'sl.user_id = ?';
-                $params[] = $filters['user_id'];
+        $limit = (int) ($filters['limit'] ?? 200);
+        $entries = FileLogger::recent('auth', max(1, min($limit, 500)));
+        $rows = [];
+        foreach ($entries as $e) {
+            if (($e['type'] ?? '') !== 'login_attempt') {
+                continue;
             }
-            $limit = (int)($filters['limit'] ?? 200);
-            $sql = "SELECT
-                        sl.user_id,
-                        u.username,
-                        sl.action,
-                        sl.ip_address,
-                        sl.created_at AS login_time,
-                        sl.description
-                    FROM system_logs sl
-                    LEFT JOIN users u ON u.id = sl.user_id
-                    WHERE " . implode(' AND ', $where) . "
-                    ORDER BY sl.created_at DESC
-                    LIMIT {$limit}";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
+            if (!empty($filters['user_id']) && (int) ($e['user_id'] ?? 0) !== (int) $filters['user_id']) {
+                continue;
+            }
+            $status = $e['status'] ?? 'failed';
+            $rows[] = [
+                'user_id' => $e['user_id'] ?? null,
+                'username' => $e['username'] ?? null,
+                'action' => $status === 'success' ? 'login_success' : 'login_failed',
+                'ip_address' => $e['ip'] ?? $e['ip_address'] ?? null,
+                'login_time' => $e['timestamp'] ?? null,
+                'description' => $e['failure_reason'] ?? null,
+            ];
         }
+        return $rows;
     }
 
     public function getAccountUnlocks($filters = [])
     {
-        // Account unlocks from system_logs
-        try {
-            $sql = "SELECT
-                        sl.user_id,
-                        u.username,
-                        sl.description,
-                        sl.created_at AS unlock_time,
-                        sl.ip_address
-                    FROM system_logs sl
-                    LEFT JOIN users u ON u.id = sl.user_id
-                    WHERE sl.action = 'account_unlock'
-                    ORDER BY sl.created_at DESC
-                    LIMIT 200";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
+        $entries = FileLogger::recent('audit', 500);
+        $rows = [];
+        foreach ($entries as $e) {
+            if (($e['action'] ?? '') !== 'account_unlock') {
+                continue;
+            }
+            $rows[] = [
+                'user_id' => $e['user_id'] ?? null,
+                'username' => null,
+                'description' => $e['details'] ?? null,
+                'unlock_time' => $e['timestamp'] ?? null,
+                'ip_address' => $e['ip'] ?? $e['ip_address'] ?? null,
+            ];
         }
+        return $rows;
     }
 
     public function getAuditTrailSummary($filters = [])
     {
-        // Audit trail summary from system_logs
-        try {
-            $sql = "SELECT
-                        sl.user_id,
-                        u.username,
-                        sl.action,
-                        sl.entity_type AS module,
-                        COUNT(*) AS action_count,
-                        MAX(sl.created_at) AS last_action
-                    FROM system_logs sl
-                    LEFT JOIN users u ON u.id = sl.user_id
-                    WHERE sl.action IN ('create','update','delete','approve','reject')
-                    GROUP BY sl.user_id, u.username, sl.action, sl.entity_type
-                    ORDER BY action_count DESC
-                    LIMIT 100";
-            $stmt = $this->db->query($sql);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            return [];
+        $entries = FileLogger::recent('audit', 2000);
+        $agg = [];
+        foreach ($entries as $e) {
+            $action = $e['action'] ?? null;
+            if (!in_array($action, ['create', 'update', 'delete', 'approve', 'reject'], true)) {
+                continue;
+            }
+            $key = ($e['user_id'] ?? '') . '|' . ($e['entity'] ?? '') . '|' . $action;
+            if (!isset($agg[$key])) {
+                $agg[$key] = [
+                    'user_id' => $e['user_id'] ?? null,
+                    'username' => null,
+                    'action' => $action,
+                    'module' => $e['entity'] ?? null,
+                    'action_count' => 0,
+                    'last_action' => $e['timestamp'] ?? null,
+                ];
+            }
+            $agg[$key]['action_count']++;
+            if (($e['timestamp'] ?? '') > ($agg[$key]['last_action'] ?? '')) {
+                $agg[$key]['last_action'] = $e['timestamp'];
+            }
         }
+        usort($agg, fn($a, $b) => $b['action_count'] <=> $a['action_count']);
+        return array_slice($agg, 0, 100);
     }
 
     public function getBlockedDevicesStats($filters = [])
     {
-        // Blocked devices statistics from device_blacklist or system_logs
         try {
             $sql = "SELECT
-                        d.device_fingerprint AS device_id,
-                        d.user_id,
+                        bd.user_agent_pattern AS device_id,
+                        bd.created_by AS user_id,
                         u.username,
-                        d.blocked_at,
-                        d.reason
-                    FROM device_blacklist d
-                    LEFT JOIN users u ON u.id = d.user_id
-                    ORDER BY d.blocked_at DESC
+                        bd.created_at AS blocked_at,
+                        bd.reason
+                    FROM blocked_devices bd
+                    LEFT JOIN users u ON u.id = bd.created_by
+                    ORDER BY bd.created_at DESC
                     LIMIT 100";
             $stmt = $this->db->query($sql);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
-            // Fallback: query system_logs for block events
-            try {
-                $sql2 = "SELECT user_id, description, created_at AS blocked_at, ip_address
-                         FROM system_logs
-                         WHERE action = 'device_blocked'
-                         ORDER BY created_at DESC
-                         LIMIT 100";
-                $stmt2 = $this->db->query($sql2);
-                return $stmt2->fetchAll(\PDO::FETCH_ASSOC);
-            } catch (\Exception $e2) {
-                return [];
+            // Fallback: read device block events from the file log
+            $entries = FileLogger::recent('device', 500);
+            $rows = [];
+            foreach ($entries as $e) {
+                if (($e['action'] ?? '') !== 'device_blocked') {
+                    continue;
+                }
+                $rows[] = [
+                    'user_id' => $e['user_id'] ?? null,
+                    'description' => $e['details'] ?? null,
+                    'blocked_at' => $e['timestamp'] ?? null,
+                    'ip_address' => $e['ip'] ?? null,
+                ];
             }
+            return $rows;
         }
     }
 }

@@ -168,6 +168,10 @@ const accountantAccountsCashDashboardController = Object.assign(
   }
 );
 
-document.addEventListener("DOMContentLoaded", function () {
+if (window.__APP_BOOTED__) {
   accountantAccountsCashDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    accountantAccountsCashDashboardController.init();
+  }, { once: true });
+}

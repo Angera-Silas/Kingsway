@@ -307,14 +307,14 @@
                             <thead>
                                 <tr>
                                     <th style="width:40px"><input type="checkbox" id="selAllAssess"></th>
-                                    <th>Assessment Title</th>
-                                    <th>Class</th>
-                                    <th>Subject</th>
-                                    <th>Type</th>
-                                    <th>Max Marks</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
-                                    <th>Results</th>
+                                    <th scope="col">Assessment Title</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Subject</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Max Marks</th>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Results</th>
                                     <th style="width:110px">Actions</th>
                                 </tr>
                             </thead>
@@ -353,14 +353,14 @@
                         <table class="table ex-table mb-0" id="examsTable">
                             <thead>
                                 <tr>
-                                    <th>Exam Title</th>
-                                    <th>Type</th>
-                                    <th>Classes</th>
-                                    <th>Term</th>
-                                    <th>Exam Date</th>
-                                    <th>Max Marks</th>
-                                    <th>Status</th>
-                                    <th>Supervisor</th>
+                                    <th scope="col">Exam Title</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Classes</th>
+                                    <th scope="col">Term</th>
+                                    <th scope="col">Exam Date</th>
+                                    <th scope="col">Max Marks</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Supervisor</th>
                                     <th style="width:110px">Actions</th>
                                 </tr>
                             </thead>
@@ -431,15 +431,15 @@
                         <table class="table ex-table mb-0" id="gradingTable">
                             <thead>
                                 <tr>
-                                    <th>Student</th>
-                                    <th>Admission No</th>
-                                    <th>Class</th>
-                                    <th>Subject</th>
-                                    <th>Formative %</th>
-                                    <th>Summative %</th>
-                                    <th>Overall %</th>
-                                    <th>CBC Grade</th>
-                                    <th>Remarks</th>
+                                    <th scope="col">Student</th>
+                                    <th scope="col">Admission No</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Subject</th>
+                                    <th scope="col">Formative %</th>
+                                    <th scope="col">Summative %</th>
+                                    <th scope="col">Overall %</th>
+                                    <th scope="col">CBC Grade</th>
+                                    <th scope="col">Remarks</th>
                                     <th style="width:90px">Actions</th>
                                 </tr>
                             </thead>
@@ -508,14 +508,14 @@
                                 <table class="table ex-table mb-0" id="subjectSummaryTable">
                                     <thead>
                                         <tr>
-                                            <th>Subject</th>
-                                            <th>Level</th>
-                                            <th>Students Assessed</th>
-                                            <th>Avg Formative %</th>
-                                            <th>Avg Summative %</th>
-                                            <th>Avg Overall %</th>
-                                            <th>EE</th><th>ME</th><th>AE</th><th>BE</th>
-                                            <th>Pass Rate</th>
+                                            <th scope="col">Subject</th>
+                                            <th scope="col">Level</th>
+                                            <th scope="col">Students Assessed</th>
+                                            <th scope="col">Avg Formative %</th>
+                                            <th scope="col">Avg Summative %</th>
+                                            <th scope="col">Avg Overall %</th>
+                                            <th scope="col">EE</th><th scope="col">ME</th><th scope="col">AE</th><th scope="col">BE</th>
+                                            <th scope="col">Pass Rate</th>
                                         </tr>
                                     </thead>
                                     <tbody id="subjectSummaryTbody">
@@ -711,13 +711,13 @@
                     <table class="table ex-table" id="resultsEntryTable">
                         <thead>
                             <tr>
-                                <th>#</th>
-                                <th>Student Name</th>
-                                <th>Admission No</th>
-                                <th>Marks <small class="opacity-75">(/ max)</small></th>
-                                <th>%</th>
-                                <th>Grade</th>
-                                <th>Remarks</th>
+                                <th scope="col">#</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Admission No</th>
+                                <th scope="col">Marks <small class="opacity-75">(/ max)</small></th>
+                                <th scope="col">%</th>
+                                <th scope="col">Grade</th>
+                                <th scope="col">Remarks</th>
                             </tr>
                         </thead>
                         <tbody id="resultsEntryTbody">
@@ -796,4 +796,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/assessments_exams.js"></script>
+<?php asset_script($appBase, 'js/pages/assessments_exams.js'); ?>

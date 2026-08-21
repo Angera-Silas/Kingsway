@@ -7,7 +7,7 @@
 
 // Ensure $appBase is available for script loading
 if (!isset($appBase)) {
-    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
     if ($appBase === '.' || $appBase === '/') {
         $appBase = '';
     }
@@ -21,7 +21,7 @@ if (!isset($appBase)) {
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
                     <h4 class="mb-0">
-                        <i class="fas fa-bed me-2"></i>
+                        <i class="bi bi-hospital me-2"></i>
                         Boarding Students
                     </h4>
                     <small id="scopeSubtitle">Manage dormitory allocation, roll call, exeats, and boarding welfare</small>
@@ -126,7 +126,7 @@ if (!isset($appBase)) {
                     <label class="form-label fw-semibold">Search</label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input type="text" class="form-control" id="searchBox"
                                placeholder="Search by name, admission number, UPI, dormitory, bed">
@@ -135,13 +135,13 @@ if (!isset($appBase)) {
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-success w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply
+                        <i class="bi bi-funnel me-1"></i> Apply
                     </button>
                 </div>
 
                 <div class="col-xl-2 col-md-4 d-flex align-items-end">
                     <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
-                        <i class="fas fa-undo me-1"></i> Reset
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
                     </button>
                 </div>
             </div>
@@ -153,7 +153,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-success text-white p-3">
-                                    <i class="fas fa-bed"></i>
+                                    <i class="bi bi-hospital"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Total Boarders</small>
@@ -169,7 +169,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-primary text-white p-3">
-                                    <i class="fas fa-male"></i>
+                                    <i class="bi bi-person"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Boys</small>
@@ -185,7 +185,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-info text-white p-3">
-                                    <i class="fas fa-female"></i>
+                                    <i class="bi bi-person"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Girls</small>
@@ -201,7 +201,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-warning text-dark p-3">
-                                    <i class="fas fa-door-open"></i>
+                                    <i class="bi bi-door-open"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">On Exeat</small>
@@ -217,7 +217,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-danger text-white p-3">
-                                    <i class="fas fa-user-times"></i>
+                                    <i class="bi bi-person-times"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Absent</small>
@@ -233,7 +233,7 @@ if (!isset($appBase)) {
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3">
                                 <div class="rounded-circle bg-secondary text-white p-3">
-                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <i class="bi bi-exclamation-triangle"></i>
                                 </div>
                                 <div>
                                     <small class="text-muted">Special Alerts</small>
@@ -247,24 +247,24 @@ if (!isset($appBase)) {
 
             <!-- States -->
             <div id="studentsLoading" class="alert alert-info d-none">
-                <i class="fas fa-spinner fa-spin me-2"></i> Loading boarding students...
+                <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading boarding students...
             </div>
 
             <div id="studentsError" class="alert alert-danger d-none"></div>
 
             <div id="studentsForbidden" class="alert alert-warning d-none">
-                <i class="fas fa-exclamation-triangle me-2"></i> You do not have permission to access boarding data.
+                <i class="bi bi-exclamation-triangle me-2"></i> You do not have permission to access boarding data.
             </div>
 
             <div id="studentsEmpty" class="alert alert-warning d-none">
-                <i class="fas fa-info-circle me-2"></i> No boarding students found for the selected filters.
+                <i class="bi bi-info-circle me-2"></i> No boarding students found for the selected filters.
             </div>
 
             <!-- Main Table -->
             <div class="card border-0 shadow-sm" id="studentsCard">
                 <div class="card-header bg-white">
                     <strong>
-                        <i class="fas fa-list me-2 text-success"></i>
+                        <i class="bi bi-list-ul me-2 text-success"></i>
                         Boarding Students
                     </strong>
                 </div>
@@ -273,19 +273,19 @@ if (!isset($appBase)) {
                     <table class="table table-hover align-middle">
                         <thead class="table-light">
                             <tr>
-                                <th><input type="checkbox" id="selectAll"></th>
-                                <th>Adm No</th>
-                                <th>Student Name</th>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Gender</th>
-                                <th>Dormitory</th>
-                                <th>Room/Bed</th>
-                                <th>Boarding Status</th>
-                                <th>Roll Call</th>
-                                <th>Exeat</th>
-                                <th>Alert</th>
-                                <th>Actions</th>
+                                <th scope="col"><input type="checkbox" id="selectAll"></th>
+                                <th scope="col">Adm No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Class</th>
+                                <th scope="col">Stream</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Dormitory</th>
+                                <th scope="col">Room/Bed</th>
+                                <th scope="col">Boarding Status</th>
+                                <th scope="col">Roll Call</th>
+                                <th scope="col">Exeat</th>
+                                <th scope="col">Alert</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="studentsTableBody">
@@ -309,7 +309,7 @@ if (!isset($appBase)) {
             <div class="modal-header bg-success text-white">
                 <div>
                     <h5 class="modal-title mb-0">
-                        <i class="fas fa-bed me-2"></i>
+                        <i class="bi bi-hospital me-2"></i>
                         Boarding Profile
                     </h5>
                     <small id="modalSubtitle">Student boarding details</small>
@@ -319,7 +319,7 @@ if (!isset($appBase)) {
 
             <div class="modal-body">
                 <div id="modalLoading" class="alert alert-info d-none">
-                    <i class="fas fa-spinner fa-spin me-2"></i> Loading boarding profile...
+                    <i class="bi bi-arrow-clockwise fa-spin me-2"></i> Loading boarding profile...
                 </div>
 
                 <div id="modalError" class="alert alert-danger d-none"></div>
@@ -350,7 +350,7 @@ if (!isset($appBase)) {
 
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title mb-0">
-                    <i class="fas fa-house me-2"></i>
+                    <i class="bi bi-house me-2"></i>
                     Assign Dormitory
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -406,7 +406,7 @@ if (!isset($appBase)) {
 
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title mb-0">
-                    <i class="fas fa-clipboard-check me-2"></i>
+                    <i class="bi bi-clipboard-check me-2"></i>
                     Take Roll Call
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -459,7 +459,7 @@ if (!isset($appBase)) {
 
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title mb-0">
-                    <i class="fas fa-door-open me-2"></i>
+                    <i class="bi bi-door-open me-2"></i>
                     Create Exeat
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>

@@ -3,6 +3,7 @@ namespace App\API\Modules\academic;
 
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\NotificationService;
 use Exception;
 use PDO;
 use function App\API\Includes\formatResponse;
@@ -24,6 +25,108 @@ class ExaminationWorkflow extends WorkflowHandler {
     
     public function __construct() {
         parent::__construct('examination_management');
+    }
+
+    // ========================================================================
+    // NEW-SCHEMA RESOLUTION HELPERS
+    // ========================================================================
+
+    /**
+     * Resolve an academic_years.id from an id or year_code value (falls back to term context).
+     */
+    private function resolveAcademicYearId($value, int $termId = 0)
+    {
+        if ($termId > 0) {
+            $stmt = $this->db->prepare("SELECT academic_year_id FROM academic_year_terms WHERE id = ? LIMIT 1");
+            $stmt->execute([$termId]);
+            $fromTerm = (int) ($stmt->fetchColumn() ?: 0);
+            if ($fromTerm > 0) {
+                return $fromTerm;
+            }
+        }
+        if (empty($value)) {
+            return 0;
+        }
+        $stmt = $this->db->prepare("SELECT id FROM academic_years WHERE id = ? OR year_code = ? ORDER BY is_current DESC, id DESC LIMIT 1");
+        $stmt->execute([(int) $value, (string) $value]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve the academic_year_class_streams id for a class_id (accepts either the
+     * ayc.class_id or the aycs.id itself) within a given academic year.
+     */
+    private function resolveAycsIdFromClassId($classId, int $academicYearId)
+    {
+        $cid = (int) $classId;
+        if ($cid <= 0) {
+            return 0;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT aycs.id
+             FROM academic_year_class_streams aycs
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE (aycs.id = ? OR ayc.class_id = ?)
+               AND ayc.academic_year_id = ?
+               AND aycs.status = 'active'
+             ORDER BY aycs.id LIMIT 1"
+        );
+        $stmt->execute([$cid, $cid, $academicYearId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    private function resolveAssessmentAycsId(int $assessmentId)
+    {
+        $stmt = $this->db->prepare("SELECT academic_year_class_stream_id FROM assessments WHERE id = ? LIMIT 1");
+        $stmt->execute([$assessmentId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve the student_academic_enrollments id for a student within a class-stream.
+     */
+    private function resolveStudentEnrollmentId($studentId, int $aycsId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id
+             FROM student_academic_enrollments
+             WHERE student_id = ?
+               AND academic_year_class_stream_id = ?
+               AND enrollment_status IN ('pending', 'active')
+             ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute([(int) $studentId, $aycsId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Map an academic_year_terms id to the underlying terms.id stored in term_subject_scores.
+     * (term_subject_scores.term_id references terms.id; frontend term ids reference academic_year_terms.id.)
+     */
+    private function resolveTssTermId($termId)
+    {
+        $tid = (int) $termId;
+        if ($tid <= 0) {
+            return $tid;
+        }
+        $stmt = $this->db->prepare("SELECT term_id FROM academic_year_terms WHERE id = ? LIMIT 1");
+        $stmt->execute([$tid]);
+        $resolved = (int) ($stmt->fetchColumn() ?: 0);
+        return $resolved > 0 ? $resolved : $tid;
+    }
+
+    /**
+     * Resolve strand/sub_strand for an assessment created from a learning outcome.
+     */
+    private function resolveOutcomeStrand(int $outcomeId)
+    {
+        $stmt = $this->db->prepare("SELECT strand_id, sub_strand_id FROM learning_outcomes WHERE id = ? LIMIT 1");
+        $stmt->execute([$outcomeId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return [
+            isset($row['strand_id']) ? (int) $row['strand_id'] : null,
+            isset($row['sub_strand_id']) ? (int) $row['sub_strand_id'] : null,
+        ];
     }
 
     /**
@@ -119,16 +222,29 @@ class ExaminationWorkflow extends WorkflowHandler {
             if ($termId <= 0) {
                 throw new Exception('Missing term_id in assessment cycle');
             }
+            $academicYearId = $this->resolveAcademicYearId($instanceData['academic_year'] ?? null, $termId);
 
-            // Create assessment items (one per class/subject) and optional invigilation schedule
+            // Create assessment items (one per class-stream/subject) and optional invigilation schedule
             $assessStmt = $this->db->prepare(
-                "INSERT INTO assessments (class_id, subject_id, term_id, title, max_marks, assessment_date, assigned_by, status, learning_outcome_id) 
-                 VALUES (:class_id, :subject_id, :term_id, :title, :max_marks, :assessment_date, :assigned_by, 'pending_submission', :learning_outcome_id)"
+                "INSERT INTO assessments (
+                    academic_year_class_stream_id, academic_year_term_id, learning_area_id,
+                    strand_id, sub_strand_id, title, max_marks, assessment_date, assigned_by, status
+                ) VALUES (
+                    :aycs, :term, :la,
+                    :strand_id, :sub_strand_id, :title, :max_marks, :assessment_date, :assigned_by, 'pending_submission'
+                )"
             );
 
             $schedStmt = $this->db->prepare(
-                "INSERT INTO exam_schedules (class_id, subject_id, exam_date, start_time, end_time, room_id, invigilator_id) 
-                 VALUES (:class_id, :subject_id, :exam_date, :start_time, :end_time, :room_id, :invigilator_id)"
+                "INSERT INTO exam_schedules (
+                    academic_year_class_stream_id, academic_year_term_id, learning_area_id,
+                    exam_name, exam_type, exam_date, start_time, end_time,
+                    room_id, invigilator_id, created_by, status
+                ) VALUES (
+                    :aycs, :term, :la,
+                    :exam_name, :exam_type, :exam_date, :start_time, :end_time,
+                    :room_id, :invigilator_id, :created_by, 'scheduled'
+                )"
             );
 
             $createdAssessments = [];
@@ -140,16 +256,29 @@ class ExaminationWorkflow extends WorkflowHandler {
                     }
                 }
 
+                $aycsId = $this->resolveAycsIdFromClassId(
+                    $entry['class_id'] ?? ($entry['academic_year_class_stream_id'] ?? 0),
+                    $academicYearId
+                );
+                if (!$aycsId) {
+                    throw new Exception("Unable to resolve class/stream for class_id {$entry['class_id']}");
+                }
+
+                [$strandId, $subStrandId] = isset($entry['learning_outcome_id']) && (int)$entry['learning_outcome_id'] > 0
+                    ? $this->resolveOutcomeStrand((int)$entry['learning_outcome_id'])
+                    : [null, null];
+
                 // Create assessment
                 $assessStmt->execute([
-                    'class_id' => (int)$entry['class_id'],
-                    'subject_id' => (int)$entry['subject_id'],
-                    'term_id' => $termId,
+                    'aycs' => $aycsId,
+                    'term' => $termId,
+                    'la' => (int)$entry['subject_id'],
+                    'strand_id' => $strandId,
+                    'sub_strand_id' => $subStrandId,
                     'title' => (string)$entry['title'],
                     'max_marks' => (float)$entry['max_marks'],
                     'assessment_date' => $entry['exam_date'],
                     'assigned_by' => $this->user_id,
-                    'learning_outcome_id' => isset($entry['learning_outcome_id']) ? (int)$entry['learning_outcome_id'] : null,
                 ]);
                 $assessmentId = (int)$this->db->lastInsertId();
                 $createdAssessments[] = $assessmentId;
@@ -173,13 +302,17 @@ class ExaminationWorkflow extends WorkflowHandler {
 
                 // Create exam schedule (optional room/invigilator)
                 $schedStmt->execute([
-                    'class_id' => (int)$entry['class_id'],
-                    'subject_id' => (int)$entry['subject_id'],
+                    'aycs' => $aycsId,
+                    'term' => $termId,
+                    'la' => (int)$entry['subject_id'],
+                    'exam_name' => (string)$entry['title'],
+                    'exam_type' => $entry['exam_type'] ?? null,
                     'exam_date' => $entry['exam_date'],
                     'start_time' => $entry['start_time'],
                     'end_time' => $entry['end_time'],
                     'room_id' => $entry['room_id'] ?? null,
                     'invigilator_id' => $entry['invigilator_id'] ?? null,
+                    'created_by' => $this->user_id,
                 ]);
             }
 
@@ -390,25 +523,35 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             // Bulk upsert marks into assessment_results
             // marks_data: [{student_id, marks, remarks?}]
+            $aycsId = $this->resolveAssessmentAycsId((int)$assessment_id);
+            if (!$aycsId) {
+                throw new Exception('Assessment is not linked to a class stream');
+            }
             $ins = $this->db->prepare(
-                "INSERT INTO assessment_results (assessment_id, student_id, marks_obtained, grade, points, remarks, submitted_at, is_submitted, is_approved)
-                 VALUES (:assessment_id, :student_id, :marks, :grade, :points, :remarks, NOW(), 1, 0)
+                "INSERT INTO assessment_results (assessment_id, student_academic_enrollment_id, marks_obtained, grade, points, remarks, submitted_at, is_submitted, is_approved)
+                 VALUES (:assessment_id, :sae_id, :marks, :grade, :points, :remarks, NOW(), 1, 0)
                  ON DUPLICATE KEY UPDATE marks_obtained = VALUES(marks_obtained), grade = VALUES(grade), points = VALUES(points), remarks = VALUES(remarks), submitted_at = NOW(), is_submitted = 1"
             );
 
+            $recorded = 0;
             foreach ($marks_data as $row) {
                 if (!isset($row['student_id'], $row['marks'])) {
                     throw new Exception('Each marks entry requires student_id and marks');
                 }
+                $saeId = $this->resolveStudentEnrollmentId($row['student_id'], $aycsId);
+                if (!$saeId) {
+                    continue;
+                }
                 $gradeInfo = $this->mapMarkToGrade((float)$row['marks']);
                 $ins->execute([
                     'assessment_id' => $assessment_id,
-                    'student_id' => (int)$row['student_id'],
+                    'sae_id' => $saeId,
                     'marks' => (float)$row['marks'],
                     'grade' => $gradeInfo['grade_code'] ?? null,
                     'points' => $gradeInfo['grade_points'] ?? null,
                     'remarks' => $row['remarks'] ?? null,
                 ]);
+                $recorded++;
             }
 
             // Mark this assessment as recorded in workflow data
@@ -421,7 +564,7 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             return formatResponse(true, [
                 'assessment_id' => $assessment_id,
-                'marks_count' => count($marks_data)
+                'marks_count' => $recorded
             ], 'Marks recorded successfully');
 
         } catch (Exception $e) {
@@ -454,21 +597,26 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             // Apply corrections if any
             if (!empty($corrections)) {
+                $aycsId = $this->resolveAssessmentAycsId((int)$assessment_id);
                 foreach ($corrections as $correction) {
-                    $upd = $this->db->prepare("UPDATE assessment_results SET marks_obtained = :marks WHERE assessment_id = :assessment_id AND student_id = :student_id");
+                    $saeId = $this->resolveStudentEnrollmentId($correction['student_id'] ?? 0, $aycsId);
+                    if (!$saeId) {
+                        continue;
+                    }
+                    $upd = $this->db->prepare("UPDATE assessment_results SET marks_obtained = :marks WHERE assessment_id = :assessment_id AND student_academic_enrollment_id = :sae_id");
                     $upd->execute([
                         'marks' => (float)$correction['marks'],
                         'assessment_id' => $assessment_id,
-                        'student_id' => (int)$correction['student_id']
+                        'sae_id' => $saeId
                     ]);
                     // Recompute grade after correction
                     $gradeInfo = $this->mapMarkToGrade((float)$correction['marks']);
-                    $upd2 = $this->db->prepare("UPDATE assessment_results SET grade = :grade, points = :points WHERE assessment_id = :assessment_id AND student_id = :student_id");
+                    $upd2 = $this->db->prepare("UPDATE assessment_results SET grade = :grade, points = :points WHERE assessment_id = :assessment_id AND student_academic_enrollment_id = :sae_id");
                     $upd2->execute([
                         'grade' => $gradeInfo['grade_code'] ?? null,
                         'points' => $gradeInfo['grade_points'] ?? null,
                         'assessment_id' => $assessment_id,
-                        'student_id' => (int)$correction['student_id']
+                        'sae_id' => $saeId
                     ]);
                 }
             }
@@ -575,13 +723,17 @@ class ExaminationWorkflow extends WorkflowHandler {
             if ($termId <= 0 || empty($assessments)) {
                 throw new Exception('Missing term or assessments for compilation');
             }
+            // term_subject_scores.term_id references terms.id (not academic_year_terms.id)
+            $tssTermId = $this->resolveTssTermId($termId);
 
             // Fetch all results for these assessments
             $inClause = implode(',', array_map('intval', $assessments));
             $resStmt = $this->db->query(
-                "SELECT ar.assessment_id, a.subject_id, a.class_id, ar.student_id, ar.marks_obtained, a.max_marks
+                "SELECT ar.assessment_id, a.learning_area_id AS subject_id, s.id AS student_id, ar.marks_obtained, a.max_marks
                  FROM assessment_results ar
                  JOIN assessments a ON a.id = ar.assessment_id
+                 JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+                 JOIN students s ON s.id = sae.student_id
                  WHERE ar.is_submitted = 1 AND ar.is_approved = 1 AND ar.assessment_id IN ($inClause)"
             );
             $rows = $resStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -645,7 +797,7 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             $up->execute([
                     'student_id' => $agg['student_id'],
-                    'term_id' => $termId,
+                    'term_id' => $tssTermId,
                     'subject_id' => $agg['subject_id'],
                     'f_total' => $agg['form_total'],
                     'f_max' => $agg['form_max'],
@@ -719,6 +871,26 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             $this->db->commit();
 
+            try {
+                $data = json_decode($instance['data_json'], true) ?: [];
+                $examName = trim((string) ($data['exam_name'] ?? ''));
+                $title = 'Exam results released';
+                $message = $examName !== ''
+                    ? 'The results for ' . $examName . ' have been released and published.'
+                    : 'Exam results have been released and published.';
+                (new NotificationService($this->db))->push(
+                    'all_staff',
+                    'exam_results',
+                    $title,
+                    $message,
+                    'high',
+                    ['dedup_minutes' => 60]
+                );
+                $this->queueParentResultNotifications((int) $instance_id, $data);
+            } catch (Exception $e) {
+                error_log('[ExaminationWorkflow] Notification push failed: ' . $e->getMessage());
+            }
+
             return formatResponse(true, [
                 'instance_id' => $instance_id,
                 'status' => 'published'
@@ -729,6 +901,71 @@ class ExaminationWorkflow extends WorkflowHandler {
             $this->logError('results_approval_failed', $e->getMessage());
             return formatResponse(false, null, 'Results approval failed: ' . $e->getMessage());
         }
+    }
+
+    /** Queue parent-facing result notices only after publication is committed. */
+    private function queueParentResultNotifications(int $instanceId, array $data): void
+    {
+        $eventService = new \App\API\Services\CommunicationBusinessEventService($this->db);
+        $eventId = $eventService->getOrCreate('exam_results_published', (string) $instanceId, date('Y-m-d H:i:s'), (int) $this->user_id);
+        $eventService->linkExamWorkflow($eventId, $instanceId);
+        $assessmentIds = array_values(array_filter(array_map('intval', (array) ($data['assessments'] ?? []))));
+        if (!$assessmentIds) return;
+
+        $in = implode(',', $assessmentIds);
+        $studentsStmt = $this->db->query(
+            "SELECT DISTINCT s.id, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name
+               FROM assessment_results ar
+               JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+               JOIN students s ON s.id = sae.student_id
+               JOIN persons p ON p.id = s.person_id
+              WHERE ar.assessment_id IN ($in) AND ar.is_submitted = 1 AND ar.is_approved = 1"
+        );
+        $termId = (int) ($data['term_id'] ?? 0);
+        $termStmt = $this->db->prepare("SELECT t.name FROM academic_year_terms ayt JOIN terms t ON t.id = ayt.term_id WHERE ayt.id = ? LIMIT 1");
+        $termStmt->execute([$termId]);
+        $termName = (string) ($termStmt->fetchColumn() ?: 'the current term');
+        $platform = new \App\API\Services\CommunicationPlatformService($this->db);
+
+        foreach ($studentsStmt->fetchAll(PDO::FETCH_ASSOC) as $student) {
+            $scoreStmt = $this->db->prepare(
+                "SELECT la.name, tss.overall_percentage, tss.overall_grade
+                   FROM term_subject_scores tss JOIN learning_areas la ON la.id = tss.subject_id
+                  WHERE tss.student_id = ? AND tss.term_id = ? ORDER BY la.name"
+            );
+            $scoreStmt->execute([(int) $student['id'], $this->resolveTssTermId($termId)]);
+            $lines = [];
+            foreach ($scoreStmt->fetchAll(PDO::FETCH_ASSOC) as $score) {
+                $lines[] = $score['name'] . ': ' . $score['overall_percentage'] . '% ' . ($score['overall_grade'] ?: '');
+            }
+            $variables = [
+                'student_name' => $student['student_name'],
+                'term_name' => $termName,
+                'summative_lines' => implode(', ', $lines),
+                'summative_gpa' => '',
+                'summative_grade' => '',
+                'formative_lines' => implode(', ', $lines),
+                'formative_gpa' => '',
+                'formative_grade' => '',
+                'average_lines' => implode(', ', $lines),
+                'average_gpa' => '',
+                'average_grade' => '',
+                'results_summary' => implode('<br>', $lines),
+            ];
+            foreach (['sms', 'whatsapp', 'email'] as $channel) {
+                try {
+                    $platform->queueForStudentParents((int) $student['id'], $channel, 'results', $variables, [
+                        'business_event_id' => $eventId,
+                        'purpose' => 'results',
+                        'sender_id' => $this->user_id ?: 1,
+                        'subject' => 'Exam results: ' . $student['student_name'],
+                    ]);
+                } catch (Exception $e) {
+                    error_log('[ExaminationWorkflow] Parent result queue failed: ' . $e->getMessage());
+                }
+            }
+        }
+        $eventService->markProcessed($eventId);
     }
 
     // ========================================================================
@@ -754,11 +991,14 @@ class ExaminationWorkflow extends WorkflowHandler {
         if ($termId <= 0 || !in_array($classification, ['CA','SBA','SA'], true)) {
             return; // insufficient context
         }
+        $tssTermId = $this->resolveTssTermId($termId);
 
         $resStmt = $this->db->prepare(
-            "SELECT ar.assessment_id, a.subject_id, a.class_id, ar.student_id, ar.marks_obtained, a.max_marks
+            "SELECT ar.assessment_id, a.learning_area_id AS subject_id, s.id AS student_id, ar.marks_obtained, a.max_marks
              FROM assessment_results ar
              JOIN assessments a ON a.id = ar.assessment_id
+             JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+             JOIN students s ON s.id = sae.student_id
              WHERE ar.is_submitted = 1 AND ar.is_approved = 1 AND ar.assessment_id = :aid"
         );
         $resStmt->execute(['aid' => $assessmentId]);
@@ -823,9 +1063,9 @@ class ExaminationWorkflow extends WorkflowHandler {
             $gradeInfo = $this->mapMarkToGrade($overall);
 
             $up->execute([
-                'student_id' => $agg['student_id'],
-                'term_id' => $termId,
-                'subject_id' => $agg['subject_id'],
+                    'student_id' => $agg['student_id'],
+                    'term_id' => $tssTermId,
+                    'subject_id' => $agg['subject_id'],
                 'f_total' => $agg['form_total'],
                 'f_max' => $agg['form_max'],
                 'f_pct' => $f_pct,
@@ -960,8 +1200,8 @@ class ExaminationWorkflow extends WorkflowHandler {
             return [];
         }
         
-        // Get the subject associated with this learning area (if any)
-        $subjectStmt = $this->db->prepare("SELECT name FROM subjects WHERE learning_area_id = :la_id LIMIT 1");
+        // Get the learning area associated with this outcome (if any)
+        $subjectStmt = $this->db->prepare("SELECT name FROM learning_areas WHERE id = :la_id LIMIT 1");
         $subjectStmt->execute(['la_id' => (int)$outcome['learning_area_id']]);
         $subject = $subjectStmt->fetch(PDO::FETCH_ASSOC);
         

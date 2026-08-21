@@ -48,13 +48,13 @@
         <table class="table table-hover" id="activitiesTable">
           <thead class="table-light">
             <tr>
-              <th>#</th>
-              <th>Activity</th>
-              <th>Category</th>
-              <th>Date</th>
-              <th>Participants</th>
-              <th>Status</th>
-              <th>Actions</th>
+              <th scope="col">#</th>
+              <th scope="col">Activity</th>
+              <th scope="col">Category</th>
+              <th scope="col">Date</th>
+              <th scope="col">Participants</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -64,4 +64,4 @@
   </div>
 </div>
 
-<script src="/js/pages/manage_activities.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_activities.js'); ?>

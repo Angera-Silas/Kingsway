@@ -22,10 +22,12 @@ const assessmentOverviewCtrl = {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    await GradingScale.preload();
     this._createModal = new bootstrap.Modal(document.getElementById('aoCreateModal'));
     this._marksModal  = new bootstrap.Modal(document.getElementById('aoMarksModal'));
     await Promise.all([
@@ -54,7 +56,7 @@ const assessmentOverviewCtrl = {
 
   _loadClasses: async function () {
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const r = await DataStore.fetchPage('classes', {
         endpoint: '/academic/classes-list', storeName: 'reference_classes',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
@@ -278,6 +280,8 @@ const assessmentOverviewCtrl = {
     const err = document.getElementById('aoCreateError');
     if (err) { err.classList.add('d-none'); err.textContent = ''; }
     this._loadLearningAreas();
+    const outcomeSel = document.getElementById('aoOutcome');
+    if (outcomeSel) outcomeSel.innerHTML = '<option value="">— Select learning outcome —</option>';
     this._createModal.show();
   },
 
@@ -289,6 +293,21 @@ const assessmentOverviewCtrl = {
   onLAChange: function () {
     const laId = document.getElementById('aoLearningArea')?.value || '';
     this._loadStrands(laId);
+    this._loadOutcomes(laId);
+  },
+
+  _loadOutcomes: async function (learningAreaId) {
+    const sel = document.getElementById('aoOutcome');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select learning outcome —</option>';
+    if (!learningAreaId) return;
+    try {
+      const r = await callAPI('/academic/learning-outcomes?learning_area_id=' + learningAreaId, 'GET');
+      const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      list.forEach(o => {
+        sel.insertAdjacentHTML('beforeend', `<option value="${o.id}">${this._esc((o.outcome || '').substring(0, 80))}</option>`);
+      });
+    } catch (e) { console.warn('Outcomes load failed:', e); }
   },
 
   saveAssessment: async function () {
@@ -309,11 +328,14 @@ const assessmentOverviewCtrl = {
     }
     if (errEl) errEl.classList.add('d-none');
 
+    const outcomeId = document.getElementById('aoOutcome')?.value;
+
     try {
       await callAPI('/academic/formative-assessments', 'POST', {
         title, assessment_type_id: type, class_id: cls, subject_id: la,
         strand_id: strand || null, assessment_date: date, max_marks: max,
         term_id: termId, notes,
+        learning_outcome_id: outcomeId ? parseInt(outcomeId) : null,
       });
       showNotification('Assessment created.', 'success');
       this._createModal.hide();
@@ -417,10 +439,10 @@ const assessmentOverviewCtrl = {
 
     this._set('aoMrkEntered', entered.length);
     this._set('aoMrkAvg',     avg !== '—' ? avg + '%' : '—');
-    this._set('aoMrkEE', grades.filter(g => g === 'EE').length);
-    this._set('aoMrkME', grades.filter(g => g === 'ME').length);
-    this._set('aoMrkAE', grades.filter(g => g === 'AE').length);
-    this._set('aoMrkBE', grades.filter(g => g === 'BE').length);
+    this._set('aoMrkEE', grades.filter(g => GradingScale.band(g) === 'EE').length);
+    this._set('aoMrkME', grades.filter(g => GradingScale.band(g) === 'ME').length);
+    this._set('aoMrkAE', grades.filter(g => GradingScale.band(g) === 'AE').length);
+    this._set('aoMrkBE', grades.filter(g => GradingScale.band(g) === 'BE').length);
   },
 
   saveMarks: async function () {
@@ -465,13 +487,10 @@ const assessmentOverviewCtrl = {
 
   // ── Utilities ─────────────────────────────────────────────────────────────
   _cbcGrade: function (pct) {
-    if (pct >= 75) return 'EE';
-    if (pct >= 60) return 'ME';
-    if (pct >= 40) return 'AE';
-    return 'BE';
+    return GradingScale.grade(pct) || '';
   },
   _gradeColor: function (g) {
-    return { EE:'success', ME:'primary', AE:'warning', BE:'danger' }[g] || 'secondary';
+    return { EE:'success', ME:'primary', AE:'warning', BE:'danger' }[GradingScale.band(g)] || 'secondary';
   },
   _gradeCls: function (v) {
     const n = Number(v);

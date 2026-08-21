@@ -22,6 +22,7 @@ const managePaymentsController = {
   isSaving: false,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated?.()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -178,7 +179,6 @@ const managePaymentsController = {
         ...(payload?.summary || {}),
       };
 
-      await this.loadOutstandingSummary();
       this.renderPaymentsTable();
       this.renderPagination();
       this.renderSummaryCards();
@@ -272,7 +272,7 @@ const managePaymentsController = {
             <td>${this.escapeHtml(this.formatMethod(payment.payment_method))}</td>
             <td><span class="badge bg-${statusClass}">${this.escapeHtml(status)}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="managePaymentsController.viewPayment(${Number(payment.id)})">
+              <button class="btn btn-sm btn-outline-primary" onclick="managePaymentsController.viewPayment(${Number(payment.id)})" data-permission="finance_view">
                 <i class="bi bi-eye"></i>
               </button>
             </td>
@@ -280,6 +280,10 @@ const managePaymentsController = {
         `;
       })
       .join("");
+
+    if (window.RoleBasedUI) {
+      RoleBasedUI.refreshPermissions(tbody);
+    }
   },
 
   renderPagination: function () {
@@ -330,7 +334,7 @@ const managePaymentsController = {
 
     setText("totalReceived", `KES ${Number(summary.confirmed_amount || 0).toLocaleString()}`);
     setText("pendingPayments", `KES ${Number(summary.pending_amount || 0).toLocaleString()}`);
-    setText("outstandingPayments", `KES ${Number(summary.outstanding_amount || 0).toLocaleString()}`);
+    setText("paymentRecordCount", Number(this.state.pagination.total || 0).toLocaleString());
     setText("todayCollections", `KES ${Number(summary.today_amount || 0).toLocaleString()}`);
   },
 

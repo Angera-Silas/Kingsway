@@ -33,6 +33,7 @@
         charts: { bar: null, doughnut: null },
 
         init: async function () {
+            await window.AuthContext?.ready();
             if (!AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
@@ -287,7 +288,7 @@
         },
 
         approveBudget: async function (id) {
-            if (!confirm('Approve this budget entry?')) return;
+            if (!(await window.confirmAction('Confirm', 'Approve this budget entry?'))) return;
             try {
                 await window.API.finance.approveDepartmentBudget({ id });
                 showToast('Budget approved successfully.');

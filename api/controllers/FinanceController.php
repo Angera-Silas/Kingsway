@@ -6,9 +6,15 @@ use App\API\Modules\finance\PaymentReconciliationAPI;
 use App\API\Modules\finance\ExpenseManager;
 use App\API\Modules\finance\AllowanceTemplateAPI;
 use App\API\Services\StaffDomainAccessService;
+use App\API\Services\FinanceCrudService;
 use RuntimeException;
 use Exception;
 use App\Database\Database;
+use App\API\Services\payments\SupplierDisbursementService;
+use App\API\Services\payments\ParentRefundService;
+use App\API\Services\payments\StudentFundTransferService;
+use App\API\Services\payments\PaymentRoutingService;
+use App\API\Services\FinancialReconciliationService;
 
 /**
  * FinanceController - REST endpoints for all finance operations
@@ -24,6 +30,7 @@ class FinanceController extends BaseController
     private ExpenseManager $expenseManager;
     private AllowanceTemplateAPI $allowanceTemplateApi;
     private $staffAccess;
+    private FinanceCrudService $crud;
 
     public function __construct() {
         parent::__construct();
@@ -31,6 +38,7 @@ class FinanceController extends BaseController
         $this->expenseManager = new ExpenseManager();
         $this->allowanceTemplateApi = new AllowanceTemplateAPI();
         $this->staffAccess = new StaffDomainAccessService($this->user);
+        $this->crud = new FinanceCrudService(Database::getInstance()->getConnection());
     }
 
     public function index()
@@ -38,14 +46,379 @@ class FinanceController extends BaseController
         return $this->success(['message' => 'Finance API is running']);
     }
 
+    /** GET /api/finance/accounting/trial-balance */
+    public function getAccountingTrialBalance($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Insufficient permissions');
+        try {
+            $stmt = $this->db->query('SELECT * FROM vw_accounting_trial_balance ORDER BY account_code');
+            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] trial balance: ' . $e->getMessage());
+            return $this->badRequest('Accounting trial balance is not available.');
+        }
+    }
+
+    /** GET /api/finance/accounting/source-trace */
+    public function getAccountingSourceTrace($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try {
+            $limit = min(500, max(1, (int)($data['limit'] ?? 100)));
+            $stmt = $this->db->query('SELECT * FROM vw_financial_source_trace ORDER BY created_at DESC LIMIT ' . $limit);
+            return $this->success(['transactions' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] source trace: ' . $e->getMessage());
+            return $this->badRequest('Accounting source trace is not available.');
+        }
+    }
+
+    /** GET /api/finance/financial-accounts */
+    public function getFinancialAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try {
+            $stmt = $this->db->query("SELECT a.*,k.code account_kind,p.code provider_code,c.account_code ledger_code,
+                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes,
+                GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') channels
+                FROM school_financial_accounts a
+                JOIN financial_account_kinds k ON k.id=a.account_kind_id
+                LEFT JOIN payment_providers p ON p.id=a.provider_id
+                LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
+                LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
+                LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
+                LEFT JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
+                LEFT JOIN financial_channels fc ON fc.id=ac.channel_id
+                GROUP BY a.id ORDER BY a.account_name");
+            return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] financial accounts: ' . $e->getMessage());
+            return $this->badRequest('Financial accounts are not available.');
+        }
+    }
+
+    private function canConfigurePaymentIntegrations(): bool
+    {
+        return $this->userHasAny(['system.payment_integrations.configure'], [2], ['System Administrator']);
+    }
+
+    public function getFinancialAccountSetupOptions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->financialAccountSetupOptions();
+    }
+
+    public function putFinancialAccount($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->updateFinancialAccount((int)$id, $data, (int)$this->getUserId());
+    }
+
+    public function getFinancialAccountPermissions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->financialAccountPermissions((int)$id);
+    }
+
+    /** GET /api/finance/reconciliation/statement-lines */
+    public function getReconciliationStatementLines($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.view', 'finance_view'], [10])) return $this->forbidden('Insufficient permissions');
+        try {
+            return $this->success(['lines' => (new FinancialReconciliationService($this->db))->unresolved((int)($data['limit'] ?? 200))]);
+        } catch (\Throwable $e) { error_log('[FinanceController] statement lines: '.$e->getMessage()); return $this->badRequest('Statement reconciliation is not available.'); }
+    }
+
+    /** POST /api/finance/reconciliation/statement-imports */
+    public function postReconciliationStatementImports($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [10])) return $this->forbidden('Insufficient permissions');
+        try {
+            $result = (new FinancialReconciliationService($this->db))->import((string)($data['provider'] ?? ''), (int)($data['financial_account_id'] ?? 0), (array)($data['rows'] ?? []), (int)$this->getUserId());
+            return $this->success($result, 'Statement imported and matching attempted.');
+        } catch (\Throwable $e) { error_log('[FinanceController] statement import: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/finance/reconciliation/statement-lines/{id}/resolve */
+    public function postReconciliationStatementLinesResolve($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile'], [10])) return $this->forbidden('Insufficient permissions');
+        try {
+            $result = (new FinancialReconciliationService($this->db))->resolve((int)$id, (string)($data['matching_status'] ?? ''), (int)$this->getUserId(), (string)($data['reason'] ?? ''), $data['matched_reference'] ?? null);
+            return $this->success($result, 'Statement line resolution recorded.');
+        } catch (\Throwable $e) { error_log('[FinanceController] statement resolve: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/finance/accounting/report?type=income|balance|cashflow */
+    public function getAccountingReport($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        $type = strtolower((string)($data['type'] ?? 'income'));
+        $where = $type === 'balance' ? "t.code IN ('asset','liability','equity')" : ($type === 'cashflow' ? "t.code='asset' AND c.account_code LIKE '110%'" : "t.code IN ('revenue','expense')");
+        try {
+            $sql = "SELECT c.account_code,c.account_name,t.code AS account_type,
+                ROUND(COALESCE(SUM(CASE WHEN j.status='posted' THEN l.debit_amount-l.credit_amount ELSE 0 END),0),2) AS balance
+                FROM chart_of_accounts c JOIN accounting_account_types t ON t.id=c.account_type_id
+                LEFT JOIN accounting_journal_lines l ON l.chart_account_id=c.id LEFT JOIN accounting_journal_batches j ON j.id=l.journal_batch_id
+                WHERE {$where} GROUP BY c.id,c.account_code,c.account_name,t.code ORDER BY c.account_code";
+            return $this->success(['type' => $type, 'rows' => $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC)]);
+        } catch (\Throwable $e) { error_log('[FinanceController] accounting report: '.$e->getMessage()); return $this->badRequest('Ledger report is not available.'); }
+    }
+
+    /** POST /api/finance/financial-accounts */
+    public function postFinancialAccount($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may configure school accounts');
+        return $this->api->createFinancialAccount($data, (int)$this->getUserId());
+    }
+
+    /** PUT /api/finance/financial-accounts/{id}/verify */
+    public function putFinancialAccountVerify($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may verify school accounts');
+        return $this->api->verifyFinancialAccount((int)$id, (int)$this->getUserId(), (string)($data['status'] ?? 'active'));
+    }
+
+    /** POST /api/finance/financial-accounts/{id}/permissions */
+    public function postFinancialAccountPermissions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may assign account permissions');
+        return $this->api->setFinancialAccountPermissions((int)$id, (array)($data['permissions'] ?? []), (int)$this->getUserId());
+    }
+
+    /**
+     * GET /api/finance/supplier-payables
+     * Returns approved supplier expenses with outstanding balances and verified
+     * payout accounts so the finance UI never asks users to type IDs.
+     */
+    public function getSupplierPayables($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+        try {
+            $pdo = Database::getInstance()->getConnection();
+            $stmt = $pdo->query(
+                "SELECT e.id AS expense_id, e.vendor_id AS supplier_id,
+                        s.name AS supplier_name, e.description, e.reference_number,
+                        e.amount AS expense_amount, e.status, e.created_at,
+                        COALESCE(SUM(CASE WHEN spr.status IN ('payment_pending','paid') THEN spr.amount ELSE 0 END), 0) AS paid_or_pending,
+                        e.amount - COALESCE(SUM(CASE WHEN spr.status IN ('payment_pending','paid') THEN spr.amount ELSE 0 END), 0) AS outstanding_amount
+                 FROM expenses e
+                 JOIN suppliers s ON s.id = e.vendor_id
+                 LEFT JOIN supplier_payment_requests spr ON spr.expense_id = e.id
+                 WHERE e.vendor_id IS NOT NULL AND e.status IN ('approved','payment_pending')
+                 GROUP BY e.id, e.vendor_id, s.name, e.description, e.reference_number, e.amount, e.status, e.created_at
+                 HAVING outstanding_amount > 0.009
+                 ORDER BY e.created_at ASC, e.id ASC"
+            );
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $bank = $pdo->query("SELECT id, supplier_id, bank_name, bank_code, account_name, account_number, currency, is_primary FROM supplier_bank_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
+            $mobile = $pdo->query("SELECT id, supplier_id, provider, phone_number, account_name, is_primary FROM supplier_mobile_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
+            $banks = $mobiles = [];
+            foreach ($bank as $account) $banks[(int) $account['supplier_id']][] = $account;
+            foreach ($mobile as $account) $mobiles[(int) $account['supplier_id']][] = $account;
+            foreach ($rows as &$row) {
+                $supplierId = (int) $row['supplier_id'];
+                $row['expense_id'] = (int) $row['expense_id'];
+                $row['outstanding_amount'] = (float) $row['outstanding_amount'];
+                $row['bank_accounts'] = $banks[$supplierId] ?? [];
+                $row['mobile_accounts'] = $mobiles[$supplierId] ?? [];
+            }
+            unset($row);
+            return $this->success(['payables' => $rows]);
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] supplier payables: ' . $e->getMessage());
+            return $this->badRequest('Failed to load supplier payables.');
+        }
+    }
+
+    /** POST /api/finance/supplier-payments — submit one or many supplier payouts. */
+    public function postSupplierPayments($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) return $this->unauthorized('Authentication required');
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
+        $items = $data['items'] ?? [];
+        if (!is_array($items) || !$items) return $this->badRequest('At least one supplier payment is required.');
+        $service = new SupplierDisbursementService(Database::getInstance()->getConnection());
+        $results = [];
+        foreach ($items as $item) {
+            $expenseId = (int) ($item['expense_id'] ?? 0);
+            if (!$expenseId) {
+                $results[] = ['expense_id' => null, 'status' => 'failed', 'message' => 'Expense ID is required.'];
+                continue;
+            }
+            try {
+                $result = $service->initiateExpensePayment($expenseId, (int) $this->getUserId(), $item);
+                $results[] = array_merge(['expense_id' => $expenseId], $result);
+            } catch (\Throwable $e) {
+                error_log('[FinanceController] supplier payment #' . $expenseId . ': ' . $e->getMessage());
+                $results[] = ['expense_id' => $expenseId, 'status' => 'failed', 'message' => $e->getMessage()];
+            }
+        }
+        return $this->success(['results' => $results], 'Supplier payment batch submitted.');
+    }
+
+    /** GET /api/finance/parent-refund-requests */
+    public function getParentRefundRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        $pdo = Database::getInstance()->getConnection();
+        $stmt = $pdo->query("SELECT r.*, c.credit_number, c.student_id, a.provider, a.phone_number, a.bank_name, a.account_number, a.account_name FROM parent_refund_requests r JOIN fee_credit_notes c ON c.id = r.fee_credit_note_id JOIN parent_payment_accounts a ON a.id = r.parent_payment_account_id ORDER BY r.created_at DESC");
+        return $this->success(['refunds' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+    }
+
+    /** GET /api/finance/refundable-credits */
+    public function getRefundableCredits($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        $pdo = Database::getInstance()->getConnection();
+        $stmt = $pdo->query("SELECT c.id AS fee_credit_note_id, c.credit_number, c.student_id, c.remaining_amount, CONCAT(ps.first_name, ' ', ps.last_name) AS student_name, sp.parent_id, CONCAT(pp.first_name, ' ', pp.last_name) AS parent_name FROM fee_credit_notes c JOIN students s ON s.id = c.student_id JOIN persons ps ON ps.id = s.person_id JOIN student_parents sp ON sp.student_id = c.student_id LEFT JOIN parents pr ON pr.id = sp.parent_id LEFT JOIN persons pp ON pp.id = pr.person_id WHERE c.status IN ('available','partially_applied') AND c.remaining_amount > 0 AND sp.is_primary_contact = 1 ORDER BY c.created_at ASC");
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $accounts = $pdo->query("SELECT id, parent_id, provider, phone_number, bank_name, account_name, account_number, is_primary FROM parent_payment_accounts WHERE active = 1 AND verification_status = 'verified' ORDER BY is_primary DESC, id DESC")->fetchAll(\PDO::FETCH_ASSOC);
+        $byParent = []; foreach ($accounts as $account) $byParent[(int) $account['parent_id']][] = $account;
+        foreach ($rows as &$row) { $row['remaining_amount'] = (float) $row['remaining_amount']; $row['accounts'] = $byParent[(int) $row['parent_id']] ?? []; } unset($row);
+        return $this->success(['credits' => $rows]);
+    }
+
+    /** POST /api/finance/parent-refund-requests */
+    public function postParentRefundRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try { $service = new ParentRefundService(Database::getInstance()->getConnection()); $items = $data['items'] ?? [$data]; $results = []; foreach ($items as $item) { $results[] = $service->createRequest((int) ($item['fee_credit_note_id'] ?? 0), (int) $this->getUserId(), $item); } return $this->success(['results' => $results], 'Refund submitted for approval.'); }
+        catch (\Throwable $e) { error_log('[FinanceController] parent refund request: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/finance/student-fund-transfers */
+    public function getStudentFundTransfers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success(['transfers' => (new StudentFundTransferService(Database::getInstance()->getConnection()))->list(['status' => $_GET['status'] ?? null])]);
+    }
+
+    /** GET /api/finance/student-fund-sources */
+    public function getStudentFundSources($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->sources());
+    }
+
+    /** GET /api/finance/payment-routing-cases */
+    public function getPaymentRoutingCases($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success(['cases' => (new PaymentRoutingService(Database::getInstance()->getConnection()))->listUnmatchedCases(['status' => $_GET['status'] ?? 'unmatched'])]);
+    }
+
+    /** POST /api/finance/payment-references */
+    public function postPaymentReferences($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try { return $this->created((new PaymentRoutingService(Database::getInstance()->getConnection()))->generateReference((string)($data['purpose'] ?? ''), (int)($data['student_id'] ?? 0), !empty($data['transport_intent_id']) ? (int)$data['transport_intent_id'] : null, !empty($data['uniform_sale_id']) ? (int)$data['uniform_sale_id'] : null), 'Payment reference generated'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/finance/payment-collection-routes */
+    public function getPaymentCollectionRoutes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        return $this->success(['routes' => (new PaymentRoutingService(Database::getInstance()->getConnection()))->listRoutes()]);
+    }
+
+    /** POST /api/finance/payment-collection-routes */
+    public function postPaymentCollectionRoutes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try { return $this->created((new PaymentRoutingService(Database::getInstance()->getConnection()))->saveRoute($data), 'Collection route saved'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/finance/payment-routing-cases/{id}/resolve */
+    public function postPaymentRoutingCasesResolve($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        if (!$id) return $this->badRequest('Case ID is required');
+        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->resolveCase((int)$id, $data, (int)$this->getUserId()), 'Payment case resolved and allocated'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/finance/student-fund-transfers */
+    public function postStudentFundTransfers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try { return $this->created((new StudentFundTransferService(Database::getInstance()->getConnection()))->create($data, (int)$this->getUserId()), 'Fund transfer submitted for approval'); }
+        catch (\Throwable $e) { error_log('[FinanceController] fund transfer create: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** PUT /api/finance/student-fund-transfers/{id} */
+    public function putStudentFundTransfers($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3, 4, 10])) return $this->forbidden('Only authorized finance approvers may decide fund transfers');
+        if (!$id) return $this->badRequest('Transfer ID is required');
+        try { return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->decide((int)$id, strtolower((string)($data['decision'] ?? $data['status'] ?? '')), (int)$this->getUserId()), 'Transfer decision recorded'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** POST /api/finance/student-fund-transfer-post/{id} */
+    public function postStudentFundTransferPost($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3, 4, 10])) return $this->forbidden('Only authorized finance approvers may post fund transfers');
+        if (!$id) return $this->badRequest('Transfer ID is required');
+        try { return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->post((int)$id, (int)$this->getUserId()), 'Fund transfer posted'); }
+        catch (\Throwable $e) { error_log('[FinanceController] fund transfer post: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** PUT /api/finance/parent-refund-requests/{id} — approve or reject. */
+    public function putParentRefundRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3])) return $this->forbidden('Only an authorized approver may approve refunds');
+        $status = ($data['status'] ?? $data['action'] ?? '') === 'approve' ? 'approved' : (($data['status'] ?? '') === 'rejected' ? 'rejected' : null);
+        if (!$id || !$status) return $this->badRequest('Refund ID and approve/reject action are required');
+        $stmt = Database::getInstance()->getConnection()->prepare("UPDATE parent_refund_requests SET status = ?, approved_by = ? WHERE id = ? AND status = 'pending_approval'");
+        $stmt->execute([$status, $this->getUserId(), (int) $id]);
+        return $stmt->rowCount() ? $this->success(['id' => (int) $id, 'status' => $status]) : $this->badRequest('Refund is not awaiting approval.');
+    }
+
+    /** POST /api/finance/parent-refund-requests/{id}/submit */
+    public function postParentRefundRequestsSubmit($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        try { $result = (new ParentRefundService(Database::getInstance()->getConnection()))->submit((int) $id, (int) $this->getUserId()); return $this->success($result, 'Parent refund submitted for provider processing.'); }
+        catch (\Throwable $e) { error_log('[FinanceController] parent refund submit: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/finance/parent-payment-accounts?parent_id=... */
+    public function getParentPaymentAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        $parentId = (int) ($_GET['parent_id'] ?? $data['parent_id'] ?? 0);
+        if (!$parentId) return $this->badRequest('parent_id is required');
+        $stmt = Database::getInstance()->getConnection()->prepare("SELECT id, provider, phone_number, bank_name, bank_code, account_name, account_number, verification_status, is_primary, active FROM parent_payment_accounts WHERE parent_id = ? ORDER BY is_primary DESC, id DESC");
+        $stmt->execute([$parentId]);
+        return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
+    }
+
+    /** POST /api/finance/parent-payment-accounts */
+    public function postParentPaymentAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        $parentId = (int) ($data['parent_id'] ?? 0); $provider = ($data['provider'] ?? '') === 'mpesa' ? 'mpesa' : 'bank';
+        if (!$parentId || empty($data['account_name'])) return $this->badRequest('parent_id and account_name are required');
+        if ($provider === 'mpesa' && empty($data['phone_number'])) return $this->badRequest('phone_number is required for M-Pesa');
+        if ($provider === 'bank' && (empty($data['account_number']) || empty($data['bank_name']))) return $this->badRequest('bank_name and account_number are required for bank refunds');
+        try { $pdo = Database::getInstance()->getConnection(); $stmt = $pdo->prepare("INSERT INTO parent_payment_accounts (parent_id, provider, phone_number, bank_name, bank_code, account_name, account_number, is_primary) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"); $stmt->execute([$parentId, $provider, $data['phone_number'] ?? null, $data['bank_name'] ?? null, $data['bank_code'] ?? null, $data['account_name'], $data['account_number'] ?? null, !empty($data['is_primary']) ? 1 : 0]); return $this->created(['id' => (int) $pdo->lastInsertId()], 'Parent payment account saved for verification.'); }
+        catch (\Throwable $e) { error_log('[FinanceController] parent payment account: ' . $e->getMessage()); return $this->badRequest('Unable to save parent payment account.'); }
+    }
+
     private function requirePayrollPermission(string $permission, array $roles = []): ?array
     {
         try {
             $this->staffAccess->require($permission, $roles);
             return null;
-        } catch (RuntimeException $e) {
-            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
-        }
+        } catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->serverError('An internal error occurred.'); }
     }
 
     private function validatePayrollPayloadEligibility(array $payload): ?array
@@ -58,7 +431,7 @@ class FinanceController extends BaseController
         }
         foreach (array_unique(array_filter($staffIds)) as $staffId) {
             try { $this->staffAccess->assertPayrollEligible($staffId); }
-            catch (RuntimeException $e) { return $this->unprocessable($e->getMessage(), ['staff_id'=>$staffId]); }
+            catch (RuntimeException $e) { error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()); return ($e->getCode() === 403) ? $this->forbidden($e->getMessage()) : $this->badRequest($e->getMessage()); }
         }
         return null;
     }
@@ -495,6 +868,12 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getStaffForPayroll();
+        if (!$this->isPayrollReviewer() && ($result['status'] ?? '') === 'success') {
+            foreach ((array)($result['data'] ?? []) as &$staff) {
+                $staff['children_count'] = 0;
+            }
+            unset($staff);
+        }
         return $this->handleResponse($result);
     }
 
@@ -512,6 +891,12 @@ class FinanceController extends BaseController
         }
 
         $result = $this->api->getStaffPayrollDetails($staffId);
+        if (!$this->isPayrollReviewer() && ($result['status'] ?? '') === 'success' && is_array($result['data'] ?? null)) {
+            $result['data']['children'] = [];
+            $result['data']['has_children'] = false;
+            $result['data']['total_children_fees'] = 0;
+            $result['data']['invoice_warnings'] = [];
+        }
         return $this->handleResponse($result);
     }
 
@@ -524,7 +909,7 @@ class FinanceController extends BaseController
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $month = $_GET['month'] ?? $data['month'] ?? date('n');
         $year = $_GET['year'] ?? $data['year'] ?? date('Y');
-        $result = $this->api->getBulkPayrollPreview($month, $year);
+        $result = $this->api->getBulkPayrollPreview($month, $year, !$this->isPayrollReviewer());
         return $this->handleResponse($result);
     }
 
@@ -538,6 +923,9 @@ class FinanceController extends BaseController
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $payload = $data ?: $this->getRequestData();
+        if (!$this->isPayrollReviewer()) {
+            $payload['preparation_only'] = true;
+        }
         $result = $this->api->processBulkPayroll($payload);
         return $this->handleResponse($result);
     }
@@ -568,8 +956,29 @@ class FinanceController extends BaseController
         if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
         $eligibilityPayload = $data ?: $this->getRequestData();
         if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
-        $result = $this->api->processPayrollWithDeductions($data);
+        $payload = $eligibilityPayload;
+        if (!$this->isPayrollReviewer()) {
+            // Accountants prepare the draft from the approved salary profile and
+            // statutory configuration. Review-stage compensation and deductions
+            // belong to the director/school administrator.
+            $payload['allowances'] = [];
+            $payload['other_deductions'] = 0;
+            $payload['children_deductions'] = [];
+            $payload['preparation_only'] = true;
+            unset($payload['source_financial_account_id'], $payload['salary_advance_id']);
+        }
+        $result = $this->api->processPayrollWithDeductions($payload);
         return $this->handleResponse($result);
+    }
+
+    private function isPayrollReviewer(): bool
+    {
+        $roles = $this->staffAccess->roles();
+        if (in_array('accountant', $roles, true)) {
+            return false;
+        }
+        return $this->staffAccess->allows('staff.payroll.approve', ['director', 'school administrator', 'system administrator'])
+            || $this->userHasAny(['finance.approve', 'payroll_approve'], [3], ['director', 'school administrator', 'system administrator']);
     }
 
     /**
@@ -630,7 +1039,9 @@ class FinanceController extends BaseController
 
         $paymentRef = $data['payment_reference'] ?? '';
         $paymentMode = $data['payment_mode'] ?? 'bank';
-        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode);
+        $data['user_id'] = $this->getUserId();
+        $sourceAccountId = $data['source_financial_account_id'] ?? null;
+        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode, $sourceAccountId, $data['user_id']);
         return $this->handleResponse($result);
     }
 
@@ -814,15 +1225,6 @@ class FinanceController extends BaseController
     // ========================================
 
     /**
-     * GET /api/finance/fee-types-list
-     */
-    public function getFeeTypesList($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->listFeeTypes();
-        return $this->handleResponse($result);
-    }
-
-    /**
      * GET /api/finance/student-types-list
      */
     public function getStudentTypesList($id = null, $data = [], $segments = [])
@@ -871,6 +1273,15 @@ class FinanceController extends BaseController
     }
 
     /**
+     * POST /api/finance/fees/deactivate-structure
+     */
+    public function postFeesDeactivateStructure($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deactivateFeeStructure($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/finance/fees/rollover-structure
      */
     public function postFeesRolloverStructure($id = null, $data = [], $segments = [])
@@ -902,11 +1313,11 @@ class FinanceController extends BaseController
      */
     public function getFeesTermBreakdown($id = null, $data = [], $segments = [])
     {
-        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        $academicYear = $_GET['academic_year'] ?? $data['academic_year'] ?? null;
         $term = $_GET['term'] ?? $data['term'] ?? null;
 
         if ($academicYear === null || $term === null) {
-            return $this->badRequest('Academic year ID and term are required');
+            return $this->badRequest('Academic year and term are required');
         }
 
         $result = $this->api->getTermBreakdown($academicYear, $term);
@@ -927,10 +1338,10 @@ class FinanceController extends BaseController
      */
     public function getFeesAnnualSummary($id = null, $data = [], $segments = [])
     {
-        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        $academicYear = $_GET['academic_year'] ?? $data['academic_year'] ?? null;
         
         if ($academicYear === null) {
-            return $this->badRequest('Academic year ID is required');
+            return $this->badRequest('Academic year is required');
         }
 
         $result = $this->api->getAnnualFeeSummary($academicYear);
@@ -1104,15 +1515,7 @@ class FinanceController extends BaseController
      */
     private function getCurrentAcademicYear()
     {
-        try {
-            $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
-            $stmt->execute();
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return $result['year_code'] ?? date('Y');
-        } catch (\Exception $e) {
-            return date('Y');
-        }
+        return $this->api->getCurrentAcademicYearCode();
     }
 
     // ========================================
@@ -1124,25 +1527,8 @@ class FinanceController extends BaseController
      */
     public function getReports($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = $this->db ?? \App\Database\Database::getInstance();
-            // Return basic financial summary for the reports page
-            $stmt = $db->query(
-                "SELECT
-                    (SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE YEAR(payment_date)=YEAR(CURDATE())) AS total_collected_ytd,
-                    (SELECT COALESCE(SUM(total_fees - paid_amount),0) FROM student_fees WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
-                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
-                    (SELECT COUNT(*) FROM fee_payments WHERE DATE(payment_date)=CURDATE()) AS payments_today"
-            );
-            $summary = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-            return $this->success(['summary' => $summary, 'report_types' => [
-                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
-            ]]);
-        } catch (\Exception $e) {
-            return $this->success(['summary' => [], 'report_types' => [
-                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
-            ]]);
-        }
+        $result = $this->api->getFinancialSummaryReport();
+        return $this->handleResponse($result);
     }
 
     /**
@@ -1199,7 +1585,8 @@ class FinanceController extends BaseController
             $result = $recon->listUnreconciled($data);
             return $this->handleResponse($result);
         } catch (Exception $e) {
-            return $this->error('Failed to fetch unreconciled transactions: ' . $e->getMessage());
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
@@ -1331,6 +1718,12 @@ class FinanceController extends BaseController
      */
     public function postFeesBundleSubmit($id = null, $data = [], $segments = [])
     {
+        if (!empty($data['student_type_ids']) && !empty($data['academic_year'])) {
+            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+            $data['submitted_by'] = $userId;
+            $result = $this->api->submitFeeStructureBundleBatch($data);
+            return $this->handleResponse($result);
+        }
         if (empty($data['level_id']) || empty($data['academic_year']) || empty($data['term_id']) || empty($data['student_type_id'])) {
             return $this->badRequest('level_id, academic_year, term_id, student_type_id are required');
         }
@@ -1347,6 +1740,12 @@ class FinanceController extends BaseController
     public function postFeesBundleReview($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('approval_id required');
+        // Authenticated users may carry one or more roles in the JWT. Do not
+        // rely only on the legacy singular role_id field; BaseController
+        // normalizes role objects and role_ids for multi-role accounts.
+        if (!$this->userHasAny([], [3, 4, 5], [])) {
+            return $this->forbidden('Only the Headteacher, School Administrator, or Director may review fee structures');
+        }
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         $data['approval_id'] = $id;
         $data['reviewed_by'] = $userId;
@@ -1363,6 +1762,9 @@ class FinanceController extends BaseController
     public function postFeesBundleApprove($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('approval_id required');
+        if (!$this->userHasAny([], [3, 4], [])) {
+            return $this->forbidden('Only the School Administrator or Director may final-approve fee structures');
+        }
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
         $data['approval_id'] = $id;
         $data['approved_by'] = $userId;
@@ -1383,6 +1785,7 @@ class FinanceController extends BaseController
             'academic_year' => $data['academic_year'] ?? $_GET['academic_year'] ?? null,
             'term_id'       => $data['term_id'] ?? $_GET['term_id'] ?? null,
             'level_id'      => $data['level_id'] ?? $_GET['level_id'] ?? null,
+            'student_type_id' => $data['student_type_id'] ?? $_GET['student_type_id'] ?? null,
             'page'          => (int)($data['page'] ?? $_GET['page'] ?? 1),
             'limit'         => (int)($data['limit'] ?? $_GET['limit'] ?? 20),
         ];
@@ -1403,6 +1806,49 @@ class FinanceController extends BaseController
         $result = $this->api->activateAndGenerateObligations(
             $data['level_id'], $data['academic_year'], $data['term_id'], $data['student_type_id'], $userId
         );
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-create-bundle
+     * Create (or re-create) a grade-range fee structure bundle.
+     * Body: academic_year, grade_range {from_id,to_id}, student_type_ids[],
+     *       items { CODE: { termN: { studentTypeId: amount } } }
+     */
+    public function postFeesCreateBundle($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['academic_year']) || empty($data['grade_range']) || empty($data['items'])) {
+            return $this->badRequest('academic_year, grade_range and items are required');
+        }
+        if (empty($data['student_type_ids'])) {
+            return $this->badRequest('At least one student_type_id is required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['created_by'] = $userId;
+        $result = $this->api->createFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fees-bundle-grid
+     * Read an existing grade-range bundle as a tabular grid (for edit/view).
+     * Query: academic_year, from_id, to_id, student_type_ids[]
+     */
+    public function getFeesBundleGrid($id = null, $data = [], $segments = [])
+    {
+        $data = array_merge($_GET, $data);
+        $gradeRange = [
+            'from_id' => $data['from_id'] ?? $data['grade_range']['from_id'] ?? null,
+            'to_id' => $data['to_id'] ?? $data['grade_range']['to_id'] ?? null,
+        ];
+        if (empty($data['academic_year']) || empty($gradeRange['from_id']) || empty($gradeRange['to_id'])) {
+            return $this->badRequest('academic_year, from_id and to_id are required');
+        }
+        $result = $this->api->getFeeStructureBundleGrid([
+            'academic_year' => $data['academic_year'],
+            'grade_range' => $gradeRange,
+            'student_type_ids' => $data['student_type_ids'] ?? null,
+        ]);
         return $this->handleResponse($result);
     }
 
@@ -1444,49 +1890,16 @@ class FinanceController extends BaseController
     public function getExpenses($id = null, $data = [], $segments = [])
     {
         if ($id) {
-            $row = $this->db->query(
-                "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                        CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                 FROM expenses e
-                 LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                 LEFT JOIN users u ON u.id = e.created_by
-                 LEFT JOIN users a ON a.id = e.approved_by
-                 WHERE e.id = ? AND e.deleted_at IS NULL",
-                [$id]
-            )->fetch();
+            $result = $this->api->getExpenseDetailed((int)$id);
+            if (($result['code'] ?? 200) >= 400) {
+                return $this->notFound('Expense not found');
+            }
+            $row = $result['data'] ?? null;
             return $row ? $this->success($row) : $this->notFound('Expense not found');
         }
-        $where = ['e.deleted_at IS NULL'];
-        $params = [];
-        if (!empty($data['status']))       { $where[] = 'e.status = ?';            $params[] = $data['status']; }
-        if (!empty($data['category_id']))  { $where[] = 'e.category_id = ?';       $params[] = $data['category_id']; }
-        if (!empty($data['department_id'])){ $where[] = 'e.department_id = ?';     $params[] = $data['department_id']; }
-        if (!empty($data['date_from']))    { $where[] = 'e.expense_date >= ?';      $params[] = $data['date_from']; }
-        if (!empty($data['date_to']))      { $where[] = 'e.expense_date <= ?';      $params[] = $data['date_to']; }
-        if (!empty($data['academic_year'])){ $where[] = 'e.academic_year = ?';      $params[] = $data['academic_year']; }
-        if (!empty($data['search'])) {
-            $where[] = '(e.description LIKE ? OR e.vendor_name LIKE ? OR e.expense_number LIKE ?)';
-            $s = '%'.$data['search'].'%';
-            $params = array_merge($params, [$s, $s, $s]);
-        }
-        $sql = "SELECT e.*, ec.name AS category_name, ec.type AS category_type,
-                       CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                FROM expenses e
-                LEFT JOIN expense_categories ec ON ec.id = e.category_id
-                LEFT JOIN users u ON u.id = e.created_by
-                LEFT JOIN users a ON a.id = e.approved_by
-                WHERE " . implode(' AND ', $where) . " ORDER BY e.expense_date DESC LIMIT 200";
-        $rows = $this->db->query($sql, $params)->fetchAll();
 
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total_count, COALESCE(SUM(amount),0) AS total_amount,
-                    COALESCE(SUM(CASE WHEN status='pending_approval' THEN amount END),0) AS pending_amount,
-                    COALESCE(SUM(CASE WHEN status='approved' THEN amount END),0) AS approved_amount,
-                    COALESCE(SUM(CASE WHEN status='paid' THEN amount END),0) AS paid_amount,
-                    COALESCE(SUM(CASE WHEN MONTH(expense_date)=MONTH(CURDATE()) AND YEAR(expense_date)=YEAR(CURDATE()) THEN amount END),0) AS this_month
-             FROM expenses WHERE deleted_at IS NULL"
-        )->fetch();
-        return $this->success(['expenses' => $rows, 'stats' => $stats]);
+        $result = $this->api->listExpensesWithStats($data);
+        return $this->handleResponse($result);
     }
 
     /** POST /api/finance/expenses — create expense */
@@ -1496,64 +1909,26 @@ class FinanceController extends BaseController
             return $this->badRequest('description, amount, expense_date are required');
         }
         $userId = $this->getUserId();
-        $expNo  = 'EXP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-        $this->db->query(
-            "INSERT INTO expenses (expense_number, category_id, description, amount, expense_date,
-                payment_method, reference_number, vendor_id, vendor_name, receipt_number,
-                budget_line_item_id, department_id, academic_year, term, notes, attachment_path,
-                status, created_by, created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,NOW())",
-            [
-                $expNo,
-                $data['category_id'] ?? null,
-                $data['description'],
-                $data['amount'],
-                $data['expense_date'],
-                $data['payment_method'] ?? 'cash',
-                $data['reference_number'] ?? null,
-                $data['vendor_id'] ?? null,
-                $data['vendor_name'] ?? null,
-                $data['receipt_number'] ?? null,
-                $data['budget_line_item_id'] ?? null,
-                $data['department_id'] ?? null,
-                $data['academic_year'] ?? date('Y'),
-                $data['term'] ?? null,
-                $data['notes'] ?? null,
-                $data['attachment_path'] ?? null,
-                $userId,
-            ]
-        );
-        $newId = $this->db->lastInsertId();
-        return $this->success(['id' => $newId, 'expense_number' => $expNo], 'Expense recorded successfully');
+        $result = $this->crud->createExpense($data, $userId);
+        return $this->success($result, 'Expense recorded successfully');
     }
 
     /** PUT /api/finance/expenses/{id} — update or change status */
     public function putExpenses($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Expense ID required');
-        $userId = $this->getUserId();
 
         if (isset($data['status'])) {
             if ($data['status'] === 'approved') return $this->postExpensesApprove($id, $data, $segments);
             if ($data['status'] === 'rejected')  return $this->postExpensesReject($id, $data, $segments);
             if ($data['status'] === 'pending_approval') {
-                $this->db->query("UPDATE expenses SET status='pending_approval', updated_at=NOW() WHERE id=?", [$id]);
+                $this->crud->setExpenseStatus($id, 'pending_approval');
                 return $this->success(null, 'Expense submitted for approval');
             }
         }
 
-        $fields = [];
-        $params = [];
-        $allowed = ['category_id','description','amount','expense_date','payment_method',
-                    'reference_number','vendor_id','vendor_name','receipt_number',
-                    'budget_line_item_id','department_id','academic_year','term','notes'];
-        foreach ($allowed as $f) {
-            if (array_key_exists($f, $data)) { $fields[] = "$f=?"; $params[] = $data[$f]; }
-        }
-        if (empty($fields)) return $this->badRequest('Nothing to update');
-        $fields[] = 'updated_at=NOW()';
-        $params[]  = $id;
-        $this->db->query("UPDATE expenses SET ".implode(',',$fields)." WHERE id=?", $params);
+        if (empty($data)) return $this->badRequest('Nothing to update');
+        $this->crud->updateExpense((int)$id, $data);
         return $this->success(null, 'Expense updated');
     }
 
@@ -1561,17 +1936,14 @@ class FinanceController extends BaseController
     public function deleteExpenses($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Expense ID required');
-        $this->db->query("UPDATE expenses SET deleted_at=NOW() WHERE id=?", [$id]);
+        $this->crud->softDeleteExpense((int)$id);
         return $this->success(null, 'Expense deleted');
     }
 
     /** GET /api/finance/expense-categories — list all expense categories */
     public function getExpenseCategories($id = null, $data = [], $segments = [])
     {
-        $rows = $this->db->query(
-            "SELECT * FROM expense_categories WHERE status='active' ORDER BY type, name"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listExpenseCategories());
     }
 
     // ========================================
@@ -1582,30 +1954,10 @@ class FinanceController extends BaseController
     public function getPettyCash($id = null, $data = [], $segments = [])
     {
         $fundId = $data['fund_id'] ?? 1;
-        $fund = $this->db->query("SELECT * FROM petty_cash_funds WHERE id=?", [$fundId])->fetch();
-        $where = ['fund_id = ?'];
-        $params = [$fundId];
-        if (!empty($data['type']))      { $where[] = 'type=?';                $params[] = $data['type']; }
-        if (!empty($data['date_from'])) { $where[] = 'transaction_date>=?';   $params[] = $data['date_from']; }
-        if (!empty($data['date_to']))   { $where[] = 'transaction_date<=?';   $params[] = $data['date_to']; }
-        if (!empty($data['category_id'])){ $where[] = 'category_id=?';       $params[] = $data['category_id']; }
-        $txns = $this->db->query(
-            "SELECT t.*, ec.name AS category_name, CONCAT(u.first_name, ' ', u.last_name) AS recorded_by_name
-             FROM petty_cash_transactions t
-             LEFT JOIN expense_categories ec ON ec.id = t.category_id
-             LEFT JOIN users u ON u.id = t.recorded_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY transaction_date DESC, id DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COALESCE(SUM(CASE WHEN type='expense' AND MONTH(transaction_date)=MONTH(CURDATE()) THEN amount END),0) AS expenses_this_month,
-                    COALESCE(SUM(CASE WHEN type='top_up' AND MONTH(transaction_date)=MONTH(CURDATE()) THEN amount END),0) AS topups_this_month
-             FROM petty_cash_transactions WHERE fund_id=?",
-            [$fundId]
-        )->fetch();
-
-        return $this->success(['fund' => $fund, 'transactions' => $txns, 'stats' => $stats]);
+        $fund = $this->crud->getPettyCashFund($fundId);
+        if (!$fund) return $this->notFound('Petty cash fund not found');
+        $result = $this->crud->listPettyCashTransactions($fundId, $data);
+        return $this->success(['fund' => $fund, 'transactions' => $result['transactions'], 'stats' => $result['stats']]);
     }
 
     /** POST /api/finance/petty-cash — record a petty cash transaction */
@@ -1615,26 +1967,13 @@ class FinanceController extends BaseController
             return $this->badRequest('type, amount, description are required');
         }
         $fundId = $data['fund_id'] ?? 1;
-        $userId = $this->getUserId();
-        $fund   = $this->db->query("SELECT current_balance FROM petty_cash_funds WHERE id=?", [$fundId])->fetch();
+        $fund = $this->crud->getPettyCashFund($fundId);
         if (!$fund) return $this->notFound('Petty cash fund not found');
-        $balanceAfter = ($data['type'] === 'expense')
-            ? $fund['current_balance'] - $data['amount']
-            : $fund['current_balance'] + $data['amount'];
-        if ($data['type'] === 'expense' && $balanceAfter < 0) {
+        if ($data['type'] === 'expense' && $fund['current_balance'] - $data['amount'] < 0) {
             return $this->badRequest('Insufficient petty cash balance');
         }
-        $this->db->query(
-            "INSERT INTO petty_cash_transactions (fund_id,type,category_id,description,amount,balance_after,
-              transaction_date,receipt_number,vendor_name,notes,recorded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            [
-                $fundId, $data['type'], $data['category_id'] ?? null, $data['description'],
-                $data['amount'], $balanceAfter,
-                $data['transaction_date'] ?? date('Y-m-d'),
-                $data['receipt_number'] ?? null, $data['vendor_name'] ?? null,
-                $data['notes'] ?? null, $userId
-            ]
-        );
+        $userId = $this->getUserId();
+        $balanceAfter = $this->crud->createPettyCashTransaction($data, $fundId, $userId);
         return $this->success(['balance_after' => $balanceAfter], 'Petty cash transaction recorded');
     }
 
@@ -1642,27 +1981,17 @@ class FinanceController extends BaseController
     // SECTION 12: Cash Reconciliation
     // ========================================
 
-    /** GET /api/finance/cash-reconciliation — list sessions or get one by date */
+    /** GET /api/finance/cash-reconciliation — list sessions or get one by date or id */
     public function getCashReconciliation($id = null, $data = [], $segments = [])
     {
+        if ($id !== null) {
+            return $this->success($this->crud->getCashReconciliationById($id));
+        }
         if (!empty($data['date'])) {
-            $session = $this->db->query(
-                "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-                 FROM cash_reconciliation_sessions s
-                 LEFT JOIN users u ON u.id = s.cashier_id
-                 LEFT JOIN users a ON a.id = s.approved_by
-                 WHERE s.reconciliation_date=?",
-                [$data['date']]
-            )->fetch();
+            $session = $this->crud->getCashReconciliationByDate($data['date']);
             return $this->success($session ?: null);
         }
-        $rows = $this->db->query(
-            "SELECT s.*, CONCAT(u.first_name, ' ', u.last_name) AS cashier_name
-             FROM cash_reconciliation_sessions s
-             LEFT JOIN users u ON u.id = s.cashier_id
-             ORDER BY s.reconciliation_date DESC LIMIT 60"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listCashReconciliationSessions());
     }
 
     /** POST /api/finance/cash-reconciliation — submit a daily cash count */
@@ -1672,24 +2001,8 @@ class FinanceController extends BaseController
             return $this->badRequest('reconciliation_date, system_cash_total, physical_cash_count are required');
         }
         $userId = $this->getUserId();
-        $existing = $this->db->query(
-            "SELECT id FROM cash_reconciliation_sessions WHERE reconciliation_date=? AND cashier_id=?",
-            [$data['reconciliation_date'], $userId]
-        )->fetch();
-        if ($existing) {
-            $this->db->query(
-                "UPDATE cash_reconciliation_sessions SET physical_cash_count=?, variance_reason=?, notes=?, status='draft' WHERE id=?",
-                [$data['physical_cash_count'], $data['variance_reason'] ?? null, $data['notes'] ?? null, $existing['id']]
-            );
-            return $this->success(['id' => $existing['id']], 'Reconciliation updated');
-        }
-        $this->db->query(
-            "INSERT INTO cash_reconciliation_sessions (reconciliation_date,system_cash_total,physical_cash_count,variance_reason,cashier_id,notes,status)
-             VALUES (?,?,?,?,?,'draft')",
-            [$data['reconciliation_date'], $data['system_cash_total'], $data['physical_cash_count'],
-             $data['variance_reason'] ?? null, $userId, $data['notes'] ?? null]
-        );
-        return $this->success(['id' => $this->db->lastInsertId()], 'Cash reconciliation submitted');
+        $result = $this->crud->upsertCashReconciliation($data, $userId);
+        return $this->success($result, isset($result['id']) ? 'Cash reconciliation submitted' : 'Reconciliation updated');
     }
 
     // ========================================
@@ -1699,30 +2012,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/adjustments — list all adjustments */
     public function getAdjustments($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['status']))     { $where[] = 'fa.status=?';       $params[] = $data['status']; }
-        if (!empty($data['student_id'])) { $where[] = 'fa.student_id=?';   $params[] = $data['student_id']; }
-        $rows = $this->db->query(
-            "SELECT fa.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS requested_by_name, CONCAT(a.first_name, ' ', a.last_name) AS approved_by_name
-             FROM financial_adjustments fa
-             LEFT JOIN students s ON s.id = fa.student_id
-             LEFT JOIN users u ON u.id = fa.requested_by
-             LEFT JOIN users a ON a.id = fa.approved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY fa.created_at DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(CASE WHEN status='pending' THEN 1 END) AS pending_count,
-                    COALESCE(SUM(CASE WHEN status='pending' THEN amount END),0) AS pending_amount,
-                    COUNT(CASE WHEN status='approved' AND MONTH(approved_at)=MONTH(CURDATE()) THEN 1 END) AS approved_this_month,
-                    COALESCE(SUM(CASE WHEN status='applied' THEN amount END),0) AS total_applied,
-                    COUNT(CASE WHEN status='rejected' THEN 1 END) AS rejected_count
-             FROM financial_adjustments"
-        )->fetch();
-        return $this->success(['adjustments' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listAdjustments($data));
     }
 
     /** POST /api/finance/adjustments — create adjustment */
@@ -1732,18 +2022,8 @@ class FinanceController extends BaseController
             return $this->badRequest('type, amount, reason are required');
         }
         $userId = $this->getUserId();
-        $adjNo  = 'ADJ-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
-        $this->db->query(
-            "INSERT INTO financial_adjustments (adjustment_number,type,student_id,amount,reason,
-              reference_payment_id,academic_year,term,notes,status,requested_by,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,'pending',?,NOW())",
-            [
-                $adjNo, $data['type'], $data['student_id'] ?? null, $data['amount'], $data['reason'],
-                $data['reference_payment_id'] ?? null, $data['academic_year'] ?? date('Y'),
-                $data['term'] ?? null, $data['notes'] ?? null, $userId
-            ]
-        );
-        return $this->success(['id' => $this->db->lastInsertId(), 'adjustment_number' => $adjNo], 'Adjustment submitted');
+        $result = $this->crud->createAdjustment($data, $userId);
+        return $this->success($result, 'Adjustment submitted');
     }
 
     /** PUT /api/finance/adjustments/{id} — approve/reject/apply */
@@ -1753,18 +2033,12 @@ class FinanceController extends BaseController
         $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status === 'approved') {
-            $this->db->query(
-                "UPDATE financial_adjustments SET status='approved', approved_by=?, approved_at=NOW() WHERE id=?",
-                [$userId, $id]
-            );
+            $this->crud->setAdjustmentStatus((int)$id, 'approved', $userId);
             return $this->success(null, 'Adjustment approved');
         }
         if ($status === 'rejected') {
             if (empty($data['rejection_reason'])) return $this->badRequest('rejection_reason required');
-            $this->db->query(
-                "UPDATE financial_adjustments SET status='rejected', rejected_by=?, rejected_at=NOW(), rejection_reason=? WHERE id=?",
-                [$userId, $data['rejection_reason'], $id]
-            );
+            $this->crud->setAdjustmentStatus((int)$id, 'rejected', $userId, $data['rejection_reason']);
             return $this->success(null, 'Adjustment rejected');
         }
         return $this->badRequest('Unknown status: '.$status);
@@ -1777,26 +2051,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/exception-reports — list flagged exceptions */
     public function getExceptionReports($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['status']))   { $where[] = 'status=?';   $params[] = $data['status']; }
-        if (!empty($data['severity'])) { $where[] = 'severity=?'; $params[] = $data['severity']; }
-        $rows = $this->db->query(
-            "SELECT fe.*, CONCAT(u.first_name, ' ', u.last_name) AS resolved_by_name
-             FROM finance_exceptions fe
-             LEFT JOIN users u ON u.id = fe.resolved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY FIELD(severity,'critical','high','medium','low'), created_at DESC LIMIT 200",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total,
-                    COUNT(CASE WHEN status='open' THEN 1 END) AS open_count,
-                    COUNT(CASE WHEN severity='critical' AND status='open' THEN 1 END) AS critical_count,
-                    COUNT(CASE WHEN severity='high'     AND status='open' THEN 1 END) AS high_count
-             FROM finance_exceptions WHERE status != 'dismissed'"
-        )->fetch();
-        return $this->success(['exceptions' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listExceptionReports($data));
     }
 
     /** PUT /api/finance/exception-reports/{id} — update status */
@@ -1804,10 +2059,7 @@ class FinanceController extends BaseController
     {
         if (!$id) return $this->badRequest('Exception ID required');
         $userId = $this->getUserId();
-        $this->db->query(
-            "UPDATE finance_exceptions SET status=?, resolved_by=?, resolved_at=NOW(), resolution_notes=? WHERE id=?",
-            [$data['status'] ?? 'under_review', $userId, $data['resolution_notes'] ?? null, $id]
-        );
+        $this->crud->updateExceptionStatus((int)$id, $data['status'] ?? 'under_review', $userId, $data['resolution_notes'] ?? null);
         return $this->success(null, 'Exception status updated');
     }
 
@@ -1819,25 +2071,11 @@ class FinanceController extends BaseController
     public function getBudgets($id = null, $data = [], $segments = [])
     {
         if ($id) {
-            $budget = $this->db->query("SELECT * FROM budgets WHERE id=?", [$id])->fetch();
-            if (!$budget) return $this->notFound('Budget not found');
-            $lines  = $this->db->query(
-                "SELECT bl.*, ec.name AS category_name FROM budget_line_items bl
-                 LEFT JOIN expense_categories ec ON ec.id = bl.category_id WHERE bl.budget_id=?",
-                [$id]
-            )->fetchAll();
-            return $this->success(['budget' => $budget, 'line_items' => $lines]);
+            $result = $this->crud->getBudget((int)$id);
+            if (!$result) return $this->notFound('Budget not found');
+            return $this->success($result);
         }
-        $rows = $this->db->query(
-            "SELECT b.*, CONCAT(u.first_name, ' ', u.last_name) AS created_by_name,
-                    COALESCE(SUM(bl.spent_amount),0) AS total_spent,
-                    COALESCE(SUM(bl.allocated_amount),0) AS total_allocated
-             FROM budgets b
-             LEFT JOIN users u ON u.id = b.created_by
-             LEFT JOIN budget_line_items bl ON bl.budget_id = b.id
-             GROUP BY b.id ORDER BY b.academic_year DESC, b.term"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listBudgets());
     }
 
     /** POST /api/finance/budgets — create budget */
@@ -1847,21 +2085,7 @@ class FinanceController extends BaseController
             return $this->badRequest('name and academic_year are required');
         }
         $userId = $this->getUserId();
-        $this->db->query(
-            "INSERT INTO budgets (name, academic_year, term, total_amount, description, status, created_by)
-             VALUES (?,?,?,?,?,'draft',?)",
-            [$data['name'], $data['academic_year'], $data['term'] ?? null,
-             $data['total_amount'] ?? 0, $data['description'] ?? null, $userId]
-        );
-        $budgetId = $this->db->lastInsertId();
-        if (!empty($data['line_items']) && is_array($data['line_items'])) {
-            foreach ($data['line_items'] as $li) {
-                $this->db->query(
-                    "INSERT INTO budget_line_items (budget_id, category_id, description, allocated_amount) VALUES (?,?,?,?)",
-                    [$budgetId, $li['category_id'] ?? null, $li['description'] ?? null, $li['allocated_amount'] ?? 0]
-                );
-            }
-        }
+        $budgetId = $this->crud->createBudget($data, $userId);
         return $this->success(['id' => $budgetId], 'Budget created');
     }
 
@@ -1872,21 +2096,10 @@ class FinanceController extends BaseController
         $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status) {
-            $extra = '';
-            $extraParams = [];
-            if ($status === 'submitted')   { $extra = ', submitted_by=?, submitted_at=NOW()'; $extraParams = [$userId]; }
-            if ($status === 'approved')    { $extra = ', approved_by=?, approved_at=NOW()';   $extraParams = [$userId]; }
-            if ($status === 'active')      { $extra = ', activated_at=NOW()'; }
-            $this->db->query(
-                "UPDATE budgets SET status=?$extra, updated_at=NOW() WHERE id=?",
-                array_merge([$status], $extraParams, [$id])
-            );
+            $this->crud->updateBudgetStatus((int)$id, $status, $userId);
             return $this->success(null, 'Budget status updated to '.$status);
         }
-        $this->db->query(
-            "UPDATE budgets SET name=?, total_amount=?, description=?, updated_at=NOW() WHERE id=?",
-            [$data['name'] ?? '', $data['total_amount'] ?? 0, $data['description'] ?? null, $id]
-        );
+        $this->crud->updateBudget((int)$id, $data);
         return $this->success(null, 'Budget updated');
     }
 
@@ -1897,29 +2110,7 @@ class FinanceController extends BaseController
     /** GET /api/finance/fee-waivers — list all discounts/waivers */
     public function getFeeWaivers($id = null, $data = [], $segments = [])
     {
-        $where = ['1=1'];
-        $params = [];
-        if (!empty($data['student_id'])) { $where[] = 'fdw.student_id=?'; $params[] = $data['student_id']; }
-        if (!empty($data['status']))     { $where[] = 'fdw.status=?';     $params[] = $data['status']; }
-        if (!empty($data['academic_year'])){ $where[] = 'fdw.academic_year=?'; $params[] = $data['academic_year']; }
-        $rows = $this->db->query(
-            "SELECT fdw.*, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.admission_number, c.name AS class_name,
-                    CONCAT(u.first_name, ' ', u.last_name) AS approved_by_name
-             FROM fee_discounts_waivers fdw
-             JOIN students s ON s.id = fdw.student_id
-             LEFT JOIN classes c ON c.id = s.class_id
-             LEFT JOIN users u ON u.id = fdw.approved_by
-             WHERE " . implode(' AND ', $where) . " ORDER BY fdw.created_at DESC",
-            $params
-        )->fetchAll();
-
-        $stats = $this->db->query(
-            "SELECT COUNT(*) AS total, COUNT(CASE WHEN status='active' THEN 1 END) AS active_count,
-                    COALESCE(SUM(CASE WHEN status='active' THEN discount_value END),0) AS total_waived
-             FROM fee_discounts_waivers"
-        )->fetch();
-        return $this->success(['waivers' => $rows, 'stats' => $stats]);
+        return $this->success($this->crud->listFeeWaivers($data));
     }
 
     /** POST /api/finance/fee-waivers — create waiver/discount */
@@ -1930,19 +2121,8 @@ class FinanceController extends BaseController
         }
         if (empty($data['reason'])) return $this->badRequest('reason is required');
         $userId = $this->getUserId();
-        $this->db->query(
-            "INSERT INTO fee_discounts_waivers (student_id, student_fee_obligation_id, discount_type, discount_value,
-              discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)
-             VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active',?)",
-            [
-                $data['student_id'], $data['obligation_id'] ?? null,
-                $data['discount_type'], $data['discount_value'],
-                $data['discount_percentage'] ?? null, $data['reason'],
-                $data['academic_year'] ?? date('Y'), $data['term_id'] ?? null,
-                $userId, $data['valid_until'] ?? null
-            ]
-        );
-        return $this->success(['id' => $this->db->lastInsertId()], 'Waiver created successfully');
+        $id = $this->crud->createFeeWaiver($data, $userId);
+        return $this->success(['id' => $id], 'Waiver created successfully');
     }
 
     // ========================================
@@ -1952,114 +2132,53 @@ class FinanceController extends BaseController
     /** GET /api/finance/sponsored-students — list sponsored students */
     public function getSponsoredStudents($id = null, $data = [], $segments = [])
     {
-        $rows = $this->db->query(
-            "SELECT s.id, s.admission_number, CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                    s.is_sponsored, s.sponsor_name, s.sponsor_type, s.sponsor_waiver_percentage,
-                    c.name AS class_name,
-                    COALESCE(SUM(o.amount_due),0) AS total_fees,
-                    COALESCE(SUM(o.amount_waived),0) AS total_waived,
-                    COALESCE(SUM(o.amount_paid),0) AS total_paid,
-                    COALESCE(SUM(o.balance),0) AS outstanding_balance
-             FROM students s
-             LEFT JOIN classes c ON c.id = s.class_id
-             LEFT JOIN student_fee_obligations o ON o.student_id = s.id
-                   AND o.academic_year = YEAR(CURDATE())
-             WHERE s.is_sponsored = 1 AND s.status = 'active'
-             GROUP BY s.id ORDER BY s.last_name, s.first_name"
-        )->fetchAll();
-        return $this->success($rows);
+        return $this->success($this->crud->listSponsoredStudents());
     }
 
     // ==================== FEE CREDIT NOTES ====================
 
     public function getFeeCredits($id = null, $data = [], $segments = [])
     {
-        $studentId = $_GET['student_id'] ?? null;
-        $status    = $_GET['status']     ?? null;
-        $where = ['1=1']; $params = [];
-
-        if ($studentId) { $where[] = 'fcn.student_id = ?'; $params[] = $studentId; }
-        if ($status)    { $where[] = 'fcn.status = ?';     $params[] = $status; }
-
-        $rows = $this->db->query(
-            "SELECT fcn.id, fcn.credit_number, fcn.academic_year,
-                    fcn.credit_amount, fcn.applied_amount, fcn.remaining_amount,
-                    fcn.credit_reason, fcn.status, fcn.expiry_date, fcn.created_at,
-                    CONCAT(s.first_name,' ',s.last_name) AS student_name, s.admission_no,
-                    t.name AS term_name, u.name AS created_by_name
-             FROM fee_credit_notes fcn
-             JOIN students s ON s.id = fcn.student_id
-             LEFT JOIN academic_terms t ON t.id = fcn.term_id
-             LEFT JOIN users u ON u.id = fcn.created_by
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY fcn.created_at DESC",
-            $params
-        )->fetchAll();
-
-        $stats = [
-            'total_credits'    => array_sum(array_column($rows, 'credit_amount')),
-            'total_available'  => array_sum(array_column(array_filter($rows, fn($r) => in_array($r['status'], ['available','partially_applied'])), 'remaining_amount')),
-            'total_applied'    => array_sum(array_column($rows, 'applied_amount')),
-        ];
-        return $this->success(['credits' => $rows, 'stats' => $stats]);
+        $studentId = isset($_GET['student_id']) ? (int)$_GET['student_id'] : null;
+        $allowedStatuses = ['available', 'partially_applied', 'applied', 'expired'];
+        $status = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true) ? $_GET['status'] : null;
+        $filters = ['student_id' => $studentId, 'status' => $status];
+        return $this->success($this->crud->listFeeCredits($filters));
     }
 
     public function postFeeCredits($id = null, $data = [], $segments = [])
     {
-        $studentId = $data['student_id'] ?? null;
-        $amount    = $data['credit_amount'] ?? null;
-        if (!$studentId || !$amount) return $this->error('student_id and credit_amount required');
-
-        $creditNum = 'CRD-' . date('Ymd') . '-' . str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
-        $this->db->query(
-            "INSERT INTO fee_credit_notes
-             (credit_number, student_id, academic_year, term_id, source_transaction_id,
-              credit_amount, credit_reason, expiry_date, notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(CURDATE(), INTERVAL 2 YEAR), ?, ?)",
-            [
-                $creditNum, $studentId,
-                $data['academic_year'] ?? date('Y'),
-                $data['term_id']       ?? null,
-                $data['source_transaction_id'] ?? null,
-                $amount,
-                $data['credit_reason'] ?? 'overpayment',
-                $data['notes']         ?? null,
-                $this->user['id']      ?? null,
-            ]
-        );
-        return $this->success(['credit_number' => $creditNum, 'id' => $this->db->lastInsertId()], 201);
+        if (empty($data['student_id']) || empty($data['credit_amount'])) {
+            return $this->badRequest('student_id and credit_amount are required');
+        }
+        $userId = $this->user['id'] ?? null;
+        $result = $this->crud->createFeeCredit($data, $userId);
+        return $this->success($result, 201);
     }
 
     public function putFeeCredits($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('id required');
+        if (!$id) {
+            return $this->badRequest('Credit note id is required');
+        }
         $action = $data['action'] ?? 'apply';
-        $credit = $this->db->query("SELECT * FROM fee_credit_notes WHERE id = ?", [$id])->fetch();
+        $credit = $this->crud->getFeeCredit((int)$id);
         if (!$credit) return $this->error('Credit note not found', 404);
 
         if ($action === 'refund') {
-            $this->db->query("UPDATE fee_credit_notes SET status = 'refunded' WHERE id = ?", [$id]);
-            return $this->success(['refunded' => true]);
+            try {
+                $request = (new ParentRefundService(Database::getInstance()->getConnection()))->createRequest((int) $id, (int) $this->getUserId(), $data);
+                return $this->success($request, 'Refund submitted for approval; no money has been sent yet.');
+            } catch (\Throwable $e) {
+                return $this->badRequest($e->getMessage());
+            }
         }
 
         $applyAmount = min((float)($data['apply_amount'] ?? 0), (float)$credit['remaining_amount']);
-        if ($applyAmount <= 0) return $this->error('No credit remaining');
-
-        $this->db->query(
-            "UPDATE fee_credit_notes
-             SET applied_amount = applied_amount + ?,
-                 applied_to_year = ?, applied_to_term_id = ?, applied_at = NOW(),
-                 status = CASE WHEN (applied_amount + ?) >= credit_amount THEN 'fully_applied' ELSE 'partially_applied' END
-             WHERE id = ?",
-            [$applyAmount, $data['to_year'] ?? date('Y'), $data['to_term_id'] ?? null, $applyAmount, $id]
-        );
-
-        if (!empty($data['obligation_id'])) {
-            $this->db->query(
-                "UPDATE student_fee_obligations SET amount_waived = amount_waived + ? WHERE id = ?",
-                [$applyAmount, $data['obligation_id']]
-            );
+        if ($applyAmount <= 0) {
+            return $this->badRequest('apply_amount must be greater than zero');
         }
+        $this->crud->applyFeeCredit((int)$id, $applyAmount, $data);
         return $this->success(['applied' => $applyAmount]);
     }
 
@@ -2067,51 +2186,23 @@ class FinanceController extends BaseController
 
     public function getSalaryAdvances($id = null, $data = [], $segments = [])
     {
-        $staffId = $_GET['staff_id'] ?? null;
-        $status  = $_GET['status']   ?? null;
-        $where = ['1=1']; $params = [];
-
-        if ($staffId) { $where[] = 'sa.staff_id = ?'; $params[] = $staffId; }
-        if ($status)  { $where[] = 'sa.status = ?';   $params[] = $status; }
-
-        $rows = $this->db->query(
-            "SELECT sa.id, sa.advance_number, sa.requested_amount, sa.approved_amount,
-                    sa.request_date, sa.deduction_schedule, sa.deduction_start_month,
-                    sa.amount_per_deduction, sa.amount_deducted, sa.balance_remaining,
-                    sa.status, sa.approval_date, sa.reason,
-                    CONCAT(s.first_name,' ',s.last_name) AS staff_name, s.employee_number,
-                    u.name AS approved_by_name
-             FROM staff_salary_advances sa
-             JOIN staff s ON s.id = sa.staff_id
-             LEFT JOIN users u ON u.id = sa.approved_by
-             WHERE " . implode(' AND ', $where) . "
-             ORDER BY sa.request_date DESC",
-            $params
-        )->fetchAll();
-
-        $stats = [
-            'total_advances'    => count($rows),
-            'total_issued'      => array_sum(array_column(array_filter($rows, fn($r) => $r['approved_amount']), 'approved_amount')),
-            'total_outstanding' => array_sum(array_column(array_filter($rows, fn($r) => $r['status'] === 'active'), 'balance_remaining')),
-            'pending_approval'  => count(array_filter($rows, fn($r) => $r['status'] === 'pending')),
-        ];
-        return $this->success(['advances' => $rows, 'stats' => $stats]);
+        $staffId = isset($_GET['staff_id']) ? (int)$_GET['staff_id'] : null;
+        $allowedStatuses = ['pending', 'approved', 'rejected', 'active', 'fully_deducted'];
+        $status = isset($_GET['status']) && in_array($_GET['status'], $allowedStatuses, true) ? $_GET['status'] : null;
+        $filters = ['staff_id' => $staffId, 'status' => $status];
+        return $this->success($this->crud->listSalaryAdvances($filters));
     }
 
     public function postSalaryAdvances($id = null, $data = [], $segments = [])
     {
         $staffId = $data['staff_id'] ?? null;
         $amount  = $data['requested_amount'] ?? null;
-        if (!$staffId || !$amount) return $this->error('staff_id and requested_amount required');
+        if (!$staffId || !$amount) {
+            return $this->badRequest('staff_id and requested_amount are required');
+        }
 
-        // GUARD: Cannot exceed 1 month salary and no active advance allowed simultaneously
-        $existing = (float)$this->db->query(
-            "SELECT COALESCE(SUM(balance_remaining),0) FROM staff_salary_advances
-             WHERE staff_id = ? AND status = 'active'",
-            [$staffId]
-        )->fetchColumn();
-
-        $salary = (float)($this->db->query("SELECT basic_salary FROM staff WHERE id = ?", [$staffId])->fetchColumn() ?? 0);
+        $existing = (float)$this->crud->getActiveAdvanceBalance((int)$staffId);
+        $salary = (float)$this->crud->getStaffBasicSalary((int)$staffId);
         if ($salary > 0 && ($existing + (float)$amount) > $salary) {
             return $this->error(
                 "Advance exceeds limit. Active balance: KES " . number_format($existing, 2) .
@@ -2119,23 +2210,18 @@ class FinanceController extends BaseController
             );
         }
 
-        $advNum = 'ADV-' . date('Ymd') . '-' . str_pad(rand(1, 999), 3, '0', STR_PAD_LEFT);
-        $this->db->query(
-            "INSERT INTO staff_salary_advances
-             (advance_number, staff_id, requested_amount, request_date, reason, deduction_schedule, status)
-             VALUES (?, ?, ?, CURDATE(), ?, ?, 'pending')",
-            [$advNum, $staffId, $amount, $data['reason'] ?? null, $data['deduction_schedule'] ?? 'single_month']
-        );
-        return $this->success(['advance_number' => $advNum, 'id' => $this->db->lastInsertId()], 201);
+        $advId = $this->crud->createSalaryAdvance($data);
+        return $this->success(['id' => $advId], 201);
     }
 
     public function putSalaryAdvances($id = null, $data = [], $segments = [])
     {
-        if (!$id) return $this->error('id required');
+        if (!$id) {
+            return $this->badRequest('Advance id is required');
+        }
         $action = $data['action'] ?? null;
         $userId = $this->user['id'] ?? null;
-
-        $advance = $this->db->query("SELECT * FROM staff_salary_advances WHERE id = ?", [$id])->fetch();
+        $advance = $this->crud->getSalaryAdvance((int)$id);
         if (!$advance) return $this->error('Advance not found', 404);
 
         if ($action === 'approve') {
@@ -2143,85 +2229,48 @@ class FinanceController extends BaseController
             $months   = ['single_month' => 1, 'two_months' => 2, 'three_months' => 3][$advance['deduction_schedule']] ?? 1;
             $perDed   = round($approved / $months, 2);
             $start    = $data['deduction_start_month'] ?? date('Y-m-01', strtotime('first day of next month'));
-            $this->db->query(
-                "UPDATE staff_salary_advances
-                 SET status = 'active', approved_amount = ?, amount_per_deduction = ?,
-                     deduction_start_month = ?, balance_remaining = ?, approved_by = ?, approval_date = NOW()
-                 WHERE id = ?",
-                [$approved, $perDed, $start, $approved, $userId, $id]
-            );
+            $this->crud->approveSalaryAdvance((int)$id, $approved, $perDed, $start, $userId);
             return $this->success(['approved' => true, 'per_deduction' => $perDed]);
         }
-
         if ($action === 'reject') {
-            $this->db->query(
-                "UPDATE staff_salary_advances SET status = 'rejected', rejection_reason = ? WHERE id = ?",
-                [$data['reason'] ?? null, $id]
-            );
+            $this->crud->rejectSalaryAdvance((int)$id, $data['reason'] ?? null);
             return $this->success(['rejected' => true]);
         }
-
         if ($action === 'record_deduction') {
             $amt        = min((float)($data['amount'] ?? $advance['amount_per_deduction']), (float)$advance['balance_remaining']);
             $newBalance = max(0, (float)$advance['balance_remaining'] - $amt);
             $newStatus  = $newBalance <= 0 ? 'fully_deducted' : 'active';
-            $this->db->query(
-                "UPDATE staff_salary_advances
-                 SET amount_deducted = amount_deducted + ?, balance_remaining = ?, status = ?
-                 WHERE id = ?",
-                [$amt, $newBalance, $newStatus, $id]
-            );
+            $this->crud->recordSalaryAdvanceDeduction((int)$id, $amt, $newBalance, $newStatus);
             return $this->success(['deducted' => $amt, 'remaining' => $newBalance]);
         }
-
-        return $this->error('Unknown action');
+        return $this->badRequest('Unknown action');
     }
 
     /**
      * GET /api/finance/unmatched-payments
-     * List payments that have not been matched to student fee obligations.
      */
     public function getUnmatchedPayments($id = null, $data = [], $segments = [])
     {
         try {
             $page  = max(1, (int) ($_GET['page']  ?? $data['page']  ?? 1));
             $limit = max(1, min(200, (int) ($_GET['limit'] ?? $data['limit'] ?? 50)));
-            $offset = ($page - 1) * $limit;
-
-            $sql = "SELECT
-                        p.id, p.receipt_number, p.reference_number,
-                        p.amount, p.payment_date, p.payment_method,
-                        p.status, p.notes,
-                        CONCAT(u.first_name, ' ', u.last_name) AS payer_name,
-                        u.email AS payer_email
-                    FROM payments p
-                    LEFT JOIN users u ON u.id = p.user_id
-                    WHERE p.status IN ('unmatched', 'pending')
-                      AND p.deleted_at IS NULL
-                    ORDER BY p.payment_date DESC
-                    LIMIT ? OFFSET ?";
-
-            $rows = $this->db->query($sql, [$limit, $offset])->fetchAll();
-
-            $total = (int) $this->db->query(
-                "SELECT COUNT(*) FROM payments WHERE status IN ('unmatched','pending') AND deleted_at IS NULL"
-            )->fetchColumn();
-
+            $result = $this->crud->listUnmatchedPayments($page, $limit);
             return $this->success([
-                'data'       => $rows,
-                'total'      => $total,
-                'page'       => $page,
-                'per_page'   => $limit,
-                'total_pages'=> (int) ceil($total / $limit),
+                'data'        => $result['data'],
+                'total'       => $result['total'],
+                'page'        => $page,
+                'per_page'    => $limit,
+                'total_pages' => (int) ceil($result['total'] / $limit),
             ]);
         } catch (\Exception $e) {
-            return $this->error('Failed to fetch unmatched payments: ' . $e->getMessage());
+            error_log('getUnmatchedPayments: ' . $e->getMessage());
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
     }
 
     /**
      * POST /api/finance/unmatched-payments/match
-     * Manually match an unmatched payment to a student obligation.
      */
     public function postUnmatchedPaymentsMatch($id = null, $data = [], $segments = [])
     {
@@ -2234,13 +2283,132 @@ class FinanceController extends BaseController
         }
 
         try {
-            $this->db->query(
-                "UPDATE payments SET status = 'matched', student_id = ?, obligation_id = ?, updated_at = NOW() WHERE id = ?",
-                [$studentId, $obligationId, $paymentId]
-            );
+            $this->crud->matchPayment((int)$paymentId, $studentId ? (int)$studentId : null, $obligationId ? (int)$obligationId : null);
             return $this->success(null, 'Payment matched successfully');
         } catch (\Exception $e) {
-            return $this->error('Failed to match payment: ' . $e->getMessage());
+            error_log('postUnmatchedPaymentsMatch: ' . $e->getMessage());
+            error_log('[FinanceController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return $this->error('An internal error occurred.');
         }
+    }
+
+    // =========================================================================
+    // EXTRA CHARGES — flexible charges on the fee structure
+    // =========================================================================
+
+    /** GET /api/finance/extra-charges[/{id}] */
+    public function getExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        // Router resolves GET /extra-charges/{id} to this list method with the
+        // numeric id as first argument — delegate to the single-charge handler.
+        if ($id !== null && $id !== '' && is_numeric($id)) {
+            return $this->getExtraChargesGet($id, $data, $segments);
+        }
+        $filters = $_GET;
+        $result = $this->api->getExtraCharges($filters);
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/{id} */
+    public function getExtraChargesGet($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getExtraCharge((int) $id);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges */
+    public function postExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage', 'fee_structure_create'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->createExtraCharge($data, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** PUT /api/finance/extra-charges/{id} */
+    public function putExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->updateExtraCharge((int) $id, $data, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** DELETE /api/finance/extra-charges/{id} */
+    public function deleteExtraCharges($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_delete'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->deleteExtraCharge((int) $id, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/{id}/submit */
+    public function postExtraChargesSubmit($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->submitExtraCharge((int) $id, (int) $userId);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/approve/{id} */
+    public function postExtraChargesApprove($id = null, $data = [], $segments = [])
+    {
+        // Approval authority: Director, School Administrator (and System Administrator) only.
+        if (!$this->userHasAny(['fee_structure_approve', 'fee_structure_manage'], [2, 3, 4])) {
+            return $this->forbidden('Only the School Administrator or Director can approve fee structure items.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $notes = $data['notes'] ?? '';
+        $result = $this->api->approveExtraCharge((int) $id, (int) $userId, $notes);
+        return $this->handleResponse($result);
+    }
+
+    /** POST /api/finance/extra-charges/reject/{id} */
+    public function postExtraChargesReject($id = null, $data = [], $segments = [])
+    {
+        // Rejection authority mirrors approval: Director / School Administrator only.
+        if (!$this->userHasAny(['fee_structure_approve', 'fee_structure_manage'], [2, 3, 4])) {
+            return $this->forbidden('Only the School Administrator or Director can reject fee structure items.');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $notes = $data['notes'] ?? '';
+        $result = $this->api->rejectExtraCharge((int) $id, (int) $userId, $notes);
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/academic-years */
+    public function getExtraChargesAcademicYears($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getAcademicYearsList();
+        return $this->handleResponse($result);
+    }
+
+    /** GET /api/finance/extra-charges/gl-accounts */
+    public function getExtraChargesGlAccounts($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['fee_structure_view', 'fee_structure_edit', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions.');
+        }
+        $result = $this->api->getGLAccounts();
+        return $this->handleResponse($result);
     }
 }

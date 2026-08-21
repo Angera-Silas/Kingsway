@@ -23,7 +23,7 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
             <p class="text-muted mb-0"><?= htmlspecialchars($staffAppointmentsDescription, ENT_QUOTES, 'UTF-8') ?></p>
         </div>
         <button class="btn btn-outline-success" id="refreshStaffAppointmentsBtn" type="button">
-            <i class="fas fa-sync-alt me-2"></i>Refresh
+            <i class="bi bi-arrow-clockwise me-2"></i>Refresh
         </button>
     </div>
 
@@ -86,7 +86,7 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
                         <div class="text-muted small">Transfers, substantive appointments, reclassifications, and temporary acting roles.</div>
                     </div>
                     <button class="btn btn-success" id="openInternalAppointmentForm" type="button">
-                        <i class="fas fa-user-tag me-2"></i>Submit Internal Appointment
+                        <i class="bi bi-person-tag me-2"></i>Submit Internal Appointment
                     </button>
                 </div>
                 <div class="card-body p-0">
@@ -94,12 +94,12 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
                         <table class="table table-hover align-middle mb-0">
                             <thead class="table-light">
 	                                <tr id="internalAppointmentsHeader">
-                                    <th>Staff</th>
-                                    <th>Type</th>
-                                    <th>Position Change</th>
-                                    <th>Department Change</th>
-                                    <th>Salary Change</th>
-                                    <th>Status</th>
+                                    <th scope="col">Staff</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Position Change</th>
+                                    <th scope="col">Department Change</th>
+                                    <th scope="col">Salary Change</th>
+                                    <th scope="col">Status</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
@@ -123,12 +123,12 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
                         <table class="table table-hover align-middle mb-0">
                             <thead class="table-light">
 	                                <tr id="newAppointmentsHeader">
-                                    <th>Candidate</th>
-                                    <th>Contact</th>
-                                    <th>Position</th>
-                                    <th>Department</th>
-                                    <th>Start Date</th>
-                                    <th>Status</th>
+                                    <th scope="col">Candidate</th>
+                                    <th scope="col">Contact</th>
+                                    <th scope="col">Position</th>
+                                    <th scope="col">Department</th>
+                                    <th scope="col">Start Date</th>
+                                    <th scope="col">Status</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
                             </thead>
@@ -147,5 +147,5 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
 $staffAccessJs = __DIR__ . '/../js/pages/staff_access.js';
 $staffAppointmentsJs = __DIR__ . '/../js/pages/staff_appointments.js';
 ?>
-<script src="<?= $appBase ?>/js/pages/staff_access.js?v=<?= file_exists($staffAccessJs) ? filemtime($staffAccessJs) : time() ?>"></script>
-<script src="<?= $appBase ?>/js/pages/staff_appointments.js?v=<?= file_exists($staffAppointmentsJs) ? filemtime($staffAppointmentsJs) : time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/staff_appointments.js'); ?>

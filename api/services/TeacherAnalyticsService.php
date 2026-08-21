@@ -18,12 +18,16 @@ class TeacherAnalyticsService
     public function getMyClass()
     {
         // Find teacher's assigned class
-        $sql = "SELECT c.*, COUNT(s.id) as student_count
-                FROM classes c
-                LEFT JOIN class_assignments ca ON c.id = ca.class_id
-                LEFT JOIN students s ON c.id = s.class_id AND s.status = 'active'
-                WHERE ca.user_id = ? AND ca.role = 'class_teacher'
-                GROUP BY c.id
+        $sql = "SELECT c.name as class_name, c.grade_level as form, s.name as stream,
+                       COUNT(DISTINCT sae.id) as student_count
+                FROM academic_year_class_streams aycs
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON ayc.class_id = c.id
+                LEFT JOIN streams s ON aycs.stream_id = s.id
+                LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id
+                  AND sae.enrollment_status = 'active'
+                WHERE aycs.class_teacher_id = ?
+                GROUP BY aycs.id
                 LIMIT 1";
         $stmt = $this->db->query($sql, [$this->userId]);
         $classData = $stmt->fetch();
@@ -47,9 +51,9 @@ class TeacherAnalyticsService
                     SUM(CASE WHEN a.status = 'on_leave' THEN 1 ELSE 0 END) as on_leave,
                     IFNULL(ROUND(100 * SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) / NULLIF(COUNT(a.id),0)),0) as percentage
                 FROM student_attendance a
-                JOIN students s ON a.student_id = s.id
-                JOIN class_assignments ca ON s.class_id = ca.class_id
-                WHERE ca.user_id = ? AND ca.role = 'class_teacher' AND a.date = CURDATE()";
+                JOIN student_academic_enrollments sae ON a.student_academic_enrollment_id = sae.id
+                JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                WHERE aycs.class_teacher_id = ? AND a.date = CURDATE()";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         return [

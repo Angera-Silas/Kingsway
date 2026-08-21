@@ -1394,9 +1394,10 @@ const directorDashboardController = {
   },
 };
 
-// Auto-init when DOM ready
-document.addEventListener("DOMContentLoaded", function () {
-  if (typeof directorDashboardController !== "undefined") {
+if (window.__APP_BOOTED__) {
+  directorDashboardController.init();
+} else {
+  window.addEventListener("kingsway:ready", () => {
     directorDashboardController.init();
-  }
-});
+  }, { once: true });
+}

@@ -37,7 +37,7 @@ class TransactionsManager extends BaseAPI
             }
 
             if (!empty($params['location_id'])) {
-                $where[] = "it.location_id = ?";
+                $where[] = "i.location_id = ?";
                 $bindings[] = $params['location_id'];
             }
 
@@ -53,7 +53,7 @@ class TransactionsManager extends BaseAPI
 
             $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 
-            $sql = "SELECT COUNT(*) FROM inventory_transactions it $whereClause";
+            $sql = "SELECT COUNT(*) FROM inventory_transactions it LEFT JOIN inventory_items i ON it.item_id = i.id $whereClause";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
             $total = $stmt->fetchColumn();
@@ -62,13 +62,11 @@ class TransactionsManager extends BaseAPI
                 SELECT 
                     it.*,
                     i.item_name,
-                    i.item_code,
-                    l.location_name,
-                    CONCAT(u.first_name, ' ', u.last_name) as created_by_name
+                    i.code AS item_code,
+                    l.location_name
                 FROM inventory_transactions it
                 LEFT JOIN inventory_items i ON it.item_id = i.id
-                LEFT JOIN inventory_locations l ON it.location_id = l.id
-                LEFT JOIN users u ON it.created_by = u.id
+                LEFT JOIN inventory_locations l ON i.location_id = l.id
                 $whereClause
                 ORDER BY it.transaction_date DESC
                 LIMIT ? OFFSET ?
@@ -110,20 +108,23 @@ class TransactionsManager extends BaseAPI
             $this->db->beginTransaction();
 
             try {
+                $quantity = (int) $data['quantity_change'];
+                $direction = $quantity >= 0 ? 'in' : 'out';
+                $absQuantity = abs($quantity);
+
                 // Record adjustment transaction
                 $sql = "
                     INSERT INTO inventory_transactions (
-                        item_id, location_id, transaction_type, quantity_change,
-                        reference_type, reference_id, notes, created_by, transaction_date
-                    ) VALUES (?, ?, 'adjustment', ?, 'manual_adjustment', NULL, ?, ?, NOW())
+                        item_id, transaction_type, quantity,
+                        reference_type, reference_id, notes, transaction_date
+                    ) VALUES (?, ?, ?, 'adjustment', NULL, ?, NOW())
                 ";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     $data['item_id'],
-                    $data['location_id'],
-                    $data['quantity_change'],
-                    $data['reason'],
-                    $this->getCurrentUserId()
+                    $direction,
+                    $absQuantity,
+                    $data['reason']
                 ]);
 
                 $transactionId = $this->db->lastInsertId();
@@ -132,12 +133,12 @@ class TransactionsManager extends BaseAPI
                 $sql = "
                     UPDATE inventory_items 
                     SET 
-                        quantity_on_hand = quantity_on_hand + ?,
-                        last_updated = NOW()
+                        current_quantity = current_quantity + ?,
+                        updated_at = NOW()
                     WHERE id = ?
                 ";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$data['quantity_change'], $data['item_id']]);
+                $stmt->execute([$quantity, $data['item_id']]);
 
                 $this->db->commit();
                 $this->logAction('create', $transactionId, "Stock adjustment: {$data['reason']}");
@@ -180,10 +181,10 @@ class TransactionsManager extends BaseAPI
             $sql = "
                 SELECT 
                     i.item_name,
-                    i.item_code,
-                    SUM(CASE WHEN it.quantity_change > 0 THEN it.quantity_change ELSE 0 END) as total_in,
-                    SUM(CASE WHEN it.quantity_change < 0 THEN ABS(it.quantity_change) ELSE 0 END) as total_out,
-                    SUM(it.quantity_change) as net_change,
+                    i.code AS item_code,
+                    SUM(CASE WHEN it.transaction_type = 'in' THEN it.quantity ELSE 0 END) as total_in,
+                    SUM(CASE WHEN it.transaction_type = 'out' THEN it.quantity ELSE 0 END) as total_out,
+                    SUM(CASE WHEN it.transaction_type = 'in' THEN it.quantity ELSE -it.quantity END) as net_change,
                     i.quantity_on_hand as current_stock
                 FROM inventory_transactions it
                 JOIN inventory_items i ON it.item_id = i.id

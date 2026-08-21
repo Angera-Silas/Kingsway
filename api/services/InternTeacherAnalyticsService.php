@@ -44,22 +44,25 @@ class InternTeacherAnalyticsService
     public function getAssignedClassesStats(): array
     {
         try {
+            // Map: teacher_class_assignments → academic_year_class_learning_area_teachers
+            // Map: class_streams + students with stream_id → academic_year_class_streams + student_academic_enrollments
             $query = "SELECT 
-                        COUNT(DISTINCT tca.stream_id) as total_classes,
-                        COUNT(DISTINCT sub.id) as subjects,
-                        COUNT(DISTINCT s.id) as total_students
-                      FROM teacher_class_assignments tca
-                      LEFT JOIN class_streams cs ON tca.stream_id = cs.id
-                      LEFT JOIN students s ON s.stream_id = cs.id AND s.status = 'active'
-                      LEFT JOIN subjects sub ON tca.subject_id = sub.id
-                      WHERE tca.teacher_id = ? 
-                        AND tca.role = 'intern_teacher'
-                        AND tca.status = 'active'";
+                        COUNT(DISTINCT aycs.id) as total,
+                        COUNT(DISTINCT la.id) as subjects,
+                        COUNT(DISTINCT sae.student_id) as total_students
+                      FROM academic_year_class_learning_area_teachers ayclat
+                      JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                      JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                      JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                      LEFT JOIN learning_areas la ON aycla.learning_area_id = la.id
+                      LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                        AND sae.enrollment_status = 'active'
+                      WHERE ayclat.staff_id = ?";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
-                'total_classes' => (int) ($result['total_classes'] ?? 0),
+                'total' => (int) ($result['total'] ?? 0),
                 'subjects' => (int) ($result['subjects'] ?? 0),
                 'total_students' => (int) ($result['total_students'] ?? 0)
             ];
@@ -77,9 +80,9 @@ class InternTeacherAnalyticsService
     {
         try {
             $query = "SELECT 
-                        COUNT(*) as total_observations,
+                        COUNT(*) as total,
                         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as upcoming,
+                        SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as pending,
                         AVG(rating) as average_rating
                       FROM lesson_observations 
                       WHERE intern_id = ?";
@@ -87,9 +90,9 @@ class InternTeacherAnalyticsService
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
-                'total_observations' => (int) ($result['total_observations'] ?? 0),
+                'total' => (int) ($result['total'] ?? 0),
                 'completed' => (int) ($result['completed'] ?? 0),
-                'upcoming' => (int) ($result['upcoming'] ?? 0),
+                'pending' => (int) ($result['pending'] ?? 0),
                 'average_rating' => round((float) ($result['average_rating'] ?? 0), 1)
             ];
         } catch (Exception $e) {
@@ -106,20 +109,20 @@ class InternTeacherAnalyticsService
     {
         try {
             $query = "SELECT 
-                        COUNT(*) as total_resources,
-                        SUM(CASE WHEN type = 'lesson_plan' THEN 1 ELSE 0 END) as lesson_plans,
-                        SUM(CASE WHEN type = 'teaching_aid' THEN 1 ELSE 0 END) as teaching_aids,
-                        SUM(CASE WHEN accessed_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as accessed_this_week
-                      FROM teaching_resources 
-                      WHERE available_to_interns = 1 OR assigned_to = ?";
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as available,
+                        SUM(CASE WHEN resource_type = 'lesson_plan' THEN 1 ELSE 0 END) as lesson_plans,
+                        SUM(CASE WHEN resource_type = 'teaching_aid' THEN 1 ELSE 0 END) as teaching_aids
+                      FROM teaching_materials 
+                      WHERE status = 'approved' AND (access_scope IN ('school','public') OR teacher_id = ?)";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
-                'total_resources' => (int) ($result['total_resources'] ?? 0),
+                'total' => (int) ($result['total'] ?? 0),
+                'available' => (int) ($result['available'] ?? 0),
                 'lesson_plans' => (int) ($result['lesson_plans'] ?? 0),
-                'teaching_aids' => (int) ($result['teaching_aids'] ?? 0),
-                'accessed_this_week' => (int) ($result['accessed_this_week'] ?? 0)
+                'teaching_aids' => (int) ($result['teaching_aids'] ?? 0)
             ];
         } catch (Exception $e) {
             error_log("getTeachingResourcesStats error: " . $e->getMessage());
@@ -134,18 +137,21 @@ class InternTeacherAnalyticsService
     public function getStudentPerformanceStats(): array
     {
         try {
+            // Map: teacher_class_assignments → academic_year_class_learning_area_teachers
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
-                        COUNT(DISTINCT s.id) as students_taught,
-                        AVG(ar.score) as average_score,
-                        SUM(CASE WHEN ar.score >= 75 THEN 1 ELSE 0 END) as high_performers,
-                        SUM(CASE WHEN ar.score < 40 THEN 1 ELSE 0 END) as needs_support
-                      FROM students s
-                      JOIN teacher_class_assignments tca ON s.stream_id = tca.stream_id
-                      LEFT JOIN assessment_results ar ON s.id = ar.student_id
-                      WHERE tca.teacher_id = ? 
-                        AND tca.role = 'intern_teacher'
-                        AND tca.status = 'active'
-                        AND s.status = 'active'";
+                        COUNT(DISTINCT sae.student_id) as students_taught,
+                        AVG(ar.marks_obtained) as average_score,
+                        SUM(CASE WHEN ar.marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
+                        SUM(CASE WHEN ar.marks_obtained < 40 THEN 1 ELSE 0 END) as needs_support
+                      FROM student_academic_enrollments sae
+                      JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                      JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                      JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id = ayc.id
+                      JOIN academic_year_class_learning_area_teachers ayclat ON ayclat.academic_year_class_learning_area_id = aycla.id
+                      LEFT JOIN assessment_results ar ON sae.id = ar.student_academic_enrollment_id
+                      WHERE ayclat.staff_id = ? 
+                        AND sae.enrollment_status = 'active'";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -169,25 +175,25 @@ class InternTeacherAnalyticsService
     {
         try {
             $query = "SELECT 
-                        COUNT(*) as total_competencies,
-                        SUM(CASE WHEN status = 'achieved' THEN 1 ELSE 0 END) as achieved,
-                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN status = 'not_started' THEN 1 ELSE 0 END) as not_started
-                      FROM intern_competencies 
-                      WHERE intern_id = ?";
+                        COUNT(DISTINCT cc.id) as total_competencies,
+                        COUNT(DISTINCT lc.competency_id) as completed
+                      FROM core_competencies cc
+                      LEFT JOIN learner_competencies lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
+                      WHERE cc.status = 'active'";
             $stmt = $this->db->query($query, [$this->userId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             $total = (int) ($result['total_competencies'] ?? 0);
-            $achieved = (int) ($result['achieved'] ?? 0);
-            $percentage = $total > 0 ? round(($achieved / $total) * 100) : 0;
+            $completed = (int) ($result['completed'] ?? 0);
+            $inProgress = max(0, $total - $completed);
+            $percentage = $total > 0 ? round(($completed / $total) * 100) : 0;
 
             return [
                 'total_competencies' => $total,
-                'achieved' => $achieved,
-                'in_progress' => (int) ($result['in_progress'] ?? 0),
-                'not_started' => (int) ($result['not_started'] ?? 0),
-                'completion_percentage' => $percentage
+                'completed' => $completed,
+                'in_progress' => $inProgress,
+                'not_started' => 0,
+                'percentage' => $percentage
             ];
         } catch (Exception $e) {
             error_log("getDevelopmentProgressStats error: " . $e->getMessage());
@@ -205,26 +211,30 @@ class InternTeacherAnalyticsService
     public function getAssignedClassesTable(): array
     {
         try {
+            // Map: teacher_class_assignments → academic_year_class_learning_area_teachers
+            // Map: class_streams → academic_year_class_streams
+            // Map: students with stream_id → student_academic_enrollments
             $query = "SELECT 
                         CASE 
-                            WHEN c.name = cs.stream_name THEN c.name
-                            WHEN cs.stream_name IS NULL THEN c.name
-                            ELSE CONCAT(c.name, ' ', cs.stream_name)
+                            WHEN c.name = s.name THEN c.name
+                            WHEN s.name IS NULL THEN c.name
+                            ELSE CONCAT(c.name, ' ', s.name)
                         END as class_name,
-                        sub.name as subject,
-                        CONCAT(m.first_name, ' ', m.last_name) as mentor,
-                        COUNT(s.id) as students,
-                        tca.schedule_day as day
-                      FROM teacher_class_assignments tca
-                      JOIN class_streams cs ON tca.stream_id = cs.id
-                      JOIN classes c ON cs.class_id = c.id
-                      LEFT JOIN subjects sub ON tca.subject_id = sub.id
-                      LEFT JOIN users m ON tca.mentor_id = m.id
-                      LEFT JOIN students s ON s.stream_id = cs.id AND s.status = 'active'
-                      WHERE tca.teacher_id = ? 
-                        AND tca.role = 'intern_teacher'
-                        AND tca.status = 'active'
-                      GROUP BY tca.id, c.name, cs.stream_name, sub.name, m.first_name, m.last_name, tca.schedule_day
+                        la.name as subject_name,
+                        NULL as mentor_name,
+                        NULL as schedule,
+                        COUNT(DISTINCT sae.student_id) as students
+                      FROM academic_year_class_learning_area_teachers ayclat
+                      JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                      JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
+                      JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
+                      JOIN classes c ON aac.class_id = c.id
+                      LEFT JOIN streams s ON aycs.stream_id = s.id
+                      LEFT JOIN learning_areas la ON aycla.learning_area_id = la.id
+                      LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                        AND sae.enrollment_status = 'active'
+                      WHERE ayclat.staff_id = ?
+                      GROUP BY aac.id, aycs.id, c.name, s.name, la.name
                       ORDER BY c.name";
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -240,22 +250,24 @@ class InternTeacherAnalyticsService
     public function getObservationsTable(): array
     {
         try {
+            // Map: class_streams → classes + streams
             $query = "SELECT 
-                        lo.observation_date as date,
+                        lo.observation_date as observation_date,
                         CASE 
-                            WHEN c.name = cs.stream_name THEN c.name
-                            ELSE CONCAT(c.name, ' ', COALESCE(cs.stream_name, ''))
+                            WHEN c.name = s.name THEN c.name
+                            ELSE CONCAT(c.name, ' ', COALESCE(s.name, ''))
                         END as class_name,
-                        sub.name as subject,
-                        CONCAT(m.first_name, ' ', m.last_name) as observer,
+                        la.name as focus_area,
+                        CONCAT(p.first_name, ' ', p.last_name) as observer_name,
                         lo.rating,
                         lo.feedback,
                         lo.status
                       FROM lesson_observations lo
-                      LEFT JOIN class_streams cs ON lo.stream_id = cs.id
-                      LEFT JOIN classes c ON cs.class_id = c.id
-                      LEFT JOIN subjects sub ON lo.subject_id = sub.id
-                      LEFT JOIN users m ON lo.observer_id = m.id
+                      LEFT JOIN classes c ON lo.class_id = c.id
+                      LEFT JOIN streams s ON lo.stream_id = s.id
+                      LEFT JOIN learning_areas la ON lo.learning_area_id = la.id
+                      LEFT JOIN staff m ON lo.observer_id = m.id
+                      LEFT JOIN persons p ON m.person_id = p.id
                       WHERE lo.intern_id = ?
                       ORDER BY lo.observation_date DESC
                       LIMIT 20";
@@ -274,15 +286,16 @@ class InternTeacherAnalyticsService
     {
         try {
             $query = "SELECT 
-                        c.name as competency,
-                        c.category,
-                        ic.status,
-                        ic.achieved_date,
-                        ic.notes
-                      FROM intern_competencies ic
-                      JOIN competencies c ON ic.competency_id = c.id
-                      WHERE ic.intern_id = ?
-                      ORDER BY c.category, c.name";
+                        cc.name as competency,
+                        cc.code as category,
+                        CASE WHEN lc.id IS NOT NULL THEN 'achieved' ELSE 'not_started' END as status,
+                        lc.assessed_date as achieved_date,
+                        lc.teacher_notes as notes,
+                        CASE WHEN lc.id IS NOT NULL THEN 100 ELSE 0 END as score
+                      FROM core_competencies cc
+                      LEFT JOIN learner_competencies lc ON lc.competency_id = cc.id AND lc.assessed_by = ?
+                      WHERE cc.status = 'active'
+                      ORDER BY cc.sort_order, cc.name";
             $stmt = $this->db->query($query, [$this->userId]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {

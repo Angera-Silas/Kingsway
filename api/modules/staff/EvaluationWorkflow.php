@@ -58,12 +58,14 @@ class EvaluationWorkflow extends WorkflowHandler
             // Validate staff exists
             $stmt = $this->db->prepare("
                 SELECT s.*, st.name as staff_type, sc.category_name, d.name as department_name,
-                       CONCAT(sup.first_name, ' ', sup.last_name) as supervisor_name, s.supervisor_id
+                       CONCAT(sp.first_name, ' ', sp.last_name) as supervisor_name, s.supervisor_id
                 FROM staff s
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff sup ON s.supervisor_id = sup.id
+                LEFT JOIN persons sp ON sp.id = sup.person_id
                 WHERE s.id = ? AND s.status = 'active'
             ");
             $stmt->execute([$staffId]);
@@ -123,13 +125,10 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Failed to start workflow');
             }
 
-            // Update performance review with workflow ID
-            $stmt = $this->db->prepare("
-                UPDATE staff_performance_reviews SET
-                    workflow_instance_id = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$workflowId, $reviewId]);
+            // NOTE: performance_reviews lost its workflow_instance_id column in the
+            // 4NF schema. The review↔workflow link now lives on the workflow side:
+            // workflow_instances.data_json.review_id (set above in $workflowData),
+            // so there is nothing further to write on the review row here.
 
             $this->db->commit();
             $this->logAction('create', $workflowId, "Initiated evaluation workflow for {$staff['first_name']} {$staff['last_name']}");
@@ -446,12 +445,16 @@ class EvaluationWorkflow extends WorkflowHandler
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $reviewId = $workflowData['review_id'];
 
+            // Re-open the review. performance_reviews.status is enum('draft',
+            // 'submitted', 'acknowledged') — there is no 'cancelled' value, so the
+            // review returns to 'draft' with the workflow cancellation reason noted.
             $stmt = $this->db->prepare("
-                UPDATE staff_performance_reviews SET
-                    status = 'cancelled'
+                UPDATE performance_reviews SET
+                    status = 'draft',
+                    notes = CONCAT(COALESCE(notes, ''), ' | Cancelled via evaluation workflow: ', ?)
                 WHERE id = ?
             ");
-            $stmt->execute([$reviewId]);
+            $stmt->execute([$reason, $reviewId]);
 
             $this->db->commit();
             $this->logAction('update', $workflowId, "Rejected evaluation workflow: {$reason}");

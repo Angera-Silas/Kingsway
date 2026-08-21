@@ -41,11 +41,11 @@
         <table class="operator-data-table" id="financeTable">
             <thead>
                 <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Category</th>
-                    <th>Description</th>
-                    <th>Amount</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Amount</th>
                 </tr>
             </thead>
             <tbody id="financeTableBody">
@@ -106,7 +106,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/finance.js"></script>
+<?php asset_script($appBase, 'js/pages/finance.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof FinanceController !== 'undefined') {

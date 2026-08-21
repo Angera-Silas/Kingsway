@@ -1,8 +1,20 @@
 <?php
+require_once __DIR__ . '/../../config/asset_helpers.php';
+
+if (!headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
+}
+
 /**
  * Public data helper — fetches school content for public pages.
  * Only queries publicly-safe data (no student/staff PII).
  */
+
+// Public pages use app services (e.g. BaseAPI for uploads); register the Composer autoloader.
+require_once __DIR__ . '/../../vendor/autoload.php';
 
 function kw_db(): ?PDO {
     static $pdo = null;
@@ -15,7 +27,8 @@ function kw_db(): ?PDO {
             ';dbname=' . \App\Config\Config::get('DB_NAME','KingsWayAcademy') . ';charset=utf8mb4',
             \App\Config\Config::get('DB_USER','root'),
             \App\Config\Config::get('DB_PASS',''),
-            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+             PDO::ATTR_EMULATE_PREPARES => false]
         );
     } catch (\Throwable $e) { $pdo = null; }
     return $pdo;
@@ -82,10 +95,16 @@ function kw_upcoming_events(int $limit = 5): array {
     if (!$db) return [];
     try {
         $st = $db->prepare(
-            "SELECT id, title, description, event_date, event_time, location, category
+            "SELECT MAX(id) AS id, title,
+                    MAX(description) AS description,
+                    MIN(DATE(start_at)) AS event_date,
+                    MAX(DATE(end_at)) AS end_date,
+                    MAX(location) AS location,
+                    MAX(type) AS category
              FROM school_events
-             WHERE event_date >= CURDATE() AND status != 'cancelled'
-             ORDER BY event_date ASC LIMIT ?"
+             WHERE start_at >= CURDATE() AND status != 'cancelled'
+             GROUP BY title
+             ORDER BY MIN(start_at) ASC LIMIT ?"
         );
         $st->execute([$limit]);
         return $st->fetchAll();
@@ -97,7 +116,7 @@ function kw_event_by_id(int $id): ?array {
     if (!$db) return null;
     try {
         $st = $db->prepare(
-            "SELECT id, title, description, event_date, event_time, end_date, location, category, status
+            "SELECT id, title, description, start_at AS event_date, end_at AS end_date, location, type AS category, status
              FROM school_events WHERE id = ?"
         );
         $st->execute([$id]);
@@ -115,10 +134,19 @@ function kw_academic_terms(): array {
         // Completed terms are excluded. Upcoming terms get priority (listed first)
         // so the next intake is the default choice on the admissions form.
         $st = $db->query(
-            "SELECT id, name, year, start_date, end_date, term_number, status
-             FROM academic_terms
-             WHERE status IN ('current','upcoming')
-             ORDER BY FIELD(status,'upcoming','current'), start_date ASC"
+            "SELECT aw.id AS admission_window_id, ayt.id, ayt.id AS target_term_id,
+                    t.name, ay.year_code AS year, ay.year_name,
+                    ayt.opening_date AS start_date, ayt.closing_date AS end_date,
+                    t.code AS term_number, ayt.status, aw.eligible_grades,
+                    aw.default_admission_category
+             FROM admission_windows aw
+             JOIN academic_year_terms ayt ON ayt.id = aw.academic_year_term_id
+             JOIN terms t ON t.id = ayt.term_id
+             JOIN academic_years ay ON ay.id = ayt.academic_year_id
+             WHERE aw.status = 'open' AND aw.accepts_new_applications = 1
+               AND (aw.application_open_at IS NULL OR NOW() >= aw.application_open_at)
+               AND (aw.application_close_at IS NULL OR NOW() <= aw.application_close_at)
+             ORDER BY aw.application_open_at ASC, ayt.opening_date ASC"
         );
         return $st->fetchAll();
     } catch (\Throwable $e) { return []; }
@@ -155,48 +183,6 @@ function kw_job_by_id(int $id): ?array {
     } catch (\Throwable $e) { return null; }
 }
 
-/* ── Form Handlers ─────────────────────────────────────────────────────────── */
-
-function kw_save_contact(array $d): bool {
-    $db = kw_db();
-    if (!$db) return true; // fail silently to public
-    try {
-        $db->prepare(
-            "INSERT INTO contact_inquiries (full_name,email,phone,subject,message,ip_address)
-             VALUES (?,?,?,?,?,?)"
-        )->execute([$d['name'],$d['email'],$d['phone']??'',$d['subject']??'',$d['message'],$d['ip']??'']);
-        return true;
-    } catch (\Throwable $e) { return false; }
-}
-
-function kw_save_admission_enquiry(array $d): bool {
-    $db = kw_db();
-    if (!$db) return true;
-    try {
-        $db->prepare(
-            "INSERT INTO admission_enquiries (parent_name,phone,email,child_name,grade_applying,ip_address)
-             VALUES (?,?,?,?,?,?)"
-        )->execute([$d['parent_name'],$d['phone'],$d['email']??'',$d['child_name'],$d['grade'],$d['ip']??'']);
-        return true;
-    } catch (\Throwable $e) { return false; }
-}
-
-function kw_save_job_application(array $d): bool {
-    $db = kw_db();
-    if (!$db) return true;
-    try {
-        $db->prepare(
-            "INSERT INTO job_applications (job_id,job_title,first_name,last_name,email,phone,tsc_number,cv_filename,cover_letter,ip_address)
-             VALUES (?,?,?,?,?,?,?,?,?,?)"
-        )->execute([
-            $d['job_id']??null,$d['job_title'],$d['first_name'],$d['last_name'],
-            $d['email'],$d['phone'],$d['tsc_number']??'',$d['cv_filename']??null,
-            $d['cover_letter']??'',$d['ip']??''
-        ]);
-        return true;
-    } catch (\Throwable $e) { return false; }
-}
-
 /* ── School Settings / Stats ─────────────────────────────────────────────── */
 
 function kw_school_stat(string $key, string $default = ''): string {
@@ -210,6 +196,19 @@ function kw_school_stat(string $key, string $default = ''): string {
         $val = $st->fetchColumn();
         return $cache[$key] = ($val !== false) ? $val : $default;
     } catch (\Throwable $e) { return $cache[$key] = $default; }
+}
+
+/* ── School profile (single-row identity table) ──────────────────────────── */
+
+function kw_school_profile(): array {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $db = kw_db();
+    if (!$db) return $cache = [];
+    try {
+        $row = $db->query("SELECT * FROM school_profile LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
+        return $cache = $row ?: [];
+    } catch (\Throwable $e) { return $cache = []; }
 }
 
 /* ── Live enrolment / staff counts (computed, not hand-entered) ───────────── */
@@ -290,124 +289,6 @@ function kw_active_grades(): array {
     return $normalised !== [] ? $normalised : $order;
 }
 
-/* ── Full Admission Application ──────────────────────────────────────────── */
-
-function kw_save_admission_application(array $d): string|false {
-    $db = kw_db();
-    $webRef = 'WEB-' . strtoupper(substr(md5(uniqid()), 0, 6));
-    $appRef = 'KWA-' . strtoupper(substr(md5(uniqid()), 0, 6));
-    if (!$db) return $webRef;
-    
-    try {
-        $db->beginTransaction();
-        
-        // 1. Insert raw data into web_admission_applications (audit copy)
-        $stmt = $db->prepare(
-            "INSERT INTO web_admission_applications
-             (child_full_name,child_dob,child_gender,child_nationality,child_prev_school,child_prev_grade,
-              parent_name,parent_relationship,parent_id_number,parent_phone,parent_alt_phone,parent_email,parent_address,
-              grade_applying,boarding_preference,preferred_start,referral_source,special_needs,application_ref,ip_address)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        );
-        $stmt->execute([
-            $d['child_name'], $d['child_dob'] ?: null, $d['child_gender'] ?: null,
-            $d['child_nationality'] ?: 'Kenyan', $d['child_prev_school'] ?: null, $d['child_prev_grade'] ?: null,
-            $d['parent_name'], $d['parent_relationship'] ?: null, $d['parent_id'] ?: null,
-            $d['parent_phone'], $d['parent_alt_phone'] ?: null, $d['parent_email'] ?: null,
-            $d['parent_address'] ?: null,
-            $d['grade'], $d['boarding'] ?: 'day', $d['start_term'] ?: null,
-            $d['referral'] ?: null, $d['special_needs'] ?: null,
-            $webRef, $d['ip'] ?? null
-        ]);
-        $webAppId = $db->lastInsertId();
-        
-        // 2. Create or find parent record in parents table
-        $parentId = null;
-        
-        // Try to find existing parent by phone or ID number
-        $parentStmt = $db->prepare(
-            "SELECT id FROM parents WHERE phone_1 = ? OR id_number = ? LIMIT 1"
-        );
-        $parentStmt->execute([$d['parent_phone'], $d['parent_id'] ?: '']);
-        $existingParent = $parentStmt->fetchColumn();
-        
-        if ($existingParent) {
-            $parentId = $existingParent;
-        } else {
-            // Parse parent name into first/last
-            $parentNameParts = explode(' ', trim($d['parent_name']), 2);
-            $parentFirstName = $parentNameParts[0] ?? '';
-            $parentLastName = $parentNameParts[1] ?? $parentNameParts[0] ?? '';
-            
-            // Create new parent record
-            $parentInsert = $db->prepare(
-                "INSERT INTO parents (first_name, last_name, id_number, phone_1, phone_2, email, address, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active')"
-            );
-            $parentInsert->execute([
-                $parentFirstName,
-                $parentLastName,
-                $d['parent_id'] ?: null,
-                $d['parent_phone'],
-                $d['parent_alt_phone'] ?: null,
-                $d['parent_email'] ?: null,
-                $d['parent_address'] ?: null
-            ]);
-            $parentId = $db->lastInsertId();
-        }
-        
-        // 3. Map grade from web form to admission_applications enum
-        $gradeMapping = [
-            'PP1' => 'PP1',
-            'PP2' => 'PP2',
-            'Playgroup' => 'Playground',
-            'Grade 1' => 'Grade1',
-            'Grade 2' => 'Grade2',
-            'Grade 3' => 'Grade3',
-            'Grade 4' => 'Grade4',
-            'Grade 5' => 'Grade5',
-            'Grade 6' => 'Grade6',
-            'Grade 7' => 'Grade7',
-            'Grade 8' => 'Grade8',
-            'Grade 9' => 'Grade9',
-        ];
-        if (!isset($gradeMapping[$d['grade']])) {
-            throw new \InvalidArgumentException('Invalid grade: ' . $d['grade']);
-        }
-        $mappedGrade = $gradeMapping[$d['grade']];
-        
-        // 4. Insert into admission_applications (canonical workflow record)
-        $admissionStmt = $db->prepare(
-            "INSERT INTO admission_applications
-             (application_no, applicant_name, date_of_birth, gender, grade_applying_for, academic_year,
-              previous_school, parent_id, application_source, web_application_id, has_special_needs, special_needs_details, status)
-             VALUES (?, ?, ?, ?, ?, YEAR(CURDATE() + INTERVAL 6 MONTH), ?, ?, 'online', ?, ?, ?, 'submitted')"
-        );
-        $admissionStmt->execute([
-            $appRef,
-            $d['child_name'],
-            $d['child_dob'] ?: null,
-            $d['child_gender'] ?: 'other',
-            $mappedGrade,
-            $d['child_prev_school'] ?: null,
-            $parentId,
-            $webAppId,
-            !empty($d['special_needs']) ? 1 : 0,
-            $d['special_needs'] ?: null
-        ]);
-        
-        $db->commit();
-        return $appRef;
-        
-    } catch (\Throwable $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-        error_log('Admission submission error: ' . $e->getMessage());
-        return false;
-    }
-}
-
 /* ── Content / Rich Text ─────────────────────────────────────────────────── */
 
 function kw_content(string $key, string $default = ''): string {
@@ -428,8 +309,24 @@ function kw_content(string $key, string $default = ''): string {
 function kw_table(string $table, string $where = 'is_active = 1', string $order = 'display_order ASC'): array {
     $db = kw_db();
     if (!$db) return [];
+
+    $allowedTables = [
+        'school_values', 'school_history',
+        'school_programs', 'school_facilities', 'gallery_items',
+        'news_categories', 'news_articles', 'careers_benefits',
+        'school_profile', 'school_testimonials',
+    ];
+    if (!in_array($table, $allowedTables, true)) {
+        return [];
+    }
+
+    $cleanWhere = preg_replace('/[^a-zA-Z0-9_ .<>=!(),\'\"]/', '', $where);
+    $cleanOrder = preg_replace('/[^a-zA-Z0-9_ ,\.]/', '', $order);
+
     try {
-        $sql = "SELECT * FROM `{$table}`" . ($where ? " WHERE {$where}" : '') . ($order ? " ORDER BY {$order}" : '');
+        $sql = "SELECT * FROM `{$table}`"
+            . ($cleanWhere ? " WHERE {$cleanWhere}" : '')
+            . ($cleanOrder ? " ORDER BY {$cleanOrder}" : '');
         return $db->query($sql)->fetchAll() ?: [];
     } catch (\Throwable $e) { return []; }
 }
@@ -464,19 +361,29 @@ function kw_school_history(): array {
     ];
 }
 
-/* ── Leadership Team ─────────────────────────────────────────────────────── */
+/* ── Leadership Hierarchy ───────────────────────────────────────────────── */
 
 function kw_leadership(): array {
-    $rows = kw_table('leadership_team');
-    if (!empty($rows)) return $rows;
-    return [
-        ['name'=>'School Director',     'title'=>'School Founder & Director',    'bio'=>'20+ years in education leadership. Masters in Educational Management.',    'avatar_color'=>'#0d4f2a'],
-        ['name'=>'Head Teacher',         'title'=>'Head Teacher',                 'bio'=>'B.Ed (Hons), experienced in CBC implementation and school administration.', 'avatar_color'=>'#198754'],
-        ['name'=>'Deputy (Academic)',    'title'=>'Deputy Head — Academic',        'bio'=>'Oversees curriculum, lesson plans, timetabling, and academic performance.',  'avatar_color'=>'#1976d2'],
-        ['name'=>'Deputy (Discipline)',  'title'=>'Deputy Head — Discipline',      'bio'=>'Manages student conduct, welfare, and community relations.',                 'avatar_color'=>'#7b1fa2'],
-        ['name'=>'The Bursar',           'title'=>'School Bursar / Accountant',    'bio'=>'CPA-K certified. Manages school finances, fee collection, and budgets.',     'avatar_color'=>'#e65100'],
-        ['name'=>'Admissions Officer',   'title'=>'Admissions Officer',            'bio'=>'Handles student intake, records, and parent liaison.',                       'avatar_color'=>'#00695c'],
-    ];
+    $db = kw_db();
+    if (!$db) return [];
+
+    try {
+        $ayId = (int) ($db->query("SELECT id FROM academic_years ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 1);
+        $stmt = $db->prepare(
+            "SELECT sl.id, CONCAT(p.first_name,' ',p.last_name) AS name,
+                    lp.name AS title, sl.public_bio AS bio, sl.public_photo_url AS avatar_url,
+                    sl.display_order, sl.is_active,
+                    ll.name AS level_name, ll.display_order AS level_order
+             FROM school_leadership sl
+             JOIN leadership_positions lp ON lp.id = sl.position_id
+             JOIN leadership_levels ll ON ll.id = lp.level_id
+             JOIN persons p ON p.id = sl.person_id
+             WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+             ORDER BY ll.display_order, sl.display_order"
+        );
+        $stmt->execute([$ayId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $e) { return []; }
 }
 
 /* ── Academic Programs ───────────────────────────────────────────────────── */
@@ -512,10 +419,48 @@ function kw_facilities(): array {
     ];
 }
 
-/* ── Department Contacts ─────────────────────────────────────────────────── */
+/* ── Department Contacts (from normalized departments + contact_directory) ─── */
 
 function kw_departments(): array {
-    $rows = kw_table('department_contacts');
+    $db = kw_db();
+    $rows = [];
+    if ($db) {
+        try {
+            $stmt = $db->query(
+                "SELECT d.id, d.code, d.name, d.description,
+                        cd.email, cd.phone
+                 FROM departments d
+                 JOIN contact_directory cd
+                        ON cd.contact_type = 'department' AND cd.department_id = d.id
+                 WHERE d.status = 'active'
+                 ORDER BY d.id ASC"
+            );
+            $iconByCode = [
+                'ADMISSIONS_OFFICE' => 'bi-person-check-fill',
+                'FINANCE_&_FEES'    => 'bi-cash-coin',
+                'ACADEMIC_OFFICE'   => 'bi-book-fill',
+                'BOARDING_OFFICE'   => 'bi-house-fill',
+            ];
+            $colorByCode = [
+                'ADMISSIONS_OFFICE' => '#198754',
+                'FINANCE_&_FEES'    => '#1976d2',
+                'ACADEMIC_OFFICE'   => '#9c27b0',
+                'BOARDING_OFFICE'   => '#e65100',
+            ];
+            foreach ($stmt->fetchAll() as $r) {
+                $rows[] = [
+                    'icon'        => $iconByCode[$r['code']] ?? 'bi-diagram-3',
+                    'color'       => $colorByCode[$r['code']] ?? '#198754',
+                    'name'        => $r['name'],
+                    'description' => $r['description'],
+                    'email'       => $r['email'],
+                    'phone'       => $r['phone'],
+                ];
+            }
+        } catch (\Throwable $e) {
+            $rows = [];
+        }
+    }
     if (!empty($rows)) return $rows;
     return [
         ['icon'=>'bi-person-check-fill','color'=>'#198754','name'=>'Admissions Office','description'=>'New applications, transfers, placement tests','email'=>'admissions@kingswaypreparatoryschool.sc.ke','phone'=>'+254 720 113 030'],
@@ -612,27 +557,10 @@ function kw_careers_benefits(): array {
     return [
         ['icon'=>'bi-cash-coin',       'title'=>'Competitive Salary', 'description'=>'TSC-scale pay with timely disbursement and annual reviews.'],
         ['icon'=>'bi-graph-up-arrow',  'title'=>'Career Growth',      'description'=>'Funded professional development, promotions, and CPD programs.'],
-        ['icon'=>'bi-house-fill',      'title'=>'Staff Housing',      'description'=>'On-campus accommodation available for teaching staff.'],
+        ['icon'=>'bi-house-fill',      'title'=>'Staff Housing',      'description'=>'School accommodation available for teaching staff.'],
         ['icon'=>'bi-heart-pulse',     'title'=>'Medical Cover',      'description'=>'Staff and dependants medical insurance scheme.'],
         ['icon'=>'bi-calendar2-check', 'title'=>'Work-Life Balance',  'description'=>'Generous leave entitlement and a supportive management team.'],
     ];
-}
-
-function kw_save_subscriber(string $email, string $name = ''): string {
-    $db = kw_db();
-    if (!$db) return 'ok';
-    try {
-        $existing = $db->prepare("SELECT status FROM newsletter_subscribers WHERE email=?");
-        $existing->execute([$email]);
-        $row = $existing->fetch();
-        if ($row) {
-            if ($row['status'] === 'active') return 'exists';
-            $db->prepare("UPDATE newsletter_subscribers SET status='active',unsubscribed_at=NULL WHERE email=?")->execute([$email]);
-            return 'resubscribed';
-        }
-        $db->prepare("INSERT INTO newsletter_subscribers (email,name) VALUES (?,?)")->execute([$email,$name]);
-        return 'ok';
-    } catch (\Throwable $e) { return 'ok'; }
 }
 
 /* ── Demo/fallback data ──────────────────────────────────────────────────────── */
@@ -650,4 +578,3 @@ function kw_category_image(string $category, int $w = 800): string {
     $id = $map[$category] ?? 'photo-1503676260728-1c00da094a0b';
     return "https://images.unsplash.com/{$id}?w={$w}&q=80";
 }
-

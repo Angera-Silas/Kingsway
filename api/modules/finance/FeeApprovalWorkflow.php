@@ -43,10 +43,10 @@ class FeeApprovalWorkflow extends WorkflowHandler
         try {
             $this->db->beginTransaction();
 
-            // Verify fee structure exists
+            // Verify fee structure exists (3NF: fee_catalog)
             $stmt = $this->db->prepare("
-                SELECT id, name, amount, academic_year 
-                FROM fee_structures 
+                SELECT id, name, default_amount AS amount
+                FROM fee_catalog 
                 WHERE id = ?
             ");
             $stmt->execute([$feeStructureId]);
@@ -60,11 +60,11 @@ class FeeApprovalWorkflow extends WorkflowHandler
             // Check for existing active workflow
             $stmt = $this->db->prepare("
                 SELECT wi.* FROM workflow_instances wi
-                WHERE wi.workflow_type = 'fee_approval'
+                WHERE wi.workflow_id = ?
                 AND wi.status IN ('in_progress', 'pending')
-                AND JSON_EXTRACT(wi.workflow_data, '$.fee_structure_id') = ?
+                AND JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = ?
             ");
-            $stmt->execute([$feeStructureId]);
+            $stmt->execute([$this->workflow_id, $feeStructureId]);
 
             if ($stmt->fetch()) {
                 $this->db->rollBack();
@@ -76,7 +76,6 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 'fee_structure_id' => $feeStructureId,
                 'fee_name' => $feeStructure['name'],
                 'amount' => $feeStructure['amount'],
-                'academic_year' => $feeStructure['academic_year'],
                 'initiated_by' => $userId,
                 'initiated_at' => date('Y-m-d H:i:s')
             ];
@@ -97,10 +96,10 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 'notes' => $data['notes'] ?? 'Fee structure submitted for review'
             ]);
 
-            // Update fee structure status
+            // Update fee structure status (3NF: fee_catalog has active/inactive status)
             $stmt = $this->db->prepare("
-                UPDATE fee_structures 
-                SET status = 'pending_approval'
+                UPDATE fee_catalog 
+                SET status = 'inactive'
                 WHERE id = ?
             ");
             $stmt->execute([$feeStructureId]);
@@ -116,7 +115,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -161,11 +161,11 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 // Reject and close workflow
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by finance team');
 
-                // Update fee structure status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                // Update fee structure status (3NF: fee_catalog)
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
-                    UPDATE fee_structures 
-                    SET status = 'rejected'
+                    UPDATE fee_catalog 
+                    SET status = 'inactive'
                     WHERE id = ?
                 ");
                 $stmt->execute([$workflowData['fee_structure_id']]);
@@ -182,7 +182,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to review fee: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -221,16 +222,14 @@ class FeeApprovalWorkflow extends WorkflowHandler
                     'approved_at' => date('Y-m-d H:i:s')
                 ]);
 
-                // Activate fee structure
-                $workflowData = json_decode($instance['workflow_data'], true);
+                // Activate fee structure (3NF: fee_catalog)
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
-                    UPDATE fee_structures 
-                    SET status = 'active',
-                        approved_by = ?,
-                        approved_at = NOW()
+                    UPDATE fee_catalog 
+                    SET status = 'active'
                     WHERE id = ?
                 ");
-                $stmt->execute([$userId, $workflowData['fee_structure_id']]);
+                $stmt->execute([$workflowData['fee_structure_id']]);
 
                 // Complete workflow
                 $this->completeWorkflow($instanceId, [
@@ -246,11 +245,11 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 // Reject and close workflow
                 $this->cancelWorkflow($instanceId, $data['notes'] ?? 'Rejected by director');
 
-                // Update fee structure status
-                $workflowData = json_decode($instance['workflow_data'], true);
+                // Update fee structure status (3NF: fee_catalog)
+                $workflowData = json_decode($instance['data_json'], true);
                 $stmt = $this->db->prepare("
-                    UPDATE fee_structures 
-                    SET status = 'rejected'
+                    UPDATE fee_catalog 
+                    SET status = 'inactive'
                     WHERE id = ?
                 ");
                 $stmt->execute([$workflowData['fee_structure_id']]);
@@ -267,7 +266,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve fee: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -284,14 +284,14 @@ class FeeApprovalWorkflow extends WorkflowHandler
                        fs.name as fee_name,
                        fs.status as fee_status
                 FROM workflow_instances wi
-                INNER JOIN fee_structures fs ON JSON_EXTRACT(wi.workflow_data, '$.fee_structure_id') = fs.id
-                WHERE wi.workflow_type = 'fee_approval'
-                AND JSON_EXTRACT(wi.workflow_data, '$.fee_structure_id') = ?
-                ORDER BY wi.created_at DESC
+                INNER JOIN fee_catalog fs ON JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = fs.id
+                WHERE wi.workflow_id = ?
+                AND JSON_EXTRACT(wi.data_json, '$.fee_structure_id') = ?
+                ORDER BY wi.started_at DESC
                 LIMIT 1
             ");
 
-            $stmt->execute([$feeStructureId]);
+            $stmt->execute([$this->workflow_id, $feeStructureId]);
             $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$workflow) {
@@ -302,7 +302,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 SELECT * FROM workflow_stage_history
                 WHERE instance_id = ?
-                ORDER BY created_at ASC
+                ORDER BY processed_at ASC
             ");
             $stmt->execute([$workflow['id']]);
             $workflow['stage_history'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -310,7 +310,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, $workflow);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to get workflow status: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -355,7 +356,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return $this->directorApproval($instanceId, $userId, $data);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to approve fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -389,8 +391,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             // Cancel workflow
             $this->cancelWorkflow($instanceId, $data['remarks'] ?? 'Fee structure rejected');
 
-            // Update fee structure status
-            $stmt = $this->db->prepare("UPDATE fee_structures SET status = 'draft' WHERE id = ?");
+            // Update fee structure status (3NF: fee_catalog)
+            $stmt = $this->db->prepare("UPDATE fee_catalog SET status = 'inactive' WHERE id = ?");
             $stmt->execute([$id]);
 
             $this->logAction('reject_fee_structure', $id, "Fee structure ID $id rejected");
@@ -400,7 +402,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return $result;
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to reject fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -415,8 +418,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
     public function activate($id, $data, $userId)
     {
         try {
-            // Verify fee structure is approved
-            $stmt = $this->db->prepare("SELECT status FROM fee_structures WHERE id = ?");
+            // Verify fee structure is approved (3NF: fee_catalog has active/inactive status)
+            $stmt = $this->db->prepare("SELECT status FROM fee_catalog WHERE id = ?");
             $stmt->execute([$id]);
             $feeStructure = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -424,12 +427,12 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Fee structure not found');
             }
 
-            if ($feeStructure['status'] !== 'approved') {
+            if ($feeStructure['status'] !== 'active') {
                 return formatResponse(false, null, 'Fee structure must be approved before activation');
             }
 
             // Activate the fee structure
-            $stmt = $this->db->prepare("UPDATE fee_structures SET status = 'active' WHERE id = ?");
+            $stmt = $this->db->prepare("UPDATE fee_catalog SET status = 'active' WHERE id = ?");
             $stmt->execute([$id]);
 
             $this->logAction('activate_fee_structure', $id, "Fee structure ID $id activated");
@@ -437,7 +440,8 @@ class FeeApprovalWorkflow extends WorkflowHandler
             return formatResponse(true, ['id' => $id, 'status' => 'active'], 'Fee structure activated successfully');
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to activate fee structure: ' . $e->getMessage());
+            error_log('[FeeApprovalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -452,14 +456,13 @@ class FeeApprovalWorkflow extends WorkflowHandler
         try {
             $stmt = $this->db->prepare("
                 SELECT id FROM workflow_instances
-                WHERE workflow_type = 'fee_approval'
-                AND JSON_EXTRACT(workflow_data, '$.fee_structure_id') = ?
-                AND current_stage != 'completed'
-                AND current_stage != 'rejected'
-                ORDER BY created_at DESC
+                WHERE workflow_id = ?
+                AND JSON_EXTRACT(data_json, '$.fee_structure_id') = ?
+                AND status IN ('pending', 'in_progress')
+                ORDER BY started_at DESC
                 LIMIT 1
             ");
-            $stmt->execute([$feeStructureId]);
+            $stmt->execute([$this->workflow_id, $feeStructureId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $result ? $result['id'] : null;
@@ -518,16 +521,16 @@ class FeeApprovalWorkflow extends WorkflowHandler
             // Log the stage processing for audit
             $this->logAction('process_stage', $data['fee_structure_id'] ?? null, "Processing workflow stage: {$stage}", $data);
 
-            // Minimal stage-specific actions (safe defaults)
+            // Minimal stage-specific actions (safe defaults) — 3NF: fee_catalog
             if ($stage === 'activation') {
                 if (!empty($data['fee_structure_id'])) {
-                    $stmt = $this->db->prepare("UPDATE fee_structures SET status = 'active', approved_at = NOW() WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE fee_catalog SET status = 'active' WHERE id = ?");
                     $stmt->execute([$data['fee_structure_id']]);
                 }
             } elseif ($stage === 'review') {
-                // mark pending approval status if fee_structure_id provided
+                // mark pending approval status if fee_structure_id provided (3NF has no pending_approval)
                 if (!empty($data['fee_structure_id'])) {
-                    $stmt = $this->db->prepare("UPDATE fee_structures SET status = 'pending_approval' WHERE id = ?");
+                    $stmt = $this->db->prepare("UPDATE fee_catalog SET status = 'inactive' WHERE id = ?");
                     $stmt->execute([$data['fee_structure_id']]);
                 }
             }

@@ -10,6 +10,7 @@ const teachingMaterialsController = {
   _currentTerm: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -19,7 +20,6 @@ const teachingMaterialsController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in teaching_materials:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload materials when academic year or term changes
           this.loadMaterials();
@@ -64,7 +64,7 @@ const teachingMaterialsController = {
 
   _loadClassDropdown: async function () {
     try {
-      const r = await callAPI('/academic/classes?status=active', 'GET');
+      const r = await callAPI('/academic/classes/list?status=active', 'GET');
       const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('tmClass');
       if (!sel) return;

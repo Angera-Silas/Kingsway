@@ -164,7 +164,7 @@ class SystemConfigController extends BaseController
                 'status' => 500,
                 'body' => [
                     'success' => false,
-                    'message' => $e->getMessage()
+                    'message' => 'An internal error occurred.'
                 ]
             ];
         }

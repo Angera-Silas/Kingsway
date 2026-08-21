@@ -82,14 +82,14 @@
             <table class="table table-hover table-striped" id="assignedClassesTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>Subject</th>
-                        <th>Teacher</th>
-                        <th>Periods/Week</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Teacher</th>
+                        <th scope="col">Periods/Week</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -107,4 +107,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/intern_assigned_classes.js"></script>
+<?php asset_script($appBase, 'js/pages/intern_assigned_classes.js'); ?>

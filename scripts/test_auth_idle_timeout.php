@@ -2,7 +2,7 @@
 /**
  * Verify the canonical 30-minute idle-session policy end to end.
  *
- * This test creates a real test login, ages only that new auth_sessions row,
+ * This test creates a real test login, ages only that new user_sessions row,
  * confirms the refresh endpoint returns HTTP 401, and confirms the related
  * refresh token/session are revoked. Use a non-production test account.
  *
@@ -79,7 +79,7 @@ if ($sessionId <= 0 || $refreshToken === '') {
 $db = Database::getInstance()->getConnection();
 $ageSeconds = $idleTimeout + 5;
 $stmt = $db->prepare(
-    "UPDATE auth_sessions
+    "UPDATE user_sessions
      SET last_activity = DATE_SUB(NOW(), INTERVAL {$ageSeconds} SECOND)
      WHERE id = ?"
 );
@@ -106,7 +106,7 @@ $stmt->execute([$refreshToken]);
 $revokedAt = $stmt->fetchColumn();
 check('idle refresh token was revoked', is_string($revokedAt) && $revokedAt !== '');
 
-$stmt = $db->prepare('SELECT COUNT(*) FROM auth_sessions WHERE id = ?');
+$stmt = $db->prepare('SELECT COUNT(*) FROM user_sessions WHERE id = ?');
 $stmt->execute([$sessionId]);
 check('idle canonical session was removed', (int) $stmt->fetchColumn() === 0);
 

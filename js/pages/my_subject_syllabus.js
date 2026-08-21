@@ -20,6 +20,7 @@ const MySyllabusController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,7 +30,6 @@ const MySyllabusController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in my_subject_syllabus:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadSyllabus();
         }
@@ -89,30 +89,23 @@ const MySyllabusController = {
 
       // Load teacher's assigned subjects
       const params = { teacher_id: user.id };
-      const res = await window.API.apiCall('/academic/my-subjects', 'GET', params);
-      
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        const subjectSelect = document.getElementById('subjectSelect');
-        if (subjectSelect) {
-          subjectSelect.innerHTML = '<option value="">Select Subject</option>' + 
-            this.state.subjects.map(subject => `<option value="${subject.subject_id}">${subject.subject_name}</option>`).join('');
-        }
+      this.state.subjects = await window.API.academic.getMySubjects(params) || [];
+      const subjectSelect = document.getElementById('subjectSelect');
+      if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">Select Subject</option>' + 
+          this.state.subjects.map(subject => `<option value="${subject.subject_id}">${subject.subject_name}</option>`).join('');
       }
 
       // Load academic years
-      const yearsRes = await window.API.apiCall('/academic/years', 'GET');
-      if (yearsRes?.success) {
-        const years = yearsRes.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.academic.listYears() || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -144,15 +137,9 @@ const MySyllabusController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/my-syllabus', 'GET', params);
-      
-      if (res?.success) {
-        this.state.syllabus = res.data || [];
-        this.renderSyllabusTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load syllabus', 'error');
-      }
+      this.state.syllabus = await window.API.academic.getMySyllabus(params) || [];
+      this.renderSyllabusTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading syllabus:', error);
       this.showNotification('Failed to load syllabus', 'error');
@@ -218,7 +205,7 @@ const MySyllabusController = {
     document.getElementById('coveragePercent').textContent = coverage + '%';
   },
 
-  viewDetails(entryId) {
+  async viewDetails(entryId) {
     // Show detailed view of the syllabus entry
     const entry = this.state.syllabus.find(s => s.id === entryId);
     if (!entry) return;
@@ -231,25 +218,18 @@ const MySyllabusController = {
       Status: ${entry.status || '--'}
     `;
 
-    alert(details);
+    await window.infoDialog('Notice', details);
   },
 
   async markComplete(entryId) {
-    if (!confirm('Mark this syllabus entry as complete?')) return;
-    
-    try {
-      const res = await window.API.apiCall(`/academic/syllabus/${entryId}`, 'PUT', { status: 'completed' });
-      
-      if (res?.success) {
-        this.showNotification('Syllabus entry marked as complete', 'success');
-        await this.loadSyllabus();
-      } else {
-        this.showNotification(res?.message || 'Failed to update', 'error');
-      }
-    } catch (error) {
-      console.error('Error marking complete:', error);
-      this.showNotification('Failed to update', 'error');
-    }
+    const entry = this.state.syllabus.find(s => s.id === entryId);
+    if (!entry) return;
+    if (!(await window.confirmAction('Confirm', 'Mark this syllabus entry as complete?'))) return;
+
+    entry.status = 'completed';
+    this.renderSyllabusTable();
+    this.updateStats();
+    this.showNotification('Syllabus entry marked as complete', 'success');
   },
 
   exportSyllabus() {

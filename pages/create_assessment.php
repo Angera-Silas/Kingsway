@@ -127,14 +127,14 @@
                             <table class="table table-hover" id="recentAssessmentsTable">
                                 <thead>
                                     <tr>
-                                        <th>Assessment Name</th>
-                                        <th>Type</th>
-                                        <th>Class</th>
-                                        <th>Subject</th>
-                                        <th>Date</th>
-                                        <th>Max Marks</th>
-                                        <th>Status</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Assessment Name</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Max Marks</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="recentAssessmentsBody">
@@ -153,4 +153,4 @@
     </div>
 </div>
 
-<script src="js/pages/create_assessment.js"></script>
+<?php asset_script($appBase, 'js/pages/create_assessment.js'); ?>

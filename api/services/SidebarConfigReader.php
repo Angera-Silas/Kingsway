@@ -47,6 +47,23 @@ class SidebarConfigReader
             $groupIndex++;
         }
 
+        // Every authenticated school-domain staff member may browse the
+        // internal merchandise catalogue. The family workspace is resolved
+        // from the staff JWT and linked parents record; non-parent staff see
+        // a clear access message instead of receiving another login flow.
+        if ($roleId > 2) {
+            $catalogParent = $roleId * 10000 + 9800;
+            $items[] = self::item($catalogParent, null, [
+                'label' => 'Products Catalog', 'url' => 'uniform_catalog',
+                'icon' => 'fas fa-store', 'subitems' => []
+            ], $groupIndex++);
+            $familyParent = $roleId * 10000 + 9900;
+            $items[] = self::item($familyParent, null, [
+                'label' => 'My Family', 'url' => 'my_family',
+                'icon' => 'fas fa-house-user', 'subitems' => []
+            ], $groupIndex);
+        }
+
         return $items;
     }
 

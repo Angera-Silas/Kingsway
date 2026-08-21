@@ -23,6 +23,7 @@ const ClassStreamsController = (() => {
   }
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -32,7 +33,6 @@ const ClassStreamsController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in class_streams:', event, data);
         if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
           loadData();
         }
@@ -262,7 +262,7 @@ const ClassStreamsController = (() => {
       return;
     }
 
-    if (!confirm("Delete this stream? Active students must be reassigned first.")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Delete this stream? Active students must be reassigned first.", { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.academic.deleteStream(streamId);
       showNotification("Stream removed successfully", "success");
@@ -321,19 +321,7 @@ const ClassStreamsController = (() => {
       .replace(/"/g, "&quot;");
   }
 
-  function showNotification(message, type = "info") {
-    const modal = document.getElementById("notificationModal");
-    if (!modal) {
-      return;
-    }
-    const messageNode = modal.querySelector(".notification-message");
-    const content = modal.querySelector(".modal-content");
-    if (messageNode) messageNode.textContent = message;
-    if (content) content.className = `modal-content notification-${type}`;
-    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
-    bsModal.show();
-    setTimeout(() => bsModal.hide(), 3000);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   function hasPermission(permission) {
     if (window.AuthContext && typeof window.AuthContext.hasPermission === "function") {

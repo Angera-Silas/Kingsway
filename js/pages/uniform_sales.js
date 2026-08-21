@@ -23,6 +23,17 @@ const UniformSalesController = {
         this.loadDashboard();
         this.loadUniformItems();
         this.loadStudents();
+        this.loadUniformFinancialAccounts();
+    },
+
+    loadUniformFinancialAccounts: async function() {
+        const select = document.getElementById('upFinancialAccount');
+        if (!select || !window.API?.finance?.getFinancialAccounts) return;
+        try {
+            const response = await API.finance.getFinancialAccounts();
+            const accounts = ((response?.data || response)?.accounts || []).filter(a => a.status === 'active' && String(a.purposes || '').split(',').includes('uniforms'));
+            select.innerHTML = accounts.length ? '<option value="">Select receiving account</option>' + accounts.map(a => `<option value="${Number(a.id)}">${this.escapeHtml(a.account_name)} · ${this.escapeHtml(a.account_identifier)}</option>`).join('') : '<option value="">No authorized uniform account configured</option>';
+        } catch (_) { select.innerHTML = '<option value="">Unable to load receiving accounts</option>'; }
     },
 
     /**
@@ -93,8 +104,8 @@ const UniformSalesController = {
                 API.inventory.getLowStockUniforms()
             ]);
 
-            if (dashboardRes.success && dashboardRes.data) {
-                const metrics = dashboardRes.data.monthly_metrics || {};
+            if (dashboardRes) {
+                const metrics = dashboardRes.monthly_metrics || {};
                 document.getElementById('statMonthlySales').textContent = 
                     this.formatCurrency(metrics.total_revenue || 0);
                 document.getElementById('statMonthlySalesCount').textContent = 
@@ -104,13 +115,13 @@ const UniformSalesController = {
                 document.getElementById('statPendingAmount').textContent = 
                     this.formatCurrency(metrics.pending_amount || 0);
 
-                const stockStatus = dashboardRes.data.inventory_status || {};
+                const stockStatus = dashboardRes.inventory_status || {};
                 const lowCount = (stockStatus.low_stock || 0) + (stockStatus.out_of_stock || 0);
                 document.getElementById('statLowStock').textContent = lowCount;
             }
 
-            if (lowStockRes.success && lowStockRes.data) {
-                const summary = lowStockRes.data.summary || {};
+            if (lowStockRes) {
+                const summary = lowStockRes.summary || {};
                 const lowCount = (summary.low || 0) + (summary.critical || 0) + (summary.out_of_stock || 0);
                 document.getElementById('lowStockBadge').textContent = lowCount;
             }
@@ -134,8 +145,8 @@ const UniformSalesController = {
         try {
             const response = await API.inventory.getUniformItems();
             
-            if (response.success && response.data) {
-                this.uniformItems = response.data.items || response.data || [];
+            if (response) {
+                this.uniformItems = response.items || response || [];
                 this.renderUniformItems();
                 this.populateItemDropdowns();
             } else {
@@ -267,9 +278,9 @@ const UniformSalesController = {
         try {
             const response = await API.inventory.getUniformSizes(itemId);
             
-            if (response.success && response.data) {
-                const item = response.data.item || {};
-                const sizes = response.data.sizes || [];
+            if (response) {
+                const item = response.item || {};
+                const sizes = response.sizes || [];
 
                 document.getElementById('viewSizesTitle').textContent = item.name || 'Uniform Sizes';
 
@@ -376,8 +387,8 @@ const UniformSalesController = {
         try {
             const response = await API.inventory.getUniformSizes(itemId);
             
-            if (response.success && response.data) {
-                const sizes = response.data.sizes || [];
+            if (response) {
+                const sizes = response.sizes || [];
                 select.innerHTML = '<option value="">Select Size...</option>' +
                     sizes.map(s => {
                         const available = parseInt(s.quantity_available) || 0;
@@ -409,8 +420,8 @@ const UniformSalesController = {
         try {
             const response = await API.inventory.getUniformSizes(itemId);
             
-            if (response.success && response.data) {
-                const sizes = response.data.sizes || [];
+            if (response) {
+                const sizes = response.sizes || [];
                 select.innerHTML = '<option value="">Select Size...</option>' +
                     sizes.map(s => 
                         `<option value="${s.size}" data-price="${s.unit_price}">
@@ -520,13 +531,9 @@ const UniformSalesController = {
 
             const response = await API.inventory.registerUniformSale(data);
 
-            if (response.success) {
-                this.newSaleModal.hide();
-                this.showSuccess('Uniform sale recorded successfully');
-                this.refresh();
-            } else {
-                this.showError(response.message || 'Failed to record sale');
-            }
+            this.newSaleModal.hide();
+            this.showSuccess('Uniform sale recorded successfully');
+            this.refresh();
         } catch (error) {
             console.error('Error submitting sale:', error);
             this.showError('Error recording sale');
@@ -556,13 +563,9 @@ const UniformSalesController = {
 
             const response = await API.inventory.restockUniformSize(data);
 
-            if (response.success) {
-                this.restockModal.hide();
-                this.showSuccess('Stock added successfully');
-                this.refresh();
-            } else {
-                this.showError(response.message || 'Failed to restock');
-            }
+            this.restockModal.hide();
+            this.showSuccess('Stock added successfully');
+            this.refresh();
         } catch (error) {
             console.error('Error restocking:', error);
             this.showError('Error restocking uniform');
@@ -603,9 +606,9 @@ const UniformSalesController = {
 
             const response = await API.inventory.listUniformSales(params);
 
-            if (response.success && response.data) {
-                const sales = response.data.sales || [];
-                const pagination = response.data.pagination || {};
+            if (response) {
+                const sales = response.sales || [];
+                const pagination = response.pagination || {};
 
                 this.renderSalesTable(sales);
                 this.renderSalesPagination(pagination);
@@ -730,18 +733,14 @@ const UniformSalesController = {
      * Update payment status
      */
     updatePaymentStatus: async function(saleId, status) {
-        if (!confirm('Mark this sale as paid?')) return;
+        if (!(await window.confirmAction('Confirm Payment', 'Mark this sale as paid?'))) return;
 
         try {
             const response = await API.inventory.updateUniformPayment(saleId, status);
 
-            if (response.success) {
-                this.showSuccess('Payment status updated');
-                this.loadSales();
-                this.loadDashboard();
-            } else {
-                this.showError(response.message || 'Failed to update payment');
-            }
+            this.showSuccess('Payment status updated');
+            this.loadSales();
+            this.loadDashboard();
         } catch (error) {
             console.error('Error updating payment:', error);
             this.showError('Error updating payment status');
@@ -756,6 +755,7 @@ const UniformSalesController = {
         document.getElementById('upSaleInfo').textContent = studentName + ' — Total: KES ' + Number(totalAmount).toLocaleString();
         document.getElementById('upAmount').value = Number(totalAmount).toFixed(2);
         document.getElementById('upReference').value = '';
+        document.getElementById('upPhone').value = '';
         document.getElementById('upNotes').value = '';
         document.getElementById('upError').classList.add('d-none');
         new bootstrap.Modal(document.getElementById('uniformPaymentModal')).show();
@@ -767,6 +767,7 @@ const UniformSalesController = {
     saveUniformPayment: async function() {
         const saleId = document.getElementById('upSaleId').value;
         const amount = parseFloat(document.getElementById('upAmount').value);
+        const financialAccountId = Number(document.getElementById('upFinancialAccount')?.value || 0);
         const errEl = document.getElementById('upError');
         errEl.classList.add('d-none');
         if (!amount || amount <= 0) {
@@ -774,17 +775,33 @@ const UniformSalesController = {
             errEl.classList.remove('d-none');
             return;
         }
+        if (!financialAccountId) { errEl.textContent = 'Select the authorized uniform receiving account.'; errEl.classList.remove('d-none'); return; }
         const saveBtn = document.getElementById('upSaveBtn');
         saveBtn.disabled = true;
         try {
-            const response = await callAPI('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
-                amount_paid: amount,
-                payment_method: document.getElementById('upMethod').value,
-                reference_no: document.getElementById('upReference').value || null,
-                notes: document.getElementById('upNotes').value || null,
-            });
+            const channel = document.getElementById('upMethod').value;
+            const response = await (API.inventory.createUniformPaymentIntent
+                ? API.inventory.createUniformPaymentIntent({
+                    sale_id: Number(saleId),
+                    amount: amount,
+                    channel: channel,
+                    financial_account_id: financialAccountId,
+                    phone: document.getElementById('upPhone').value || null,
+                    provider_reference: document.getElementById('upReference').value || null,
+                    notes: document.getElementById('upNotes').value || null,
+                })
+                : callAPI('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
+                    amount_paid: amount,
+                    payment_method: channel,
+                    reference_no: document.getElementById('upReference').value || null,
+                    notes: document.getElementById('upNotes').value || null,
+                }));
+            const intent = response && (response.data || response);
+            if ((channel === 'cash' || channel === 'bank_transfer' || channel === 'cheque') && intent && intent.id && API.inventory.confirmUniformPaymentIntent) {
+                await API.inventory.confirmUniformPaymentIntent(intent.id);
+            }
             bootstrap.Modal.getInstance(document.getElementById('uniformPaymentModal')).hide();
-            this.showSuccess('Payment recorded successfully');
+            this.showSuccess(channel === 'cash' ? 'Uniform payment recorded successfully' : 'Uniform payment request submitted');
             this.loadSales();
             this.loadDashboard();
         } catch (e) {
@@ -799,21 +816,17 @@ const UniformSalesController = {
      * Delete a sale
      */
     deleteSale: async function(saleId) {
-        if (!confirm('Are you sure you want to delete this sale? Stock will be restored.')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this sale? Stock will be restored.', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             const response = await (API.inventory.deleteUniformSale
                 ? API.inventory.deleteUniformSale(saleId)
                 : callAPI(`/inventory/uniform-sales/${saleId}`, 'DELETE'));
 
-            if (response.success) {
-                this.showSuccess('Sale deleted and stock restored');
-                this.loadSales();
-                this.loadUniformItems();
-                this.loadDashboard();
-            } else {
-                this.showError(response.message || 'Failed to delete sale');
-            }
+            this.showSuccess('Sale deleted and stock restored');
+            this.loadSales();
+            this.loadUniformItems();
+            this.loadDashboard();
         } catch (error) {
             console.error('Error deleting sale:', error);
             this.showError('Error deleting sale');
@@ -830,8 +843,8 @@ const UniformSalesController = {
         try {
             const response = await API.inventory.getLowStockUniforms();
 
-            if (response.success && response.data) {
-                const items = response.data.items || [];
+            if (response) {
+                const items = response.items || [];
                 
                 if (items.length === 0) {
                     tbody.innerHTML = `
@@ -896,8 +909,8 @@ const UniformSalesController = {
 
             const response = await API.inventory.getUniformSalesReport(params);
 
-            if (response.success && response.data) {
-                this.renderReport(response.data);
+            if (response) {
+                this.renderReport(response);
             } else {
                 container.innerHTML = '<div class="alert alert-warning">Failed to generate report</div>';
             }

@@ -12,6 +12,7 @@ const auditLogsController = {
   _perPage: 50,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;

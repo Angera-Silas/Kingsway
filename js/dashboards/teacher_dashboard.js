@@ -154,10 +154,11 @@
     },
   };
 
-  // Also auto-run if DOM already ready (handles both static include and dynamic load)
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+  if (window.__APP_BOOTED__) {
+    window.teacherDashboardController.init();
   } else {
-    init();
+    window.addEventListener("kingsway:ready", () => {
+      window.teacherDashboardController.init();
+    }, { once: true });
   }
 })();

@@ -163,20 +163,8 @@ if ($appBase === '.')
             </div>
             <div class="col-md-4">
                 <label class="form-label small fw-semibold">Class Applied For</label>
-                <select id="filterClass" class="form-select">
+                <select id="filterClass" class="form-select grade-select-dynamic">
                     <option value="">All Classes</option>
-                    <option value="Playground">Playground</option>
-                    <option value="PP1">PP1</option>
-                    <option value="PP2">PP2</option>
-                    <option value="Grade1">Grade 1</option>
-                    <option value="Grade2">Grade 2</option>
-                    <option value="Grade3">Grade 3</option>
-                    <option value="Grade4">Grade 4</option>
-                    <option value="Grade5">Grade 5</option>
-                    <option value="Grade6">Grade 6</option>
-                    <option value="Grade7">Grade 7</option>
-                    <option value="Grade8">Grade 8</option>
-                    <option value="Grade9">Grade 9</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -192,14 +180,14 @@ if ($appBase === '.')
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
                             <tr>
-                                <th>Application No</th>
-                                <th>Applicant Name</th>
-                                <th>Grade</th>
-                                <th>Interview Date</th>
-                                <th>Interview Time</th>
-                                <th>Status</th>
-                                <th>Documents</th>
-                                <th>Actions</th>
+                                <th scope="col">Application No</th>
+                                <th scope="col">Applicant Name</th>
+                                <th scope="col">Grade</th>
+                                <th scope="col">Interview Date</th>
+                                <th scope="col">Interview Time</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Documents</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="applicationsTableBody">
@@ -317,7 +305,7 @@ if ($appBase === '.')
 </div>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_headteacher_applications.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_headteacher_applications.js"
     onload="console.log('admissions_headteacher_applications.js script tag loaded successfully')"
     onerror="console.error('FAILED to load admissions_headteacher_applications.js. Check path:', this.src)">
 </script>

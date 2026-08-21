@@ -52,14 +52,6 @@ $escape = static function ($value): string {
         </div>
     </div>
 
-    <div
-        class="dashboard-state alert alert-light border"
-        id="<?= $escape($rootId) ?>State"
-        role="status"
-    >
-        Loading dashboard data...
-    </div>
-
     <?php if ($cards): ?>
         <div class="row g-3 mb-4">
             <?php foreach ($cards as $card): ?>
@@ -131,7 +123,7 @@ $escape = static function ($value): string {
                                     <thead>
                                         <tr>
                                             <?php foreach (($table['columns'] ?? []) as $column): ?>
-                                                <th><?= $escape($column) ?></th>
+                                                <th scope="col"><?= $escape($column) ?></th>
                                             <?php endforeach; ?>
                                         </tr>
                                     </thead>
@@ -181,5 +173,5 @@ $escape = static function ($value): string {
     <?php endif; ?>
 </div>
 
-<script src="<?= $escape($appBase) ?>/js/dashboards/dashboard_base_controller.js?v=<?= filemtime(__DIR__ . '/../../../js/dashboards/dashboard_base_controller.js') ?>"></script>
-<script src="<?= $escape($appBase) ?>/js/dashboards/<?= $escape($controllerFile) ?>?v=<?= filemtime(__DIR__ . '/../../../js/dashboards/' . $controllerFile) ?>"></script>
+<?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/' . $controllerFile); ?>

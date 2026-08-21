@@ -30,6 +30,14 @@ class CounselingController extends BaseController
         $this->api = new CounselingAPI();
     }
 
+    private function guardCounseling(): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        return null;
+    }
+
     /**
      * GET /api/counseling/index
      */
@@ -76,6 +84,7 @@ class CounselingController extends BaseController
      */
     public function postSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         // Map frontend field names to API field names if needed
         $mappedData = $this->mapRequestData($data);
         return $this->handleResponse($this->api->create($mappedData));
@@ -87,6 +96,7 @@ class CounselingController extends BaseController
      */
     public function putSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         if (!$id) {
             return $this->badRequest('Session ID is required');
         }
@@ -100,6 +110,7 @@ class CounselingController extends BaseController
      */
     public function deleteSession($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardCounseling()) return $guard;
         if (!$id) {
             return $this->badRequest('Session ID is required');
         }
@@ -116,7 +127,13 @@ class CounselingController extends BaseController
         $fieldMap = [
             'student' => 'student_id',
             'studentId' => 'student_id',
+            'staffId' => 'staff_id',
+            'counseleeType' => 'counselee_type',
+            'caseId' => 'case_id',
+            'caseType' => 'case_type',
+            'sessionDate' => 'session_date',
             'sessionDateTime' => 'session_datetime',
+            'sessionType' => 'session_type',
             'issue' => 'issue_summary',
             'issueSummary' => 'issue_summary',
             'sessionNotes' => 'session_notes',
@@ -141,27 +158,7 @@ class CounselingController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
-        $db    = \App\Database\Database::getInstance();
-        $stats = ['sessions_this_week' => 0, 'students_seen' => 0, 'pending_referrals' => 0];
-        try {
-            $stmt = $db->query(
-                "SELECT COUNT(*) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
-            );
-            $stats['sessions_this_week'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-        try {
-            $stmt = $db->query(
-                "SELECT COUNT(DISTINCT student_id) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
-            );
-            $stats['students_seen'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-        try {
-            $stmt = $db->query(
-                "SELECT COUNT(*) FROM counseling_referrals WHERE status = 'pending'"
-            );
-            $stats['pending_referrals'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-        return $this->success($stats);
+        return $this->handleResponse($this->api->getStats());
     }
 
     /**
@@ -172,20 +169,7 @@ class CounselingController extends BaseController
     {
         $limit = min((int)($_GET['limit'] ?? 20), 100);
         $sort  = ($_GET['sort'] ?? 'recent') === 'recent' ? 'DESC' : 'ASC';
-        try {
-            $db   = \App\Database\Database::getInstance();
-            $stmt = $db->prepare(
-                "SELECT cs.*, s.first_name, s.last_name FROM counseling_sessions cs
-                 LEFT JOIN students s ON s.id = cs.student_id
-                 ORDER BY cs.session_date {$sort} LIMIT :lim"
-            );
-            $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
-            $stmt->execute();
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows ?: []);
-        } catch (\Exception $e) {
-            return $this->success([]);
-        }
+        return $this->handleResponse($this->api->getRecentSessions($limit, $sort));
     }
 
     /**

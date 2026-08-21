@@ -39,7 +39,8 @@ final class StaffIDCardGenerator extends BaseAPI
 
     /**
      * Upload a staff portrait through the existing MediaManager/UploadService
-     * lifecycle and persist the canonical staff.profile_pic_url column.
+     * lifecycle and persist the canonical persons.photo_url column
+     * (staff has no photo column in the 4NF schema — photos live on persons).
      */
     public function uploadStaffPhoto($staffId, $fileData)
     {
@@ -78,9 +79,10 @@ final class StaffIDCardGenerator extends BaseAPI
             }
 
             $statement = $this->db->prepare(
-                'UPDATE staff
-                 SET profile_pic_url = ?, updated_at = NOW()
-                 WHERE id = ?'
+                'UPDATE staff s
+                 JOIN persons p ON p.id = s.person_id
+                 SET p.photo_url = ?, s.updated_at = NOW()
+                 WHERE s.id = ?'
             );
             $statement->execute([$profilePictureUrl, (int) $staffId]);
 
@@ -99,14 +101,10 @@ final class StaffIDCardGenerator extends BaseAPI
                 'Staff portrait uploaded successfully.'
             );
         } catch (Throwable $exception) {
-            $this->logError('uploadStaffPhoto', $exception->getMessage());
+            $this->logError('uploadStaffPhoto', 'An internal error occurred.');
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to upload staff portrait: '
-                    . $exception->getMessage()
-            );
+            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -157,14 +155,10 @@ final class StaffIDCardGenerator extends BaseAPI
                 'Staff security pass generated successfully.'
             );
         } catch (Throwable $exception) {
-            $this->logError('generateIDCard', $exception->getMessage());
+            $this->logError('generateIDCard', 'An internal error occurred.');
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate staff security pass: '
-                    . $exception->getMessage()
-            );
+            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -199,15 +193,11 @@ final class StaffIDCardGenerator extends BaseAPI
         } catch (Throwable $exception) {
             $this->logError(
                 'generatePrintableSingle',
-                $exception->getMessage()
+                'An internal error occurred.'
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to prepare staff security pass: '
-                    . $exception->getMessage()
-            );
+            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -287,15 +277,11 @@ final class StaffIDCardGenerator extends BaseAPI
         } catch (Throwable $exception) {
             $this->logError(
                 'generateBulkIDCardsPDF',
-                $exception->getMessage()
+                'An internal error occurred.'
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate staff security passes: '
-                    . $exception->getMessage()
-            );
+            error_log('[StaffIDCardGenerator] ' . 'An internal error occurred.' . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 

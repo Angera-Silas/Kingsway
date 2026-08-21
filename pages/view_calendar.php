@@ -179,8 +179,18 @@
                             <input type="date" class="form-control" id="eventStartDate" required>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">End Date</label>
+                            <label class="form-label">Start Time</label>
+                            <input type="time" class="form-control" id="eventStartTime">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">End Date <span class="text-muted small">(blank = same day)</span></label>
                             <input type="date" class="form-control" id="eventEndDate">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">End Time</label>
+                            <input type="time" class="form-control" id="eventEndTime">
                         </div>
                     </div>
                     <div class="row">

@@ -153,7 +153,7 @@ const learningGoalsController = (() => {
   }
 
   async function deleteGoal(id) {
-    if (!confirm('Delete this learning goal?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this learning goal?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI(`/staff/learning-goals/${id}`, 'DELETE');
       showNotification('Goal deleted.', 'success');

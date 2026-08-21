@@ -3,8 +3,17 @@
  * Kingsway role dashboard component.
  * Presentation only; data is supplied by the matching named JS controller.
  */
+$rootId = 'talentDashboard';
+$periods = [
+    ['key' => 'today', 'label' => 'Today'],
+    ['key' => 'week', 'label' => 'This Week'],
+    ['key' => 'term', 'label' => 'This Term'],
+];
+$default = 'week';
+require __DIR__ . '/partials/period_selector.php';
+
 $dashboardConfig = [
-    'root_id' => 'talentDashboard',
+    'root_id' => $rootId,
     'title' => 'Talent Development Dashboard',
     'subtitle' => 'Activities, participation, schedules and programme progress.',
     'icon' => 'bi-trophy',

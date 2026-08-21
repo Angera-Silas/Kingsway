@@ -17,7 +17,12 @@
           CBC-aligned curriculum, modern facilities, and a caring community —
           right in the heart of Londiani, Kenya.
         </p>
-        <div class="social-links">
+        <div class="mt-3">
+          <a href="<?= $appBase ?>/admissions.php#apply" class="btn-kw-primary">
+            <i class="bi bi-person-plus me-2"></i>Apply for Admission
+          </a>
+        </div>
+        <div class="social-links mt-4">
           <a href="#" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
           <a href="#" aria-label="Twitter/X"><i class="bi bi-twitter-x"></i></a>
           <a href="#" aria-label="Instagram"><i class="bi bi-instagram"></i></a>
@@ -33,6 +38,7 @@
           <li><a href="<?= $appBase ?>/index.php"><i class="bi bi-chevron-right"></i>Home</a></li>
           <li><a href="<?= $appBase ?>/about.php"><i class="bi bi-chevron-right"></i>About Us</a></li>
           <li><a href="<?= $appBase ?>/admissions.php"><i class="bi bi-chevron-right"></i>Admissions</a></li>
+          <li><a href="<?= $appBase ?>/admissions.php#apply"><i class="bi bi-chevron-right"></i>Apply for Admission</a></li>
           <li><a href="<?= $appBase ?>/news.php"><i class="bi bi-chevron-right"></i>News &amp; Updates</a></li>
           <li><a href="<?= $appBase ?>/events.php"><i class="bi bi-chevron-right"></i>Events</a></li>
           <li><a href="<?= $appBase ?>/careers.php"><i class="bi bi-chevron-right"></i>Careers</a></li>
@@ -101,14 +107,18 @@
 <script>
   window.APP_BASE = <?= json_encode($appBase) ?>;
 </script>
-<script src="<?= $appBase ?>/js/api.js?v=<?= filemtime(__DIR__.'/../../js/api.js') ?>"></script>
+<?php asset_script($appBase, 'js/api.js'); ?>
 <!-- Public-facing cache layer: reuses the SAME js/core storage stack the admin
      SPA uses (IndexedDB via KingswayDB + DataStore, plus the service worker for
      offline/bfcache). Order matters: kingsway_db.js defines window.KingswayDB,
      data_store.js depends on it, then service_worker_manager.js. -->
-<script src="<?= $appBase ?>/js/storage/kingsway_db.js?v=<?= filemtime(__DIR__.'/../../js/storage/kingsway_db.js') ?>"></script>
-<script src="<?= $appBase ?>/js/core/data_store.js?v=<?= filemtime(__DIR__.'/../../js/core/data_store.js') ?>"></script>
-<script src="<?= $appBase ?>/js/core/service_worker_manager.js?v=<?= filemtime(__DIR__.'/../../js/core/service_worker_manager.js') ?>"></script>
+<?php asset_script($appBase, 'js/storage/kingsway_db.js'); ?>
+<?php asset_script($appBase, 'js/core/data_store.js'); ?>
+<?php asset_script($appBase, 'js/core/service_worker_manager.js'); ?>
+<!-- Public site REST client: reads /api/website/* through DataStore with the
+     guest-scoped cache (memory + IndexedDB + stale-while-revalidate). Loaded
+     after data_store.js so window.PublicSite is ready for the page controllers. -->
+<?php asset_script($appBase, 'js/core/public_site.js'); ?>
 <script>
   // Open the IndexedDB store, then register the service worker. Both are guarded
   // so a missing global degrades gracefully instead of throwing on every page.
@@ -121,6 +131,12 @@
     }
   })();
 </script>
-<script src="<?= $appBase ?>/public/js/public.js?v=<?= filemtime(__DIR__.'/../../public/js/public.js') ?>"></script>
+<?php asset_script($appBase, 'js/public.js'); ?>
+<?php if (!empty($pageScript)): ?>
+<!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
+     the dynamic sections through window.PublicSite. Falls back to SSR-only output
+     (already printed above) when JS is unavailable. -->
+<?php asset_script($appBase, 'js/pages/public/' . $pageScript . '.js'); ?>
+<?php endif; ?>
 </body>
 </html>

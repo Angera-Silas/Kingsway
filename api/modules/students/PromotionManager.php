@@ -59,8 +59,8 @@ class PromotionManager
             }
 
             // Check if already promoted
-            if ($currentEnrollment['promotion_status'] !== 'pending') {
-                throw new Exception("Student already {$currentEnrollment['promotion_status']}");
+            if (in_array($currentEnrollment['enrollment_status'], ['completed', 'transferred', 'graduated'])) {
+                throw new Exception("Student already {$currentEnrollment['enrollment_status']}");
             }
 
             // Verify target class exists
@@ -92,9 +92,8 @@ class PromotionManager
                 'academic_year_id' => $toYearId,
                 'class_id' => $toClassId,
                 'stream_id' => $toStreamId,
-                'enrollment_status' => 'enrolled',
-                'enrollment_date' => date('Y-m-d'),
-                'promotion_status' => 'pending'
+                'enrollment_status' => 'pending',
+                'enrollment_date' => date('Y-m-d')
             ]);
 
             // Record in student_promotions table
@@ -174,7 +173,7 @@ class PromotionManager
                 $results['failed']++;
                 $results['errors'][] = [
                     'student_id' => $studentId,
-                    'error' => $e->getMessage()
+                    'error' => 'An internal error occurred.'
                 ];
             }
         }
@@ -262,7 +261,7 @@ class PromotionManager
                     $results['failed']++;
                     $results['errors'][] = [
                         'student_id' => $student['student_id'],
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -441,7 +440,7 @@ class PromotionManager
                     $results['failed']++;
                     $results['errors'][] = [
                         'student_id' => $student['student_id'],
-                        'error' => $e->getMessage()
+                        'error' => 'An internal error occurred.'
                     ];
                 }
             }
@@ -474,21 +473,23 @@ class PromotionManager
         $classes = $this->db->query("
             SELECT id, name
             FROM classes
-            WHERE status IN ('active','completed')
             ORDER BY name ASC
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $streams = $this->db->query("
-            SELECT id, class_id, stream_name
-            FROM class_streams
-            WHERE status = 'active'
-            ORDER BY stream_name ASC
+            SELECT aycs.id, ayc.class_id, sm.name AS stream_name
+            FROM academic_year_class_streams aycs
+            JOIN streams sm ON sm.id = aycs.stream_id
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE aycs.status = 'active'
+            ORDER BY sm.name ASC
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         $terms = $this->db->query("
-            SELECT id, name
-            FROM academic_terms
-            ORDER BY start_date ASC
+            SELECT ayt.id, t.name
+            FROM academic_year_terms ayt
+            JOIN terms t ON t.id = ayt.term_id
+            ORDER BY ayt.opening_date ASC
         ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         return [
@@ -512,17 +513,21 @@ class PromotionManager
             SELECT
                 s.id,
                 s.admission_no,
-                CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                 c.name AS current_class,
-                cs.stream_name AS current_stream,
-                s.stream_id,
+                sm.name AS current_stream,
+                sae.academic_year_class_stream_id AS stream_id,
                 ay.year_code AS current_year,
                 s.status AS student_status
             FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
-            LEFT JOIN classes c ON c.id = cs.class_id
-            LEFT JOIN class_enrollments ce ON ce.student_id = s.id
-            LEFT JOIN academic_years ay ON ay.id = ce.academic_year_id
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae 
+                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN streams sm ON sm.id = aycs.stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN academic_years ay ON ay.id = sae.academic_year_id
             WHERE s.status = 'active'
         ";
         $bindings = [];
@@ -532,7 +537,7 @@ class PromotionManager
             $bindings[] = $fromClassId;
         }
         if ($fromStreamId) {
-            $sql .= " AND s.stream_id = ?";
+            $sql .= " AND aycs.stream_id = ?";
             $bindings[] = $fromStreamId;
         }
         if ($fromYearId) {
@@ -540,12 +545,12 @@ class PromotionManager
             $bindings[] = $fromYearId;
         }
         if ($search !== '') {
-            $sql .= " AND (s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
+            $sql .= " AND (s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ?)";
             $term = '%' . $search . '%';
             array_push($bindings, $term, $term, $term);
         }
 
-        $sql .= " ORDER BY s.first_name, s.last_name";
+        $sql .= " ORDER BY per.first_name, per.last_name";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($bindings);
 
@@ -602,14 +607,7 @@ class PromotionManager
                 $finalAction = $studentData['final_action'] ?? 'promote';
                 $studentNotes = $studentData['notes'] ?? null;
 
-                $stmt = $this->db->prepare("
-                    SELECT id, class_id, stream_id, academic_year_id
-                    FROM class_enrollments
-                    WHERE student_id = ? AND academic_year_id = ?
-                    LIMIT 1
-                ");
-                $stmt->execute([$studentId, $fromYearId]);
-                $enrollment = $stmt->fetch(PDO::FETCH_ASSOC);
+                $enrollment = $this->getCurrentEnrollment($studentId, $fromYearId);
                 if (!$enrollment) {
                     continue;
                 }
@@ -617,86 +615,51 @@ class PromotionManager
                 $targetClassId = $toClassId ?: (int)$enrollment['class_id'];
                 $targetStreamId = $toStreamId ?: (int)$enrollment['stream_id'];
                 $toEnrollmentId = null;
-                $promotionStatus = $finalAction === 'retain' ? 'retained' : 'approved';
 
                 if ($finalAction === 'promote') {
-                    $stmt = $this->db->prepare("
-                        SELECT id
-                        FROM class_enrollments
-                        WHERE student_id = ? AND academic_year_id = ?
-                        LIMIT 1
-                    ");
-                    $stmt->execute([$studentId, $toYearId]);
-                    $existingEnrollment = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $toEnrollmentId = $this->getCurrentEnrollment($studentId, $toYearId)['id'] ?? null;
 
-                    if ($existingEnrollment) {
+                    if ($toEnrollmentId) {
+                        // Update existing enrollment's stream
+                        $aycsId = $this->resolveAcademicYearClassStreamId(
+                            $targetClassId, $targetStreamId, $toYearId
+                        );
                         $stmt = $this->db->prepare("
-                            UPDATE class_enrollments
-                            SET class_id = ?, stream_id = ?, enrollment_status = 'active'
+                            UPDATE student_academic_enrollments
+                            SET academic_year_class_stream_id = ?, enrollment_status = 'active'
                             WHERE id = ?
                         ");
-                        $stmt->execute([$targetClassId, $targetStreamId, $existingEnrollment['id']]);
-                        $toEnrollmentId = (int)$existingEnrollment['id'];
+                        $stmt->execute([$aycsId, $toEnrollmentId]);
                     } else {
-                        $stmt = $this->db->prepare("
-                            INSERT INTO class_enrollments
-                                (student_id, class_id, stream_id, academic_year_id, enrollment_date, enrollment_status)
-                            VALUES (?, ?, ?, ?, CURDATE(), 'active')
-                        ");
-                        $stmt->execute([$studentId, $targetClassId, $targetStreamId, $toYearId]);
-                        $toEnrollmentId = (int)$this->db->lastInsertId();
+                        $toEnrollmentId = $this->createEnrollment([
+                            'student_id' => $studentId,
+                            'academic_year_id' => $toYearId,
+                            'class_id' => $targetClassId,
+                            'stream_id' => $targetStreamId,
+                            'enrollment_status' => 'active',
+                            'enrollment_date' => date('Y-m-d'),
+                        ]);
                     }
 
-                    if ($toStreamId) {
-                        $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
-                        $stmt->execute([$toStreamId, $studentId]);
-                    }
-
-                    $stmt = $this->db->prepare("
-                        UPDATE class_enrollments
-                        SET promotion_status = 'promoted',
-                            promoted_to_class_id = ?,
-                            promoted_to_stream_id = ?,
-                            promotion_date = CURDATE(),
-                            completed_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ");
-                    $stmt->execute([$targetClassId, $targetStreamId, $enrollment['id']]);
+                    $this->updateEnrollmentPromotionStatus($enrollment['id'], 'promoted');
                     $promoted++;
                 } else {
-                    $stmt = $this->db->prepare("
-                        UPDATE class_enrollments
-                        SET promotion_status = 'retained',
-                            promotion_date = CURDATE()
-                        WHERE id = ?
-                    ");
-                    $stmt->execute([$enrollment['id']]);
+                    $this->updateEnrollmentPromotionStatus($enrollment['id'], 'retained');
                     $retained++;
                 }
 
                 $stmt = $this->db->prepare("
-                    INSERT INTO student_promotions
-                        (batch_id, from_enrollment_id, to_enrollment_id, from_academic_year_id, to_academic_year_id,
-                         student_id, current_class_id, current_stream_id, promoted_to_class_id, promoted_to_stream_id,
-                         from_academic_year, to_academic_year, from_term_id, promotion_status, overall_score,
-                         promotion_reason, approved_by, approval_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NOW())
+                    INSERT INTO student_transitions (
+                        id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                        academic_year_id, transition_type, reason, decided_by, decided_at
+                    ) VALUES (?, ?, ?, ?, ?, 'promotion', ?, ?, NOW())
                 ");
                 $stmt->execute([
-                    $batchId,
+                    $this->nextTransitionId(),
+                    $studentId,
                     $enrollment['id'],
                     $toEnrollmentId,
-                    $fromYearId,
                     $toYearId,
-                    $studentId,
-                    $enrollment['class_id'],
-                    $enrollment['stream_id'],
-                    $targetClassId,
-                    $targetStreamId,
-                    $fromYear,
-                    $toYear,
-                    $fromTermId,
-                    $promotionStatus,
                     $studentNotes,
                     $performedBy,
                 ]);
@@ -743,9 +706,12 @@ class PromotionManager
     private function getCurrentEnrollment(int $studentId, int $yearId): ?array
     {
         $stmt = $this->db->prepare("
-            SELECT * FROM class_enrollments 
-            WHERE student_id = ? AND academic_year_id = ? 
-            AND enrollment_status IN ('enrolled', 'active')
+            SELECT sae.*, ayc.class_id, aycs.stream_id
+            FROM student_academic_enrollments sae
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE sae.student_id = ? AND sae.academic_year_id = ?
+            AND sae.enrollment_status IN ('active')
             LIMIT 1
         ");
         $stmt->execute([$studentId, $yearId]);
@@ -756,9 +722,9 @@ class PromotionManager
     private function verifyClassStream(int $classId, int $streamId): bool
     {
         $stmt = $this->db->prepare("
-            SELECT cs.id FROM class_streams cs
-            JOIN classes c ON cs.class_id = c.id
-            WHERE c.id = ? AND cs.id = ?
+            SELECT aycs.id FROM academic_year_class_streams aycs
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.class_id = ? AND aycs.id = ?
         ");
         $stmt->execute([$classId, $streamId]);
 
@@ -770,20 +736,25 @@ class PromotionManager
 
     private function createEnrollment(array $data): int
     {
-        $sql = "INSERT INTO class_enrollments (
-            student_id, academic_year_id, class_id, stream_id,
-            enrollment_status, enrollment_date, promotion_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        // Resolve academic_year_class_stream_id from class + stream
+        $aycsId = $this->resolveAcademicYearClassStreamId(
+            $data['class_id'],
+            $data['stream_id'],
+            $data['academic_year_id']
+        );
+
+        $sql = "INSERT INTO student_academic_enrollments (
+            student_id, academic_year_id, academic_year_class_stream_id,
+            enrollment_status, enrolled_on
+        ) VALUES (?, ?, ?, ?, ?)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['student_id'],
             $data['academic_year_id'],
-            $data['class_id'],
-            $data['stream_id'],
-            $data['enrollment_status'],
-            $data['enrollment_date'],
-            $data['promotion_status']
+            $aycsId,
+            $data['enrollment_status'] ?? 'active',
+            $data['enrollment_date'] ?? date('Y-m-d')
         ]);
 
         return $this->db->lastInsertId();
@@ -795,66 +766,63 @@ class PromotionManager
         int $toClassId = 0,
         int $toStreamId = 0
     ): bool {
-        $sql = "UPDATE class_enrollments
-                SET promotion_status = ?,
-                    promoted_to_class_id = NULLIF(?, 0),
-                    promoted_to_stream_id = NULLIF(?, 0),
-                    promotion_date = CURDATE()
+        // Update enrollment status — promotion details go to student_promotions table
+        $newStatus = 'active';
+        if ($status === 'graduated') {
+            $newStatus = 'completed';
+        } elseif ($status === 'promoted') {
+            $newStatus = 'completed';
+        }
+
+        $sql = "UPDATE student_academic_enrollments
+                SET enrollment_status = ?
                 WHERE id = ?";
 
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute([$status, $toClassId, $toStreamId, $enrollmentId]);
+        return $stmt->execute([$newStatus, $enrollmentId]);
     }
 
     private function recordPromotion(array $data): int
     {
-        // Resolve YEAR(4) values from academic_year IDs
+        // The legacy `student_promotions` table does not exist. The canonical
+        // transition log is `student_transitions` (manual id), which is what
+        // vw_current_enrollments joins for promotion status.
         $fromYear = $this->getYearValueFromId($data['from_academic_year_id'] ?? 0);
-        $toYear   = $this->getYearValueFromId($data['to_academic_year_id'] ?? 0);
         $termId   = $this->getCurrentTermId($fromYear ?: (int)date('Y'));
 
-        $sql = "INSERT INTO student_promotions (
-            batch_id, student_id,
-            current_class_id, current_stream_id,
-            promoted_to_class_id, promoted_to_stream_id,
-            from_enrollment_id, to_enrollment_id,
-            from_academic_year_id, to_academic_year_id,
-            from_academic_year, to_academic_year,
-            from_term_id, promotion_status, promotion_reason
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)";
-
-        $stmt = $this->db->prepare($sql);
+        $transitionId = $this->nextTransitionId();
+        $stmt = $this->db->prepare("
+            INSERT INTO student_transitions (
+                id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                academic_year_id, transition_type, reason, decided_by, decided_at
+            ) VALUES (?, ?, ?, ?, ?, 'promotion', ?, ?, ?)
+        ");
         $stmt->execute([
-            $data['batch_id'],
+            $transitionId,
             $data['student_id'],
-            $data['current_class_id'],
-            $data['current_stream_id'],
-            $data['promoted_to_class_id'] ?? null,
-            $data['promoted_to_stream_id'] ?? null,
             $data['from_enrollment_id'] ?? null,
             $data['to_enrollment_id'] ?? null,
-            $data['from_academic_year_id'] ?? null,
-            $data['to_academic_year_id'] ?? null,
-            $fromYear,
-            $toYear,
-            $termId,
-            $data['promotion_reason'] ?? null
+            $data['to_academic_year_id'] ?? $data['from_academic_year_id'] ?? null,
+            $data['promotion_reason'] ?? null,
+            $data['approved_by'] ?? null,
+            date('Y-m-d H:i:s'),
         ]);
 
-        return $this->db->lastInsertId();
+        return $transitionId;
     }
 
     private function getClassStudents(int $classId, int $streamId, int $yearId): array
     {
         $stmt = $this->db->prepare("
-            SELECT ce.*, s.status as student_status
-            FROM class_enrollments ce
-            JOIN students s ON ce.student_id = s.id
-            WHERE ce.class_id = ? 
-            AND ce.stream_id = ? 
-            AND ce.academic_year_id = ?
-            AND ce.enrollment_status IN ('enrolled', 'active')
-            AND ce.promotion_status = 'pending'
+            SELECT sae.*, s.status as student_status, ayc.class_id, aycs.stream_id
+            FROM student_academic_enrollments sae
+            JOIN students s ON sae.student_id = s.id
+            JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            WHERE ayc.class_id = ?
+            AND aycs.stream_id = ?
+            AND sae.academic_year_id = ?
+            AND sae.enrollment_status = 'active'
             AND s.status != 'transferred'
         ");
         $stmt->execute([$classId, $streamId, $yearId]);
@@ -864,10 +832,13 @@ class PromotionManager
     private function getClassName(int $classId, int $streamId): string
     {
         $stmt = $this->db->prepare("
-            SELECT CONCAT(c.name, ' ', cs.name) as full_name
+            SELECT CONCAT(c.name, ' ', sm.name) as full_name
             FROM classes c
-            JOIN class_streams cs ON c.id = cs.class_id
-            WHERE c.id = ? AND cs.id = ?
+            JOIN academic_year_classes ayc ON ayc.class_id = c.id
+            JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+            JOIN streams sm ON sm.id = aycs.stream_id
+            WHERE c.id = ? AND aycs.id = ?
+            LIMIT 1
         ");
         $stmt->execute([$classId, $streamId]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -876,41 +847,104 @@ class PromotionManager
 
     private function createClassYearAssignment(array $data): int
     {
-        $sql = "INSERT INTO class_year_assignments (
-            class_id, stream_id, academic_year_id, class_teacher_id,
-            classroom, capacity, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-            class_teacher_id = VALUES(class_teacher_id),
-            classroom = VALUES(classroom)";
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
+        // Ensure academic_year_classes entry exists
+        $ayc = $this->resolveOrCreateAcademicYearClass(
             $data['class_id'],
-            $data['stream_id'],
             $data['academic_year_id'],
-            $data['class_teacher_id'] ?? null,
-            $data['classroom'] ?? null,
-            $data['capacity'] ?? null,
             $data['status'] ?? 'active'
-        ]);
+        );
 
-        return $this->db->lastInsertId() ?: $this->getClassYearAssignmentId(
+        // Ensure academic_year_class_streams entry exists
+        $aycs = $this->resolveAcademicYearClassStreamId(
             $data['class_id'],
             $data['stream_id'],
             $data['academic_year_id']
         );
+
+        if ($aycs > 0) {
+            $assignments = [];
+            $values = [];
+            if (!empty($data['class_teacher_id'])) {
+                $assignments[] = "class_teacher_id = ?";
+                $values[] = $data['class_teacher_id'];
+            }
+            if (!empty($data['classroom'])) {
+                $roomId = is_numeric($data['classroom'])
+                    ? (int) $data['classroom']
+                    : $this->resolveRoomId($data['classroom']);
+                if ($roomId > 0) {
+                    $assignments[] = "room_id = ?";
+                    $values[] = $roomId;
+                }
+            }
+            if (!empty($assignments)) {
+                $values[] = $aycs;
+                $stmt = $this->db->prepare(
+                    "UPDATE academic_year_class_streams SET " . implode(', ', $assignments) . " WHERE id = ?"
+                );
+                $stmt->execute($values);
+            }
+        }
+
+        return $aycs ?: 0;
     }
 
-    private function getClassYearAssignmentId(int $classId, int $streamId, int $yearId): int
+    private function resolveRoomId(string $roomName): int
     {
         $stmt = $this->db->prepare("
-            SELECT id FROM class_year_assignments
-            WHERE class_id = ? AND stream_id = ? AND academic_year_id = ?
+            SELECT id FROM rooms WHERE name = ? LIMIT 1
         ");
-        $stmt->execute([$classId, $streamId, $yearId]);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result ? $result['id'] : 0;
+        $stmt->execute([$roomName]);
+        $roomId = $stmt->fetchColumn();
+        return $roomId ? (int) $roomId : 0;
+    }
+
+    private function resolveOrCreateAcademicYearClass(int $classId, int $yearId, string $status = 'active'): int
+    {
+        $stmt = $this->db->prepare("
+            SELECT id FROM academic_year_classes
+            WHERE class_id = ? AND academic_year_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$classId, $yearId]);
+        $existing = $stmt->fetchColumn();
+        if ($existing) {
+            return (int)$existing;
+        }
+
+        $stmt = $this->db->prepare("
+            INSERT INTO academic_year_classes (class_id, academic_year_id, status)
+            VALUES (?, ?, ?)
+        ");
+        $stmt->execute([$classId, $yearId, $status]);
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * Resolve or create an academic_year_class_streams entry from class_id, stream_id, and year_id.
+     * Returns the academic_year_class_streams.id.
+     */
+    private function resolveAcademicYearClassStreamId(int $classId, int $streamId, int $yearId): int
+    {
+        $aycId = $this->resolveOrCreateAcademicYearClass($classId, $yearId);
+
+        $stmt = $this->db->prepare("
+            SELECT id FROM academic_year_class_streams
+            WHERE academic_year_class_id = ? AND stream_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$aycId, $streamId]);
+        $existing = $stmt->fetchColumn();
+        if ($existing) {
+            return (int)$existing;
+        }
+
+        $stmt = $this->db->prepare("
+            INSERT INTO academic_year_class_streams (academic_year_class_id, stream_id, status)
+            VALUES (?, ?, 'active')
+        ");
+        $stmt->execute([$aycId, $streamId]);
+        return (int)$this->db->lastInsertId();
     }
 
     private function createPromotionBatch(array $data): int
@@ -948,13 +982,22 @@ class PromotionManager
         return $row ? (int)$row['yr'] : null;
     }
 
+    /** Resolve the next manual id for the manual-id student_transitions table */
+    private function nextTransitionId(): int
+    {
+        $stmt = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM student_transitions");
+        return (int) $stmt->fetchColumn();
+    }
+
     /** Get the current/last-completed term id for a given calendar year */
     private function getCurrentTermId(int $calYear): int
     {
         $stmt = $this->db->prepare(
-            "SELECT id FROM academic_terms
-             WHERE year = ?
-             ORDER BY FIELD(status,'current','completed','upcoming'), term_number DESC
+            "SELECT ayt.id FROM academic_year_terms ayt
+             JOIN academic_years ay ON ay.id = ayt.academic_year_id
+             WHERE CAST(SUBSTRING(ay.year_code, 1, 4) AS UNSIGNED) = ?
+             ORDER BY FIELD(ayt.status,'current','completed','upcoming'),
+                       (SELECT code FROM terms WHERE id = ayt.term_id) DESC
              LIMIT 1"
         );
         $stmt->execute([$calYear]);
@@ -981,24 +1024,31 @@ class PromotionManager
 
     private function moveToAlumni(array $data): int
     {
-        $sql = "INSERT INTO alumni (
-            student_id, graduation_date, final_class_id, final_stream_id,
-            academic_year_id, final_average, awards, honors, next_destination
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        // The legacy `alumni` table does not exist; graduations are recorded as
+        // a 'graduation' transition and the student record is marked graduated.
+        $stmt = $this->db->prepare("
+            UPDATE students SET status = 'graduated', updated_at = NOW() WHERE id = ?
+        ");
+        $stmt->execute([$data['student_id']]);
 
-        $stmt = $this->db->prepare($sql);
+        $awards = !empty($data['awards']) ? ' Awards: ' . $data['awards'] : '';
+        $destination = !empty($data['next_destination']) ? ' Destination: ' . $data['next_destination'] : '';
+
+        $stmt = $this->db->prepare("
+            INSERT INTO student_transitions (
+                id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                academic_year_id, transition_type, reason, decided_by, decided_at
+            ) VALUES (?, ?, ?, NULL, ?, 'graduation', ?, ?, NOW())
+        ");
         $stmt->execute([
+            $this->nextTransitionId(),
             $data['student_id'],
-            $data['graduation_date'],
-            $data['final_class_id'],
-            $data['final_stream_id'],
+            null,
             $data['academic_year_id'],
-            $data['final_average'],
-            $data['awards'],
-            $data['honors'],
-            $data['next_destination']
+            'Graduated on ' . ($data['graduation_date'] ?? date('Y-m-d')) . $awards . $destination,
+            null,
         ]);
 
-        return $this->db->lastInsertId();
+        return (int) $this->db->lastInsertId();
     }
 }

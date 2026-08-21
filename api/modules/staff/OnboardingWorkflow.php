@@ -42,13 +42,18 @@ class OnboardingWorkflow extends WorkflowHandler
         try {
             $this->db->beginTransaction();
 
-            // Validate staff exists
+            // Validate staff exists.
+            // Identity (first_name/last_name) now lives ONLY on persons (4NF),
+            // so we JOIN persons via the shared person_id rather than reading s.first_name.
             $stmt = $this->db->prepare("
-                SELECT s.*, st.name as staff_type, sc.category_name, d.name as department_name
+                SELECT s.*, p.first_name, p.last_name,
+                       st.name as staff_type, sc.category_name, d.name as department_name
                 FROM staff s
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.id = ?
             ");
             $stmt->execute([$staffId]);
@@ -94,21 +99,13 @@ class OnboardingWorkflow extends WorkflowHandler
 
             $workflowId = $result['data']['workflow_id'];
 
-            // Create onboarding record in staff_onboarding table
-            $stmt = $this->db->prepare("
-                INSERT INTO staff_onboarding (
-                    staff_id, workflow_instance_id, mentor_id, 
-                    expected_end_date, status, created_at
-                ) VALUES (?, ?, ?, ?, 'in_progress', NOW())
-            ");
-            $stmt->execute([
-                $staffId,
-                $workflowId,
-                $data['mentor_id'] ?? null,
-                $data['expected_completion_date'] ?? null
-            ]);
-
-            $onboardingId = $this->db->lastInsertId();
+            // NOTE: The dropped `staff_onboarding` parent table no longer exists.
+            // In the 4NF model the workflow_instances row IS the onboarding header —
+            // mentor_id and expected_completion_date are persisted inside its
+            // workflow_data JSON (see $workflowData above). Onboarding progress is
+            // DERIVED from onboarding_tasks via vw_staff_onboarding_progress, never
+            // stored on a parent row. So the onboarding id is the workflow instance id.
+            $onboardingId = $workflowId;
 
             $this->db->commit();
             $this->logAction('create', $workflowId, "Initiated onboarding workflow for {$staff['first_name']} {$staff['last_name']}");
@@ -303,8 +300,13 @@ class OnboardingWorkflow extends WorkflowHandler
             // Create user account in users table
             $staffId = $workflow['data']['reference_id'];
 
+            // users.staff_id was dropped — the staff↔user link is the shared person.
+            // Check for an existing account via staff.person_id = users.person_id.
             $stmt = $this->db->prepare("
-                SELECT * FROM users WHERE staff_id = ?
+                SELECT u.id
+                FROM users u
+                JOIN staff s ON s.person_id = u.person_id
+                WHERE s.id = ?
             ");
             $stmt->execute([$staffId]);
 
@@ -436,16 +438,10 @@ class OnboardingWorkflow extends WorkflowHandler
                 return $result;
             }
 
-            // Update staff_onboarding record
-            $staffId = $workflow['data']['reference_id'];
-
-            $stmt = $this->db->prepare("
-                UPDATE staff_onboarding SET
-                    status = 'completed',
-                    completion_date = NOW()
-                WHERE staff_id = ? AND workflow_instance_id = ?
-            ");
-            $stmt->execute([$staffId, $workflowId]);
+            // NOTE: completeWorkflow() above already set workflow_instances.status
+            // = 'completed'. The dropped staff_onboarding parent table required a
+            // second UPDATE here; in the 4NF model there is nothing further to write —
+            // the workflow instance IS the onboarding header.
 
             $this->db->commit();
             $this->logAction('update', $workflowId, "Finalized onboarding workflow");
@@ -478,17 +474,9 @@ class OnboardingWorkflow extends WorkflowHandler
 
             $this->cancelWorkflow($workflowId, $reason);
 
-            // Update staff_onboarding record
-            $workflow = $this->getWorkflowInstance($workflowId);
-            $staffId = $workflow['data']['reference_id'];
-
-            $stmt = $this->db->prepare("
-                UPDATE staff_onboarding SET
-                    status = 'cancelled',
-                    cancellation_reason = ?
-                WHERE staff_id = ? AND workflow_instance_id = ?
-            ");
-            $stmt->execute([$reason, $staffId, $workflowId]);
+            // NOTE: cancelWorkflow() already set workflow_instances.status = 'cancelled'
+            // and recorded the reason. The dropped staff_onboarding parent table needed
+            // a mirrored UPDATE here; in the 4NF model there is nothing further to write.
 
             $this->db->commit();
             $this->logAction('update', $workflowId, "Rejected onboarding workflow: {$reason}");
@@ -627,10 +615,8 @@ class OnboardingWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            return [
-                'success' => false,
-                'message' => $e->getMessage()
-            ];
+            error_log('[OnboardingWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

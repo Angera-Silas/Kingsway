@@ -374,11 +374,5 @@
     </div>
 </div>
 
-<?php
-$staffAccessJsPath = __DIR__ . '/../js/pages/staff_access.js';
-$staffSecurityPassJsPath = __DIR__ . '/../js/pages/staff_id_cards.js';
-$staffAccessJsVersion = is_file($staffAccessJsPath) ? filemtime($staffAccessJsPath) : time();
-$staffSecurityPassJsVersion = is_file($staffSecurityPassJsPath) ? filemtime($staffSecurityPassJsPath) : time();
-?>
-<script src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/staff_access.js?v=<?= (int) $staffAccessJsVersion ?>"></script>
-<script src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/staff_id_cards.js?v=<?= (int) $staffSecurityPassJsVersion ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/staff_id_cards.js'); ?>

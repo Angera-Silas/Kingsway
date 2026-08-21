@@ -7,231 +7,137 @@ use Exception;
 use function App\API\Includes\formatResponse;
 
 /**
- * Staff Assignment Workflow
- * 
- * Multi-stage approval workflow for staff-class assignments
- * Extends WorkflowHandler for workflow management
- * 
- * Workflow Stages:
- * 1. assignment_request - Request to assign staff to class
- * 2. validation - Validate assignment (workload, qualifications)
- * 3. head_teacher_approval - Head teacher approves assignment
- * 4. approved - Assignment approved and activated
- * 5. rejected - Assignment rejected at any stage
+ * Staff Assignment Workflow — 3NF/4NF schema.
+ *
+ * Multi-stage approval for a teaching assignment. In the new schema the operational assignment
+ * row (academic_year_class_learning_area_teachers / academic_year_class_streams.class_teacher_id)
+ * carries NO status/workflow columns — approval state lives entirely in `workflow_instances` +
+ * `workflow_stage_history` (append-only). The assignment row is only *created* once the workflow
+ * reaches 'approved'; a rejection simply never writes it. This keeps the operational table clean
+ * and the decision trail in history, per the master→context→operational→history architecture.
+ *
+ * Stages: assignment_request → validation → head_teacher_approval → approved | rejected
  */
 class AssignmentWorkflow extends WorkflowHandler
 {
     protected $workflowType = 'staff_assignment';
 
     /**
-     * Initiate assignment request workflow
-     * @param int $assignmentId Assignment ID
-     * @param int $userId User initiating workflow
-     * @param array $data Additional data
-     * @return array Response
+     * Initiate an assignment-request workflow. The proposed assignment is carried as workflow
+     * data (staff/class/subject/role) and only materialised into the normalized tables on approval.
      */
-    public function initiateAssignmentRequest($assignmentId, $userId, $data = [])
+    public function initiateAssignmentRequest($proposal, $userId, $data = [])
     {
         try {
-            $this->db->beginTransaction();
-
-            // Get assignment details
-            $stmt = $this->db->prepare("
-                SELECT sca.*, 
-                       s.id as staff_id, s.staff_no, s.first_name, s.last_name, 
-                       s.position, s.department_id,
-                       cs.stream_name, c.name as class_name, c.id as class_id,
-                       ay.year_name as academic_year,
-                       sub.name as subject_name,
-                       d.name as department_name
-                FROM staff_class_assignments sca
-                JOIN staff s ON sca.staff_id = s.id
-                JOIN class_streams cs ON sca.class_stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
-                JOIN academic_years ay ON sca.academic_year_id = ay.id
-                LEFT JOIN subjects sub ON sca.subject_id = sub.id
-                LEFT JOIN departments d ON s.department_id = d.id
-                WHERE sca.id = ?
-            ");
-            $stmt->execute([$assignmentId]);
-            $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$assignment) {
-                $this->db->rollBack();
-                return formatResponse(false, null, 'Assignment not found');
+            // $proposal: staff_id, class_id, subject_id?, stream_id?, academic_year_id, role
+            $staffId = (int)($proposal['staff_id'] ?? 0);
+            $classId = (int)($proposal['class_id'] ?? 0);
+            $role = $proposal['role'] ?? 'subject_teacher';
+            if (!$staffId || !$classId) {
+                return formatResponse(false, null, 'staff_id and class_id are required');
             }
 
-            // Check for existing active workflow
+            // Resolve display context from masters/context (read-only).
             $stmt = $this->db->prepare("
-                SELECT wi.* FROM workflow_instances wi
-                WHERE wi.reference_type = 'staff_assignment'
-                AND wi.reference_id = ?
-                AND wi.status IN ('in_progress', 'pending')
+                SELECT s.id AS staff_id, s.staff_no, p.first_name, p.last_name, s.position,
+                       c.name AS class_name, la.name AS subject_name, ay.year_name AS academic_year
+                FROM staff s
+                JOIN persons p ON p.id = s.person_id
+                JOIN classes c ON c.id = ?
+                LEFT JOIN learning_areas la ON la.id = ?
+                LEFT JOIN academic_years ay ON ay.id = ?
+                WHERE s.id = ?
             ");
-            $stmt->execute([$assignmentId]);
-
-            if ($stmt->fetch()) {
-                $this->db->rollBack();
-                return formatResponse(false, null, 'Active workflow already exists for this assignment');
+            $stmt->execute([$classId, (int)($proposal['subject_id'] ?? 0), (int)($proposal['academic_year_id'] ?? 0), $staffId]);
+            $ctx = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$ctx) {
+                return formatResponse(false, null, 'Staff member not found');
             }
 
-            // Prepare workflow data
             $workflowData = [
-                'assignment_id' => $assignmentId,
-                'staff_id' => $assignment['staff_id'],
-                'staff_no' => $assignment['staff_no'],
-                'staff_name' => $assignment['first_name'] . ' ' . $assignment['last_name'],
-                'position' => $assignment['position'],
-                'department' => $assignment['department_name'],
-                'class' => $assignment['class_name'] . ' - ' . $assignment['stream_name'],
-                'class_id' => $assignment['class_id'],
-                'class_stream_id' => $assignment['class_stream_id'],
-                'academic_year' => $assignment['academic_year'],
-                'academic_year_id' => $assignment['academic_year_id'],
-                'role' => $assignment['role'],
-                'subject' => $assignment['subject_name'],
-                'requested_by' => $userId
+                'staff_id'         => $staffId,
+                'staff_no'         => $ctx['staff_no'],
+                'staff_name'       => $ctx['first_name'] . ' ' . $ctx['last_name'],
+                'position'         => $ctx['position'],
+                'class_id'         => $classId,
+                'class_name'       => $ctx['class_name'],
+                'stream_id'        => (int)($proposal['stream_id'] ?? 0) ?: null,
+                'subject_id'       => (int)($proposal['subject_id'] ?? 0) ?: null,
+                'subject'          => $ctx['subject_name'],
+                'academic_year_id' => (int)($proposal['academic_year_id'] ?? 0) ?: null,
+                'academic_year'    => $ctx['academic_year'],
+                'role'             => $role,
+                'requested_by'     => $userId,
             ];
 
-            // Start workflow
-            $instanceId = $this->startWorkflow('staff_assignment', $assignmentId, $userId, $workflowData);
+            // startWorkflow($reference_type, $reference_id, $initial_data, $userId).
+            // reference_id is 0 until the assignment row exists (created on approval).
+            $instanceId = $this->startWorkflow('staff_assignment', 0, $workflowData, $userId);
 
-            // Update assignment status
-            $stmt = $this->db->prepare("
-                UPDATE staff_class_assignments 
-                SET status = 'pending', workflow_instance_id = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$instanceId, $assignmentId]);
-
-            $this->db->commit();
-            $this->logAction(
-                'create',
-                $instanceId,
-                "Initiated assignment workflow for {$assignment['first_name']} {$assignment['last_name']} to {$assignment['class_name']} as {$assignment['role']}"
-            );
+            $this->logAction('create', $instanceId,
+                "Initiated assignment workflow for {$workflowData['staff_name']} to {$ctx['class_name']} as {$role}");
 
             return formatResponse(true, [
-                'workflow_id' => $instanceId,
-                'assignment_id' => $assignmentId,
-                'staff_name' => $assignment['first_name'] . ' ' . $assignment['last_name'],
-                'class' => $assignment['class_name'] . ' - ' . $assignment['stream_name'],
-                'role' => $assignment['role'],
+                'workflow_id'   => $instanceId,
+                'staff_name'    => $workflowData['staff_name'],
+                'class'         => $ctx['class_name'],
+                'role'          => $role,
                 'current_stage' => 'assignment_request',
-                'next_stage' => 'validation',
-                'status' => 'pending'
+                'next_stage'    => 'validation',
+                'status'        => 'pending'
             ], 'Assignment workflow initiated successfully');
-
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             $this->handleException($e);
             return [];
         }
     }
 
     /**
-     * Validate assignment (Stage 2)
-     * @param int $instanceId Workflow instance ID
-     * @param int $userId User performing action
-     * @param array $data Validation data
-     * @return array Response
+     * Validate the proposed assignment (Stage 2). Validation is explicit here — the legacy
+     * sp_validate_staff_assignment stored procedure was repurposed for department appointments
+     * in the new schema and no longer matches this use case, so we validate the context directly.
      */
     public function validateAssignment($instanceId, $userId, $data = [])
     {
         try {
             $workflow = $this->getWorkflowInstance($instanceId);
-
             if (!$workflow) {
                 return formatResponse(false, null, 'Workflow instance not found');
             }
-
-            $currentStage = $workflow['current_stage'];
-
-            if ($currentStage !== 'validation') {
-                return formatResponse(false, null, "Cannot validate assignment. Current stage is: {$currentStage}");
+            if ($workflow['current_stage'] !== 'validation') {
+                return formatResponse(false, null, "Cannot validate assignment. Current stage is: {$workflow['current_stage']}");
             }
 
             $workflowData = json_decode($workflow['data_json'], true);
+            [$ok, $error] = $this->validateProposedAssignment($workflowData);
 
-            $this->db->beginTransaction();
-
-            // Use stored procedure to validate assignment
-            $stmt = $this->db->prepare("CALL sp_validate_staff_assignment(?, ?, ?, ?, @is_valid, @error_message)");
-            $stmt->execute([
-                $workflowData['staff_id'],
-                $workflowData['class_stream_id'],
-                $workflowData['academic_year_id'],
-                $workflowData['role']
-            ]);
-            $stmt->closeCursor();
-
-            $result = $this->db->query("SELECT @is_valid AS is_valid, @error_message AS error_message")->fetch(PDO::FETCH_ASSOC);
-
-            if (!$result['is_valid']) {
-                // Validation failed - reject
-                $this->advanceStage(
-                    $instanceId,
-                    'rejected',
-                    'validation_failed',
-                    $workflowData
-                );
-
-                // Update assignment status
-                $stmt = $this->db->prepare("
-                    UPDATE staff_class_assignments 
-                    SET status = 'rejected', removal_reason = ?
-                    WHERE id = ?
-                ");
-                $stmt->execute([$result['error_message'], $workflowData['assignment_id']]);
-
-                $this->db->commit();
-
+            if (!$ok) {
+                $workflowData['rejection_reason'] = $error;
+                $this->advanceStage($instanceId, 'rejected', 'validation_failed', $workflowData);
                 return formatResponse(false, [
-                    'workflow_id' => $instanceId,
-                    'status' => 'rejected',
-                    'reason' => $result['error_message']
-                ], 'Assignment validation failed: ' . $result['error_message']);
+                    'workflow_id' => $instanceId, 'status' => 'rejected', 'reason' => $error
+                ], 'Assignment validation failed: ' . $error);
             }
 
-            // Validation passed
             $workflowData['validation_passed'] = true;
             $workflowData['validated_by'] = $userId;
             $workflowData['validated_at'] = date('Y-m-d H:i:s');
             $workflowData['validation_remarks'] = $data['remarks'] ?? 'Assignment validated successfully';
 
-            $this->advanceStage(
-                $instanceId,
-                'head_teacher_approval',
-                'validation_passed',
-                $workflowData
-            );
-
-            $this->db->commit();
+            $this->advanceStage($instanceId, 'head_teacher_approval', 'validation_passed', $workflowData);
 
             return formatResponse(true, [
-                'workflow_id' => $instanceId,
-                'current_stage' => 'head_teacher_approval',
-                'status' => 'pending_approval'
+                'workflow_id' => $instanceId, 'current_stage' => 'head_teacher_approval', 'status' => 'pending_approval'
             ], 'Assignment validated, forwarded to Head Teacher for approval');
-
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             $this->handleException($e);
             return [];
         }
     }
 
     /**
-     * Head Teacher approval (Stage 3)
-     * @param int $instanceId Workflow instance ID
-     * @param int $userId User performing action (Head Teacher)
-     * @param string $action 'approve' or 'reject'
-     * @param array $data Approval data
-     * @return array Response
+     * Head Teacher approval (Stage 3). On approval the assignment is materialised into the
+     * normalized tables via StaffTeachingAssignmentService (the single normalized writer).
      */
     public function headTeacherApproval($instanceId, $userId, $action, $data = [])
     {
@@ -240,104 +146,104 @@ class AssignmentWorkflow extends WorkflowHandler
             if (!$workflow) {
                 return formatResponse(false, null, 'Workflow instance not found');
             }
-            $currentStage = $workflow['current_stage'];
-            if ($currentStage !== 'head_teacher_approval') {
-                return formatResponse(false, null, "Cannot perform head teacher approval. Current stage is: {$currentStage}");
+            if ($workflow['current_stage'] !== 'head_teacher_approval') {
+                return formatResponse(false, null, "Cannot perform head teacher approval. Current stage is: {$workflow['current_stage']}");
             }
-            // Validate Head Teacher or Admin role
-            $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
-            $stmt->execute([$userId]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$user || $user['role'] !== 'Head Teacher') {
+            if (!$this->userHasRole($userId, 'Head Teacher')) {
                 return formatResponse(false, null, 'Only Head Teacher can approve assignments');
             }
+
             $workflowData = json_decode($workflow['data_json'], true);
-            $this->db->beginTransaction();
+
             if ($action === 'reject') {
-                // Reject assignment
-                $this->advanceStage(
-                    $instanceId,
-                    'rejected',
-                    'head_teacher_rejected',
-                    $workflowData
-                );
-                // Update assignment status
-                $stmt = $this->db->prepare("
-                    UPDATE staff_class_assignments 
-                    SET status = 'rejected', removal_reason = ?
-                    WHERE id = ?
-                ");
-                $stmt->execute([$data['remarks'] ?? 'Rejected by Head Teacher', $workflowData['assignment_id']]);
-                $this->db->commit();
+                $workflowData['rejection_reason'] = $data['remarks'] ?? 'Rejected by Head Teacher';
+                $this->advanceStage($instanceId, 'rejected', 'head_teacher_rejected', $workflowData);
                 return formatResponse(true, [
-                    'workflow_id' => $instanceId,
-                    'status' => 'rejected',
-                    'stage' => 'rejected'
+                    'workflow_id' => $instanceId, 'status' => 'rejected', 'stage' => 'rejected'
                 ], 'Assignment rejected by Head Teacher');
             }
-            // Approve
+
+            // Approve → write the operational row now.
+            $service = new \App\API\Services\StaffTeachingAssignmentService();
+            $save = [
+                'teacher_id'       => $workflowData['staff_id'],
+                'class_id'         => $workflowData['class_id'],
+                'subject_id'       => $workflowData['subject_id'] ?? null,
+                'stream_id'        => $workflowData['stream_id'] ?? null,
+                'academic_year_id' => $workflowData['academic_year_id'] ?? null,
+                'role'             => $workflowData['role'] ?? 'subject_teacher',
+            ];
+            $assignmentId = ($workflowData['role'] ?? '') === 'class_teacher'
+                ? $service->saveClassTeacher($save, null, $userId)
+                : $service->saveSubjectAssignment($save, null, $userId);
+
+            $workflowData['assignment_id'] = $assignmentId;
             $workflowData['approved_by'] = $userId;
             $workflowData['approved_at'] = date('Y-m-d H:i:s');
             $workflowData['approval_remarks'] = $data['remarks'] ?? null;
-            $this->advanceStage(
-                $instanceId,
-                'approved',
-                'head_teacher_approved',
-                $workflowData
-            );
-            // Update assignment status to active
-            $stmt = $this->db->prepare("
-                UPDATE staff_class_assignments 
-                SET status = 'active'
-                WHERE id = ?
-            ");
-            $stmt->execute([$workflowData['assignment_id']]);
-            $this->db->commit();
+            $this->advanceStage($instanceId, 'approved', 'head_teacher_approved', $workflowData);
+
             return formatResponse(true, [
-                'workflow_id' => $instanceId,
-                'status' => 'approved',
-                'stage' => 'approved'
+                'workflow_id' => $instanceId, 'assignment_id' => $assignmentId, 'status' => 'approved', 'stage' => 'approved'
             ], 'Assignment approved and activated');
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             $this->handleException($e);
             return [];
         }
     }
 
     /**
-     * Get assignment workload analysis
-     * @param int $staffId Staff ID
-     * @param int $academicYearId Academic year ID
-     * @return array Response
+     * Workload analysis — reads vw_staff_workload (built on the normalized teacher tables).
+     * The view is keyed to the active academic year, so it is filtered by staff only.
      */
-    public function getWorkloadAnalysis($staffId, $academicYearId)
+    public function getWorkloadAnalysis($staffId, $academicYearId = null)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT * FROM vw_staff_workload 
-                WHERE staff_id = ? AND academic_year_id = ?
-            ");
-            $stmt->execute([$staffId, $academicYearId]);
-            $workload = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            return formatResponse(true, $workload ?? [], 'Workload analysis retrieved');
-
+            $stmt = $this->db->prepare("SELECT * FROM vw_staff_workload WHERE staff_id = ?");
+            $stmt->execute([$staffId]);
+            return formatResponse(true, $stmt->fetch(PDO::FETCH_ASSOC) ?: [], 'Workload analysis retrieved');
         } catch (Exception $e) {
             $this->handleException($e);
             return [];
         }
     }
 
-    /**
-     * Validate workflow transition
-     * @param string $fromStage Current stage
-     * @param string $toStage Target stage
-     * @param array $data Transition data
-     * @return bool
-     */
+    // ---- helpers ---------------------------------------------------------
+
+    /** Validate that the proposed assignment's context rows exist (require-pre-existing model). */
+    private function validateProposedAssignment(array $d): array
+    {
+        $staff = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE id = ? AND status = 'active'");
+        $staff->execute([$d['staff_id'] ?? 0]);
+        if (!$staff->fetchColumn()) return [false, 'Staff member not found or inactive'];
+
+        $yearId = (int)($d['academic_year_id'] ?? 0);
+        $classId = (int)($d['class_id'] ?? 0);
+        $ayc = $this->db->prepare("SELECT id FROM academic_year_classes WHERE academic_year_id = ? AND class_id = ?");
+        $ayc->execute([$yearId, $classId]);
+        $aycId = (int)$ayc->fetchColumn();
+        if (!$aycId) return [false, 'This class is not set up for the selected academic year'];
+
+        if (($d['role'] ?? '') !== 'class_teacher') {
+            $area = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_learning_areas WHERE academic_year_class_id = ? AND learning_area_id = ?");
+            $area->execute([$aycId, (int)($d['subject_id'] ?? 0)]);
+            if (!$area->fetchColumn()) return [false, 'This learning area is not set up for the class in the selected academic year'];
+        }
+        return [true, ''];
+    }
+
+    /** Resolve whether a user holds a named role via the user_roles → roles junction (RBAC). */
+    private function userHasRole($userId, string $roleName): bool
+    {
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = ? AND r.name = ?
+        ");
+        $stmt->execute([$userId, $roleName]);
+        return (bool)$stmt->fetchColumn();
+    }
+
     protected function validateTransition($fromStage, $toStage, $data)
     {
         $validTransitions = [
@@ -345,78 +251,32 @@ class AssignmentWorkflow extends WorkflowHandler
             'validation' => ['head_teacher_approval', 'rejected'],
             'head_teacher_approval' => ['approved', 'rejected']
         ];
-
-        if (!isset($validTransitions[$fromStage])) {
-            return false;
-        }
-
-        return in_array($toStage, $validTransitions[$fromStage]);
+        return isset($validTransitions[$fromStage]) && in_array($toStage, $validTransitions[$fromStage], true);
     }
 
-    /**
-     * Process stage-specific logic
-     * @param string $stage Current stage
-     * @param array $data Stage data
-     * @return bool
-     */
     protected function processStage($instanceId, $stage, $data)
     {
         switch ($stage) {
             case 'assignment_request':
-                // Initial submission - no additional processing
                 return true;
-
             case 'validation':
-                // Notify validation team (admin/HR)
-                $this->createNotification(
-                    $instanceId,
-                    null,
-                    'Assignment Pending Validation',
-                    "{$data['staff_name']} to {$data['class']} as {$data['role']}",
-                    'workflow'
-                );
+                $this->createNotification($instanceId, null, 'Assignment Pending Validation',
+                    "{$data['staff_name']} to {$data['class_name']} as {$data['role']}", 'workflow');
                 return true;
-
             case 'head_teacher_approval':
-                // Notify Head Teacher
-                $this->createNotification(
-                    $instanceId,
-                    null,
-                    'Assignment Pending Approval',
-                    "{$data['staff_name']} to {$data['class']} as {$data['role']}",
-                    'workflow'
-                );
+                $this->createNotification($instanceId, null, 'Assignment Pending Approval',
+                    "{$data['staff_name']} to {$data['class_name']} as {$data['role']}", 'workflow');
                 return true;
-
             case 'approved':
-                // Notify staff member and head teacher
-                $this->createNotification(
-                    $instanceId,
-                    $data['staff_id'],
-                    'Assignment Approved',
-                    "You have been assigned to {$data['class']} as {$data['role']}",
-                    'workflow'
-                );
+                $this->createNotification($instanceId, $data['staff_id'], 'Assignment Approved',
+                    "You have been assigned to {$data['class_name']} as {$data['role']}", 'workflow');
                 return true;
-
             case 'rejected':
-                // Notify requester
-                $this->createNotification(
-                    $instanceId,
-                    $data['requested_by'],
-                    'Assignment Rejected',
-                    "Assignment of {$data['staff_name']} to {$data['class']} has been rejected",
-                    'workflow'
-                );
+                $this->createNotification($instanceId, $data['requested_by'], 'Assignment Rejected',
+                    "Assignment of {$data['staff_name']} to {$data['class_name']} has been rejected", 'workflow');
                 return true;
-
             default:
                 return false;
         }
     }
-
-    /**
-     * Create notification - uses parent implementation
-     * Removed override to use WorkflowHandler::createNotification()
-     */
 }

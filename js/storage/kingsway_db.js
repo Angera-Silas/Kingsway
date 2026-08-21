@@ -6,10 +6,10 @@
  */
 
 const KingswayDB = (function() {
-  'use strict';
+  ("use strict");
 
-  const DB_NAME = 'KingswayDB';
-  const DB_VERSION = 7;
+  const DB_NAME = "KingswayDB";
+  const DB_VERSION = 10.1; // Increment this when schema changes
 
   let db = null;
 
@@ -19,319 +19,323 @@ const KingswayDB = (function() {
   const schema = {
     // Reference metadata stores
     reference_classes: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+      ],
     },
     reference_streams: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_terms: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_academic_years: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_subjects: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_departments: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_dormitories: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_transport_routes: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     reference_activity_types: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
 
     // Cached read models
     student_directory_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'admission_number', keyPath: 'admission_number', unique: false },
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'class_id', keyPath: 'class_id', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'scope_hash', keyPath: 'scope_hash', unique: false }
-      ]
+        {
+          name: "admission_number",
+          keyPath: "admission_number",
+          unique: false,
+        },
+        { name: "name", keyPath: "name", unique: false },
+        { name: "class_id", keyPath: "class_id", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "scope_hash", keyPath: "scope_hash", unique: false },
+      ],
     },
     staff_directory_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'name', keyPath: 'name', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false }
-      ]
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+      ],
     },
     class_list_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'class_id', keyPath: 'class_id', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false }
-      ]
+        { name: "class_id", keyPath: "class_id", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+      ],
     },
     admission_queue_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'status', keyPath: 'status', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "status", keyPath: "status", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     attendance_roster_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'class_id', keyPath: 'class_id', unique: false },
-        { name: 'date', keyPath: 'date', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "class_id", keyPath: "class_id", unique: false },
+        { name: "date", keyPath: "date", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
 
     // Offline drafts
     offline_drafts: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'module', keyPath: 'module', unique: false },
-        { name: 'form_type', keyPath: 'form_type', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'status', keyPath: 'status', unique: false },
-        { name: 'created_at', keyPath: 'created_at', unique: false },
-        { name: 'updated_at', keyPath: 'updated_at', unique: false }
-      ]
+        { name: "module", keyPath: "module", unique: false },
+        { name: "form_type", keyPath: "form_type", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "status", keyPath: "status", unique: false },
+        { name: "created_at", keyPath: "created_at", unique: false },
+        { name: "updated_at", keyPath: "updated_at", unique: false },
+      ],
     },
 
     // Pending mutations
     sync_outbox: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'operation_id', keyPath: 'operation_id', unique: true },
-        { name: 'module', keyPath: 'module', unique: false },
-        { name: 'status', keyPath: 'status', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'created_at', keyPath: 'created_at', unique: false },
-        { name: 'priority', keyPath: 'priority', unique: false },
-        { name: 'idempotency_key', keyPath: 'idempotency_key', unique: true }
-      ]
+        { name: "operation_id", keyPath: "operation_id", unique: true },
+        { name: "module", keyPath: "module", unique: false },
+        { name: "status", keyPath: "status", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "created_at", keyPath: "created_at", unique: false },
+        { name: "priority", keyPath: "priority", unique: false },
+        { name: "idempotency_key", keyPath: "idempotency_key", unique: true },
+      ],
     },
 
     // Sync conflicts
     sync_conflicts: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'operation_id', keyPath: 'operation_id', unique: false },
-        { name: 'entity_type', keyPath: 'entity_type', unique: false },
-        { name: 'entity_id', keyPath: 'entity_id', unique: false },
-        { name: 'detected_at', keyPath: 'detected_at', unique: false },
-        { name: 'resolved_at', keyPath: 'resolved_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false }
-      ]
+        { name: "operation_id", keyPath: "operation_id", unique: false },
+        { name: "entity_type", keyPath: "entity_type", unique: false },
+        { name: "entity_id", keyPath: "entity_id", unique: false },
+        { name: "detected_at", keyPath: "detected_at", unique: false },
+        { name: "resolved_at", keyPath: "resolved_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+      ],
     },
 
     // Notifications
     notification_inbox: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'type', keyPath: 'type', unique: false },
-        { name: 'read', keyPath: 'read', unique: false },
-        { name: 'created_at', keyPath: 'created_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'priority', keyPath: 'priority', unique: false }
-      ]
+        { name: "type", keyPath: "type", unique: false },
+        { name: "read", keyPath: "read", unique: false },
+        { name: "created_at", keyPath: "created_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "priority", keyPath: "priority", unique: false },
+      ],
     },
 
     // Dashboard cache
     dashboard_cache: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'dashboard_type', keyPath: 'dashboard_type', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false },
-        { name: 'role_id', keyPath: 'role_id', unique: false }
-      ]
+        { name: "dashboard_type", keyPath: "dashboard_type", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+        { name: "role_id", keyPath: "role_id", unique: false },
+      ],
     },
 
     // File upload queue
     pending_uploads: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'status', keyPath: 'status', unique: false },
-        { name: 'user_id', keyPath: 'user_id', unique: false },
-        { name: 'entity_type', keyPath: 'entity_type', unique: false },
-        { name: 'created_at', keyPath: 'created_at', unique: false }
-      ]
+        { name: "status", keyPath: "status", unique: false },
+        { name: "user_id", keyPath: "user_id", unique: false },
+        { name: "entity_type", keyPath: "entity_type", unique: false },
+        { name: "created_at", keyPath: "created_at", unique: false },
+      ],
     },
 
     // Public website cache (anonymous read-through via PublicCache). These
     // mirror the admin reference_* / *_cache stores so DataStore.fetchPage can
     // persist them. Names must stay in sync with RESOURCES in public.js.
     public_news: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_events: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_downloads: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_jobs: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_leadership: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_programs: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_facilities: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_history: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_values: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_departments: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_steps: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_benefits: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_gallery: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_categories: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_content: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
     },
     public_settings: {
-      keyPath: 'id',
+      keyPath: "id",
       indexes: [
-        { name: 'cached_at', keyPath: 'cached_at', unique: false },
-        { name: 'expires_at', keyPath: 'expires_at', unique: false }
-      ]
-    }
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
+    },
   };
 
   /**
@@ -346,35 +350,40 @@ const KingswayDB = (function() {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
-        console.error('[KingswayDB] Failed to open database:', request.error);
+        console.error("[KingswayDB] Failed to open database:", request.error);
         reject(request.error);
       };
 
       request.onsuccess = () => {
         db = request.result;
-        console.log('[KingswayDB] Database opened successfully');
+        console.log("[KingswayDB] Database opened successfully");
         resolve(db);
       };
 
       request.onupgradeneeded = (event) => {
         const database = event.target.result;
-        console.log('[KingswayDB] Database upgrade needed:', event.oldVersion, '→', event.newVersion);
+        console.log(
+          "[KingswayDB] Database upgrade needed:",
+          event.oldVersion,
+          "→",
+          event.newVersion,
+        );
 
         // Create object stores
         for (const [storeName, storeConfig] of Object.entries(schema)) {
           if (!database.objectStoreNames.contains(storeName)) {
             const store = database.createObjectStore(storeName, {
-              keyPath: storeConfig.keyPath
+              keyPath: storeConfig.keyPath,
             });
 
             // Create indexes
             for (const indexConfig of storeConfig.indexes) {
               store.createIndex(indexConfig.name, indexConfig.keyPath, {
-                unique: indexConfig.unique || false
+                unique: indexConfig.unique || false,
               });
             }
 
-            console.log('[KingswayDB] Created store:', storeName);
+            console.log("[KingswayDB] Created store:", storeName);
           }
         }
       };
@@ -384,9 +393,9 @@ const KingswayDB = (function() {
   /**
    * Get store reference
    */
-  function getStore(storeName, mode = 'readonly') {
+  function getStore(storeName, mode = "readonly") {
     if (!db) {
-      throw new Error('Database not initialized. Call initialize() first.');
+      throw new Error("Database not initialized. Call initialize() first.");
     }
 
     const transaction = db.transaction(storeName, mode);
@@ -430,7 +439,7 @@ const KingswayDB = (function() {
     await initialize();
     return new Promise((resolve, reject) => {
       try {
-        const store = getStore(storeName, 'readwrite');
+        const store = getStore(storeName, "readwrite");
         const request = store.put(data);
 
         request.onsuccess = () => resolve(request.result);
@@ -445,7 +454,7 @@ const KingswayDB = (function() {
     await initialize();
     return new Promise((resolve, reject) => {
       try {
-        const store = getStore(storeName, 'readwrite');
+        const store = getStore(storeName, "readwrite");
         const request = store.add(data);
 
         request.onsuccess = () => resolve(request.result);
@@ -460,7 +469,7 @@ const KingswayDB = (function() {
     await initialize();
     return new Promise((resolve, reject) => {
       try {
-        const store = getStore(storeName, 'readwrite');
+        const store = getStore(storeName, "readwrite");
         const request = store.delete(key);
 
         request.onsuccess = () => resolve(true);
@@ -475,7 +484,7 @@ const KingswayDB = (function() {
     await initialize();
     return new Promise((resolve, reject) => {
       try {
-        const store = getStore(storeName, 'readwrite');
+        const store = getStore(storeName, "readwrite");
         const request = store.clear();
 
         request.onsuccess = () => resolve(true);
@@ -526,10 +535,10 @@ const KingswayDB = (function() {
    */
   async function getCached(storeName, key, userId = null) {
     await initialize();
-    
+
     try {
       const data = await get(storeName, key);
-      
+
       if (!data) {
         return null;
       }
@@ -547,14 +556,14 @@ const KingswayDB = (function() {
 
       return data;
     } catch (error) {
-      console.error('[KingswayDB] Failed to get cached data:', error);
+      console.error("[KingswayDB] Failed to get cached data:", error);
       return null;
     }
   }
 
   async function setCached(storeName, data, ttl, userId = null, roleId = null) {
     await initialize();
-    
+
     const now = Date.now();
     const cacheData = {
       ...data,
@@ -562,7 +571,7 @@ const KingswayDB = (function() {
       expires_at: now + ttl,
       user_id: userId,
       role_id: roleId,
-      scope_hash: generateScopeHash(userId, roleId)
+      scope_hash: generateScopeHash(userId, roleId),
     };
 
     return await put(storeName, cacheData);
@@ -573,17 +582,17 @@ const KingswayDB = (function() {
    */
   async function invalidateExpired(storeName) {
     await initialize();
-    
+
     try {
-      const store = getStore(storeName, 'readwrite');
-      const index = store.index('expires_at');
+      const store = getStore(storeName, "readwrite");
+      const index = store.index("expires_at");
       const now = Date.now();
-      
+
       const request = index.openCursor(IDBKeyRange.upperBound(now));
-      
+
       return new Promise((resolve, reject) => {
         const deletedCount = { count: 0 };
-        
+
         request.onsuccess = (event) => {
           const cursor = event.target.result;
           if (cursor) {
@@ -594,11 +603,14 @@ const KingswayDB = (function() {
             resolve(deletedCount.count);
           }
         };
-        
+
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('[KingswayDB] Failed to invalidate expired entries:', error);
+      console.error(
+        "[KingswayDB] Failed to invalidate expired entries:",
+        error,
+      );
       return 0;
     }
   }
@@ -608,26 +620,26 @@ const KingswayDB = (function() {
    */
   async function clearUserData(userId) {
     await initialize();
-    
+
     try {
       const storesToClear = [
-        'student_directory_cache',
-        'staff_directory_cache',
-        'class_list_cache',
-        'admission_queue_cache',
-        'attendance_roster_cache',
-        'dashboard_cache',
-        'offline_drafts',
-        'sync_outbox',
-        'notification_inbox',
-        'pending_uploads'
+        "student_directory_cache",
+        "staff_directory_cache",
+        "class_list_cache",
+        "admission_queue_cache",
+        "attendance_roster_cache",
+        "dashboard_cache",
+        "offline_drafts",
+        "sync_outbox",
+        "notification_inbox",
+        "pending_uploads",
       ];
 
       for (const storeName of storesToClear) {
-        const store = getStore(storeName, 'readwrite');
-        const index = store.index('user_id');
+        const store = getStore(storeName, "readwrite");
+        const index = store.index("user_id");
         const request = index.openCursor(IDBKeyRange.only(userId));
-        
+
         await new Promise((resolve, reject) => {
           request.onsuccess = (event) => {
             const cursor = event.target.result;
@@ -638,15 +650,15 @@ const KingswayDB = (function() {
               resolve();
             }
           };
-          
+
           request.onerror = () => reject(request.error);
         });
       }
 
-      console.log('[KingswayDB] Cleared user data for user:', userId);
+      console.log("[KingswayDB] Cleared user data for user:", userId);
       return true;
     } catch (error) {
-      console.error('[KingswayDB] Failed to clear user data:', error);
+      console.error("[KingswayDB] Failed to clear user data:", error);
       return false;
     }
   }
@@ -659,7 +671,7 @@ const KingswayDB = (function() {
     let hash = 0;
     for (let i = 0; i < data.length; i++) {
       const char = data.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32bit integer
     }
     return hash.toString(16);
@@ -670,14 +682,14 @@ const KingswayDB = (function() {
    */
   async function getStats() {
     await initialize();
-    
+
     const stats = {};
-    
+
     for (const storeName of Object.keys(schema)) {
       try {
         const store = getStore(storeName);
         const countRequest = store.count();
-        
+
         stats[storeName] = await new Promise((resolve, reject) => {
           countRequest.onsuccess = () => resolve(countRequest.result);
           countRequest.onerror = () => reject(countRequest.error);
@@ -686,7 +698,7 @@ const KingswayDB = (function() {
         stats[storeName] = { error: error.message };
       }
     }
-    
+
     return stats;
   }
 
@@ -706,9 +718,8 @@ const KingswayDB = (function() {
     invalidateExpired,
     clearUserData,
     getStats,
-    schema
+    schema,
   };
-
 })();
 
 // Export for use in other modules

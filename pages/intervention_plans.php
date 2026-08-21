@@ -149,5 +149,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/intervention_plans.js"></script>
+<?php asset_script($appBase, 'js/pages/intervention_plans.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => interventionPlansController.init());</script>

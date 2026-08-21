@@ -419,10 +419,10 @@
             <thead>
                 <tr>
                     <th style="width:45px;">#</th>
-                    <th>Exam Name</th>
-                    <th>Academic Year</th>
-                    <th>Term</th>
-                    <th>Classes</th>
+                    <th scope="col">Exam Name</th>
+                    <th scope="col">Academic Year</th>
+                    <th scope="col">Term</th>
+                    <th scope="col">Classes</th>
                     <th style="width:90px;">Subjects</th>
                     <th style="width:90px;">Max Marks</th>
                     <th style="width:100px;">Status</th>
@@ -594,10 +594,10 @@
                                 <table class="table table-sm table-bordered grading-preview-table mb-0">
                                     <thead style="background: var(--acad-primary-soft);">
                                         <tr>
-                                            <th>Grade</th>
-                                            <th>Min %</th>
-                                            <th>Max %</th>
-                                            <th>Remarks</th>
+                                            <th scope="col">Grade</th>
+                                            <th scope="col">Min %</th>
+                                            <th scope="col">Max %</th>
+                                            <th scope="col">Remarks</th>
                                         </tr>
                                     </thead>
                                     <tbody id="gradingScaleBody">

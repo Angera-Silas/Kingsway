@@ -48,9 +48,10 @@ class StaffLeaveManager extends BaseAPI
             $this->db->beginTransaction();
 
             $staffStmt = $this->db->prepare(
-                "SELECT id, first_name, last_name, staff_type_id, status
-                 FROM staff
-                 WHERE id = ? AND status IN ('active', 'on_leave')
+                "SELECT s.id, s.staff_type_id, s.status
+                 FROM staff s
+                 INNER JOIN persons p ON p.id = s.person_id
+                 WHERE s.id = ? AND s.status IN ('active', 'on_leave')
                  LIMIT 1"
             );
             $staffStmt->execute([$staffId]);
@@ -178,14 +179,16 @@ class StaffLeaveManager extends BaseAPI
                            lt.name AS leave_type_name, lt.code AS leave_type_code,
                            sl.start_date, sl.end_date, sl.days_requested, sl.reason,
                            sl.status, sl.approved_at, sl.rejection_reason, sl.created_at,
-                           CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
+                           CONCAT_WS(' ', p.first_name, p.last_name) AS staff_name,
                            s.staff_no,
-                           CONCAT_WS(' ', approver.first_name, approver.last_name) AS approved_by_name
+                           CONCAT_WS(' ', ap.first_name, ap.last_name) AS approved_by_name
                     FROM staff_leaves sl
                     INNER JOIN staff s ON s.id = sl.staff_id
+                    INNER JOIN persons p ON p.id = s.person_id
                     INNER JOIN leave_types lt ON lt.id = sl.leave_type_id
                     LEFT JOIN users au ON au.id = sl.approved_by
-                    LEFT JOIN staff approver ON approver.user_id = au.id";
+                    LEFT JOIN staff approver ON approver.person_id = au.person_id
+                    LEFT JOIN persons ap ON ap.id = approver.person_id";
             if ($where) {
                 $sql .= ' WHERE ' . implode(' AND ', $where);
             }

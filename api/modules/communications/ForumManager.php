@@ -17,7 +17,7 @@ class ForumManager
         // Map 'subject' to 'title' if provided
         $title = $data['title'] ?? $data['subject'] ?? null;
         if (!$title) {
-            throw new \Exception("Thread title is required");
+            throw new \InvalidArgumentException("Thread title is required");
         }
         $sql = "INSERT INTO forum_threads (title, created_by, status, created_at) VALUES (:title, :created_by, 'open', NOW())";
         $stmt = $this->db->prepare($sql);
@@ -37,6 +37,9 @@ class ForumManager
 
     public function updateThread($id, $data)
     {
+        if (empty($data['title'])) {
+            throw new \InvalidArgumentException('title is required');
+        }
         $sql = "UPDATE forum_threads SET title = :title, updated_at = NOW() WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
@@ -70,12 +73,12 @@ class ForumManager
     // CRUD for forum_posts
     public function createPost($data)
     {
-        $sql = "INSERT INTO forum_posts (thread_id, content, created_by, status, created_at) VALUES (:thread_id, :content, :created_by, 'visible', NOW())";
+        $sql = "INSERT INTO forum_posts (thread_id, author_id, author_type, body, reply_to_id, created_at) VALUES (:thread_id, :author_id, 'user', :body, NULL, NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':thread_id' => $data['thread_id'],
-            ':content' => $data['content'],
-            ':created_by' => $data['created_by']
+            ':author_id' => $data['created_by'],
+            ':body' => $data['content']
         ]);
         return $this->db->lastInsertId();
     }
@@ -89,10 +92,10 @@ class ForumManager
 
     public function updatePost($id, $data)
     {
-        $sql = "UPDATE forum_posts SET content = :content, updated_at = NOW() WHERE id = :id";
+        $sql = "UPDATE forum_posts SET body = :body WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':content' => $data['content'],
+            ':body' => $data['content'],
             ':id' => $id
         ]);
         return $stmt->rowCount() > 0;
@@ -115,11 +118,14 @@ class ForumManager
     // Moderation workflow
     public function moderateThread($id, $action, $moderatorId)
     {
-        $sql = "UPDATE forum_threads SET status = :action, moderated_by = :moderatorId, moderated_at = NOW() WHERE id = :id";
+        $validStatuses = ['open', 'closed', 'archived'];
+        if (!in_array($action, $validStatuses, true)) {
+            return false;
+        }
+        $sql = "UPDATE forum_threads SET status = :action WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':action' => $action,
-            ':moderatorId' => $moderatorId,
             ':id' => $id
         ]);
         return $stmt->rowCount() > 0;
@@ -127,13 +133,12 @@ class ForumManager
 
     public function moderatePost($id, $action, $moderatorId)
     {
-        $sql = "UPDATE forum_posts SET status = :action, moderated_by = :moderatorId, moderated_at = NOW() WHERE id = :id";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':action' => $action,
-            ':moderatorId' => $moderatorId,
-            ':id' => $id
-        ]);
-        return $stmt->rowCount() > 0;
+        // forum_posts has no moderation status column; hide/delete actions remove the post
+        if (in_array($action, ['hidden', 'deleted', 'delete', 'hide'], true)) {
+            $stmt = $this->db->prepare("DELETE FROM forum_posts WHERE id = ?");
+            $stmt->execute([$id]);
+            return $stmt->rowCount() > 0;
+        }
+        return false;
     }
 }

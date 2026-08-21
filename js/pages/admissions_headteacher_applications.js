@@ -11,10 +11,11 @@ const headteacherApplicationsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("headteacherApplicationsController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("headteacherApplicationsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -25,12 +26,41 @@ const headteacherApplicationsController = {
             }
 
             this.setupEventListeners();
+            await this.loadClasses();
             await this.loadApplications();
 
-            console.log("headteacherApplicationsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Headteacher Applications Controller:", error);
             this.showError(error.message || "Failed to initialize headteacher applications page.");
+        }
+    },
+
+    loadClasses: async function() {
+        try {
+            let classes = [];
+            if (API?.admission?.getPlacementClasses) {
+                const response = await API.admission.getPlacementClasses();
+                const payload = response?.data || response || {};
+                classes = payload.classes || (Array.isArray(payload) ? payload : []);
+            }
+            if (!classes.length && API?.academic?.listClasses) {
+                const response = await API.academic.listClasses({ limit: 200 });
+                const payload = response?.data || response || {};
+                classes = Array.isArray(payload) ? payload : payload.classes || [];
+            }
+            const select = document.getElementById('filterClass');
+            if (!select) return;
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">All Classes</option>';
+            classes.forEach(cls => {
+                const option = document.createElement('option');
+                option.value = cls.name || cls.class_name || cls.id;
+                option.textContent = cls.name || cls.class_name || cls.id;
+                select.appendChild(option);
+            });
+            if (currentVal) select.value = currentVal;
+        } catch (error) {
+            console.error('Failed to load classes:', error);
         }
     },
 
@@ -356,14 +386,10 @@ const headteacherApplicationsController = {
             assessment_data: assessmentData
         })
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Interview results recorded successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('conductInterviewModal')).hide();
-                    document.getElementById('conductInterviewForm').reset();
-                    this.loadApplications();
-                } else {
-                    showNotification('error', response.message || 'Failed to record interview results');
-                }
+                showNotification('success', 'Interview results recorded successfully');
+                bootstrap.Modal.getInstance(document.getElementById('conductInterviewModal')).hide();
+                document.getElementById('conductInterviewForm').reset();
+                this.loadApplications();
             })
             .catch(error => {
                 console.error('Failed to submit interview results:', error);
@@ -411,7 +437,6 @@ function initHeadteacherApplicationsWhenAPIReady() {
     const hasApi = window.API && typeof window.API.callAPI === "function";
 
     if (hasApi) {
-        console.log("API is ready, initializing headteacher applications controller");
         window.headteacherApplicationsController.init();
         return;
     }

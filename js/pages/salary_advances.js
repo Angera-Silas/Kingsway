@@ -9,6 +9,7 @@ const salaryAdvancesController = {
   _canApprove: false, _canCreate: false,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) return;
     this._canCreate  = AuthContext.hasPermission('finance.create') || AuthContext.hasPermission('payroll.create');
     this._canApprove = AuthContext.hasPermission('finance.approve') || AuthContext.hasPermission('payroll.approve');
@@ -41,7 +42,7 @@ const salaryAdvancesController = {
       this._page = 1;
       this._renderTable();
     } catch (e) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-danger text-center py-4">${e.message || 'Load failed'}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="text-danger text-center py-4">${this._esc(e.message || 'Load failed')}</td></tr>`;
     }
   },
 
@@ -239,7 +240,7 @@ const salaryAdvancesController = {
     const advance = this._data.find(a => a.id == id);
     if (!advance) return;
     const amt = advance.amount_per_deduction || advance.balance_remaining;
-    if (!confirm(`Record deduction of KES ${Number(amt).toLocaleString()} for ${advance.staff_name}?`)) return;
+    if (!(await window.confirmAction('Confirm', `Record deduction of KES ${Number(amt).toLocaleString()} for ${advance.staff_name}?`))) return;
     try {
       await callAPI('/finance/salary-advances/' + id, 'PUT', { action: 'record_deduction', amount: amt });
       showNotification('Deduction recorded.', 'success');

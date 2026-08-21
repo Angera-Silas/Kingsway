@@ -86,5 +86,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/past_papers.js"></script>
+<?php asset_script($appBase, 'js/pages/past_papers.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => pastPapersController.init());</script>

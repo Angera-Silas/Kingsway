@@ -1,0 +1,1192 @@
+tables	COUNT(*)
+tables	422
+views	100
+routines	147
+events	10
+triggers	30
+indexes	2138
+constraints	853
+TABLE_NAME	TABLE_TYPE
+academic_capacity_config	BASE TABLE
+academic_capacity_reservations	BASE TABLE
+academic_class_progression	BASE TABLE
+academic_years	BASE TABLE
+academic_year_archives	BASE TABLE
+academic_year_calendar	BASE TABLE
+academic_year_calendar_days	BASE TABLE
+academic_year_classes	BASE TABLE
+academic_year_class_learning_areas	BASE TABLE
+academic_year_class_learning_area_teachers	BASE TABLE
+academic_year_class_streams	BASE TABLE
+academic_year_fee_schedules	BASE TABLE
+academic_year_terms	BASE TABLE
+activities	BASE TABLE
+activity_categories	BASE TABLE
+activity_participants	BASE TABLE
+activity_resources	BASE TABLE
+activity_schedule	BASE TABLE
+activity_staff_participants	BASE TABLE
+admission_applications	BASE TABLE
+admission_decisions	BASE TABLE
+admission_documents	BASE TABLE
+admission_interviews	BASE TABLE
+admission_placement_tests	BASE TABLE
+admission_windows	BASE TABLE
+albums	BASE TABLE
+announcements_bulletin	BASE TABLE
+announcement_views	BASE TABLE
+annual_scores	BASE TABLE
+api_tokens	BASE TABLE
+arrears_settlement_plans	BASE TABLE
+assessments	BASE TABLE
+assessment_benchmarks	BASE TABLE
+assessment_history	BASE TABLE
+assessment_results	BASE TABLE
+assessment_rubrics	BASE TABLE
+assessment_tools	BASE TABLE
+assessment_types	BASE TABLE
+assessment_type_classifications	BASE TABLE
+asset_categories	BASE TABLE
+asset_disposals	BASE TABLE
+assignments	BASE TABLE
+assignment_submissions	BASE TABLE
+attendance_sessions	BASE TABLE
+bank_accounts	BASE TABLE
+bank_transactions	BASE TABLE
+blocked_devices	BASE TABLE
+blocked_ips	BASE TABLE
+boarding_attendance	BASE TABLE
+budgets	BASE TABLE
+budget_amendments	BASE TABLE
+budget_line_items	BASE TABLE
+calendar_day_types	BASE TABLE
+careers_benefits	BASE TABLE
+cash_reconciliation_sessions	BASE TABLE
+catering_meal_statuses	BASE TABLE
+classes	BASE TABLE
+class_promotion_queue	BASE TABLE
+communications	BASE TABLE
+communication_attachments	BASE TABLE
+communication_attachment_channels	BASE TABLE
+communication_audit_events	BASE TABLE
+communication_business_events	BASE TABLE
+communication_consents	BASE TABLE
+communication_delivery_attempts	BASE TABLE
+communication_event_exam_workflows	BASE TABLE
+communication_event_fee_students	BASE TABLE
+communication_event_inquiries	BASE TABLE
+communication_event_messages	BASE TABLE
+communication_event_school_events	BASE TABLE
+communication_groups	BASE TABLE
+communication_preferences	BASE TABLE
+communication_recipients	BASE TABLE
+communication_recipient_endpoints	BASE TABLE
+communication_template_catalog	BASE TABLE
+communication_template_channels	BASE TABLE
+communication_template_values	BASE TABLE
+communication_template_variables	BASE TABLE
+communication_template_versions	BASE TABLE
+communication_threads	BASE TABLE
+communication_thread_inquiries	BASE TABLE
+communication_thread_internal_conversations	BASE TABLE
+communication_thread_messages	BASE TABLE
+communication_workflow_instances	BASE TABLE
+conduct_tracking	BASE TABLE
+contact_directory	BASE TABLE
+contact_inquiries	BASE TABLE
+conversation_participants	BASE TABLE
+core_competencies	BASE TABLE
+core_values	BASE TABLE
+counseling_cases	BASE TABLE
+counseling_sessions	BASE TABLE
+csl_activities	BASE TABLE
+daily_meal_allocations	BASE TABLE
+dashboards	BASE TABLE
+deduction_types	BASE TABLE
+departments	BASE TABLE
+department_attendance_rules	BASE TABLE
+depreciation_schedule	BASE TABLE
+disbursement_transactions	BASE TABLE
+discipline_incidents	BASE TABLE
+dormitories	BASE TABLE
+dormitory_assignments	BASE TABLE
+emergency_contacts	BASE TABLE
+equipment_maintenance	BASE TABLE
+equipment_maintenance_types	BASE TABLE
+exam_schedules	BASE TABLE
+expenses	BASE TABLE
+expense_categories	BASE TABLE
+external_emails	BASE TABLE
+external_inbound_media	BASE TABLE
+external_inbound_messages	BASE TABLE
+external_institutions	BASE TABLE
+fee_catalog	BASE TABLE
+fee_credit_notes	BASE TABLE
+fee_discounts_waivers	BASE TABLE
+fee_reminders	BASE TABLE
+fee_types	BASE TABLE
+financial_periods	BASE TABLE
+fixed_assets	BASE TABLE
+food_consumption_records	BASE TABLE
+formative_scores	BASE TABLE
+form_permissions	BASE TABLE
+forum_posts	BASE TABLE
+forum_threads	BASE TABLE
+gallery_items	BASE TABLE
+grade_rules	BASE TABLE
+grading_comments	BASE TABLE
+grading_scales	BASE TABLE
+group_members	BASE TABLE
+ieps	BASE TABLE
+internal_conversations	BASE TABLE
+internal_messages	BASE TABLE
+inventory_allocations	BASE TABLE
+inventory_categories	BASE TABLE
+inventory_counts	BASE TABLE
+inventory_count_items	BASE TABLE
+inventory_departments	BASE TABLE
+inventory_items	BASE TABLE
+inventory_locations	BASE TABLE
+inventory_transactions	BASE TABLE
+item_batches	BASE TABLE
+item_serials	BASE TABLE
+job_applications	BASE TABLE
+job_vacancies	BASE TABLE
+kpi_achievements	BASE TABLE
+kpi_definitions	BASE TABLE
+kpi_targets	BASE TABLE
+leadership_team	BASE TABLE
+learner_competencies	BASE TABLE
+learner_csl_participation	BASE TABLE
+learner_pci_awareness	BASE TABLE
+learner_values_acquisition	BASE TABLE
+learning_areas	BASE TABLE
+learning_outcomes	BASE TABLE
+leave_types	BASE TABLE
+lesson_deliveries	BASE TABLE
+lesson_observations	BASE TABLE
+lesson_plans	BASE TABLE
+lesson_templates	BASE TABLE
+lesson_template_learning_outcomes	BASE TABLE
+library_books	BASE TABLE
+library_categories	BASE TABLE
+library_fines	BASE TABLE
+library_issues	BASE TABLE
+meal_plans	BASE TABLE
+media_files	BASE TABLE
+menu_items	BASE TABLE
+menu_item_ingredients	BASE TABLE
+message_read_status	BASE TABLE
+message_templates	BASE TABLE
+migrations	BASE TABLE
+mpesa_transactions	BASE TABLE
+national_exam_results	BASE TABLE
+newsletter_subscribers	BASE TABLE
+news_articles	BASE TABLE
+news_categories	BASE TABLE
+notifications	BASE TABLE
+number_sequences	BASE TABLE
+onboarding_documents	BASE TABLE
+onboarding_tasks	BASE TABLE
+onboarding_task_templates	BASE TABLE
+outbound_messages	BASE TABLE
+page_downloads	BASE TABLE
+parents	BASE TABLE
+parent_meetings	BASE TABLE
+parent_payment_accounts	BASE TABLE
+parent_pta_memberships	BASE TABLE
+parent_refund_requests	BASE TABLE
+password_history	BASE TABLE
+password_resets	BASE TABLE
+past_papers	BASE TABLE
+payments	BASE TABLE
+payment_collection_routes	BASE TABLE
+payment_providers	BASE TABLE
+payment_provider_accounts	BASE TABLE
+payment_provider_attempts	BASE TABLE
+payment_provider_callbacks	BASE TABLE
+payment_reconciliations	BASE TABLE
+payment_routing_references	BASE TABLE
+payment_unmatched_cases	BASE TABLE
+payroll_configurations	BASE TABLE
+payroll_runs	BASE TABLE
+payslips	BASE TABLE
+payslip_items	BASE TABLE
+pcis	BASE TABLE
+performance_levels_cbc	BASE TABLE
+performance_ratings	BASE TABLE
+performance_reviews	BASE TABLE
+performance_review_kpis	BASE TABLE
+permissions	BASE TABLE
+permission_delegations	BASE TABLE
+persons	BASE TABLE
+person_addresses	BASE TABLE
+person_contact_points	BASE TABLE
+person_marital_statuses	BASE TABLE
+petty_cash_funds	BASE TABLE
+petty_cash_reconciliations	BASE TABLE
+petty_cash_transactions	BASE TABLE
+placement_offers	BASE TABLE
+portfolios	BASE TABLE
+portfolio_artifacts	BASE TABLE
+promotion_batches	BASE TABLE
+promotion_rules	BASE TABLE
+purchase_orders	BASE TABLE
+qr_scan_events	BASE TABLE
+record_permissions	BASE TABLE
+refresh_tokens	BASE TABLE
+requisitions	BASE TABLE
+requisition_items	BASE TABLE
+roles	BASE TABLE
+role_dashboards	BASE TABLE
+role_delegations	BASE TABLE
+role_permissions	BASE TABLE
+role_routes	BASE TABLE
+role_sidebar_menus	BASE TABLE
+rooms	BASE TABLE
+routes_registry	BASE TABLE
+route_permissions	BASE TABLE
+route_schedules	BASE TABLE
+schema_discovery_cache	BASE TABLE
+schemes_of_work	BASE TABLE
+scheme_templates	BASE TABLE
+scheme_template_learning_outcomes	BASE TABLE
+school_configuration	BASE TABLE
+school_content	BASE TABLE
+school_events	BASE TABLE
+school_facilities	BASE TABLE
+school_history	BASE TABLE
+school_holidays	BASE TABLE
+school_levels	BASE TABLE
+school_programs	BASE TABLE
+school_settings	BASE TABLE
+school_transactions	BASE TABLE
+school_values	BASE TABLE
+school_week_config	BASE TABLE
+sidebar_menu_items	BASE TABLE
+sports_fixtures	BASE TABLE
+sports_player_stats	BASE TABLE
+sports_standings	BASE TABLE
+sports_teams	BASE TABLE
+sports_team_members	BASE TABLE
+staff	BASE TABLE
+staff_allowances	BASE TABLE
+staff_appointments	BASE TABLE
+staff_appointment_approvals	BASE TABLE
+staff_attendance	BASE TABLE
+staff_attendance_profiles	BASE TABLE
+staff_categories	BASE TABLE
+staff_children	BASE TABLE
+staff_contracts	BASE TABLE
+staff_deductions	BASE TABLE
+staff_department_assignments	BASE TABLE
+staff_duty_roster	BASE TABLE
+staff_duty_types	BASE TABLE
+staff_employment_profiles	BASE TABLE
+staff_experience	BASE TABLE
+staff_id_cards	BASE TABLE
+staff_import_batches	BASE TABLE
+staff_import_rows	BASE TABLE
+staff_incident_reports	BASE TABLE
+staff_kpi_templates	BASE TABLE
+staff_leaves	BASE TABLE
+staff_lifecycle_actions	BASE TABLE
+staff_loans	BASE TABLE
+staff_meetings	BASE TABLE
+staff_meeting_attendees	BASE TABLE
+staff_offboarding	BASE TABLE
+staff_off_day_patterns	BASE TABLE
+staff_payroll_profiles	BASE TABLE
+staff_probation_reviews	BASE TABLE
+staff_promotions	BASE TABLE
+staff_qualifications	BASE TABLE
+staff_salary_advances	BASE TABLE
+staff_shift_assignments	BASE TABLE
+staff_types	BASE TABLE
+statutory_agency_accounts	BASE TABLE
+statutory_remittances	BASE TABLE
+statutory_remittance_attempts	BASE TABLE
+statutory_remittance_items	BASE TABLE
+storage_locations	BASE TABLE
+strands	BASE TABLE
+strand_competency	BASE TABLE
+streams	BASE TABLE
+students	BASE TABLE
+student_academic_enrollments	BASE TABLE
+student_attendance	BASE TABLE
+student_boarding_notes	BASE TABLE
+student_clearances	BASE TABLE
+student_fee_obligations	BASE TABLE
+student_fund_transfers	BASE TABLE
+student_fund_transfer_postings	BASE TABLE
+student_health_records	BASE TABLE
+student_health_reviews	BASE TABLE
+student_health_visits	BASE TABLE
+student_id_cards	BASE TABLE
+student_id_card_history	BASE TABLE
+student_meal_profiles	BASE TABLE
+student_parents	BASE TABLE
+student_permissions	BASE TABLE
+student_permission_types	BASE TABLE
+student_suspensions	BASE TABLE
+student_transitions	BASE TABLE
+student_transport_assignments	BASE TABLE
+student_transport_attendance	BASE TABLE
+student_transport_entitlements	BASE TABLE
+student_transport_incidents	BASE TABLE
+student_transport_notes	BASE TABLE
+student_types	BASE TABLE
+student_uniforms	BASE TABLE
+student_vaccinations	BASE TABLE
+student_welfare_cases	BASE TABLE
+student_welfare_notes	BASE TABLE
+subject_time_allocations	BASE TABLE
+sub_strands	BASE TABLE
+sub_strand_competencies	BASE TABLE
+sub_strand_key_inquiry_questions	BASE TABLE
+sub_strand_pci_issues	BASE TABLE
+sub_strand_rubrics	BASE TABLE
+sub_strand_suggested_experiences	BASE TABLE
+sub_strand_values	BASE TABLE
+supervision_rosters	BASE TABLE
+suppliers	BASE TABLE
+supplier_bank_accounts	BASE TABLE
+supplier_mobile_accounts	BASE TABLE
+supplier_payment_requests	BASE TABLE
+system_access_policies	BASE TABLE
+system_alerts	BASE TABLE
+system_api_metrics	BASE TABLE
+system_background_jobs	BASE TABLE
+system_backups	BASE TABLE
+system_domain_isolation_rules	BASE TABLE
+system_feature_flags	BASE TABLE
+system_ip_rules	BASE TABLE
+system_maintenance_windows	BASE TABLE
+system_migration_history	BASE TABLE
+system_modules	BASE TABLE
+system_policies	BASE TABLE
+system_policy_violations	BASE TABLE
+system_rate_limit_rules	BASE TABLE
+system_retention_policies	BASE TABLE
+system_route_access_rules	BASE TABLE
+system_security_incidents	BASE TABLE
+system_time_bound_access	BASE TABLE
+system_webhooks	BASE TABLE
+tax_brackets	BASE TABLE
+tax_withholding_history	BASE TABLE
+teaching_materials	BASE TABLE
+template_categories	BASE TABLE
+terms	BASE TABLE
+term_consolidations	BASE TABLE
+term_subject_scores	BASE TABLE
+timetable_changes	BASE TABLE
+timetable_conflicts	BASE TABLE
+timetable_entries	BASE TABLE
+timetable_templates	BASE TABLE
+time_slots	BASE TABLE
+transport_access_overrides	BASE TABLE
+transport_bill_payments	BASE TABLE
+transport_entitlement_payments	BASE TABLE
+transport_entitlement_payment_allocations	BASE TABLE
+transport_entitlement_periods	BASE TABLE
+transport_monthly_bills	BASE TABLE
+transport_payment_intents	BASE TABLE
+transport_routes	BASE TABLE
+transport_schedules	BASE TABLE
+transport_stops	BASE TABLE
+transport_vehicles	BASE TABLE
+transport_vehicle_routes	BASE TABLE
+uniform_catalog_carts	BASE TABLE
+uniform_catalog_cart_items	BASE TABLE
+uniform_catalog_images	BASE TABLE
+uniform_catalog_orders	BASE TABLE
+uniform_catalog_order_items	BASE TABLE
+uniform_catalog_products	BASE TABLE
+uniform_catalog_wishlists	BASE TABLE
+uniform_payment_intents	BASE TABLE
+uniform_payment_records	BASE TABLE
+uniform_sales	BASE TABLE
+uniform_sizes	BASE TABLE
+users	BASE TABLE
+user_2fa_backup_codes	BASE TABLE
+user_2fa_otp_sessions	BASE TABLE
+user_invitations	BASE TABLE
+user_passkeys	BASE TABLE
+user_passkey_challenges	BASE TABLE
+user_permissions	BASE TABLE
+user_roles	BASE TABLE
+user_routes	BASE TABLE
+user_sessions	BASE TABLE
+user_two_factor_audit_events	BASE TABLE
+user_two_factor_challenges	BASE TABLE
+user_two_factor_methods	BASE TABLE
+vehicle_maintenance	BASE TABLE
+widgets	BASE TABLE
+workflow_definitions	BASE TABLE
+workflow_history	BASE TABLE
+workflow_instances	BASE TABLE
+workflow_notifications	BASE TABLE
+workflow_stages	BASE TABLE
+workflow_stage_history	BASE TABLE
+workflow_stage_permissions	BASE TABLE
+class_assignments	VIEW
+vw_active_allocations	VIEW
+vw_active_salary_advances	VIEW
+vw_arrears_summary	VIEW
+vw_assessment_results_detail	VIEW
+vw_asset_depreciation_summary	VIEW
+vw_attendance_by_context	VIEW
+vw_available_fee_credits	VIEW
+vw_boarding_roll_call	VIEW
+vw_boarding_roll_call_today	VIEW
+vw_budget_utilization	VIEW
+vw_class_learning_area_performance	VIEW
+vw_class_positions	VIEW
+vw_class_rosters	VIEW
+vw_class_timetable_coverage	VIEW
+vw_collection_rate_by_class	VIEW
+vw_currently_blocked_ips	VIEW
+vw_current_enrollments	VIEW
+vw_current_staff_assignments	VIEW
+vw_dormitory_occupancy	VIEW
+vw_expected_attendance_today	VIEW
+vw_expense_summary_by_category	VIEW
+vw_family_groups	VIEW
+vw_fee_carryover_summary	VIEW
+vw_fee_collection_by_year	VIEW
+vw_fee_collection_monthly_trend	VIEW
+vw_fee_schedule_by_class	VIEW
+vw_fee_structure_annual_summary	VIEW
+vw_fee_totals_by_class	VIEW
+vw_fee_totals_by_year	VIEW
+vw_fee_transition_audit	VIEW
+vw_fee_type_collection	VIEW
+vw_food_consumption_summary	VIEW
+vw_internal_conversations	VIEW
+vw_inventory_health	VIEW
+vw_maintenance_schedule	VIEW
+vw_onboarding_dashboard	VIEW
+vw_onboarding_pending_by_role	VIEW
+vw_outstanding_by_class	VIEW
+vw_parent_children	VIEW
+vw_parent_payment_activity	VIEW
+vw_parent_summary	VIEW
+vw_payment_tracking	VIEW
+vw_payment_transactions_with_amount	VIEW
+vw_payslip_detailed	VIEW
+vw_pending_fee_structure_reviews	VIEW
+vw_pending_requisitions	VIEW
+vw_petty_cash_summary	VIEW
+vw_requisition_fulfillment	VIEW
+vw_scheme_completion	VIEW
+vw_school_day_context	VIEW
+vw_sent_emails	VIEW
+vw_sponsored_students_status	VIEW
+vw_staff_assignments_detailed	VIEW
+vw_staff_attendance_anomalies	VIEW
+vw_staff_attendance_status	VIEW
+vw_staff_children_fees	VIEW
+vw_staff_daily_register	VIEW
+vw_staff_leave_balance	VIEW
+vw_staff_leave_balances	VIEW
+vw_staff_leave_history	VIEW
+vw_staff_loan_details	VIEW
+vw_staff_monthly_summary	VIEW
+vw_staff_off_day_schedule	VIEW
+vw_staff_onboarding_progress	VIEW
+vw_staff_payroll_eligibility	VIEW
+vw_staff_payroll_summary	VIEW
+vw_staff_performance_summary	VIEW
+vw_staff_salary_history	VIEW
+vw_staff_service_history	VIEW
+vw_staff_workload	VIEW
+vw_student_academic_history	VIEW
+vw_student_arrears	VIEW
+vw_student_attendance_analytics	VIEW
+vw_student_attendance_summary	VIEW
+vw_student_fee_balances	VIEW
+vw_student_fee_clearance	VIEW
+vw_student_fee_ledger	VIEW
+vw_student_finance_history	VIEW
+vw_student_health_summary	VIEW
+vw_student_learning_progress	VIEW
+vw_student_payment_history_multi_year	VIEW
+vw_student_payment_status	VIEW
+vw_student_payment_status_enhanced	VIEW
+vw_student_term_attendance_summary	VIEW
+vw_student_term_performance	VIEW
+vw_student_transport_summary	VIEW
+vw_student_uniform_balance	VIEW
+vw_teacher_weekly_load	VIEW
+vw_term_expected_days	VIEW
+vw_timetable_entries	VIEW
+vw_uniform_sales_analytics	VIEW
+vw_uniform_sales_summary	VIEW
+vw_uniform_stock_matrix	VIEW
+vw_unread_announcements	VIEW
+vw_upcoming_class_schedules	VIEW
+vw_upcoming_exam_schedules	VIEW
+v_active_users	VIEW
+v_role_permission_summary	VIEW
+v_user_permissions_effective	VIEW
+ROUTINE_TYPE	ROUTINE_NAME	DATA_TYPE
+FUNCTION	calculate_class_average	decimal
+FUNCTION	calculate_grade	varchar
+FUNCTION	calculate_points	decimal
+FUNCTION	calculate_student_age	int
+FUNCTION	calculate_term_fees	decimal
+FUNCTION	fn_generate_admission_no	varchar
+FUNCTION	fn_get_admission_workflow_communication	longtext
+FUNCTION	fn_get_batch_approval_percentage	decimal
+FUNCTION	fn_get_child_discount_rate	decimal
+FUNCTION	fn_get_parent_children_count	int
+FUNCTION	fn_get_parent_total_fee_balance	decimal
+FUNCTION	fn_get_student_promotion_status	varchar
+FUNCTION	fn_has_permission	tinyint
+FUNCTION	fn_is_school_day	tinyint
+FUNCTION	fn_is_student_suspended	tinyint
+FUNCTION	fn_notify_low_stock	varchar
+FUNCTION	fn_staff_expected_today	varchar
+FUNCTION	fn_student_fee_due	decimal
+FUNCTION	fn_student_has_permission	int
+FUNCTION	fn_student_outstanding_balance	decimal
+FUNCTION	fn_user_has_permission	tinyint
+FUNCTION	generate_student_number	varchar
+PROCEDURE	add_students_to_class	
+PROCEDURE	sp_add_custom_stream	
+PROCEDURE	sp_add_item_to_inventory	
+PROCEDURE	sp_advance_admission_workflow_stage	
+PROCEDURE	sp_advance_workflow_stage	
+PROCEDURE	sp_apply_fee_discount	
+PROCEDURE	sp_apply_staff_loan	
+PROCEDURE	sp_approve_class_promotion	
+PROCEDURE	sp_approve_student_promotion	
+PROCEDURE	sp_assess_learner_competency	
+PROCEDURE	sp_assign_financial_period	
+PROCEDURE	sp_assign_student_transport	
+PROCEDURE	sp_auto_generate_onboarding_tasks	
+PROCEDURE	sp_auto_rollover_fee_structures	
+PROCEDURE	sp_bulk_inventory_reconciliation	
+PROCEDURE	sp_bulk_mark_staff_attendance	
+PROCEDURE	sp_bulk_mark_student_attendance	
+PROCEDURE	sp_bulk_payroll_calculation	
+PROCEDURE	sp_bulk_transport_assignment	
+PROCEDURE	sp_bulk_upsert_json	
+PROCEDURE	sp_calculate_annual_scores	
+PROCEDURE	sp_calculate_kpi_achievement_score	
+PROCEDURE	sp_calculate_nhif_contribution	
+PROCEDURE	sp_calculate_nssf_contribution	
+PROCEDURE	sp_calculate_paye_tax	
+PROCEDURE	sp_calculate_staff_child_fees	
+PROCEDURE	sp_calculate_staff_full_payroll	
+PROCEDURE	sp_calculate_staff_leave_balance	
+PROCEDURE	sp_calculate_student_fees	
+PROCEDURE	sp_calculate_term_subject_score	
+PROCEDURE	sp_carryover_fee_balance	
+PROCEDURE	sp_check_class_space_availability	
+PROCEDURE	sp_check_finance_clearance	
+PROCEDURE	sp_check_form_permission	
+PROCEDURE	sp_check_record_permission	
+PROCEDURE	sp_check_student_transport_status	
+PROCEDURE	sp_cleanup_expired_blocks	
+PROCEDURE	sp_compare_to_benchmark	
+PROCEDURE	sp_compile_exam_results	
+PROCEDURE	sp_complete_promotion_batch	
+PROCEDURE	sp_complete_student_enrollment	
+PROCEDURE	sp_consolidate_term_scores	
+PROCEDURE	sp_create_arrears_settlement_plan	
+PROCEDURE	sp_create_exam_schedule	
+PROCEDURE	sp_create_parent	
+PROCEDURE	sp_create_promotion_batch	
+PROCEDURE	sp_detect_schedule_conflicts	
+PROCEDURE	sp_enroll_student_in_class	
+PROCEDURE	sp_ensure_class_streams	
+PROCEDURE	sp_generate_comment	
+PROCEDURE	sp_generate_p9_form	
+PROCEDURE	sp_generate_school_year_report	
+PROCEDURE	sp_generate_student_fee_obligations	
+PROCEDURE	sp_generate_student_report	
+PROCEDURE	sp_generate_year_calendar	
+PROCEDURE	sp_get_assessment_trends	
+PROCEDURE	sp_get_class_fee_schedule	
+PROCEDURE	sp_get_competency_report	
+PROCEDURE	sp_get_dormitory_students	
+PROCEDURE	sp_get_family_group_details	
+PROCEDURE	sp_get_fee_breakdown_for_review	
+PROCEDURE	sp_get_fee_collection_rate	
+PROCEDURE	sp_get_outstanding_fees_report	
+PROCEDURE	sp_get_parent_children	
+PROCEDURE	sp_get_payments_by_admission	
+PROCEDURE	sp_get_staff_kpi_summary	
+PROCEDURE	sp_get_user_permissions	
+PROCEDURE	sp_get_values_summary	
+PROCEDURE	sp_implement_discipline_action	
+PROCEDURE	sp_initialize_transfer_clearances	
+PROCEDURE	sp_link_parent_to_student	
+PROCEDURE	sp_mark_boarding_attendance	
+PROCEDURE	sp_mark_uniform_sale_paid	
+PROCEDURE	sp_migrate_admission_applications_to_new_workflow	
+PROCEDURE	sp_moderate_marks	
+PROCEDURE	sp_onboard_student_enrollment	
+PROCEDURE	sp_place_application_into_class	
+PROCEDURE	sp_process_staff_payroll	
+PROCEDURE	sp_process_staff_performance_review	
+PROCEDURE	sp_process_student_payment	
+PROCEDURE	sp_process_student_sponsorship	
+PROCEDURE	sp_promote_bulk_students	
+PROCEDURE	sp_promote_by_grade_bulk	
+PROCEDURE	sp_promote_single_class	
+PROCEDURE	sp_reallocate_all_payments	
+PROCEDURE	sp_record_assessment_change	
+PROCEDURE	sp_record_cash_payment	
+PROCEDURE	sp_record_conduct	
+PROCEDURE	sp_record_core_value	
+PROCEDURE	sp_record_csl_participation	
+PROCEDURE	sp_record_discipline_case	
+PROCEDURE	sp_record_payment_security_event	
+PROCEDURE	sp_record_pci_awareness	
+PROCEDURE	sp_record_transport_payment	
+PROCEDURE	sp_record_uniform_payment	
+PROCEDURE	sp_refresh_student_payment_summary	
+PROCEDURE	sp_register_applicant_as_student	
+PROCEDURE	sp_register_uniform_sale	
+PROCEDURE	sp_reject_class_promotion	
+PROCEDURE	sp_reject_student_promotion	
+PROCEDURE	sp_remove_custom_stream	
+PROCEDURE	sp_request_staff_advance	
+PROCEDURE	sp_schedule_maintenance	
+PROCEDURE	sp_search_family_groups	
+PROCEDURE	sp_send_fee_reminder	
+PROCEDURE	sp_send_fee_reminders	
+PROCEDURE	sp_suspend_student_promotion	
+PROCEDURE	sp_track_student_behavior	
+PROCEDURE	sp_transfer_student_promotion	
+PROCEDURE	sp_transition_to_new_academic_year	
+PROCEDURE	sp_transition_to_new_term	
+PROCEDURE	sp_unlink_parent_from_student	
+PROCEDURE	sp_update_parent	
+PROCEDURE	sp_users_with_multiple_roles	
+PROCEDURE	sp_users_with_permission	
+PROCEDURE	sp_users_with_role	
+PROCEDURE	sp_users_with_temporary_permissions	
+PROCEDURE	sp_user_get_denied_permissions	
+PROCEDURE	sp_user_get_effective_permissions	
+PROCEDURE	sp_user_get_permissions_by_entity	
+PROCEDURE	sp_user_get_permission_summary	
+PROCEDURE	sp_user_get_roles_detailed	
+PROCEDURE	sp_validate_payment_request	
+PROCEDURE	sp_validate_staff_assignment	
+PROCEDURE	sp_validate_term_holiday_conflicts	
+EVENT_NAME	STATUS	EVENT_TYPE	EXECUTE_AT	INTERVAL_VALUE	INTERVAL_FIELD
+evt_process_academic_summary	ENABLED	RECURRING	NULL	1	MONTH
+evt_process_attendance_summary	ENABLED	RECURRING	NULL	1	DAY
+evt_staff_appraisal_reminders	ENABLED	RECURRING	NULL	1	MONTH
+evt_vehicle_maintenance_alerts	ENABLED	RECURRING	NULL	1	DAY
+ev_daily_attendance_report	ENABLED	RECURRING	NULL	1	DAY
+ev_monthly_competency_report_reminder	ENABLED	RECURRING	NULL	1	MONTH
+ev_quarterly_csl_audit	ENABLED	RECURRING	NULL	1	QUARTER
+ev_term_end_values_summary	ENABLED	RECURRING	NULL	1	QUARTER
+ev_weekly_maintenance_notify	ENABLED	RECURRING	NULL	1	WEEK
+ev_yearly_portfolio_archive_reminder	ENABLED	RECURRING	NULL	1	YEAR
+TRIGGER_NAME	EVENT_MANIPULATION	EVENT_OBJECT_TABLE	ACTION_TIMING	ACTION_STATEMENT
+trg_assign_financial_period	INSERT	school_transactions	AFTER	BEGIN 
+    CALL sp_assign_financial_period(NEW.id);
+END
+trg_audit_allocation_insert	INSERT	inventory_allocations	AFTER	BEGIN
+INSERT INTO audit_trail (
+    user_id,
+    action,
+    table_name,
+    record_id,
+    new_values,
+    created_at
+  )
+VALUES (
+    NEW.allocated_by,
+    'INSERT',
+    'inventory_allocations',
+    NEW.id,
+    JSON_OBJECT(
+      'allocation_number',
+      NEW.allocation_number,
+      'item_id',
+      NEW.item_id,
+      'quantity',
+      NEW.allocated_quantity
+    ),
+    NOW()
+  );
+END
+trg_audit_inventory_insert	INSERT	inventory_items	AFTER	BEGIN
+    INSERT INTO audit_trail (
+        user_id,
+        action,
+        table_name,
+        record_id,
+        new_values,
+        created_at
+    )
+    VALUES (
+        NULL,
+        'INSERT',
+        'inventory_items',
+        NEW.id,
+        JSON_OBJECT(
+            'name', NEW.name,
+            'code', NEW.code,
+            'current_quantity', NEW.current_quantity,
+            'status', NEW.status
+        ),
+        NOW()
+    );
+END
+trg_auto_create_notification	INSERT	announcements_bulletin	AFTER	BEGIN
+    IF NEW.target_audience = 'all' OR NEW.target_audience = 'staff' THEN
+        INSERT INTO notifications (
+            user_id,
+            title,
+            message,
+            type,
+            priority,
+            read_status,
+            created_at
+        )
+        SELECT u.id,
+            NEW.title,
+            SUBSTRING(NEW.content, 1, 200),
+            'announcement',
+            CASE
+                WHEN NEW.priority = 'normal' THEN 'medium'
+                WHEN NEW.priority = 'critical' THEN 'high'
+                ELSE NEW.priority
+            END,
+            'unread',
+            NOW()
+        FROM users u
+        WHERE u.status = 'active' AND u.id <> NEW.published_by;
+    END IF;
+END
+trg_auto_start_comm_workflow	INSERT	communications	AFTER	BEGIN
+    IF NEW.status = 'scheduled' OR NEW.status = 'sent' THEN
+      INSERT INTO communication_workflow_instances (communication_id, workflow_code, current_stage, status, initiated_by, initiated_at)
+      VALUES (NEW.id, 'communication_approval', 'initiated', 'active', NEW.sender_id, NOW());
+    END IF;
+  END
+trg_bank_payment_processed	INSERT	bank_transactions	AFTER	BEGIN 
+    IF NEW.status = 'processed' AND NEW.student_id IS NOT NULL THEN
+        UPDATE student_fee_balances
+        SET balance = balance - NEW.amount,
+            last_updated = NOW()
+        WHERE student_id = NEW.student_id
+        ORDER BY academic_term_id DESC
+        LIMIT 1;
+INSERT INTO school_transactions (
+    student_id,
+    source,
+    reference,
+    amount,
+    transaction_date,
+    status,
+    details
+  )
+VALUES (
+    NEW.student_id,
+    'bank',
+    NEW.transaction_ref,
+    NEW.amount,
+    NEW.transaction_date,
+    'confirmed',
+    JSON_OBJECT(
+      'bank',
+      NEW.bank_name,
+      'account',
+      NEW.account_number
+    )
+  );
+END IF;
+END
+trg_check_leave_overlap	INSERT	staff_leaves	BEFORE	BEGIN
+    DECLARE overlap_count INT;
+    
+    SELECT COUNT(*) INTO overlap_count
+    FROM staff_leaves
+    WHERE staff_id = NEW.staff_id
+    AND status IN ('pending', 'approved')
+    AND (
+        (NEW.start_date BETWEEN start_date AND end_date)
+        OR (NEW.end_date BETWEEN start_date AND end_date)
+        OR (start_date BETWEEN NEW.start_date AND NEW.end_date)
+    );
+    
+    IF overlap_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Leave dates overlap with existing leave application';
+    END IF;
+END
+trg_check_maintenance_overdue	UPDATE	equipment_maintenance	BEFORE	BEGIN
+    IF NEW.status = 'pending' AND NEW.next_maintenance_date < CURDATE() THEN
+        SET NEW.status = 'overdue';
+    END IF;
+END
+trg_check_meal_plan_completion	INSERT	food_consumption_records	AFTER	BEGIN
+    DECLARE v_plan_id INT UNSIGNED;
+    DECLARE v_recorded_count INT;
+    DECLARE v_expected_count INT;
+    SET v_plan_id = NEW.meal_plan_id;
+IF v_plan_id IS NOT NULL THEN
+SELECT COUNT(DISTINCT inventory_item_id) INTO v_recorded_count
+FROM food_consumption_records
+WHERE meal_plan_id = v_plan_id;
+SELECT COUNT(*) INTO v_expected_count
+FROM menu_item_ingredients
+WHERE menu_item_id = (
+    SELECT menu_item_id
+    FROM meal_plans
+    WHERE id = v_plan_id
+  );
+IF v_recorded_count = v_expected_count
+AND v_recorded_count > 0 THEN
+UPDATE meal_plans
+SET status = 'served',
+  updated_at = NOW()
+WHERE id = v_plan_id;
+END IF;
+END IF;
+END
+trg_complete_staff_assignments_on_year_end	UPDATE	academic_years	AFTER	BEGIN
+    IF NEW.status = 'archived' AND OLD.status != 'archived' THEN
+        UPDATE staff_class_assignments
+        SET status = 'completed',
+            end_date = NEW.end_date
+        WHERE academic_year_id = NEW.id
+        AND status = 'active';
+    END IF;
+END
+trg_create_student_obligations	INSERT	student_academic_enrollments	AFTER	BEGIN
+    DECLARE v_base_id INT UNSIGNED;
+    SET v_base_id = (SELECT COALESCE(MAX(id), 0) FROM student_fee_obligations);
+
+    INSERT INTO student_fee_obligations (
+        id,
+        student_academic_enrollment_id,
+        academic_year_id,
+        academic_year_term_id,
+        academic_year_fee_schedule_id,
+        amount_due,
+        status,
+        due_date,
+        created_at
+    )
+    SELECT
+        v_base_id + ROW_NUMBER() OVER (),
+        NEW.id,
+        fs.academic_year_id,
+        fs.academic_year_term_id,
+        fs.id,
+        fs.amount,
+        'pending',
+        COALESCE(fs.due_date, ayt.closing_date),
+        NOW()
+    FROM academic_year_fee_schedules fs
+    JOIN academic_year_terms ayt ON ayt.id = fs.academic_year_term_id
+    JOIN academic_year_class_streams aycs ON aycs.id = NEW.academic_year_class_stream_id
+    JOIN students st ON st.id = NEW.student_id
+    WHERE fs.academic_year_class_id = aycs.academic_year_class_id
+      AND fs.academic_year_id = NEW.academic_year_id
+      AND fs.student_type_id = st.student_type_id
+      AND fs.status = 'active'
+      AND NOT EXISTS (
+          SELECT 1 FROM student_fee_obligations sfo
+          WHERE sfo.student_academic_enrollment_id = NEW.id
+            AND sfo.academic_year_term_id = fs.academic_year_term_id
+            AND sfo.academic_year_fee_schedule_id = fs.id
+      );
+END
+trg_enrollment_auto_onboard	INSERT	student_academic_enrollments	AFTER	BEGIN
+    DECLARE v_obligations INT;
+    CALL sp_onboard_student_enrollment(NEW.id, NULL, v_obligations);
+END
+trg_expense_approved_update_budget	UPDATE	expenses	AFTER	BEGIN
+  IF NEW.status = 'approved' AND OLD.status != 'approved' AND NEW.budget_line_item_id IS NOT NULL THEN
+    UPDATE budget_line_items
+       SET spent_amount     = spent_amount + NEW.amount,
+           committed_amount = GREATEST(0, committed_amount - NEW.amount)
+     WHERE id = NEW.budget_line_item_id;
+  END IF;
+  IF NEW.status IN ('rejected','cancelled') AND OLD.status = 'pending_approval' AND NEW.budget_line_item_id IS NOT NULL THEN
+    UPDATE budget_line_items
+       SET committed_amount = GREATEST(0, committed_amount - NEW.amount)
+     WHERE id = NEW.budget_line_item_id;
+  END IF;
+END
+trg_log_allocation_status	UPDATE	inventory_allocations	AFTER	BEGIN 
+    IF NEW.status != OLD.status THEN
+        INSERT INTO audit_trail (
+            user_id,
+            action,
+            table_name,
+            record_id,
+            old_values,
+            new_values,
+            created_at
+        )
+        VALUES (
+            NULL,
+            'UPDATE',
+            'inventory_allocations',
+            NEW.id,
+            JSON_OBJECT('status', OLD.status),
+            JSON_OBJECT(
+                'status', NEW.status,
+                'allocation_number', NEW.allocation_number
+            ),
+            NOW()
+        );
+    END IF;
+END
+trg_log_email_delivery	UPDATE	external_emails	AFTER	BEGIN
+    IF OLD.status <> NEW.status THEN
+        IF NEW.status = 'failed' THEN
+            UPDATE external_institutions
+            SET last_failed_email = NOW()
+            WHERE id = NEW.institution_id;
+        END IF;
+    END IF;
+END
+trg_log_food_consumption	INSERT	food_consumption_records	AFTER	BEGIN
+    INSERT INTO audit_trail (
+        user_id,
+        action,
+        table_name,
+    record_id,
+    new_values,
+    created_at
+  )
+VALUES (
+    NEW.recorded_by,
+    'INSERT',
+    'food_consumption_records',
+    NEW.id,
+    JSON_OBJECT(
+      'item_id',
+      NEW.inventory_item_id,
+      'quantity_used',
+      NEW.quantity_used,
+      'consumption_date',
+      NEW.consumption_date
+    ),
+    NOW()
+  );
+END
+trg_mpesa_payment_processed	INSERT	mpesa_transactions	AFTER	BEGIN IF NEW.status = 'processed'
+  AND NEW.student_id IS NOT NULL THEN
+UPDATE student_fee_balances
+SET balance = balance - NEW.amount,
+  last_updated = NOW()
+WHERE student_id = NEW.student_id
+ORDER BY academic_term_id DESC
+LIMIT 1;
+INSERT INTO school_transactions (
+    student_id,
+    source,
+    reference,
+    amount,
+    transaction_date,
+    status,
+    details
+  )
+VALUES (
+    NEW.student_id,
+    'mpesa',
+    NEW.mpesa_code,
+    NEW.amount,
+    NEW.transaction_date,
+    'confirmed',
+    NEW.raw_callback
+  );
+END IF;
+END
+trg_prevent_user_delete	DELETE	users	BEFORE	BEGIN
+    DECLARE v_role_count INT;
+    SELECT COUNT(*) INTO v_role_count
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    WHERE ur.user_id = OLD.id AND r.name = 'admin';
+    IF v_role_count > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Cannot delete admin users';
+    END IF;
+END
+trg_role_delegations_prevent_insert	INSERT	role_delegations	BEFORE	BEGIN
+    IF NEW.active = 1 THEN
+        INSERT INTO role_delegations_blocked_20260111 (delegator_role_id, delegate_role_id, attempted_active, reason)
+        VALUES (NEW.delegator_role_id, NEW.delegate_role_id, NEW.active, 'insert_blocked');
+        SET NEW.active = 0; 
+    END IF;
+END
+trg_role_delegations_prevent_update	UPDATE	role_delegations	BEFORE	BEGIN
+    IF NEW.active = 1 AND OLD.active = 0 THEN
+        INSERT INTO role_delegations_blocked_20260111 (delegator_role_id, delegate_role_id, attempted_active, reason)
+        VALUES (NEW.delegator_role_id, NEW.delegate_role_id, NEW.active, 'update_blocked');
+        SET NEW.active = 0;
+    END IF;
+END
+trg_student_application_backfill	INSERT	students	AFTER	BEGIN
+    IF NEW.application_id IS NOT NULL THEN
+        UPDATE admission_applications
+           SET status = 'enrolled',
+               enrolled_student_id = NEW.id,
+               enrolled_at = COALESCE(enrolled_at, NOW()),
+               updated_at = NOW()
+         WHERE id = NEW.application_id
+           AND status <> 'cancelled'
+           AND (status <> 'enrolled' OR enrolled_student_id IS NULL);
+    END IF;
+END
+trg_update_class_capacity	INSERT	students	AFTER	BEGIN
+    UPDATE academic_capacity_reservations
+    SET reservation_status = 'converted',
+        converted_to_enrollment_at = NOW()
+    WHERE application_id = NEW.application_id
+      AND reservation_status = 'provisional';
+END
+trg_update_leave_balance	UPDATE	staff_leaves	AFTER	BEGIN
+    IF NEW.status = 'approved' AND OLD.status = 'pending' THEN
+        
+        INSERT INTO workflow_notifications (
+            workflow_instance_id,
+            user_id,
+            notification_type,
+            title,
+            message,
+            created_at
+        )
+        SELECT 
+            wi.id,
+            NEW.staff_id,
+            'leave_approved',
+            'Leave Request Approved',
+            CONCAT('Your leave request from ', NEW.start_date, ' to ', NEW.end_date, ' has been approved'),
+            NOW()
+        FROM workflow_instances wi
+        WHERE wi.entity_type = 'leave_request' 
+        AND wi.entity_id = NEW.id
+        LIMIT 1;
+    END IF;
+END
+trg_update_obligation_on_payment	INSERT	payments	AFTER	BEGIN
+    UPDATE student_fee_obligations sfo
+    JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+    JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+    SET sfo.status = CASE
+        WHEN (COALESCE((
+                SELECT SUM(p.amount) FROM payments p
+                WHERE p.student_id = NEW.student_id
+                  AND p.status = 'confirmed'
+                  AND p.payment_date >= ayt.opening_date
+                  AND p.payment_date <= ayt.closing_date
+            ), 0) + COALESCE(sfo.sponsored_waiver_amount, 0)) >= sfo.amount_due THEN 'paid'
+        WHEN COALESCE((
+                SELECT SUM(p.amount) FROM payments p
+                WHERE p.student_id = NEW.student_id
+                  AND p.status = 'confirmed'
+                  AND p.payment_date >= ayt.opening_date
+                  AND p.payment_date <= ayt.closing_date
+            ), 0) > 0 THEN 'partial'
+        ELSE sfo.status
+    END
+    WHERE sfo.student_academic_enrollment_id IN (
+        SELECT id FROM student_academic_enrollments
+        WHERE student_id = NEW.student_id AND enrollment_status = 'active'
+    )
+      AND NEW.payment_date >= ayt.opening_date
+      AND NEW.payment_date <= ayt.closing_date
+      AND sfo.status IN ('pending', 'partial');
+END
+trg_update_onboarding_progress	UPDATE	onboarding_tasks	AFTER	BEGIN
+    DECLARE v_total_tasks INT;
+    DECLARE v_completed_tasks INT;
+    DECLARE v_progress_percent INT;
+    
+    IF NEW.status != OLD.status THEN
+        SELECT COUNT(*), SUM(CASE WHEN status IN ('completed', 'skipped') THEN 1 ELSE 0 END)
+        INTO v_total_tasks, v_completed_tasks
+        FROM onboarding_tasks
+        WHERE onboarding_id = NEW.onboarding_id;
+        
+        SET v_progress_percent = ROUND((v_completed_tasks / v_total_tasks) * 100);
+        
+        UPDATE staff_onboarding
+        SET progress_percent = v_progress_percent,
+            status = CASE 
+                WHEN v_progress_percent = 100 THEN 'completed'
+                WHEN v_progress_percent > 0 THEN 'in_progress'
+                ELSE 'pending'
+            END
+        WHERE id = NEW.onboarding_id;
+    END IF;
+END
+trg_update_student_status	UPDATE	students	AFTER	BEGIN IF NEW.status IN ('graduated', 'transferred')
+  AND OLD.status != NEW.status THEN
+INSERT INTO notifications (
+    user_id,
+    type,
+    title,
+    message,
+    priority,
+    created_at
+  )
+VALUES (
+    get_parent_user_id(NEW.id),
+    'info',
+    'Student Status Update',
+    CONCAT('Your child status changed to ', NEW.status),
+    'medium',
+    NOW()
+  );
+END IF;
+END
+trg_validate_academic_term	INSERT	academic_year_terms	BEFORE	BEGIN
+    IF NEW.opening_date IS NOT NULL
+       AND NEW.closing_date IS NOT NULL
+       AND NEW.opening_date >= NEW.closing_date THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Term start date must be before end date';
+    END IF;
+END
+trg_validate_class_capacity	INSERT	student_academic_enrollments	BEFORE	BEGIN
+    DECLARE v_capacity INT UNSIGNED;
+    DECLARE v_current_count INT;
+    SELECT s.capacity INTO v_capacity
+    FROM academic_year_class_streams aycs
+    JOIN streams s ON s.id = aycs.stream_id
+    WHERE aycs.id = NEW.academic_year_class_stream_id;
+    SELECT COUNT(*) INTO v_current_count
+    FROM student_academic_enrollments
+    WHERE academic_year_class_stream_id = NEW.academic_year_class_stream_id
+      AND enrollment_status = 'active';
+    IF v_capacity IS NOT NULL AND v_current_count >= v_capacity THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Class capacity exceeded';
+    END IF;
+END
+trg_validate_email	INSERT	persons	BEFORE	BEGIN
+    IF NEW.email IS NOT NULL
+       AND NEW.email <> ''
+       AND NEW.email NOT REGEXP '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+.[A-Za-z]{2,}$' THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Invalid email format';
+    END IF;
+END
+trg_validate_payroll_payment	UPDATE	payslips	BEFORE	BEGIN
+    IF NEW.payment_status = 'paid' AND OLD.payment_status != 'paid' THEN
+        IF NEW.net_salary <= 0 THEN
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Cannot process payment: Net salary must be positive';
+        END IF;
+
+        IF NEW.payment_date IS NULL THEN
+            SET NEW.payment_date = CURDATE();
+        END IF;
+    END IF;
+END

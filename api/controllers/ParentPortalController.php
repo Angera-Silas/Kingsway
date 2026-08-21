@@ -3,13 +3,20 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
+use App\API\Modules\parent\ParentPortalManager;
 use App\Database\Database;
-use Exception;
+use App\API\Services\payments\UniformCatalogService;
 
 /**
- * ParentPortalController
- * Handles all parent-facing portal endpoints.
- * Uses ParentAuthMiddleware instead of staff JWT auth.
+ * ParentPortalController — thin endpoint exposer for the parent portal.
+ *
+ * All data access, session/OTP decisions, fee/report-card/attendance reads and
+ * messaging orchestration live in ParentPortalManager (normalised schema only).
+ * This controller only: reads input, validates required fields, delegates and
+ * formats the response via handleApiResponse().
+ *
+ * Uses ParentAuthMiddleware instead of staff JWT auth; the middleware sets
+ * $_SERVER['parent_auth'] (parent_id/user_id/session_id/session_token).
  *
  * ROUTES (all under /api/parent-portal/):
  * POST /api/parent-portal/login                    → postLogin()
@@ -24,16 +31,12 @@ use Exception;
  */
 class ParentPortalController extends BaseController
 {
-    private int $parentId = 0;
+    private ParentPortalManager $parent;
 
     public function __construct()
     {
         parent::__construct();
-        // Override: parent_auth instead of auth_user
-        $auth = $_SERVER['parent_auth'] ?? null;
-        if ($auth) {
-            $this->parentId = (int)($auth['parent_id'] ?? 0);
-        }
+        $this->parent = new ParentPortalManager();
     }
 
     // ============================================================
@@ -46,54 +49,7 @@ class ParentPortalController extends BaseController
      */
     public function postLogin($id = null, $data = [], $segments = [])
     {
-        $email    = trim($data['email'] ?? '');
-        $password = $data['password'] ?? '';
-
-        if (!$email || !$password) {
-            return $this->badRequest('Email and password are required');
-        }
-
-        try {
-            $db     = Database::getInstance();
-            $parent = $db->query(
-                "SELECT id, first_name, last_name, email, portal_password, portal_status
-                 FROM parents
-                 WHERE email = :email AND status = 'active' LIMIT 1",
-                [':email' => $email]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$parent) {
-                return $this->unauthorized('Invalid email or password');
-            }
-
-            // No portal password set yet → account can't log in via password
-            if (empty($parent['portal_password'])) {
-                return $this->unauthorized('Portal access not yet activated. Use OTP or contact the school.');
-            }
-
-            if (!password_verify($password, $parent['portal_password'])) {
-                return $this->unauthorized('Invalid email or password');
-            }
-
-            if (!empty($parent['portal_status']) && $parent['portal_status'] !== 'active') {
-                return $this->forbidden('Your portal account is ' . ($parent['portal_status'] ?? 'inactive'));
-            }
-
-            $token = $this->createSession((int)$parent['id']);
-
-            return $this->success([
-                'token'      => $token['token'],
-                'expires_at' => $token['expires_at'],
-                'parent'     => [
-                    'id'         => $parent['id'],
-                    'first_name' => $parent['first_name'],
-                    'last_name'  => $parent['last_name'],
-                    'email'      => $parent['email'],
-                ],
-            ]);
-        } catch (Exception $e) {
-            return $this->serverError('Login failed');
-        }
+        return $this->handleApiResponse($this->parent->postLogin($data));
     }
 
     /**
@@ -102,51 +58,7 @@ class ParentPortalController extends BaseController
      */
     public function postLoginOtpRequest($id = null, $data = [], $segments = [])
     {
-        $phone = trim((string)($data['phone'] ?? ''));
-
-        // Normalize to 254XXXXXXXXX
-        if (strlen($phone) === 9) $phone = '254' . $phone;
-        if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
-
-        try {
-            $db     = Database::getInstance();
-            $parent = $db->query(
-                "SELECT id FROM parents WHERE (phone_1 = :p1 OR phone_2 = :p2) AND status = 'active' LIMIT 1",
-                [':p1' => $phone, ':p2' => $phone]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$parent) {
-                // Return success anyway to prevent phone enumeration
-                return $this->success(['message' => 'If this number is registered, an OTP will be sent']);
-            }
-
-            $otp     = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-            $expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
-
-            $db->query(
-                "INSERT INTO parent_otp_sessions (parent_id, phone, otp_code, otp_expires_at)
-                 VALUES (:pid, :phone, :otp, :exp)",
-                [
-                    ':pid'   => $parent['id'],
-                    ':phone' => $phone,
-                    ':otp'   => password_hash($otp, PASSWORD_DEFAULT),
-                    ':exp'   => $expires,
-                ]
-            );
-            $sessionId = $db->lastInsertId();
-
-            // TODO: integrate SMS service here
-            // For now, log OTP (remove in production)
-            error_log("Parent OTP for {$phone}: {$otp}");
-
-            return $this->success([
-                'otp_session_id' => $sessionId,
-                'message'        => 'OTP sent to registered phone number',
-                'expires_in'     => '10 minutes',
-            ]);
-        } catch (Exception $e) {
-            return $this->serverError('OTP request failed');
-        }
+        return $this->handleApiResponse($this->parent->postLoginOtpRequest($data));
     }
 
     /**
@@ -155,60 +67,7 @@ class ParentPortalController extends BaseController
      */
     public function postLoginOtpVerify($id = null, $data = [], $segments = [])
     {
-        $sessionId = (int)($data['otp_session_id'] ?? 0);
-        $otpCode   = trim($data['otp_code'] ?? '');
-
-        if (!$sessionId || !$otpCode) {
-            return $this->badRequest('otp_session_id and otp_code required');
-        }
-
-        try {
-            $db      = Database::getInstance();
-            $session = $db->query(
-                "SELECT * FROM parent_otp_sessions
-                 WHERE id = :id AND otp_expires_at > NOW() AND verified = 0 LIMIT 1",
-                [':id' => $sessionId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$session) {
-                return $this->badRequest('OTP session not found or expired');
-            }
-            if ((int)$session['attempts'] >= 5) {
-                return $this->badRequest('Too many failed attempts. Request a new OTP.');
-            }
-
-            // Increment attempts
-            $db->query(
-                "UPDATE parent_otp_sessions SET attempts = attempts + 1 WHERE id = :id",
-                [':id' => $sessionId]
-            );
-
-            if (!password_verify($otpCode, $session['otp_code'])) {
-                return $this->badRequest('Invalid OTP code');
-            }
-
-            // Mark verified
-            $db->query(
-                "UPDATE parent_otp_sessions SET verified = 1 WHERE id = :id",
-                [':id' => $sessionId]
-            );
-
-            // Get parent info
-            $parent = $db->query(
-                "SELECT id, first_name, last_name, email FROM parents WHERE id = :id",
-                [':id' => $session['parent_id']]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            $token = $this->createSession((int)$session['parent_id']);
-
-            return $this->success([
-                'token'      => $token['token'],
-                'expires_at' => $token['expires_at'],
-                'parent'     => $parent,
-            ]);
-        } catch (Exception $e) {
-            return $this->serverError('OTP verification failed');
-        }
+        return $this->handleApiResponse($this->parent->postLoginOtpVerify($data));
     }
 
     /**
@@ -216,16 +75,7 @@ class ParentPortalController extends BaseController
      */
     public function postLogout($id = null, $data = [], $segments = [])
     {
-        $auth = $_SERVER['parent_auth'] ?? null;
-        if ($auth) {
-            try {
-                Database::getInstance()->query(
-                    "UPDATE parent_portal_sessions SET status = 'revoked' WHERE id = :id",
-                    [':id' => $auth['session_id']]
-                );
-            } catch (Exception $e) {}
-        }
-        return $this->success(['message' => 'Logged out successfully']);
+        return $this->handleApiResponse($this->parent->postLogout());
     }
 
     // ============================================================
@@ -237,102 +87,42 @@ class ParentPortalController extends BaseController
      */
     public function getDashboard($id = null, $data = [], $segments = [])
     {
-        if (!$this->parentId) return $this->unauthorized('Not authenticated');
-
-        try {
-            $db       = Database::getInstance();
-            $children = $db->query("
-                SELECT s.id, s.first_name, s.last_name, s.admission_no, s.photo_url,
-                       c.name AS class_name, sl.name AS level_name,
-                       COALESCE(SUM(sfo.balance), 0) AS current_balance,
-                       MAX(sfo.payment_status) AS payment_status,
-                       (SELECT MAX(pt.payment_date) FROM payment_transactions pt
-                        WHERE pt.student_id = s.id AND pt.status = 'confirmed') AS last_payment_date
-                FROM student_parents sp
-                JOIN students s ON s.id = sp.student_id AND s.status = 'active'
-                JOIN class_enrollments ce ON ce.student_id = s.id
-                JOIN classes c ON ce.class_id = c.id
-                JOIN school_levels sl ON c.level_id = sl.id
-                LEFT JOIN student_fee_obligations sfo
-                    ON sfo.student_id = s.id
-                    AND sfo.academic_year = YEAR(CURDATE())
-                WHERE sp.parent_id = :pid
-                AND ce.academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)
-                GROUP BY s.id
-                ORDER BY s.first_name
-            ", [':pid' => $this->parentId])->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Get parent info
-            $parentInfo = $db->query(
-                "SELECT first_name, last_name, email, phone_1 FROM parents WHERE id = :id",
-                [':id' => $this->parentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            return $this->success([
-                'parent'   => $parentInfo,
-                'children' => $children,
-            ]);
-        } catch (Exception $e) {
-            return $this->serverError('Failed to load dashboard: ' . $e->getMessage());
-        }
+        return $this->handleApiResponse($this->parent->getDashboard());
     }
+
+    /** GET /api/parent-portal/community */
+    public function getCommunity($id = null, $data = [], $segments = [])
+    { return $this->handleApiResponse($this->parent->getCommunity()); }
+
+    /** GET /api/parent-portal/uniform-catalog */
+    public function getUniformCatalog($id = null, $data = [], $segments = [])
+    { return $this->handleApiResponse(['success'=>true,'data'=>['products'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->list($data)]]); }
+
+    /** GET /api/parent-portal/uniform-cart */
+    public function getUniformCart($id = null, $data = [], $segments = [])
+    { $parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->cart($parentId)]); }
+
+    /** POST /api/parent-portal/uniform-cart */
+    public function postUniformCart($id = null, $data = [], $segments = [])
+    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->addToCart($parentId,(int)($data['product_id']??0),(int)($data['size_id']??0),(int)($data['quantity']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+
+    /** POST /api/parent-portal/uniform-wishlist */
+    public function postUniformWishlist($id = null, $data = [], $segments = [])
+    { try{$parentId=(int)(($_SERVER['parent_auth']['parent_id']??0));return $this->handleApiResponse(['success'=>true,'data'=>(new UniformCatalogService(Database::getInstance()->getConnection()))->wishlist($parentId,(int)($data['product_id']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+
+    /** POST /api/parent-portal/uniform-checkout-payment */
+    public function postUniformCheckoutPayment($id = null, $data = [], $segments = [])
+    { try{$data['parent_id']=(int)(($_SERVER['parent_auth']['parent_id']??0));$service=new \App\API\Services\payments\UniformPaymentService(Database::getInstance()->getConnection());return $this->handleApiResponse(['success'=>true,'data'=>$service->initiateAccumulated($data,(int)($data['parent_id']??0))]);}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     /**
      * GET /api/parent-portal/student-fees/{id}
      */
     public function getStudentFees($id = null, $data = [], $segments = [])
     {
-        if (!$this->parentId) return $this->unauthorized('Not authenticated');
-        if (!$id) return $this->badRequest('student_id required');
-        if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
-
-        try {
-            $db          = Database::getInstance();
-            $obligations = $db->query("
-                SELECT sfo.*, at.name AS term_name, at.term_number,
-                       ft.name AS fee_type_name, ft.code AS fee_type_code
-                FROM student_fee_obligations sfo
-                JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
-                JOIN fee_types ft ON fsd.fee_type_id = ft.id
-                JOIN academic_terms at ON sfo.term_id = at.id
-                WHERE sfo.student_id = :sid
-                ORDER BY sfo.academic_year DESC, at.term_number ASC
-            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Group by year → term
-            $grouped = [];
-            foreach ($obligations as $o) {
-                $yr  = $o['academic_year'];
-                $tid = $o['term_id'];
-                if (!isset($grouped[$yr])) $grouped[$yr] = ['year' => $yr, 'terms' => []];
-                if (!isset($grouped[$yr]['terms'][$tid])) {
-                    $grouped[$yr]['terms'][$tid] = [
-                        'term_id'      => $tid,
-                        'term_name'    => $o['term_name'],
-                        'term_number'  => $o['term_number'],
-                        'obligations'  => [],
-                        'total_due'    => 0,
-                        'total_paid'   => 0,
-                        'balance'      => 0,
-                    ];
-                }
-                $grouped[$yr]['terms'][$tid]['obligations'][] = $o;
-                $grouped[$yr]['terms'][$tid]['total_due']  += $o['amount_due'];
-                $grouped[$yr]['terms'][$tid]['total_paid'] += $o['amount_paid'];
-                $grouped[$yr]['terms'][$tid]['balance']    += $o['balance'];
-            }
-
-            // Re-index
-            $result = [];
-            foreach ($grouped as $yData) {
-                $yData['terms'] = array_values($yData['terms']);
-                $result[] = $yData;
-            }
-
-            return $this->success(['academic_years' => $result]);
-        } catch (Exception $e) {
-            return $this->serverError('Failed to load fees');
+        if (!$id) {
+            return $this->badRequest('student_id required');
         }
+        return $this->handleApiResponse($this->parent->getStudentFees((int)$id));
     }
 
     /**
@@ -340,88 +130,21 @@ class ParentPortalController extends BaseController
      */
     public function getStudentPaymentHistory($id = null, $data = [], $segments = [])
     {
-        if (!$this->parentId) return $this->unauthorized('Not authenticated');
-        if (!$id) return $this->badRequest('student_id required');
-        if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
-
-        try {
-            $db = Database::getInstance();
-            $rows = $db->query("
-                SELECT pt.*, at.name AS term_name, at.term_number
-                FROM payment_transactions pt
-                LEFT JOIN academic_terms at ON pt.term_id = at.id
-                WHERE pt.student_id = :sid AND pt.status = 'confirmed'
-                ORDER BY pt.payment_date DESC
-                LIMIT 100
-            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
-
-            return $this->success($rows);
-        } catch (Exception $e) {
-            return $this->serverError('Failed to load payment history');
+        if (!$id) {
+            return $this->badRequest('student_id required');
         }
+        return $this->handleApiResponse($this->parent->getStudentPaymentHistory((int)$id));
     }
 
     /**
      * GET /api/parent-portal/student-statement/{id}
-     * Returns fee statement data for printing
      */
     public function getStudentStatement($id = null, $data = [], $segments = [])
     {
-        if (!$this->parentId) return $this->unauthorized('Not authenticated');
-        if (!$id) return $this->badRequest('student_id required');
-        if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
-
-        try {
-            $db = Database::getInstance();
-
-            // Get student info
-            $student = $db->query(
-                "SELECT s.*, c.name AS class_name
-                 FROM students s
-                 LEFT JOIN class_enrollments ce ON ce.student_id = s.id
-                 LEFT JOIN classes c ON ce.class_id = c.id
-                 WHERE s.id = :id
-                 ORDER BY ce.academic_year_id DESC LIMIT 1",
-                [':id' => $id]
-            )->fetch(\PDO::FETCH_ASSOC);
-
-            // Reuse getStudentFees — returns a BaseController response array
-            $feesResp = $this->getStudentFees($id, $data, $segments);
-            // Extract the academic_years data from the response array
-            $feesData = $feesResp['data']['academic_years'] ?? [];
-
-            // Get payments
-            $payments = $db->query(
-                "SELECT pt.*, at.name AS term_name
-                 FROM payment_transactions pt
-                 LEFT JOIN academic_terms at ON pt.term_id = at.id
-                 WHERE pt.student_id = :sid AND pt.status = 'confirmed'
-                 ORDER BY pt.payment_date DESC",
-                [':sid' => $id]
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Log download (non-fatal if table missing)
-            try {
-                Database::getInstance()->query(
-                    "INSERT INTO parent_statement_downloads (parent_id, student_id, downloaded_at, ip_address)
-                     VALUES (:pid, :sid, NOW(), :ip)",
-                    [
-                        ':pid' => $this->parentId,
-                        ':sid' => $id,
-                        ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-                    ]
-                );
-            } catch (Exception $e) {}
-
-            return $this->success([
-                'student'      => $student,
-                'fees'         => $feesData,
-                'payments'     => $payments,
-                'generated_at' => date('Y-m-d H:i:s'),
-            ]);
-        } catch (Exception $e) {
-            return $this->serverError('Failed to generate statement');
+        if (!$id) {
+            return $this->badRequest('student_id required');
         }
+        return $this->handleApiResponse($this->parent->getStudentStatement((int)$id));
     }
 
     /**
@@ -429,63 +152,100 @@ class ParentPortalController extends BaseController
      */
     public function getFeeBalance($id = null, $data = [], $segments = [])
     {
-        if (!$this->parentId) return $this->unauthorized('Not authenticated');
-        if (!$id) return $this->badRequest('student_id required');
-        if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
-
-        try {
-            $db   = Database::getInstance();
-            $rows = $db->query("
-                SELECT academic_year, term_id,
-                       SUM(amount_due) AS total_due,
-                       SUM(amount_paid) AS total_paid,
-                       SUM(balance) AS balance,
-                       MAX(payment_status) AS payment_status
-                FROM student_fee_obligations
-                WHERE student_id = :sid
-                GROUP BY academic_year, term_id
-                ORDER BY academic_year DESC, term_id ASC
-            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
-
-            $totalBalance = array_sum(array_column($rows, 'balance'));
-            return $this->success(['per_term' => $rows, 'total_balance' => $totalBalance]);
-        } catch (Exception $e) {
-            return $this->serverError('Failed to load balance');
+        if (!$id) {
+            return $this->badRequest('student_id required');
         }
+        return $this->handleApiResponse($this->parent->getFeeBalance((int)$id));
     }
 
-    // ============================================================
-    // HELPERS
-    // ============================================================
-
-    private function createSession(int $parentId): array
+    /**
+     * GET /api/parent-portal/student-attendance/{id}
+     */
+    public function getStudentAttendance($id = null, $data = [], $segments = [])
     {
-        $token   = bin2hex(random_bytes(32));
-        $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
-        Database::getInstance()->query("
-            INSERT INTO parent_portal_sessions
-                (parent_id, session_token, issued_at, expires_at, ip_address, user_agent)
-            VALUES (:pid, :tok, NOW(), :exp, :ip, :ua)
-        ", [
-            ':pid' => $parentId,
-            ':tok' => $token,
-            ':exp' => $expires,
-            ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-            ':ua'  => substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255),
-        ]);
-        return ['token' => $token, 'expires_at' => $expires];
+        if (!$id) {
+            return $this->badRequest('student_id required');
+        }
+        return $this->handleApiResponse($this->parent->getStudentAttendance((int)$id));
     }
 
-    private function verifyAccess(int $studentId): bool
+    /**
+     * GET /api/parent-portal/student-performance/{id}
+     */
+    public function getStudentPerformance($id = null, $data = [], $segments = [])
     {
-        try {
-            $row = Database::getInstance()->query(
-                "SELECT id FROM student_parents WHERE parent_id = :pid AND student_id = :sid LIMIT 1",
-                [':pid' => $this->parentId, ':sid' => $studentId]
-            )->fetch(\PDO::FETCH_ASSOC);
-            return !empty($row);
-        } catch (Exception $e) {
-            return false;
+        if (!$id) {
+            return $this->badRequest('student_id required');
         }
+        return $this->handleApiResponse($this->parent->getStudentPerformance((int)$id));
+    }
+
+    /**
+     * GET /api/parent-portal/student-report-card/{id}
+     */
+    public function getStudentReportCard($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('student_id required');
+        }
+        return $this->handleApiResponse($this->parent->getStudentReportCard((int)$id));
+    }
+
+    /**
+     * GET /api/parent-portal/messages/{studentId?}
+     */
+    public function getMessages($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ? (int)$id : null;
+        return $this->handleApiResponse($this->parent->getMessages($studentId));
+    }
+
+    /**
+     * POST /api/parent-portal/send-message
+     * Body: {student_id, subject, message}
+     */
+    public function postSendMessage($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->postSendMessage($data));
+    }
+
+    /**
+     * GET /api/parent-portal/portfolio/{studentId}
+     */
+    public function getPortfolio($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('student_id required');
+        }
+        return $this->handleApiResponse($this->parent->getPortfolio((int)$id));
+    }
+
+    /**
+     * GET /api/parent-portal/grading-scale
+     */
+    public function getGradingScale($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->getGradingScale());
+    }
+
+    /**
+     * POST /api/parent-portal/initiate-mpesa-payment
+     * Body: {student_id, phone?, amount?}
+     */
+    public function postInitiateMpesaPayment($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->parent->postInitiateMpesaPayment($data));
+    }
+
+    /**
+     * GET /api/parent-portal/mpesa-status/{checkoutRequestId}
+     */
+    public function getMpesaStatus($id = null, $data = [], $segments = [])
+    {
+        $checkoutId = $id ?? ($data['checkout_request_id'] ?? '');
+        if (!$checkoutId) {
+            return $this->badRequest('checkout_request_id required');
+        }
+        return $this->handleApiResponse($this->parent->getMpesaStatus((string)$checkoutId));
     }
 }

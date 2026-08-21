@@ -2,6 +2,7 @@
 // Main authenticated application shell.
 
 require_once __DIR__ . '/config/DashboardRouter.php';
+require_once __DIR__ . '/config/asset_helpers.php';
 
 $appBase = rtrim(
     str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')),
@@ -14,31 +15,20 @@ if ($appBase === '.') {
 
 $route = trim((string)($_GET['route'] ?? '')) ?: 'loading';
 
-function asset_version(string $relativePath): string
-{
-    $path = __DIR__ . '/' . ltrim($relativePath, '/');
-
-    return is_file($path)
-        ? (string)filemtime($path)
-        : '1';
+// Define the filesystem root so page files under pages/ can resolve
+// Absolute paths used by page asset helpers for cache-busting version parameters.
+if (!defined('APP_BASE_PATH')) {
+    define('APP_BASE_PATH', __DIR__);
 }
 
-function asset_script(string $appBase, string $path): void
-{
-    $src = htmlspecialchars(
-        $appBase . '/' . ltrim($path, '/'),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-
-    $version = htmlspecialchars(
-        asset_version($path),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-
-    echo '<script src="' . $src . '?v=' . $version . '"></script>' .
-        PHP_EOL;
+if (!headers_sent()) {
+    // The authenticated shell contains asset version parameters generated
+    // from file modification times. Always revalidate the HTML so a reload
+    // can receive the latest asset versions without manual cache clearing.
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://code.jquery.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://placehold.co https://images.unsplash.com; connect-src 'self' http://localhost:* ws://localhost:*; frame-ancestors 'none'; form-action 'self'");
 }
 ?>
 <!doctype html>
@@ -64,16 +54,16 @@ function asset_script(string $appBase, string $path): void
     >
 
     <link
-        href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css"
+        href="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/css/bootstrap.min.css?v=<?= asset_version('public/vendor/bootstrap/css/bootstrap.min.css') ?>"
         rel="stylesheet"
     >
     <link
-        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css"
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
         rel="stylesheet"
         referrerpolicy="no-referrer"
     >
     <link
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
         rel="stylesheet"
         referrerpolicy="no-referrer"
     >
@@ -81,6 +71,10 @@ function asset_script(string $appBase, string $path): void
     <link
         rel="stylesheet"
         href="<?= htmlspecialchars($appBase) ?>/css/school-theme.css?v=<?= asset_version('css/school-theme.css') ?>"
+    >
+    <link
+        rel="stylesheet"
+        href="<?= htmlspecialchars($appBase) ?>/css/app-common.css?v=<?= asset_version('css/app-common.css') ?>"
     >
     <link
         rel="stylesheet"
@@ -174,7 +168,7 @@ function asset_script(string $appBase, string $path): void
         referrerpolicy="no-referrer"
     ></script>
     <script
-        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js"
+        src="<?= htmlspecialchars($appBase) ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js?v=<?= asset_version('public/vendor/bootstrap/js/bootstrap.bundle.min.js') ?>"
     ></script>
     <script
         src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"
@@ -184,6 +178,7 @@ function asset_script(string $appBase, string $path): void
 <?php
 $files = [
     'js/api.js',
+    'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
     'js/core/connectivity_manager.js',
@@ -219,5 +214,66 @@ foreach ($files as $file) {
     asset_script($appBase, $file);
 }
 ?>
+<script>
+    (async function () {
+        const route = window.REQUESTED_ROUTE;
+
+        if (!route || route === 'loading') {
+            try {
+                if (window.AuthContext?.ready) {
+                    await window.AuthContext.ready();
+                } else if (window.KingswayBootstrap?.initialize) {
+                    await window.KingswayBootstrap.initialize();
+                }
+            } catch (e) {
+                console.warn('Auth init failed during loading redirect:', e);
+            }
+            const dashboardInfo = window.AuthContext?.getDashboardInfo?.();
+            if (dashboardInfo && dashboardInfo.key) {
+                window.location.replace(
+                    (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key
+                );
+            } else {
+                window.location.replace(
+                    (window.APP_BASE || '') + '/home.php?route=profile'
+                );
+            }
+            return;
+        }
+
+        try {
+            // Wait for auth to be fully initialized before checking route access.
+            // Without this, the check runs before AuthContext.initialize() completes
+            // so isAuthenticated() returns false and every route is denied.
+            if (window.AuthContext?.ready) {
+                await window.AuthContext.ready();
+            } else if (window.KingswayBootstrap?.initialize) {
+                await window.KingswayBootstrap.initialize();
+            }
+
+            const auth = await window.AppRouteAccess?.authorizeRouteAccess?.(route);
+            if (auth && !auth.authorized) {
+                const seg = document.getElementById('main-content-segment');
+                if (seg) {
+                    seg.innerHTML =
+                        '<div class="alert alert-danger border-0 shadow-sm mt-3">' +
+                        '<i class="bi bi-shield-lock me-2"></i>' +
+                        '<strong>Access denied.</strong> ' +
+                        'You do not have permission to view this page.' +
+                        '</div>';
+                }
+                window.showNotification?.(
+                    'You are not allowed to open that page.',
+                    'warning'
+                );
+                setTimeout(function () {
+                    window.AppRouteAccess.redirectToAllowedRoute?.(route);
+                }, 2000);
+            }
+        } catch (e) {
+            console.warn('Route authorization check failed:', e);
+        }
+    })();
+</script>
 </body>
 </html>

@@ -16,8 +16,8 @@ const CateringBoardingController = {
   ui: {},
 
   async init() {
-    console.log("CateringBoardingController: Initializing...");
 
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -29,13 +29,9 @@ const CateringBoardingController = {
     // Set default date to today
     this.ui.dateFilter.value = this.state.selectedDate;
 
-    console.log("CateringBoardingController: Loading metadata...");
     await this.loadMeta();
-    console.log("CateringBoardingController: Loading summary...");
     await this.loadSummary();
-    console.log("CateringBoardingController: Loading students...");
     await this.loadStudents();
-    console.log("CateringBoardingController: Initialization complete");
   },
 
   cacheDom() {
@@ -239,7 +235,7 @@ const CateringBoardingController = {
 
     this.ui.breakdownByClass.innerHTML = breakdown.map(b => `
       <div class="d-flex justify-content-between mb-1">
-        <span>${this.escape(b.class_name || '-')}</span>
+        <span>${this.escapeHtml(b.class_name || '-')}</span>
         <span><strong>${b.count || 0}</strong></span>
       </div>
     `).join('');
@@ -253,7 +249,7 @@ const CateringBoardingController = {
 
     this.ui.breakdownByDiet.innerHTML = breakdown.map(b => `
       <div class="d-flex justify-content-between mb-1">
-        <span>${this.escape(b.diet_type || '-')}</span>
+        <span>${this.escapeHtml(b.diet_type || '-')}</span>
         <span><strong>${b.count || 0}</strong></span>
       </div>
     `).join('');
@@ -274,19 +270,19 @@ const CateringBoardingController = {
       .map((s) => {
         return `
           <tr>
-            <td>${this.escape(s.admission_no || "-")}</td>
-            <td><strong>${this.escape(s.full_name || "-")}</strong></td>
-            <td>${this.escape(s.class_name || "-")}</td>
-            <td>${this.escape(s.stream_name || "-")}</td>
-            <td>${this.escape(s.gender || "-")}</td>
-            <td>${this.escape(s.dormitory_name || "-")}</td>
-            <td><span class="badge bg-${s.boarding_status === 'active' ? 'success' : 'secondary'}">${this.escape(s.boarding_status || "-")}</span></td>
+            <td>${this.escapeHtml(s.admission_no || "-")}</td>
+            <td><strong>${this.escapeHtml(s.full_name || "-")}</strong></td>
+            <td>${this.escapeHtml(s.class_name || "-")}</td>
+            <td>${this.escapeHtml(s.stream_name || "-")}</td>
+            <td>${this.escapeHtml(s.gender || "-")}</td>
+            <td>${this.escapeHtml(s.dormitory_name || "-")}</td>
+            <td><span class="badge bg-${s.boarding_status === 'active' ? 'success' : 'secondary'}">${this.escapeHtml(s.boarding_status || "-")}</span></td>
             <td>${s.breakfast ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
             <td>${s.lunch ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
             <td>${s.supper ? '<i class="bi bi-check-circle text-success"></i>' : '<i class="bi bi-x-circle text-muted"></i>'}</td>
-            <td>${this.escape(s.diet_type || "normal")}</td>
+            <td>${this.escapeHtml(s.diet_type || "normal")}</td>
             <td>${s.has_food_restriction ? '<i class="bi bi-exclamation-triangle text-danger"></i>' : ''}</td>
-            <td><span class="badge bg-info">${this.escape(s.meal_status_today || "eating")}</span></td>
+            <td><span class="badge bg-info">${this.escapeHtml(s.meal_status_today || "eating")}</span></td>
             <td>
               <button class="btn btn-sm btn-outline-warning" onclick="CateringBoardingController.viewMealProfile(${s.student_id})">
                 <i class="bi bi-eye"></i> View
@@ -361,35 +357,35 @@ const CateringBoardingController = {
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Student Profile</h5>
-          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
-          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
-          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
-          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
-          <p><strong>Gender:</strong> ${this.escape(student.gender || "-")}</p>
+          <p><strong>Name:</strong> ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escapeHtml(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escapeHtml(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escapeHtml(data.stream_name || "-")}</p>
+          <p><strong>Gender:</strong> ${this.escapeHtml(student.gender || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Boarding Information</h5>
-          <p><strong>Dormitory:</strong> ${this.escape(data.dormitory_name || "-")}</p>
-          <p><strong>Boarding Status:</strong> ${this.escape(boarding.status || "-")}</p>
+          <p><strong>Dormitory:</strong> ${this.escapeHtml(data.dormitory_name || "-")}</p>
+          <p><strong>Boarding Status:</strong> ${this.escapeHtml(boarding.status || "-")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Diet Information</h5>
-          <p><strong>Diet Type:</strong> ${this.escape(diet.diet_type || "normal")}</p>
-          <p><strong>Food Restrictions:</strong> ${this.escape(diet.food_restrictions || "None")}</p>
-          <p><strong>Allergy Notes:</strong> ${this.escape(diet.allergy_notes || "None")}</p>
-          <p><strong>Medical Food Notes:</strong> ${this.escape(diet.medical_food_notes || "None")}</p>
-          <p><strong>Religious Food Notes:</strong> ${this.escape(diet.religious_food_notes || "None")}</p>
+          <p><strong>Diet Type:</strong> ${this.escapeHtml(diet.diet_type || "normal")}</p>
+          <p><strong>Food Restrictions:</strong> ${this.escapeHtml(diet.food_restrictions || "None")}</p>
+          <p><strong>Allergy Notes:</strong> ${this.escapeHtml(diet.allergy_notes || "None")}</p>
+          <p><strong>Medical Food Notes:</strong> ${this.escapeHtml(diet.medical_food_notes || "None")}</p>
+          <p><strong>Religious Food Notes:</strong> ${this.escapeHtml(diet.religious_food_notes || "None")}</p>
         </div>
       </div>
       <div class="card mb-3">
         <div class="card-body">
           <h5 class="card-title">Today's Meal Status</h5>
-          <p><strong>Status:</strong> ${this.escape(todayStatus.status || "eating")}</p>
-          <p><strong>Notes:</strong> ${this.escape(todayStatus.notes || "None")}</p>
+          <p><strong>Status:</strong> ${this.escapeHtml(todayStatus.status || "eating")}</p>
+          <p><strong>Notes:</strong> ${this.escapeHtml(todayStatus.notes || "None")}</p>
         </div>
       </div>
       <div class="card">
@@ -407,9 +403,9 @@ const CateringBoardingController = {
             <tbody>
               ${mealHistory.slice(0, 5).map(h => `
                 <tr>
-                  <td>${this.escape(h.meal_date || "-")}</td>
-                  <td>${this.escape(h.meal_type || "-")}</td>
-                  <td>${this.escape(h.status || "-")}</td>
+                  <td>${this.escapeHtml(h.meal_date || "-")}</td>
+                  <td>${this.escapeHtml(h.meal_type || "-")}</td>
+                  <td>${this.escapeHtml(h.status || "-")}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -506,10 +502,10 @@ const CateringBoardingController = {
         <tbody>
           ${items.map(item => `
             <tr>
-              <td>${this.escape(item.item_name || "-")}</td>
+              <td>${this.escapeHtml(item.item_name || "-")}</td>
               <td>${item.available_quantity || 0}</td>
               <td>${item.required_quantity || 0}</td>
-              <td>${this.escape(item.unit || "-")}</td>
+              <td>${this.escapeHtml(item.unit || "-")}</td>
               <td class="${item.shortage > 0 ? 'text-danger' : 'text-success'}">${item.shortage || 0}</td>
             </tr>
           `).join('')}
@@ -578,7 +574,7 @@ const CateringBoardingController = {
 
   fillSelect(select, items, placeholder) {
     if (!select) return;
-    select.innerHTML = `<option value="">${placeholder}</option>`;
+    select.innerHTML = `<option value="">${this.escapeHtml(placeholder)}</option>`;
     (items || []).forEach((item) => {
       const option = document.createElement("option");
       option.value = item.id ?? item.value ?? "";
@@ -607,7 +603,7 @@ const CateringBoardingController = {
     return response;
   },
 
-  escape(value) {
+  escapeHtml(value) {
     return String(value ?? "").replace(
       /[&<>"']/g,
       (char) =>
@@ -629,7 +625,7 @@ const CateringBoardingController = {
     };
   },
 
-  notify(message, type = "info") {
+  notify: async function (message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
       return;
@@ -640,7 +636,7 @@ const CateringBoardingController = {
       return;
     }
 
-    alert(message);
+    await window.infoDialog('Notice', message);
   },
 };
 

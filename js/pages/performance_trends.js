@@ -12,6 +12,7 @@ const PerformanceTrendsController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -41,23 +42,17 @@ const PerformanceTrendsController = {
         window.API.academic.listLearningAreas(),
       ]);
 
-      if (yearsRes?.success) {
-        this.state.years = yearsRes.data || [];
-        this.populateSelect("#academicYear", this.state.years, "id", "name");
-      }
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-        this.populateSelect("#classFilter", this.state.classes, "id", "name");
-      }
-      if (subjectsRes?.success) {
-        this.state.subjects = subjectsRes.data || [];
-        this.populateSelect(
-          "#subjectFilter",
-          this.state.subjects,
-          "id",
-          "name",
-        );
-      }
+      this.state.years = yearsRes || [];
+      this.populateSelect("#academicYear", this.state.years, "id", "name");
+      this.state.classes = classesRes || [];
+      this.populateSelect("#classFilter", this.state.classes, "id", "name");
+      this.state.subjects = subjectsRes || [];
+      this.populateSelect(
+        "#subjectFilter",
+        this.state.subjects,
+        "id",
+        "name",
+      );
 
       // Auto-analyze with defaults
       this.analyze();
@@ -77,15 +72,15 @@ const PerformanceTrendsController = {
       if (classId) params.class_id = classId;
       if (subjectId) params.subject_id = subjectId;
 
-      const res =
+      const data =
         (await window.API.academic.analyzeResults(params).catch(() => null)) ||
         (await window.API.academic.compileData(params).catch(() => null));
 
-      if (res?.success && res.data) {
-        this.renderTermPerformanceChart(res.data);
-        this.renderSubjectComparisonChart(res.data);
-        this.renderTopImproving(res.data);
-        this.renderNeedAttention(res.data);
+      if (data) {
+        this.renderTermPerformanceChart(data);
+        this.renderSubjectComparisonChart(data);
+        this.renderTopImproving(data);
+        this.renderNeedAttention(data);
       }
     } catch (error) {
       console.error("Error analyzing performance:", error);

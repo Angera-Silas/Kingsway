@@ -28,6 +28,8 @@ const FailedLoginAttemptsController = {
     loading: false,
     reloadQueued: false,
     searchTimer: null,
+    liveEnabled: false,
+    liveTimer: null,
   },
 
   elements: {},
@@ -116,6 +118,7 @@ const FailedLoginAttemptsController = {
       resetButton: document.getElementById(
         "resetFailedLoginAttemptFiltersBtn",
       ),
+      liveButton: document.getElementById("liveFailedLoginAttemptsBtn"),
       refreshButton: document.getElementById(
         "refreshFailedLoginAttemptsBtn",
       ),
@@ -172,6 +175,20 @@ const FailedLoginAttemptsController = {
     this.elements.refreshButton.addEventListener("click", () => {
       void this.loadAttempts();
     });
+    this.elements.liveButton.addEventListener("click", () => {
+      this.toggleLive();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && this.state.liveEnabled) {
+        this.stopLive();
+      } else if (!document.hidden && this.state.liveEnabled) {
+        this.startLive();
+        void this.loadAttempts(true);
+      }
+    });
+    window.addEventListener("pagehide", () => {
+      this.stopLive();
+    });
     this.elements.resetButton.addEventListener("click", () => {
       this.resetFilters();
     });
@@ -193,7 +210,7 @@ const FailedLoginAttemptsController = {
     this.state.eventsBound = true;
   },
 
-  async loadAttempts() {
+  async loadAttempts(quiet = false) {
     if (this.state.loading) {
       this.state.reloadQueued = true;
       return;
@@ -206,11 +223,13 @@ const FailedLoginAttemptsController = {
     }
 
     this.state.loading = true;
-    this.elements.refreshButton.disabled = true;
-    this.elements.previousButton.disabled = true;
-    this.elements.nextButton.disabled = true;
-    this.showState("Loading failed login attempts...", "info");
-    this.showTableLoading();
+    if (!quiet) {
+      this.elements.refreshButton.disabled = true;
+      this.elements.previousButton.disabled = true;
+      this.elements.nextButton.disabled = true;
+      this.showState("Loading failed login attempts...", "info");
+      this.showTableLoading();
+    }
 
     try {
       const response = await window.API.system.getFailedLogins({
@@ -281,12 +300,14 @@ const FailedLoginAttemptsController = {
       );
     } finally {
       this.state.loading = false;
-      this.elements.refreshButton.disabled = false;
+      if (!quiet) {
+        this.elements.refreshButton.disabled = false;
+      }
       this.renderPagination();
 
       if (this.state.reloadQueued) {
         this.state.reloadQueued = false;
-        void this.loadAttempts();
+        void this.loadAttempts(quiet);
       }
     }
   },
@@ -308,6 +329,39 @@ const FailedLoginAttemptsController = {
     this.elements.dateTo.value = "";
     this.state.pagination.page = 1;
     void this.loadAttempts();
+  },
+
+  toggleLive() {
+    this.state.liveEnabled = !this.state.liveEnabled;
+    const button = this.elements.liveButton;
+    if (this.state.liveEnabled) {
+      button.classList.add("btn-success");
+      button.classList.remove("btn-outline-secondary");
+      button.innerHTML =
+        '<span class="spinner-grow spinner-grow-sm me-1" aria-hidden="true"></span>Live';
+      this.startLive();
+      void this.loadAttempts(true);
+    } else {
+      button.classList.remove("btn-success");
+      button.classList.add("btn-outline-secondary");
+      button.innerHTML = '<i class="bi bi-broadcast me-1"></i> Live';
+      this.stopLive();
+    }
+  },
+
+  startLive() {
+    this.stopLive();
+    this.state.liveTimer = window.setInterval(() => {
+      if (document.hidden) return;
+      void this.loadAttempts(true);
+    }, 5000);
+  },
+
+  stopLive() {
+    if (this.state.liveTimer) {
+      window.clearInterval(this.state.liveTimer);
+      this.state.liveTimer = null;
+    }
   },
 
   validateDateRange() {

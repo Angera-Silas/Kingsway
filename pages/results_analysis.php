@@ -182,14 +182,14 @@
         <table class="table table-hover table-bordered table-academic" id="resultsTable">
             <thead>
                 <tr>
-                    <th>#</th>
-                    <th>Subject</th>
-                    <th>Teacher</th>
-                    <th>Mean Score</th>
-                    <th>Highest</th>
-                    <th>Lowest</th>
-                    <th>Pass Rate</th>
-                    <th>Grade Distribution</th>
+                    <th scope="col">#</th>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Teacher</th>
+                    <th scope="col">Mean Score</th>
+                    <th scope="col">Highest</th>
+                    <th scope="col">Lowest</th>
+                    <th scope="col">Pass Rate</th>
+                    <th scope="col">Grade Distribution</th>
                 </tr>
             </thead>
             <tbody id="resultsTableBody">

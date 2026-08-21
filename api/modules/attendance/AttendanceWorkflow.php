@@ -55,20 +55,25 @@ class AttendanceWorkflow extends WorkflowHandler
         return true;
     }
 
-    // Stage 3: Record attendance (call procedure, triggers fire)
+    // Stage 3: Record attendance (direct INSERT — sp_bulk_mark_student_attendance is deprecated)
     public function recordAttendance($instanceId)
     {
         $instance = $this->getWorkflowInstance($instanceId);
         if (!$instance) return false;
         $data = $instance['data'];
-        $attendanceJson = json_encode($data['attendance_records']);
-        // Use stored procedure for bulk insert
-        $this->callProcedure('sp_bulk_mark_student_attendance', [
-            $data['class_id'],
-            $data['date'],
-            $attendanceJson,
-            $this->user_id
-        ], false);
+        foreach ($data['attendance_records'] as $record) {
+            $sql = "INSERT INTO student_attendance (student_academic_enrollment_id, date, status, marked_by, created_at)
+                    SELECT sae.id, ?, ?, ?, NOW()
+                    FROM student_academic_enrollments sae
+                    WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                    LIMIT 1";
+            $this->db->prepare($sql)->execute([
+                $data['date'],
+                $record['status'],
+                $this->user_id,
+                $record['student_id']
+            ]);
+        }
         $this->advanceStage($instanceId, 'attendance_recording', 'recorded', $data);
         return true;
     }

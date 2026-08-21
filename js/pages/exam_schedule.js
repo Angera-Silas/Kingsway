@@ -41,19 +41,19 @@ const ExamScheduleController = (() => {
       .replace(/>/g, "&gt;");
   }
 
-  function showSuccess(message) {
+  async function showSuccess(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      await window.infoDialog('Notice', message);
     }
   }
 
-  function showError(message) {
+  async function showError(message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      await window.infoDialog('Notice', "Error: " + message);
     }
   }
 
@@ -101,7 +101,7 @@ const ExamScheduleController = (() => {
     }
 
     try {
-      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 5 min offline fallback (freshness wins).
       const subjectResp = await DataStore.fetchPage('subjects', {
         endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
         ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
@@ -406,7 +406,7 @@ const ExamScheduleController = (() => {
   }
 
   async function deleteExam(examId) {
-    if (!confirm("Are you sure you want to delete this exam schedule?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this exam schedule?", { confirmText: 'Delete', danger: true }))) return;
 
     try {
       await window.API.apiCall(`/academic/exam-schedule/${examId}`, "DELETE");
@@ -550,6 +550,7 @@ const ExamScheduleController = (() => {
   // ---- Initialization ----
 
   async function init() {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -559,7 +560,6 @@ const ExamScheduleController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in exam_schedule:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload exams when academic year or term changes
           loadData();

@@ -65,14 +65,14 @@
                             <table class="table table-hover" id="scheduleTable">
                                 <thead>
                                     <tr>
-                                        <th>Exam Name</th>
-                                        <th>Subject</th>
-                                        <th>Class</th>
-                                        <th>Type</th>
-                                        <th>Date</th>
-                                        <th>Time</th>
-                                        <th>Duration</th>
-                                        <th>Status</th>
+                                        <th scope="col">Exam Name</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Time</th>
+                                        <th scope="col">Duration</th>
+                                        <th scope="col">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="scheduleTableBody">
@@ -91,4 +91,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_exam_schedule.js"></script>
+<?php asset_script($appBase, 'js/pages/subject_exam_schedule.js'); ?>

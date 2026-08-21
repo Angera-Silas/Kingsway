@@ -29,7 +29,7 @@ class PurchaseOrdersManager extends BaseAPI
             $bindings = [];
 
             if (!empty($search)) {
-                $where[] = "(po.po_number LIKE ? OR s.supplier_name LIKE ?)";
+                $where[] = "(po.order_number LIKE ? OR s.supplier_name LIKE ?)";
                 $searchTerm = "%$search%";
                 $bindings = array_merge($bindings, [$searchTerm, $searchTerm]);
             }
@@ -57,10 +57,10 @@ class PurchaseOrdersManager extends BaseAPI
                     s.supplier_name,
                     s.contact_person,
                     s.email as supplier_email,
-                    COUNT(DISTINCT poi.id) as item_count
+                    COUNT(DISTINCT t.id) as item_count
                 FROM purchase_orders po
                 LEFT JOIN suppliers s ON po.supplier_id = s.id
-                LEFT JOIN purchase_order_items poi ON po.id = poi.po_id
+                LEFT JOIN inventory_transactions t ON t.reference_type = 'purchase' AND t.reference_id = po.id
                 $whereClause
                 GROUP BY po.id
                 ORDER BY po.order_date DESC
@@ -107,15 +107,19 @@ class PurchaseOrdersManager extends BaseAPI
                 return formatResponse(false, null, 'Purchase order not found', 404);
             }
 
-            // Get PO items
+            // Get PO items (recorded as purchase stock movements against the PO)
             $stmt = $this->db->prepare("
                 SELECT 
-                    poi.*,
+                    t.id,
+                    t.item_id,
+                    t.quantity,
+                    t.unit_cost,
+                    t.notes,
                     i.item_name,
-                    i.item_code
-                FROM purchase_order_items poi
-                LEFT JOIN inventory_items i ON poi.item_id = i.id
-                WHERE poi.po_id = ?
+                    i.code AS item_code
+                FROM inventory_transactions t
+                LEFT JOIN inventory_items i ON t.item_id = i.id
+                WHERE t.reference_type = 'purchase' AND t.reference_id = ?
             ");
             $stmt->execute([$id]);
             $order['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -127,10 +131,57 @@ class PurchaseOrdersManager extends BaseAPI
         }
     }
 
+    /**
+     * Create a new purchase order for a supplier.
+     */
+    public function createPurchaseOrder($data, $userId = null)
+    {
+        try {
+            $supplierId = $data['supplier_id'] ?? $data['vendor_id'] ?? null;
+            $amount     = $data['total_amount'] ?? $data['amount'] ?? null;
+
+            if (!$supplierId || !$amount) {
+                return formatResponse(false, null, 'Missing supplier or amount');
+            }
+
+            $number = $this->nextOrderNumber();
+            $sql = "
+                INSERT INTO purchase_orders (
+                    supplier_id, order_number, order_date, total_amount,
+                    payment_terms, remarks, status, created_by, created_at
+                ) VALUES (?, ?, NOW(), ?, ?, ?, 'draft', ?, NOW())
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $supplierId,
+                $number,
+                $amount,
+                $data['payment_terms'] ?? 'Net 30',
+                $data['remarks'] ?? $data['description'] ?? null,
+                $userId
+            ]);
+
+            $poId = $this->db->lastInsertId();
+            $this->logAction('create', $poId, "Created purchase order {$number} for supplier {$supplierId}");
+
+            return formatResponse(true, ['id' => $poId, 'order_number' => $number], 'Purchase order created successfully');
+
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    private function nextOrderNumber()
+    {
+        $stmt = $this->db->query("SELECT MAX(CAST(SUBSTRING(order_number, 4) AS UNSIGNED)) FROM purchase_orders");
+        $max = $stmt ? (int) $stmt->fetchColumn() : 0;
+        return 'PO-' . str_pad((string) ($max + 1), 6, '0', STR_PAD_LEFT);
+    }
+
     public function updatePOStatus($id, $status, $remarks = null)
     {
         try {
-            $validStatuses = ['draft', 'sent', 'confirmed', 'partially_received', 'received', 'cancelled'];
+            $validStatuses = ['draft', 'pending', 'approved', 'ordered', 'received', 'cancelled'];
             if (!in_array($status, $validStatuses)) {
                 return formatResponse(false, null, 'Invalid status');
             }

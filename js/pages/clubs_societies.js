@@ -10,6 +10,7 @@ const ClubsSocietiesController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -37,13 +38,12 @@ const ClubsSocietiesController = {
         window.API.activities.getSummary(),
       ]);
 
-      if (activitiesRes?.success) this.state.clubs = activitiesRes.data || [];
-      if (categoriesRes?.success)
-        this.state.categories = categoriesRes.data || [];
+      this.state.clubs = activitiesRes || [];
+      this.state.categories = categoriesRes || [];
 
       // Try to get clubs from all activities if club filter didn't work
-      if (this.state.clubs.length === 0 && activitiesRes?.data) {
-        this.state.clubs = (activitiesRes.data || []).filter(
+      if (this.state.clubs.length === 0 && activitiesRes) {
+        this.state.clubs = (activitiesRes || []).filter(
           (a) =>
             a.type === "club" ||
             a.category === "club" ||
@@ -51,7 +51,7 @@ const ClubsSocietiesController = {
         );
       }
 
-      this.updateStats(summaryRes?.data);
+      this.updateStats(summaryRes);
       this.renderClubsGrid();
     } catch (error) {
       console.error("Error loading clubs:", error);
@@ -135,9 +135,8 @@ const ClubsSocietiesController = {
 
   async viewClub(id) {
     try {
-      const res = await window.API.activities.get(id);
-      if (res?.success && res.data) {
-        const club = res.data;
+      const club = await window.API.activities.get(id);
+      if (club) {
         const html = `
                     <div class="row">
                         <div class="col-md-6">
@@ -161,12 +160,10 @@ const ClubsSocietiesController = {
 
   async viewMembers(activityId) {
     try {
-      const res = await window.API.activities.listParticipants({
+      const members = await window.API.activities.listParticipants({
         activity_id: activityId,
-      });
-      if (res?.success) {
-        const members = res.data || [];
-        let html = "";
+      }) || [];
+      let html = "";
         if (members.length === 0) {
           html = '<p class="text-muted">No members registered</p>';
         } else {
@@ -187,7 +184,6 @@ const ClubsSocietiesController = {
                         </tbody></table></div>`;
         }
         this.showModal("Club Members", html);
-      }
     } catch (error) {
       console.error("Error loading members:", error);
     }
@@ -203,24 +199,20 @@ const ClubsSocietiesController = {
 
     try {
       const editId = form.dataset.editId;
-      const res = editId
-        ? await window.API.activities.update(editId, data)
-        : await window.API.activities.create(data);
+      await (editId
+        ? window.API.activities.update(editId, data)
+        : window.API.activities.create(data));
 
-      if (res?.success) {
-        this.showNotification(
-          editId ? "Club updated" : "Club created",
-          "success",
-        );
-        bootstrap.Modal.getInstance(
-          document.getElementById("addClubModal"),
-        )?.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadData();
-      } else {
-        this.showNotification(res?.message || "Failed to save club", "error");
-      }
+      this.showNotification(
+        editId ? "Club updated" : "Club created",
+        "success",
+      );
+      bootstrap.Modal.getInstance(
+        document.getElementById("addClubModal"),
+      )?.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadData();
     } catch (error) {
       console.error("Error saving club:", error);
       this.showNotification("Error saving club", "error");
@@ -229,12 +221,12 @@ const ClubsSocietiesController = {
 
   async editClub(id) {
     try {
-      const res = await window.API.activities.get(id);
-      if (res?.success && res.data) {
+      const item = await window.API.activities.get(id);
+      if (item) {
         const form = document.getElementById("addClubForm");
         if (form) {
           form.dataset.editId = id;
-          Object.entries(res.data).forEach(([k, v]) => {
+          Object.entries(item).forEach(([k, v]) => {
             const input = form.querySelector(`[name="${k}"]`);
             if (input && v) input.value = v;
           });
@@ -276,12 +268,7 @@ const ClubsSocietiesController = {
     this.showNotification(msg, "error");
   },
   showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
+    window.showNotification(msg, type);
   },
   showModal(title, bodyHtml) {
     let modal = document.getElementById("dynamicModal");

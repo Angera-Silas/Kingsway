@@ -38,7 +38,15 @@ $cases = [
 // a stage is can_act for a role if a wsp row exists with that stage, role, perm
 // and can_process=1 OR can_approve=1.
 function stageCanActForRole(string $mysql, string $stage, string $perm, int $role): bool {
-    $out = shell_exec("$mysql -e \"SELECT COUNT(*) FROM workflow_stage_permissions wsp JOIN workflow_stages ws ON ws.id=wsp.workflow_stage_id JOIN permissions p ON p.id=wsp.permission_id WHERE ws.workflow_id=102 AND ws.code='$stage' AND p.code='$perm' AND wsp.role_id=$role AND (wsp.can_process=1 OR wsp.can_approve=1);\"");
+    $safeStage = escapeshellarg($stage);
+    $safePerm  = escapeshellarg($perm);
+    $safeRole  = (int) $role;
+    $sql = "SELECT COUNT(*) FROM workflow_stage_permissions wsp"
+         . " JOIN workflow_stages ws ON ws.id=wsp.workflow_stage_id"
+         . " JOIN permissions p ON p.id=wsp.permission_id"
+         . " WHERE ws.workflow_id=102 AND ws.code={$safeStage} AND p.code={$safePerm}"
+         . " AND wsp.role_id={$safeRole} AND (wsp.can_process=1 OR wsp.can_approve=1)";
+    $out = shell_exec("$mysql -e " . escapeshellarg($sql));
     return (int) trim($out) > 0;
 }
 

@@ -14,9 +14,12 @@ use Throwable;
 /**
  * Canonical lifecycle owner for authenticated staff sessions.
  *
- * auth_sessions stores only a SHA-256 hash of the access token. The optional
- * refresh-token relationship is kept as a numeric ID inside the existing JSON
- * payload column; no raw access or refresh token is persisted here.
+ * Sessions live in the normalised `user_sessions` store (the single canonical
+ * session registry; `auth_sessions` was merged here). user_sessions stores
+ * only a SHA-256 hash of the access token in `session_token`. The refresh-token
+ * relationship lives in `refresh_tokens` (which owns the token lifetime) and is
+ * linked to sessions through the shared `user_id`; no raw access or refresh
+ * token is persisted in the session row.
  */
 final class AuthSessionService
 {
@@ -33,8 +36,12 @@ final class AuthSessionService
     }
 
     /**
-     * Create a session or rotate the access-token hash for an existing refresh
-     * session. The returned ID is safe to expose as a session identifier.
+     * Create a session or rotate the access-token hash for an existing session.
+     * The returned ID is safe to expose as a session identifier.
+     *
+     * Each user keeps one active `user_sessions` row; a re-login or refresh
+     * rotates that row's access-token hash in place so the session ID stays
+     * stable for current-session protection.
      */
     public function upsertAccessSession(
         int $userId,
@@ -65,81 +72,57 @@ final class AuthSessionService
         }
 
         try {
-            $sessionId = null;
-            if ($refreshTokenId !== null) {
-                $stmt = $this->db->prepare(
-                    "SELECT id
-                     FROM auth_sessions
-                     WHERE user_id = ?
-                       AND CAST(
-                            JSON_UNQUOTE(
-                                JSON_EXTRACT(payload, '$.refresh_token_id')
-                            ) AS UNSIGNED
-                       ) = ?
-                     LIMIT 1
-                     FOR UPDATE"
-                );
-                $stmt->execute([$userId, $refreshTokenId]);
-                $sessionId = $stmt->fetchColumn();
-            }
+            $stmt = $this->db->prepare(
+                "SELECT id
+                 FROM user_sessions
+                 WHERE user_id = ?
+                   AND session_status = 'active'
+                   AND logout_time IS NULL
+                 ORDER BY last_activity DESC
+                 LIMIT 1
+                 FOR UPDATE"
+            );
+            $stmt->execute([$userId]);
+            $sessionId = $stmt->fetchColumn();
 
             $tokenHash = self::hashAccessToken($accessToken);
-            $payload = json_encode(
-                [
-                    'refresh_token_id' => $refreshTokenId,
-                    'token_storage' => 'sha256',
-                ],
-                JSON_UNESCAPED_SLASHES
-            );
-            if ($payload === false) {
-                throw new RuntimeException(
-                    'Session metadata could not be encoded'
-                );
-            }
-
             $ipAddress = $this->clientIpAddress();
             $userAgent = $this->clientUserAgent();
 
             if ($sessionId !== false && $sessionId !== null) {
                 $stmt = $this->db->prepare(
-                    'UPDATE auth_sessions
-                     SET token = ?,
+                    'UPDATE user_sessions
+                     SET session_token = ?,
                          ip_address = ?,
                          user_agent = ?,
-                         payload = ?,
-                         last_activity = NOW(),
-                         expires_at = ?
+                         last_activity = NOW()
                      WHERE id = ?'
                 );
                 $stmt->execute([
                     $tokenHash,
                     $ipAddress,
                     $userAgent,
-                    $payload,
-                    $expiresAt,
                     (int) $sessionId,
                 ]);
                 $resolvedSessionId = (int) $sessionId;
             } else {
                 $stmt = $this->db->prepare(
-                    'INSERT INTO auth_sessions (
+                    'INSERT INTO user_sessions (
                         user_id,
-                        token,
+                        session_token,
                         ip_address,
                         user_agent,
-                        payload,
+                        login_time,
                         last_activity,
-                        expires_at,
-                        created_at
-                     ) VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW())'
+                        session_status
+                     ) VALUES (?, ?, ?, ?, NOW(), NOW(), ?)'
                 );
                 $stmt->execute([
                     $userId,
                     $tokenHash,
                     $ipAddress,
                     $userAgent,
-                    $payload,
-                    $expiresAt,
+                    'active',
                 ]);
                 $resolvedSessionId = (int) $this->db->lastInsertId();
             }
@@ -170,13 +153,14 @@ final class AuthSessionService
             return null;
         }
 
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $stmt = $this->db->prepare(
-            "SELECT id, user_id, last_activity, expires_at
-             FROM auth_sessions
-             WHERE token = ?
+            "SELECT id, user_id, last_activity
+             FROM user_sessions
+             WHERE session_token = ?
                AND user_id = ?
-               AND expires_at > NOW()
+               AND session_status = 'active'
+               AND logout_time IS NULL
                AND last_activity >= DATE_SUB(
                     NOW(),
                     INTERVAL {$idleTimeoutSeconds} SECOND
@@ -194,7 +178,7 @@ final class AuthSessionService
         }
 
         $stmt = $this->db->prepare(
-            'UPDATE auth_sessions
+            'UPDATE user_sessions
              SET last_activity = NOW()
              WHERE id = ?
                AND last_activity < DATE_SUB(NOW(), INTERVAL 1 MINUTE)'
@@ -205,14 +189,14 @@ final class AuthSessionService
             'id' => (int) $session['id'],
             'user_id' => (int) $session['user_id'],
             'last_activity' => $session['last_activity'],
-            'expires_at' => $session['expires_at'],
+            'expires_at' => null,
         ];
     }
 
     /**
      * Confirm that a refresh token still belongs to a non-idle canonical
-     * browser session. Refresh-token lifetime alone must not bypass the
-     * 30-minute inactivity policy.
+     * session. Refresh-token lifetime alone must not bypass the inactivity
+     * policy.
      */
     public function validateRefreshSession(
         int $userId,
@@ -222,23 +206,23 @@ final class AuthSessionService
             return null;
         }
 
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $stmt = $this->db->prepare(
-            "SELECT id, user_id, last_activity, expires_at
-             FROM auth_sessions
-             WHERE user_id = ?
-               AND CAST(
-                    JSON_UNQUOTE(
-                        JSON_EXTRACT(payload, '$.refresh_token_id')
-                    ) AS UNSIGNED
-               ) = ?
-               AND last_activity >= DATE_SUB(
+            "SELECT s.id, s.user_id, s.last_activity
+             FROM user_sessions s
+             INNER JOIN refresh_tokens rt ON rt.user_id = s.user_id
+             WHERE rt.id = ?
+               AND s.user_id = ?
+               AND s.session_status = 'active'
+               AND s.logout_time IS NULL
+               AND s.last_activity >= DATE_SUB(
                     NOW(),
                     INTERVAL {$idleTimeoutSeconds} SECOND
                )
+             ORDER BY s.last_activity DESC
              LIMIT 1"
         );
-        $stmt->execute([$userId, $refreshTokenId]);
+        $stmt->execute([$refreshTokenId, $userId]);
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$session) {
@@ -249,7 +233,7 @@ final class AuthSessionService
             'id' => (int) $session['id'],
             'user_id' => (int) $session['user_id'],
             'last_activity' => $session['last_activity'],
-            'expires_at' => $session['expires_at'],
+            'expires_at' => null,
         ];
     }
 
@@ -269,38 +253,40 @@ final class AuthSessionService
 
         try {
             $stmt = $this->db->prepare(
-                'SELECT id
+                'SELECT id, user_id
                  FROM refresh_tokens
                  WHERE token = ?
                  LIMIT 1
                  FOR UPDATE'
             );
             $stmt->execute([$refreshToken]);
-            $refreshTokenId = $stmt->fetchColumn();
+            $refreshRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($refreshTokenId === false) {
+            if (!$refreshRow) {
                 if ($ownsTransaction) {
                     $this->db->commit();
                 }
                 return false;
             }
+            $refreshTokenId = (int) $refreshRow['id'];
+            $userId = (int) $refreshRow['user_id'];
 
             $stmt = $this->db->prepare(
                 'UPDATE refresh_tokens
                  SET revoked_at = COALESCE(revoked_at, NOW())
                  WHERE id = ?'
             );
-            $stmt->execute([(int) $refreshTokenId]);
+            $stmt->execute([$refreshTokenId]);
 
             $stmt = $this->db->prepare(
-                "DELETE FROM auth_sessions
-                 WHERE CAST(
-                    JSON_UNQUOTE(
-                        JSON_EXTRACT(payload, '$.refresh_token_id')
-                    ) AS UNSIGNED
-                 ) = ?"
+                "UPDATE user_sessions
+                 SET session_status = 'logged_out',
+                     logout_time = NOW()
+                 WHERE user_id = ?
+                   AND session_status = 'active'
+                   AND logout_time IS NULL"
             );
-            $stmt->execute([(int) $refreshTokenId]);
+            $stmt->execute([$userId]);
 
             if ($ownsTransaction) {
                 $this->db->commit();
@@ -357,14 +343,14 @@ final class AuthSessionService
                     s.ip_address,
                     s.user_agent,
                     s.last_activity,
-                    s.expires_at,
-                    s.payload,
                     u.username,
-                    u.email
-                 FROM auth_sessions s
+                    p.email
+                 FROM user_sessions s
                  INNER JOIN users u ON u.id = s.user_id
+                 LEFT JOIN persons p ON p.id = u.person_id
                  WHERE s.id = ?
-                   AND s.expires_at > NOW()
+                   AND s.session_status = \'active\'
+                   AND s.logout_time IS NULL
                  LIMIT 1
                  FOR UPDATE'
             );
@@ -377,22 +363,24 @@ final class AuthSessionService
                 );
             }
 
-            $refreshTokenId = $this->readRefreshTokenId(
-                $session['payload'] ?? null
-            );
+            $userId = (int) $session['user_id'];
             $refreshTokenRevoked = false;
-            if ($refreshTokenId !== null) {
-                $stmt = $this->db->prepare(
-                    'UPDATE refresh_tokens
-                     SET revoked_at = COALESCE(revoked_at, NOW())
-                     WHERE id = ?'
-                );
-                $stmt->execute([$refreshTokenId]);
-                $refreshTokenRevoked = $stmt->rowCount() > 0;
-            }
+            $stmt = $this->db->prepare(
+                'UPDATE refresh_tokens
+                 SET revoked_at = COALESCE(revoked_at, NOW())
+                 WHERE user_id = ?
+                   AND revoked_at IS NULL'
+            );
+            $stmt->execute([$userId]);
+            $refreshTokenRevoked = $stmt->rowCount() > 0;
 
             $stmt = $this->db->prepare(
-                'DELETE FROM auth_sessions WHERE id = ?'
+                "UPDATE user_sessions
+                 SET session_status = 'logged_out',
+                     logout_time = NOW()
+                 WHERE id = ?
+                   AND session_status = 'active'
+                   AND logout_time IS NULL"
             );
             $stmt->execute([$sessionId]);
             if ($stmt->rowCount() !== 1) {
@@ -407,12 +395,11 @@ final class AuthSessionService
                 $sessionId,
                 $actorUserId,
                 [
-                    'target_user_id' => (int) $session['user_id'],
+                    'target_user_id' => $userId,
                     'target_username' => $session['username'],
                     'target_ip_address' => $session['ip_address'],
                     'target_user_agent' => $session['user_agent'],
                     'last_activity' => $session['last_activity'],
-                    'expires_at' => $session['expires_at'],
                     'refresh_token_revoked' => $refreshTokenRevoked,
                 ]
             );
@@ -428,7 +415,7 @@ final class AuthSessionService
 
             return [
                 'id' => $sessionId,
-                'user_id' => (int) $session['user_id'],
+                'user_id' => $userId,
                 'username' => $session['username'],
                 'revoked' => true,
                 'refresh_token_revoked' => $refreshTokenRevoked,
@@ -480,19 +467,29 @@ final class AuthSessionService
         $currentRefreshTokenId = 0;
         if ($currentSessionId > 0) {
             $stmt = $this->db->prepare(
-                'SELECT payload
-                 FROM auth_sessions
+                'SELECT user_id
+                 FROM user_sessions
                  WHERE id = ?
                  LIMIT 1'
             );
             $stmt->execute([$currentSessionId]);
-            $currentRefreshTokenId = (int) (
-                $this->readRefreshTokenId($stmt->fetchColumn()) ?? 0
-            );
+            $sessionUserId = $stmt->fetchColumn();
+            if ($sessionUserId !== false) {
+                $stmt = $this->db->prepare(
+                    'SELECT id
+                     FROM refresh_tokens
+                     WHERE user_id = ?
+                       AND revoked_at IS NULL
+                     ORDER BY id DESC
+                     LIMIT 1'
+                );
+                $stmt->execute([(int) $sessionUserId]);
+                $currentRefreshTokenId = (int) ($stmt->fetchColumn() ?: 0);
+            }
         }
 
         // All interpolated values below are strictly normalized integers.
-        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $idleTimeoutSeconds = (int) $this->idleTimeoutSeconds;
         $baseSql = "
             SELECT
                 CONCAT('refresh:', rt.id) AS registry_key,
@@ -500,9 +497,9 @@ final class AuthSessionService
                 'refresh' AS token_type,
                 rt.user_id,
                 u.username,
-                u.first_name,
-                u.last_name,
-                u.email,
+                p.first_name,
+                p.last_name,
+                p.email,
                 NULL AS token_name,
                 NULL AS scope,
                 rt.created_at,
@@ -524,18 +521,16 @@ final class AuthSessionService
                 END AS has_active_session
             FROM refresh_tokens rt
             LEFT JOIN users u ON u.id = rt.user_id
+            LEFT JOIN persons p ON p.id = u.person_id
             LEFT JOIN (
                 SELECT
-                    CAST(
-                        JSON_UNQUOTE(
-                            JSON_EXTRACT(payload, '$.refresh_token_id')
-                        ) AS UNSIGNED
-                    ) AS refresh_token_id,
-                    MAX(last_activity) AS last_activity,
+                    s.user_id,
+                    MAX(s.last_activity) AS last_activity,
                     SUM(
                         CASE
-                            WHEN expires_at > NOW()
-                             AND last_activity >= DATE_SUB(
+                            WHEN s.session_status = 'active'
+                             AND s.logout_time IS NULL
+                             AND s.last_activity >= DATE_SUB(
                                 NOW(),
                                 INTERVAL {$idleTimeoutSeconds} SECOND
                              )
@@ -543,13 +538,9 @@ final class AuthSessionService
                             ELSE 0
                         END
                     ) AS active_session_count
-                FROM auth_sessions
-                WHERE JSON_EXTRACT(
-                    payload,
-                    '$.refresh_token_id'
-                ) IS NOT NULL
-                GROUP BY refresh_token_id
-            ) sessions ON sessions.refresh_token_id = rt.id
+                FROM user_sessions s
+                GROUP BY s.user_id
+            ) sessions ON sessions.user_id = rt.user_id
 
             UNION ALL
 
@@ -559,15 +550,15 @@ final class AuthSessionService
                 'api' AS token_type,
                 at.user_id,
                 u.username,
-                u.first_name,
-                u.last_name,
-                u.email,
+                p.first_name,
+                p.last_name,
+                p.email,
                 at.token_name,
                 at.scope,
                 at.created_date AS created_at,
                 at.last_used_date AS last_used_at,
                 at.expiry_date AS expires_at,
-                audit_revoke.revoked_at,
+                at.revoked_at,
                 CASE
                     WHEN at.is_active = 0 THEN 'revoked'
                     WHEN at.expiry_date IS NOT NULL
@@ -578,14 +569,7 @@ final class AuthSessionService
                 0 AS has_active_session
             FROM api_tokens at
             INNER JOIN users u ON u.id = at.user_id
-            LEFT JOIN (
-                SELECT entity_id, MAX(created_at) AS revoked_at
-                FROM audit_logs
-                WHERE action = 'token_revoke'
-                  AND entity = 'api_token'
-                  AND status = 'success'
-                GROUP BY entity_id
-            ) audit_revoke ON audit_revoke.entity_id = at.id
+            INNER JOIN persons p ON p.id = u.person_id
         ";
 
         $where = ['1 = 1'];
@@ -779,9 +763,10 @@ final class AuthSessionService
                 CASE WHEN rt.expires_at <= NOW() THEN 1 ELSE 0 END
                     AS is_expired,
                 u.username,
-                u.email
+                p.email
              FROM refresh_tokens rt
              LEFT JOIN users u ON u.id = rt.user_id
+             LEFT JOIN persons p ON p.id = u.person_id
              WHERE rt.id = ?
              LIMIT 1
              FOR UPDATE'
@@ -794,20 +779,30 @@ final class AuthSessionService
 
         if ($currentSessionId > 0) {
             $stmt = $this->db->prepare(
-                'SELECT payload
-                 FROM auth_sessions
+                'SELECT user_id
+                 FROM user_sessions
                  WHERE id = ?
                    AND user_id = ?
                  LIMIT 1'
             );
             $stmt->execute([$currentSessionId, $actorUserId]);
-            $currentRefreshTokenId = $this->readRefreshTokenId(
-                $stmt->fetchColumn()
-            );
-            if ($currentRefreshTokenId === $tokenId) {
-                throw new DomainException(
-                    'The current refresh token cannot be revoked from this page'
+            $sessionUserId = $stmt->fetchColumn();
+            if ($sessionUserId !== false) {
+                $stmt = $this->db->prepare(
+                    'SELECT id
+                     FROM refresh_tokens
+                     WHERE user_id = ?
+                       AND revoked_at IS NULL
+                     ORDER BY id DESC
+                     LIMIT 1'
                 );
+                $stmt->execute([(int) $sessionUserId]);
+                $currentRefreshTokenId = (int) ($stmt->fetchColumn() ?: 0);
+                if ($currentRefreshTokenId === $tokenId) {
+                    throw new DomainException(
+                        'The current refresh token cannot be revoked from this page'
+                    );
+                }
             }
         }
 
@@ -837,14 +832,14 @@ final class AuthSessionService
         }
 
         $stmt = $this->db->prepare(
-            "DELETE FROM auth_sessions
-             WHERE CAST(
-                JSON_UNQUOTE(
-                    JSON_EXTRACT(payload, '$.refresh_token_id')
-                ) AS UNSIGNED
-             ) = ?"
+            "UPDATE user_sessions
+             SET session_status = 'logged_out',
+                 logout_time = NOW()
+             WHERE user_id = ?
+               AND session_status = 'active'
+               AND logout_time IS NULL"
         );
-        $stmt->execute([$tokenId]);
+        $stmt->execute([(int) $token['user_id']]);
         $linkedSessionsRevoked = $stmt->rowCount();
 
         $auditLogged = (new AuditLogger($this->db))->log(
@@ -896,9 +891,10 @@ final class AuthSessionService
                     ELSE 0
                 END AS is_expired,
                 u.username,
-                u.email
+                p.email
              FROM api_tokens at
              INNER JOIN users u ON u.id = at.user_id
+             INNER JOIN persons p ON p.id = u.person_id
              WHERE at.id = ?
              LIMIT 1
              FOR UPDATE'
@@ -922,7 +918,8 @@ final class AuthSessionService
 
         $stmt = $this->db->prepare(
             'UPDATE api_tokens
-             SET is_active = 0
+             SET is_active = 0,
+                 revoked_at = NOW()
              WHERE id = ?
                AND is_active = 1
                AND (
@@ -999,18 +996,6 @@ final class AuthSessionService
     public static function hashAccessToken(string $accessToken): string
     {
         return hash('sha256', $accessToken);
-    }
-
-    private function readRefreshTokenId($payload): ?int
-    {
-        if (!is_string($payload) || trim($payload) === '') {
-            return null;
-        }
-
-        $decoded = json_decode($payload, true);
-        $refreshTokenId = (int) ($decoded['refresh_token_id'] ?? 0);
-
-        return $refreshTokenId > 0 ? $refreshTokenId : null;
     }
 
     private function clientIpAddress(): ?string

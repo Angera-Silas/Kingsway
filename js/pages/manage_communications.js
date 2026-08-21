@@ -1,220 +1,209 @@
 /**
- * Manage Communications Page Controller
- * School Administrator communications management — announcements, messages, SMS.
- * Uses window.API.communications.* exclusively (no direct fetch).
+ * Manage Communications Hub Page Controller
+ * Shows overview of all communication channels with summary stats and recent activity.
  */
 
-const communicationsController = {
-    announcements: [],
-    messages: [],
-    smsRecords: [],
-    canCreate: false,
+(function () {
+  "use strict";
+
+  const CommunicationsHubController = {
+    data: null,
 
     init: async function () {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
-        }
-        if (!AuthContext.hasPermission('communications_view')) {
-            const c = document.getElementById('pageContent') || document.querySelector('.container-fluid');
-            if (c) c.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger">Access denied: you do not have permission to view communications.</div>');
-            return;
-        }
-        this.canCreate = AuthContext.hasPermission('communications_create');
-        this.renderLayout();
-        await this.loadAnnouncements();
-        this.bindTabEvents();
+      if (!this.pageExists()) return;
+
+      await window.AuthContext?.ready();
+      if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
+        window.location.href = (window.APP_BASE || "") + "/index.php";
+        return;
+      }
+
+      this.bindEvents();
+      await this.loadStatistics();
+      await this.loadTemplates();
     },
 
-    renderLayout: function () {
-        const container = document.getElementById('pageContent') || document.querySelector('.card-body') || document.body;
-        container.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <ul class="nav nav-tabs" id="commTabs">
-                <li class="nav-item"><a class="nav-link active" href="#" data-tab="announcements">
-                    <i class="bi bi-megaphone me-1"></i>Announcements</a></li>
-                <li class="nav-item"><a class="nav-link" href="#" data-tab="messages">
-                    <i class="bi bi-chat-dots me-1"></i>Messages</a></li>
-                <li class="nav-item"><a class="nav-link" href="#" data-tab="sms">
-                    <i class="bi bi-phone me-1"></i>SMS</a></li>
-            </ul>
-            ${this.canCreate ? '<button class="btn btn-primary btn-sm" id="newCommBtn"><i class="bi bi-plus-lg me-1"></i>New Announcement</button>' : ''}
+    pageExists: function () {
+      return !!document.getElementById("totalCommunications");
+    },
+
+    bindEvents: function () {
+      const self = this;
+
+      document.getElementById("refreshActivities")?.addEventListener("click", async function () {
+        self.loadStatistics();
+      });
+
+      document.getElementById("composeMessageBtn")?.addEventListener("click", function () {
+        window.location.href = (window.APP_BASE || "") + "/home.php?route=communications/messages_inbox";
+      });
+
+      document.getElementById("createInternalRequestBtn")?.addEventListener("click", async function () {
+        const { default: Modal } = await import("bootstrap/dist/js/bootstrap.bundle.min.js");
+        self.openInternalRequestModal();
+      });
+      document.getElementById('newTemplateBtn')?.addEventListener('click', () => this.openTemplate());
+      document.getElementById('saveTemplateBtn')?.addEventListener('click', () => this.saveTemplate());
+      document.getElementById('submitProviderTemplateBtn')?.addEventListener('click', () => this.submitProviderTemplate());
+      document.getElementById('templateChannel')?.addEventListener('change', e => { document.getElementById('submitProviderTemplateBtn').classList.toggle('d-none', e.target.value !== 'whatsapp'); });
+
+      document.querySelectorAll(".channel-card").forEach(function (card) {
+        card.addEventListener("mouseenter", function () {
+          this.style.transform = "translateY(-2px)";
+        });
+        card.addEventListener("mouseleave", function () {
+          this.style.transform = "";
+        });
+      });
+    },
+
+    async loadTemplates() {
+      try { const r = await window.API.communications.getTemplates(); const rows = Array.isArray(r) ? r : (r?.data || []); const body = document.getElementById('templateManagerBody'); if (!body) return; body.innerHTML = rows.length ? rows.map(t => `<tr><td>${this.escapeHtml(t.name)}</td><td>${this.escapeHtml(t.template_type || t.type || 'sms')}</td><td>${this.escapeHtml(t.category || '—')}</td><td><button class="btn btn-sm btn-outline-primary me-1" data-template-edit="${t.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-template-delete="${t.id}">Delete</button></td></tr>`).join('') : '<tr><td colspan="4" class="text-muted">No templates created yet.</td></tr>'; body.querySelectorAll('[data-template-edit]').forEach(b => b.addEventListener('click', () => this.openTemplate(rows.find(t => String(t.id) === b.dataset.templateEdit)))); body.querySelectorAll('[data-template-delete]').forEach(b => b.addEventListener('click', () => this.deleteTemplate(b.dataset.templateDelete))); } catch (e) { console.error(e); }
+    },
+
+    openTemplate(t = null) { document.getElementById('templateId').value = t?.id || ''; document.getElementById('templateName').value = t?.name || ''; document.getElementById('templateChannel').value = t?.template_type || t?.type || 'sms'; document.getElementById('templateCategory').value = t?.category || ''; document.getElementById('templateBody').value = t?.template_body || t?.body || ''; document.getElementById('submitProviderTemplateBtn').classList.toggle('d-none', document.getElementById('templateChannel').value !== 'whatsapp'); new bootstrap.Modal(document.getElementById('templateManagerModal')).show(); },
+    async submitProviderTemplate() { const name = document.getElementById('templateName').value.trim(); const body = document.getElementById('templateBody').value.trim(); const category = (document.getElementById('templateCategory').value.trim() || 'UTILITY').toUpperCase(); if (!name || !body) return this.showNotification('Name and body are required', 'warning'); try { const r = await window.API.communications.createWhatsappTemplate({ name, language: 'en', category: ['MARKETING','UTILITY','AUTHENTICATION'].includes(category) ? category : 'UTILITY', components: { body: { type: 'BODY', text: body } } }); this.showNotification(r?.message || 'Submitted for WhatsApp approval', 'success'); } catch (e) { this.showNotification(e.message || 'Provider template submission failed', 'error'); } },
+    async saveTemplate() { const id = document.getElementById('templateId').value; const data = { name: document.getElementById('templateName').value.trim(), template_type: document.getElementById('templateChannel').value, category: document.getElementById('templateCategory').value.trim() || null, template_body: document.getElementById('templateBody').value }; if (!data.name || !data.template_body) return this.showNotification('Name and body are required', 'warning'); try { if (id) await window.API.communications.updateTemplate(id, data); else await window.API.communications.createTemplate(data); bootstrap.Modal.getInstance(document.getElementById('templateManagerModal'))?.hide(); this.showNotification('Template saved', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template save failed', 'error'); } },
+    async deleteTemplate(id) { if (!(await window.confirmAction('Delete template', 'Delete this communication template?'))) return; try { await window.API.communications.deleteTemplate(id); this.showNotification('Template deleted', 'success'); await this.loadTemplates(); } catch (e) { this.showNotification(e.message || 'Template deletion failed', 'error'); } },
+
+    loadStatistics: async function () {
+      try {
+        const response = await window.API.communications.index();
+        this.data = response?.data || null;
+
+        this.updateStats();
+        this.renderRecentActivity();
+      } catch (error) {
+        console.error("Communications hub load error:", error);
+        this.showNotification("Failed to load statistics", "error");
+      }
+    },
+
+    updateStats: function () {
+      if (!this.data || !this.data.totals) return;
+
+      const t = this.data.totals;
+
+      this.setText("totalCommunications", t.communications || 0);
+      this.setText("totalAnnouncements", t.announcements?.total || 0);
+      this.setText("unreadConversations", t.messaging?.unread || 0);
+      this.setText("scheduledCount", t.by_status?.scheduled || 0);
+
+      const byType = t.by_type || {};
+      this.setText("messagesCount", byType.internal || 0);
+      this.setText("announcementsCount", byType.notification || 0);
+      this.setText("smsCount", byType.sms || 0);
+      this.setText("emailCount", byType.email || 0);
+      this.setText("whatsappCount", byType.whatsapp || 0);
+    },
+
+    renderRecentActivity: function () {
+      const tbody = document.getElementById("activitiesTablebody");
+      if (!tbody || !this.data?.recent) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3">No recent activity</td></tr>';
+        return;
+      }
+
+      const recent = this.data.recent;
+      tbody.innerHTML = recent
+        .map((item) => {
+          const typeLabel = {
+            email: "Email",
+            sms: "SMS",
+            whatsapp: "WhatsApp",
+            notification: "Announcement",
+            internal: "Message",
+            [item.type]: item.type.charAt(0).toUpperCase() + item.type.slice(1),
+          }[item.type] || item.type;
+
+          const statusClass = {
+            sent: "success",
+            draft: "secondary",
+            scheduled: "warning",
+            failed: "danger",
+          }[item.status] || "primary";
+
+          return `
+            <tr>
+              <td class="fw-medium">${this.escapeHtml(item.subject || "—")}</td>
+              <td><span class="badge bg-light text-dark border">${this.escapeHtml(typeLabel)}</span></td>
+              <td><span class="badge bg-${statusClass}">${this.escapeHtml(item.status)}</span></td>
+              <td class="d-none d-md-table-cell">${this.formatDate(item.created_at)}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      if (!recent.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-3">No recent activity</td></tr>';
+      }
+    },
+
+    openInternalRequestModal: function () {
+      const modalEl = document.getElementById("conversationModal");
+      if (!modalEl) return;
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+
+      document.getElementById("conversationContent").innerHTML = `
+        <div class="mb-3">
+          <label class="form-label">Request Title</label>
+          <input type="text" class="form-control" id="requestTitle" placeholder="e.g. Warning Notice to Student...">
         </div>
-        <div id="commTabContent">${this._spinner()}</div>`;
+        <div class="mb-3">
+          <label class="form-label">Description</label>
+          <textarea class="form-control" id="requestBody" rows="3" placeholder="Describe the issue..."></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Recipient</label>
+          <select class="form-select" id="requestRecipient">
+            <option value="">Select...</option>
+            <option value="staff">All Staff</option>
+            <option value="parents">All Parents</option>
+          </select>
+        </div>
+      `;
     },
 
-    _spinner: function () {
-        return '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>';
+    setText: function (id, text) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
     },
 
-    _emptyState: function (message) {
-        return `<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>${message}</div>`;
+    escapeHtml: function (value) {
+      if (value === null || value === undefined) return "";
+      return String(value).replace(/[&<>"']/g, (m) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[m]);
     },
 
-    _setContent: function (html) {
-        const c = document.getElementById('commTabContent');
-        if (c) c.innerHTML = html;
+    formatDate: function (value) {
+      if (!value) return "";
+      const d = new Date(value);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleString();
     },
 
-    loadAnnouncements: async function () {
-        try {
-            const res = await window.API.communications.getAnnouncement();
-            this.announcements = res?.data ?? res ?? [];
-            this.renderAnnouncements();
-        } catch (e) {
-            console.error('Communications: failed to load announcements', e);
-            showNotification('Failed to load announcements', 'error');
-        }
+    showNotification: function (message, type = "info") {
+      if (typeof Kingsway !== "undefined" && Kingsway.showNotification) {
+        Kingsway.showNotification(message, type);
+      }
     },
+  };
 
-    loadMessages: async function () {
-        try {
-            const res = await window.API.communications.getThread();
-            this.messages = res?.data ?? res ?? [];
-            this.renderMessages();
-        } catch (e) {
-            console.error('Communications: failed to load messages', e);
-            showNotification('Failed to load messages', 'error');
-        }
-    },
+  // Auto init when page loads
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      CommunicationsHubController.init();
+    });
+  } else {
+    CommunicationsHubController.init();
+  }
 
-    loadSms: async function () {
-        try {
-            const res = await window.API.communications.getInbound();
-            this.smsRecords = res?.data ?? res ?? [];
-            this.renderSms();
-        } catch (e) {
-            console.error('Communications: failed to load SMS records', e);
-            showNotification('Failed to load SMS records', 'error');
-        }
-    },
-
-    renderAnnouncements: function () {
-        if (!this.announcements.length) {
-            this._setContent(this._emptyState('No announcements found.'));
-            return;
-        }
-        let html = `<div class="table-responsive"><table class="table table-hover align-middle">
-            <thead class="table-dark"><tr>
-                <th>Title</th><th>Target Audience</th><th>Date</th><th>Status</th>
-                ${this.canCreate ? '<th>Actions</th>' : ''}
-            </tr></thead><tbody>`;
-        this.announcements.forEach(a => {
-            const statusColor = a.status === 'sent' ? 'success' : a.status === 'draft' ? 'secondary' : 'warning';
-            html += `<tr>
-                <td>${a.title ?? a.subject ?? ''}</td>
-                <td><span class="badge bg-info">${a.target_audience ?? a.recipient_type ?? 'All'}</span></td>
-                <td>${a.created_at ? new Date(a.created_at).toLocaleDateString() : ''}</td>
-                <td><span class="badge bg-${statusColor}">${a.status ?? 'draft'}</span></td>
-                ${this.canCreate ? `<td>
-                    <button class="btn btn-sm btn-outline-danger del-ann" data-id="${a.id}" title="Delete">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                </td>` : ''}
-            </tr>`;
-        });
-        html += '</tbody></table></div>';
-        this._setContent(html);
-
-        document.querySelectorAll('#commTabContent .del-ann').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                if (!confirm('Delete this announcement?')) return;
-                try {
-                    await window.API.communications.deleteAnnouncement(e.currentTarget.dataset.id);
-                    showNotification('Announcement deleted', 'success');
-                    await this.loadAnnouncements();
-                } catch (err) {
-                    showNotification('Failed to delete announcement', 'error');
-                }
-            });
-        });
-    },
-
-    renderMessages: function () {
-        if (!this.messages.length) {
-            this._setContent(this._emptyState('No messages found.'));
-            return;
-        }
-        let html = `<div class="table-responsive"><table class="table table-hover align-middle">
-            <thead class="table-dark"><tr><th>Subject</th><th>Participants</th><th>Date</th><th>Status</th></tr></thead><tbody>`;
-        this.messages.forEach(m => {
-            html += `<tr>
-                <td>${m.subject ?? m.title ?? '(no subject)'}</td>
-                <td>${m.participant_count ?? m.participants ?? ''}</td>
-                <td>${m.created_at ? new Date(m.created_at).toLocaleDateString() : ''}</td>
-                <td><span class="badge bg-secondary">${m.status ?? 'open'}</span></td>
-            </tr>`;
-        });
-        html += '</tbody></table></div>';
-        this._setContent(html);
-    },
-
-    renderSms: function () {
-        if (!this.smsRecords.length) {
-            this._setContent(this._emptyState('No SMS records found.'));
-            return;
-        }
-        let html = `<div class="table-responsive"><table class="table table-hover align-middle">
-            <thead class="table-dark"><tr><th>Sender</th><th>Message</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
-        this.smsRecords.forEach(s => {
-            html += `<tr>
-                <td>${s.sender ?? s.from_number ?? s.phone ?? ''}</td>
-                <td class="text-truncate" style="max-width:300px">${s.message ?? s.body ?? ''}</td>
-                <td><span class="badge bg-${s.status === 'delivered' ? 'success' : 'warning'}">${s.status ?? ''}</span></td>
-                <td>${s.created_at ? new Date(s.created_at).toLocaleDateString() : ''}</td>
-            </tr>`;
-        });
-        html += '</tbody></table></div>';
-        this._setContent(html);
-    },
-
-    showNewCommForm: function () {
-        const form = new ModalForm('newCommModal', {
-            title: '<i class="bi bi-megaphone me-2"></i>New Announcement',
-            submitButtonLabel: '<i class="bi bi-send me-1"></i>Send Announcement',
-            fields: [
-                { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Announcement title' },
-                { name: 'message', label: 'Message', type: 'textarea', required: true, rows: 5, placeholder: 'Write your announcement here...' },
-                {
-                    name: 'target_audience', label: 'Target Audience', type: 'select',
-                    options: [
-                        { value: 'all', label: 'All' },
-                        { value: 'parents', label: 'Parents' },
-                        { value: 'staff', label: 'Staff' },
-                        { value: 'students', label: 'Students' },
-                    ]
-                },
-            ],
-            onSubmit: async (data) => {
-                if (!data.title || !data.message) {
-                    showNotification('Title and message are required', 'warning');
-                    return false;
-                }
-                await window.API.communications.createAnnouncement(data);
-                showNotification('Announcement sent successfully', 'success');
-                await this.loadAnnouncements();
-            },
-        });
-        form.show();
-    },
-
-    bindTabEvents: function () {
-        const tabs = document.querySelectorAll('#commTabs [data-tab]');
-        tabs.forEach(link => {
-            link.addEventListener('click', async (e) => {
-                e.preventDefault();
-                tabs.forEach(l => l.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                this._setContent(this._spinner());
-                const tab = e.currentTarget.dataset.tab;
-                if (tab === 'announcements') await this.loadAnnouncements();
-                else if (tab === 'messages') await this.loadMessages();
-                else if (tab === 'sms') await this.loadSms();
-            });
-        });
-
-        document.getElementById('newCommBtn')?.addEventListener('click', () => this.showNewCommForm());
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => communicationsController.init());
+  // Expose for debugging
+  window.CommunicationsHubController = CommunicationsHubController;
+})();

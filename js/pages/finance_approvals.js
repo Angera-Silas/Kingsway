@@ -60,11 +60,11 @@ const FinanceApprovalsController = (() => {
     return Number.isFinite(num) ? num.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
   }
 
-  function showNotice(message, type = "info") {
+  async function showNotice(message, type = "info") {
     if (typeof showNotification === "function") {
       showNotification(message, type);
     } else {
-      window.alert(type === "error" ? `Error: ${message}` : message);
+      await window.infoDialog('Notice', type === "error" ? `Error: ${message}` : message);
     }
   }
 
@@ -548,6 +548,7 @@ const FinanceApprovalsController = (() => {
   }
 
   async function init() {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;

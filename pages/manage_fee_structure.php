@@ -25,6 +25,33 @@ document.addEventListener('DOMContentLoaded', function () {
         contentId:   'fee-structure-content',
         templateDir: '/pages/fee_structure/',
         module:      'Fee Structure',
+        // Role templates load their own controller below. Loading the generic
+        // umbrella as well can race the role controller and initialize an old
+        // aggregate view before the matrix controller is ready.
+        scriptSrc:   null,
+        afterLoad: function (contentEl, match) {
+            var controllers = {
+                'admin_fee_structure.php': [
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_admin.js?v=<?= asset_version("js/pages/fee_structure_admin.js") ?>'
+                ],
+                'accountant_fee_structure.php': [
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_accountant.js?v=<?= asset_version("js/pages/fee_structure_accountant.js") ?>'
+                ],
+                'viewer_fee_structure.php': [
+                    '/js/components/fee_structure_matrix.js?v=<?= asset_version("js/components/fee_structure_matrix.js") ?>',
+                    '/js/pages/fee_structure_viewer.js?v=<?= asset_version("js/pages/fee_structure_viewer.js") ?>'
+                ]
+            }[match.file] || [];
+
+            controllers.forEach(function (path) {
+                var script = document.createElement('script');
+                script.src = (window.APP_BASE || '') + path;
+                script.async = false;
+                document.body.appendChild(script);
+            });
+        },
         levels: [
             {
                 file: 'admin_fee_structure.php',

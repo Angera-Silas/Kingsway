@@ -96,7 +96,7 @@
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                   <tr>
-                    <th>Learning Area</th>
+                    <th scope="col">Learning Area</th>
                     <th class="text-center">CA Assessments</th>
                     <th class="text-center">CA Avg</th>
                     <th class="text-center">Exam Score</th>
@@ -161,8 +161,8 @@
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                   <tr>
-                    <th>Assessment</th><th>Type</th><th>Learning Area</th>
-                    <th>Date</th><th class="text-center">Score</th>
+                    <th scope="col">Assessment</th><th scope="col">Type</th><th scope="col">Learning Area</th>
+                    <th scope="col">Date</th><th class="text-center">Score</th>
                     <th class="text-center">%</th><th class="text-center">Grade</th>
                   </tr>
                 </thead>
@@ -223,5 +223,5 @@
 .sg-grade-row:hover { background:#f8f9fa; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/student_growth.js"></script>
+<?php asset_script($appBase, 'js/pages/student_growth.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => studentGrowthCtrl.init());</script>

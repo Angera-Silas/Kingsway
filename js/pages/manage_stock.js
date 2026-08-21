@@ -44,7 +44,8 @@
     // ── Controller ────────────────────────────────────────────────────────────
     const ManageStockController = {
 
-        init() {
+        init: async function() {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;

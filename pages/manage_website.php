@@ -1,7 +1,7 @@
 <?php
 /* Website Management — partial page served inside home.php app shell.
    Tabs shown/hidden by JS based on AuthContext permissions. */
-$appBase = rtrim(str_replace('\\','/',dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))),'/');
+$appBase = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
 if ($appBase === '.') $appBase = '';
 ?>
 
@@ -97,7 +97,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Image</th><th>Title</th><th>Category</th><th>Status</th><th>Views</th><th>Date</th><th class="text-end">Actions</th>
+          <th scope="col">Image</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Status</th><th scope="col">Views</th><th scope="col">Date</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="newsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -117,7 +117,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Date</th><th>Title</th><th>Category</th><th>Location</th><th>Status</th><th class="text-end">Actions</th>
+          <th scope="col">Date</th><th scope="col">Title</th><th scope="col">Category</th><th scope="col">Location</th><th scope="col">Status</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="eventsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -148,7 +148,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Title</th><th>Category</th><th>Type</th><th>Size</th><th>Active</th><th class="text-end">Actions</th>
+          <th scope="col">Title</th><th scope="col">Category</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Active</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="downloadsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -166,7 +166,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Title</th><th>Department</th><th>Type</th><th>Deadline</th><th>Status</th><th class="text-end">Actions</th>
+          <th scope="col">Title</th><th scope="col">Department</th><th scope="col">Type</th><th scope="col">Deadline</th><th scope="col">Status</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="jobsTableBody"><tr><td colspan="6" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -197,7 +197,7 @@ if ($appBase === '.') $appBase = '';
       <div class="bg-white border rounded-3 overflow-hidden">
         <table class="table table-hover ws-table mb-0">
           <thead class="table-light"><tr>
-            <th>Ref</th><th>Child</th><th>Grade</th><th>Parent</th><th>Phone</th><th>Boarding</th><th>Status</th><th>Date</th><th class="text-end">Actions</th>
+            <th scope="col">Ref</th><th scope="col">Child</th><th scope="col">Grade</th><th scope="col">Parent</th><th scope="col">Phone</th><th scope="col">Boarding</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
           </tr></thead>
           <tbody id="appsTableBody"><tr><td colspan="9" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
         </table>
@@ -207,7 +207,7 @@ if ($appBase === '.') $appBase = '';
       <div class="bg-white border rounded-3 overflow-hidden">
         <table class="table table-hover ws-table mb-0">
           <thead class="table-light"><tr>
-            <th>Name</th><th>Position</th><th>Email</th><th>Phone</th><th>TSC No.</th><th>Status</th><th>Date</th>
+            <th scope="col">Name</th><th scope="col">Position</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">TSC No.</th><th scope="col">Status</th><th scope="col">Date</th>
           </tr></thead>
           <tbody id="jobAppsTableBody"><tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
         </table>
@@ -220,7 +220,7 @@ if ($appBase === '.') $appBase = '';
     <div class="bg-white border rounded-3 overflow-hidden">
       <table class="table table-hover ws-table mb-0">
         <thead class="table-light"><tr>
-          <th>Name</th><th>Email</th><th>Phone</th><th>Subject</th><th>Message</th><th>Status</th><th>Date</th><th class="text-end">Actions</th>
+          <th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Subject</th><th scope="col">Message</th><th scope="col">Status</th><th scope="col">Date</th><th class="text-end">Actions</th>
         </tr></thead>
         <tbody id="inquiriesTableBody"><tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</td></tr></tbody>
       </table>
@@ -273,16 +273,22 @@ if ($appBase === '.') $appBase = '';
 
   <!-- ── TAB: STATIC CONTENT (9 generic tables) ─────────────────────────── -->
   <div id="tab-static" class="ws-tab-panel" style="display:none">
-    <p class="text-muted small mt-1 mb-3">School values, history, leadership, programs, facilities, departments, admission steps &amp; benefits. Each row is editable inline; changes appear on the public site immediately.</p>
+    <p class="text-muted small mt-1 mb-3">School values, history, programs, facilities, departments, admission steps, benefits &amp; testimonials. Each row is editable inline; changes appear on the public site immediately. Leadership hierarchy is managed in its own section below.</p>
     <div class="row g-4" id="staticTablesWrap">
       <div id="staticCard-values"    class="col-xl-6"></div>
       <div id="staticCard-history"   class="col-xl-6"></div>
-      <div id="staticCard-leadership" class="col-xl-6"></div>
       <div id="staticCard-programs"   class="col-xl-6"></div>
       <div id="staticCard-facilities" class="col-xl-6"></div>
       <div id="staticCard-departments"class="col-xl-6"></div>
       <div id="staticCard-steps"      class="col-xl-6"></div>
       <div id="staticCard-benefits"   class="col-xl-6"></div>
+      <div id="staticCard-testimonials" class="col-xl-6"></div>
+    </div>
+    <div class="bg-white border rounded-3 p-4 mt-3">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="fw-bold mb-0"><i class="bi bi-people-fill text-success me-2"></i>Leadership Team</h6>
+      </div>
+      <div id="leadershipPanel"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div></div>
     </div>
   </div>
 
@@ -468,7 +474,7 @@ if ($appBase === '.') $appBase = '';
           <select id="jobType"><option value="Full-Time">Full-Time</option><option value="Part-Time">Part-Time</option><option value="Contract">Contract</option></select>
         </div>
         <div class="col-md-4 ws-form-group"><label>Deadline *</label><input type="date" id="jobDeadline"></div>
-        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani Campus"></div>
+        <div class="col-12 ws-form-group"><label>Location</label><input type="text" id="jobLocation" value="Londiani, Kenya"></div>
         <div class="col-12 ws-form-group"><label>Description *</label><textarea id="jobDescription" rows="4" placeholder="Role description…"></textarea></div>
         <div class="col-12 ws-form-group"><label>Requirements (one per line)</label><textarea id="jobRequirements" rows="4" placeholder="P1 or B.Ed (Primary Education)&#10;TSC Registration&#10;2+ years experience"></textarea></div>
         <div class="col-12 ws-form-group"><label>Responsibilities (one per line)</label><textarea id="jobResponsibilities" rows="4" placeholder="Deliver CBC-aligned lessons&#10;Maintain class registers"></textarea></div>
@@ -491,4 +497,70 @@ if ($appBase === '.') $appBase = '';
   </div></div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_website.js"></script>
+<!-- Leadership Modal -->
+<div class="modal fade" id="wsLeadershipModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header border-0 pb-0">
+      <h5 class="modal-title fw-bold" id="wsLeadershipModalTitle">Add Member</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="leadEditId">
+      <input type="hidden" id="leadLevelId">
+      <div class="row g-3">
+        <div class="col-12 ws-form-group">
+          <label>Position *</label>
+          <select id="leadPosition" class="form-select"><option value="">Loading...</option></select>
+        </div>
+        <div class="col-12">
+          <label class="form-label fw-semibold mb-2">Person *</label>
+          <div class="d-flex gap-3 mb-2">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonExisting" value="existing" checked onchange="wsLeadershipPersonMode('existing')">
+              <label class="form-check-label" for="leadPersonExisting">Existing Staff / Student</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="leadPersonMode" id="leadPersonNew" value="new" onchange="wsLeadershipPersonMode('new')">
+              <label class="form-check-label" for="leadPersonNew">New External Person</label>
+            </div>
+          </div>
+          <div id="leadPersonSearchWrap">
+            <input type="text" id="leadPersonSearch" class="form-control form-control-sm" placeholder="Search by name..." autocomplete="off" oninput="wsLeadershipPersonSearch(this.value)">
+            <input type="hidden" id="leadPersonId">
+            <div id="leadPersonSearchResults" class="list-group mt-1" style="max-height:180px;overflow-y:auto;display:none"></div>
+            <div id="leadPersonSelected" class="d-none mt-1">
+              <span class="badge bg-success fs-6" id="leadPersonSelectedName"></span>
+            </div>
+          </div>
+          <div id="leadPersonNewWrap" class="d-none">
+            <div class="row g-2">
+              <div class="col-md-6 ws-form-group"><label>First Name *</label><input type="text" id="leadFirstName" class="form-control form-control-sm" placeholder="e.g. James"></div>
+              <div class="col-md-6 ws-form-group"><label>Last Name *</label><input type="text" id="leadLastName" class="form-control form-control-sm" placeholder="e.g. Mwangi"></div>
+            </div>
+            <small class="text-muted">A new person record will be created in the system.</small>
+          </div>
+        </div>
+        <div class="col-12 ws-form-group">
+          <label>Public Bio</label>
+          <textarea id="leadBio" rows="3" class="form-control" placeholder="Brief biography shown on the public website..."></textarea>
+        </div>
+        <div class="col-md-8 ws-form-group">
+          <label>Photo URL</label>
+          <input type="url" id="leadPhotoUrl" class="form-control form-control-sm" placeholder="https://...">
+        </div>
+        <div class="col-md-4 ws-form-group">
+          <label>Display Order</label>
+          <input type="number" id="leadDisplayOrder" class="form-control form-control-sm" value="0">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer border-0">
+      <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-success btn-sm px-4" id="leadSubmitBtn" onclick="wsSaveLeadership()">
+        <i class="bi bi-check-lg me-1"></i>Save
+      </button>
+    </div>
+  </div></div>
+</div>
+
+<?php asset_script($appBase, 'js/pages/manage_website.js'); ?>

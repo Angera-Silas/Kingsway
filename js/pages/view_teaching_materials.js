@@ -19,6 +19,7 @@ const ViewTeachingMaterialsController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -28,7 +29,6 @@ const ViewTeachingMaterialsController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in view_teaching_materials:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadMaterials();
         }
@@ -75,14 +75,11 @@ const ViewTeachingMaterialsController = {
 
   async loadSubjects() {
     try {
-      const res = await window.API.apiCall('/academic/learning-areas/list', 'GET');
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        const subjectSelect = document.getElementById('subjectFilter');
-        if (subjectSelect) {
-          subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
-            this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
-        }
+      this.state.subjects = await window.API.apiCall('/academic/learning-areas/list', 'GET') || [];
+      const subjectSelect = document.getElementById('subjectFilter');
+      if (subjectSelect) {
+        subjectSelect.innerHTML = '<option value="">All Subjects</option>' + 
+          this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading subjects:', error);
@@ -92,15 +89,9 @@ const ViewTeachingMaterialsController = {
   async loadMaterials() {
     try {
       const params = this.buildParams();
-      const res = await window.API.apiCall('/academic/resources?type=material' + params, 'GET');
-      
-      if (res?.success) {
-        this.state.materials = res.data || [];
-        this.renderMaterialsGrid();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load teaching materials', 'error');
-      }
+      this.state.materials = await window.API.apiCall('/academic/resources?type=material' + params, 'GET') || [];
+      this.renderMaterialsGrid();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading teaching materials:', error);
       this.showNotification('Failed to load teaching materials', 'error');

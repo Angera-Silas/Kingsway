@@ -1,0 +1,194 @@
+trigger_definers	COUNT(*)
+trigger_definers	0
+event_definers	0
+routine_definers	0
+TRIGGER_NAME	EVENT_OBJECT_TABLE	ACTION_TIMING	EVENT_MANIPULATION	DEFINER
+trg_validate_academic_term	academic_year_terms	BEFORE	INSERT	root@localhost
+trg_complete_staff_assignments_on_year_end	academic_years	AFTER	UPDATE	root@localhost
+trg_auto_create_notification	announcements_bulletin	AFTER	INSERT	root@localhost
+trg_bank_payment_processed	bank_transactions	AFTER	INSERT	root@localhost
+trg_auto_start_comm_workflow	communications	AFTER	INSERT	root@localhost
+trg_check_maintenance_overdue	equipment_maintenance	BEFORE	UPDATE	root@localhost
+trg_expense_approved_update_budget	expenses	AFTER	UPDATE	root@localhost
+trg_log_email_delivery	external_emails	AFTER	UPDATE	root@localhost
+trg_check_meal_plan_completion	food_consumption_records	AFTER	INSERT	root@localhost
+trg_log_food_consumption	food_consumption_records	AFTER	INSERT	root@localhost
+trg_audit_allocation_insert	inventory_allocations	AFTER	INSERT	root@localhost
+trg_log_allocation_status	inventory_allocations	AFTER	UPDATE	root@localhost
+trg_audit_inventory_insert	inventory_items	AFTER	INSERT	root@localhost
+trg_mpesa_payment_processed	mpesa_transactions	AFTER	INSERT	root@localhost
+trg_update_onboarding_progress	onboarding_tasks	AFTER	UPDATE	root@localhost
+trg_update_obligation_on_payment	payments	AFTER	INSERT	root@localhost
+trg_validate_payroll_payment	payslips	BEFORE	UPDATE	root@localhost
+trg_validate_email	persons	BEFORE	INSERT	root@localhost
+trg_role_delegations_prevent_insert	role_delegations	BEFORE	INSERT	root@localhost
+trg_role_delegations_prevent_update	role_delegations	BEFORE	UPDATE	root@localhost
+trg_assign_financial_period	school_transactions	AFTER	INSERT	root@localhost
+trg_check_leave_overlap	staff_leaves	BEFORE	INSERT	root@localhost
+trg_update_leave_balance	staff_leaves	AFTER	UPDATE	root@localhost
+trg_validate_class_capacity	student_academic_enrollments	BEFORE	INSERT	root@localhost
+trg_create_student_obligations	student_academic_enrollments	AFTER	INSERT	root@localhost
+trg_enrollment_auto_onboard	student_academic_enrollments	AFTER	INSERT	root@localhost
+trg_student_application_backfill	students	AFTER	INSERT	root@localhost
+trg_update_class_capacity	students	AFTER	INSERT	root@localhost
+trg_update_student_status	students	AFTER	UPDATE	root@localhost
+trg_prevent_user_delete	users	BEFORE	DELETE	root@localhost
+EVENT_NAME	STATUS	DEFINER	LAST_EXECUTED
+evt_vehicle_maintenance_alerts	ENABLED	root@localhost	2026-08-18 02:18:23
+evt_staff_appraisal_reminders	ENABLED	root@localhost	NULL
+evt_process_attendance_summary	ENABLED	root@localhost	2026-08-18 02:18:23
+evt_process_academic_summary	ENABLED	root@localhost	NULL
+ev_yearly_portfolio_archive_reminder	ENABLED	root@localhost	NULL
+ev_weekly_maintenance_notify	ENABLED	root@localhost	2026-08-15 07:00:00
+ev_term_end_values_summary	ENABLED	root@localhost	NULL
+ev_quarterly_csl_audit	ENABLED	root@localhost	NULL
+ev_monthly_competency_report_reminder	ENABLED	root@localhost	NULL
+ev_daily_attendance_report	ENABLED	root@localhost	2026-08-17 07:00:00
+ROUTINE_TYPE	ROUTINE_NAME	DEFINER	SQL_DATA_ACCESS	SECURITY_TYPE
+FUNCTION	calculate_class_average	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	calculate_grade	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	calculate_points	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	calculate_student_age	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	calculate_term_fees	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_generate_admission_no	root@localhost	MODIFIES SQL DATA	DEFINER
+FUNCTION	fn_get_admission_workflow_communication	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_get_batch_approval_percentage	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_get_child_discount_rate	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_get_parent_children_count	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_get_parent_total_fee_balance	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_get_student_promotion_status	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_has_permission	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_is_school_day	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_is_student_suspended	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	fn_notify_low_stock	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_staff_expected_today	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_student_fee_due	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_student_has_permission	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_student_outstanding_balance	root@localhost	CONTAINS SQL	DEFINER
+FUNCTION	fn_user_has_permission	root@localhost	READS SQL DATA	DEFINER
+FUNCTION	generate_student_number	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	add_students_to_class	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_add_custom_stream	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_add_item_to_inventory	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_advance_admission_workflow_stage	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_advance_workflow_stage	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_apply_fee_discount	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_apply_staff_loan	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_approve_class_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_approve_student_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_assess_learner_competency	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_assign_financial_period	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_assign_student_transport	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_auto_generate_onboarding_tasks	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_auto_rollover_fee_structures	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_inventory_reconciliation	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_mark_staff_attendance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_mark_student_attendance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_payroll_calculation	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_transport_assignment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_bulk_upsert_json	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_annual_scores	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_kpi_achievement_score	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_nhif_contribution	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_nssf_contribution	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_paye_tax	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_staff_child_fees	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_staff_full_payroll	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_staff_leave_balance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_student_fees	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_calculate_term_subject_score	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_carryover_fee_balance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_check_class_space_availability	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_check_finance_clearance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_check_form_permission	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_check_record_permission	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_check_student_transport_status	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_cleanup_expired_blocks	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_compare_to_benchmark	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_compile_exam_results	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_complete_promotion_batch	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_complete_student_enrollment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_consolidate_term_scores	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_create_arrears_settlement_plan	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_create_exam_schedule	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_create_parent	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_create_promotion_batch	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_detect_schedule_conflicts	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_enroll_student_in_class	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_ensure_class_streams	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_comment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_p9_form	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_school_year_report	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_student_fee_obligations	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_student_report	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_generate_year_calendar	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_assessment_trends	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_class_fee_schedule	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_competency_report	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_dormitory_students	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_family_group_details	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_fee_breakdown_for_review	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_fee_collection_rate	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_outstanding_fees_report	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_parent_children	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_payments_by_admission	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_staff_kpi_summary	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_get_user_permissions	root@localhost	READS SQL DATA	DEFINER
+PROCEDURE	sp_get_values_summary	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_implement_discipline_action	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_initialize_transfer_clearances	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_link_parent_to_student	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_mark_boarding_attendance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_mark_uniform_sale_paid	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_migrate_admission_applications_to_new_workflow	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_moderate_marks	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_onboard_student_enrollment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_place_application_into_class	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_process_staff_payroll	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_process_staff_performance_review	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_process_student_payment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_process_student_sponsorship	root@localhost	MODIFIES SQL DATA	DEFINER
+PROCEDURE	sp_promote_bulk_students	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_promote_by_grade_bulk	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_promote_single_class	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_reallocate_all_payments	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_assessment_change	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_cash_payment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_conduct	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_core_value	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_csl_participation	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_discipline_case	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_payment_security_event	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_pci_awareness	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_transport_payment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_record_uniform_payment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_refresh_student_payment_summary	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_register_applicant_as_student	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_register_uniform_sale	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_reject_class_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_reject_student_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_remove_custom_stream	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_request_staff_advance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_schedule_maintenance	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_search_family_groups	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_send_fee_reminder	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_send_fee_reminders	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_suspend_student_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_track_student_behavior	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_transfer_student_promotion	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_transition_to_new_academic_year	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_transition_to_new_term	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_unlink_parent_from_student	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_update_parent	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_users_with_multiple_roles	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_users_with_permission	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_users_with_role	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_users_with_temporary_permissions	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_user_get_denied_permissions	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_user_get_effective_permissions	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_user_get_permissions_by_entity	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_user_get_permission_summary	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_user_get_roles_detailed	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_validate_payment_request	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_validate_staff_assignment	root@localhost	CONTAINS SQL	DEFINER
+PROCEDURE	sp_validate_term_holiday_conflicts	root@localhost	CONTAINS SQL	DEFINER

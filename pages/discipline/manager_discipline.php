@@ -64,7 +64,7 @@
         <option value="resolved">Resolved</option>
     </select>
     <input type="text" class="filter-search" id="searchCase" placeholder="🔍 Search...">
-    <button class="btn btn-primary btn-sm" onclick="showNewCaseModal()">➕ Report Case</button>
+    <button class="btn btn-primary btn-sm" onclick="DisciplineController.showNewCaseModal()">➕ Report Case</button>
 </div>
 
 <!-- Table - 7 columns -->
@@ -72,13 +72,13 @@
     <table class="manager-data-table" id="casesTable">
         <thead>
             <tr>
-                <th>Date</th>
-                <th>Student</th>
-                <th>Class</th>
-                <th>Category</th>
-                <th>Severity</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th scope="col">Date</th>
+                <th scope="col">Student</th>
+                <th scope="col">Class</th>
+                <th scope="col">Category</th>
+                <th scope="col">Severity</th>
+                <th scope="col">Status</th>
+                <th scope="col">Actions</th>
             </tr>
         </thead>
         <tbody id="casesTableBody">
@@ -142,157 +142,5 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        loadCases();
-        loadStats();
-        loadStudents();
-        initCharts();
-        initEventListeners();
-    });
+<?php asset_script($appBase, 'js/pages/discipline.js'); ?>
 
-    async function loadCases(filters = {}) {
-        const tbody = document.getElementById('casesTableBody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></td></tr>';
-        try {
-            const params = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([,v]) => v)));
-            const qs = params.toString();
-            const response = await callAPI('/students/discipline-get' + (qs ? '?' + qs : ''), 'GET');
-            window._managerCases = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
-            renderCasesTable(window._managerCases);
-        } catch (error) {
-            console.error('Error loading cases:', error);
-            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center py-4">Failed to load cases.</td></tr>';
-        }
-    }
-
-    async function loadStats() {
-        try {
-            const cases = window._managerCases || [];
-            document.getElementById('totalCases').textContent    = cases.length;
-            document.getElementById('openCases').textContent     = cases.filter(c => c.status === 'open' || c.status === 'under_review').length;
-            document.getElementById('resolvedCases').textContent = cases.filter(c => c.status === 'resolved').length;
-        } catch (error) {
-            console.error('Error loading stats:', error);
-        }
-    }
-
-    async function loadStudents() {
-        try {
-            const response = await API.students.getAll({ status: 'active' });
-            if (response.success) {
-                const select = document.getElementById('studentId');
-                response.data.forEach(s => {
-                    select.add(new Option(`${s.full_name} (${s.admission_no})`, s.id));
-                });
-            }
-        } catch (error) {
-            console.error('Error loading students:', error);
-        }
-    }
-
-    function initCharts() {
-        new Chart(document.getElementById('trendChart'), {
-            type: 'bar',
-            data: { labels: [], datasets: [{ data: [], backgroundColor: 'var(--gold-500)' }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-        });
-
-        new Chart(document.getElementById('categoryChart'), {
-            type: 'doughnut',
-            data: { labels: [], datasets: [{ data: [], backgroundColor: ['#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'] }] },
-            options: { responsive: true, maintainAspectRatio: false }
-        });
-    }
-
-    function initEventListeners() {
-        document.getElementById('filterCategory').addEventListener('change', applyFilters);
-        document.getElementById('filterStatus').addEventListener('change', applyFilters);
-        document.getElementById('searchCase').addEventListener('input', debounce(applyFilters, 300));
-        document.getElementById('saveCaseBtn').addEventListener('click', saveCase);
-    }
-
-    function applyFilters() {
-        loadCases({
-            category: document.getElementById('filterCategory').value,
-            status: document.getElementById('filterStatus').value,
-            search: document.getElementById('searchCase').value
-        });
-    }
-
-    function renderCasesTable(cases) {
-        const tbody = document.getElementById('casesTableBody');
-        tbody.innerHTML = '';
-
-        if (cases.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center p-4">No cases found</td></tr>';
-            return;
-        }
-
-        cases.forEach(c => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-            <td>${formatDate(c.incident_date)}</td>
-            <td><strong>${escapeHtml(c.student_name)}</strong></td>
-            <td>${escapeHtml(c.class_name || '-')}</td>
-            <td><span class="badge">${c.category}</span></td>
-            <td><span class="severity-badge severity-${c.severity}">${c.severity}</span></td>
-            <td><span class="status-badge status-${c.status}">${c.status}</span></td>
-            <td class="manager-row-actions">
-                <button class="action-btn" onclick="viewCase(${c.id})">👁</button>
-                <button class="action-btn" onclick="editCase(${c.id})">✏️</button>
-            </td>
-        `;
-            tbody.appendChild(row);
-        });
-
-        document.getElementById('showingCount').textContent = cases.length;
-    }
-
-    function showNewCaseModal() {
-        document.getElementById('caseForm').reset();
-        new bootstrap.Modal(document.getElementById('caseModal')).show();
-    }
-
-    async function saveCase() {
-        const form = document.getElementById('caseForm');
-        if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
-        const caseId = document.getElementById('caseId')?.value;
-        const payload = {
-            student_id:    document.getElementById('studentId').value,
-            incident_date: document.getElementById('incidentDate')?.value,
-            category:      document.getElementById('category').value,
-            severity:      document.getElementById('severity')?.value,
-            description:   document.getElementById('description').value.trim(),
-        };
-        try {
-            if (caseId) {
-                await callAPI('/students/discipline-update/' + caseId, 'PUT', payload);
-                showNotification('Case updated', 'success');
-            } else {
-                await callAPI('/students/discipline-record', 'POST', { ...payload, reported_by: AuthContext.getUser()?.user_id });
-                showNotification('Case recorded', 'success');
-            }
-            bootstrap.Modal.getInstance(document.getElementById('caseModal'))?.hide();
-            loadCases();
-        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
-    }
-
-    function viewCase(id) {
-        const c = (window._managerCases || []).find(x => x.id == id);
-        if (!c) return;
-        if (document.getElementById('caseId')) document.getElementById('caseId').value = c.id;
-        document.getElementById('studentId').value   = c.student_id || '';
-        if (document.getElementById('incidentDate')) document.getElementById('incidentDate').value = c.incident_date || '';
-        document.getElementById('category').value    = c.category || '';
-        if (document.getElementById('severity')) document.getElementById('severity').value = c.severity || '';
-        document.getElementById('description').value = c.description || '';
-        bootstrap.Modal.getOrCreateInstance(document.getElementById('caseModal')).show();
-    }
-
-    function editCase(id) { viewCase(id); }
-
-    function formatDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }
-    function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
-    function debounce(fn, d) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), d); }; }
-</script>

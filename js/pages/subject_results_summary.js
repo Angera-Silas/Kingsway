@@ -50,16 +50,19 @@ const subjectResultsController = (() => {
     function cbcGrade(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
-        if (n >= 80) return 'EE';
-        if (n >= 50) return 'ME';
-        if (n >= 25) return 'AE';
-        return 'BE';
+        return GradingScale.grade(n) || null;
     }
+
+    const _esc = (s) => {
+        const d = document.createElement('div');
+        d.textContent = String(s ?? '');
+        return d.innerHTML;
+    };
 
     async function loadYears() {
         try {
             const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
+            state.years = response || [];
             const select = document.getElementById('yearFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Years</option>';
@@ -79,7 +82,7 @@ const subjectResultsController = (() => {
     async function loadTerms() {
         try {
             const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
+            state.terms = response || [];
             const select = document.getElementById('termFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Terms</option>';
@@ -99,17 +102,17 @@ const subjectResultsController = (() => {
     async function loadSubjects() {
         try {
             // Load only subjects assigned to this teacher
-            const response = await apiCall('academic/subjects-list', 'GET', {
+            const response = await apiCall('academic/subjects-list', 'GET', null, {
                 subject_teacher_only: true
             });
-            state.subjects = response.data || [];
+            state.subjects = response || [];
             const select = document.getElementById('subjectFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Subjects</option>';
                 state.subjects.forEach(subject => {
                     const option = document.createElement('option');
                     option.value = subject.id;
-                    option.textContent = subject.subject_name;
+                    option.textContent = subject.name || subject.subject_name;
                     select.appendChild(option);
                 });
             }
@@ -121,14 +124,14 @@ const subjectResultsController = (() => {
     async function loadClasses() {
         try {
             const response = await apiCall('academic/classes-list');
-            state.classes = response.data || [];
+            state.classes = response || [];
             const select = document.getElementById('classFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Classes</option>';
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.class_name;
+                    option.textContent = cls.name || cls.class_name;
                     select.appendChild(option);
                 });
             }
@@ -144,7 +147,7 @@ const subjectResultsController = (() => {
             const subjectId = document.getElementById('subjectFilter')?.value || '';
             const classId = document.getElementById('classFilter')?.value || '';
 
-            const response = await apiCall('academic/results', 'GET', {
+            const response = await apiCall('academic/results', 'GET', null, {
                 year_id: yearId,
                 term_id: termId,
                 subject_id: subjectId,
@@ -152,7 +155,7 @@ const subjectResultsController = (() => {
                 subject_teacher_only: true // Only show results for this teacher's subjects
             });
 
-            state.results = response.data || [];
+            state.results = response || [];
             renderResults();
             updateStats();
         } catch (error) {
@@ -184,14 +187,14 @@ const subjectResultsController = (() => {
             return `
                 <tr>
                     <td>
-                        <strong>${result.student_name || 'Unknown'}</strong>
+                        <strong>${_esc(result.student_name) || 'Unknown'}</strong>
                     </td>
-                    <td>${result.admission_no || '—'}</td>
-                    <td>${result.class_name || '—'}</td>
-                    <td>${result.subject_name || '—'}</td>
-                    <td><strong>${result.marks || 0}%</strong></td>
-                    <td><span class="badge bg-${gradeColor}">${grade || '—'}</span></td>
-                    <td><span class="text-muted small">${remarks || '—'}</span></td>
+                    <td>${_esc(result.admission_no) || '—'}</td>
+                    <td>${_esc(result.class_name) || '—'}</td>
+                    <td>${_esc(result.subject_name) || '—'}</td>
+                    <td><strong>${Number(result.marks) || 0}%</strong></td>
+                    <td><span class="badge bg-${gradeColor}">${_esc(grade) || '—'}</span></td>
+                    <td><span class="text-muted small">${_esc(remarks) || '—'}</span></td>
                 </tr>
             `;
         }).join('');
@@ -347,15 +350,17 @@ const subjectResultsController = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
 
+        await GradingScale.preload();
+
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in subject_results_summary:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

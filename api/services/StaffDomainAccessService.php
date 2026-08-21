@@ -46,8 +46,13 @@ final class StaffDomainAccessService
             return null;
         }
 
+        // users.staff_id was dropped in the 4NF schema — the staff↔user link is
+        // the shared persons row (staff.person_id = users.person_id).
         $row = $this->db->query(
-            'SELECT id FROM staff WHERE user_id = ? LIMIT 1',
+            'SELECT s.id
+             FROM staff s
+             JOIN users u ON u.person_id = s.person_id
+             WHERE u.id = ? LIMIT 1',
             [$userId]
         )->fetch(PDO::FETCH_ASSOC);
 
@@ -136,10 +141,17 @@ final class StaffDomainAccessService
 
     public function payrollEligibility(int $staffId): array
     {
+        // Identity (first_name/last_name) now lives ONLY on persons; the payroll
+        // Payroll identity and compensation are sourced from the normalized
+        // payroll profile; staff is only the employment subtype.
         $staff = $this->db->query(
-            'SELECT id, staff_no, first_name, last_name, status, salary, bank_name, bank_account,
-                    kra_pin, nssf_no, nhif_no, employment_date
-             FROM staff WHERE id = ? LIMIT 1',
+            'SELECT s.id, s.staff_no, s.status, COALESCE(spp.basic_salary,0) AS salary, s.employment_date,
+                    p.first_name, p.last_name,
+                    spp.bank_name, spp.bank_account, spp.kra_pin, spp.nssf_no, spp.nhif_no
+             FROM staff s
+             JOIN persons p ON p.id = s.person_id
+             LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+             WHERE s.id = ? LIMIT 1',
             [$staffId]
         )->fetch(PDO::FETCH_ASSOC);
 
@@ -178,21 +190,22 @@ final class StaffDomainAccessService
                 'before' => $before,
                 'after' => $after,
             ];
+            // staff_domain_audit was dropped; the domain audit trail now lives in the
+            // file-based audit log. staff_id is preserved inside details, and the
+            // browser user_agent is captured too.
+            $details['staff_id'] = $this->staffId();
 
-            $this->db->query(
-                'INSERT INTO staff_domain_audit
-                    (user_id, staff_id, action, entity_type, entity_id, details, ip_address, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
-                [
-                    $this->userId() ?: null,
-                    $this->staffId(),
-                    $action,
-                    $entityType,
-                    $entityId !== null ? (string) $entityId : null,
-                    json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-                    $_SERVER['REMOTE_ADDR'] ?? null,
-                ]
-            );
+            \App\API\Includes\FileLogger::write('audit', [
+                'type' => 'audit',
+                'user_id' => $this->userId() ?: null,
+                'action' => $action,
+                'entity' => $entityType,
+                'entity_id' => $entityId !== null ? (string) $entityId : null,
+                'details' => $details,
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+                'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+                'status' => 'success',
+            ]);
         } catch (\Throwable $ignored) {
             // Audit failure must not corrupt the business transaction.
         }

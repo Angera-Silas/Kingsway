@@ -18,15 +18,18 @@ class SubjectTeacherAnalyticsService
     public function getClassesStats()
     {
         // Query DB for classes assigned to this subject teacher
-        $sql = "SELECT COUNT(DISTINCT c.id) as total_classes, 
-                       COUNT(DISTINCT s.id) as total_students,
-                       IFNULL(ROUND(COUNT(DISTINCT s.id)/NULLIF(COUNT(DISTINCT c.id),0),0),0) as average_class_size
-                FROM classes c
-                JOIN class_assignments ca ON ca.class_id = c.id
-                -- Students are associated via streams; join class_streams then students by stream_id
-                LEFT JOIN class_streams cs2 ON cs2.class_id = c.id
-                LEFT JOIN students s ON s.stream_id = cs2.id AND s.status = 'active'
-                WHERE ca.user_id = ? AND ca.role = 'subject_teacher'";
+        // Map: class_assignments → academic_year_class_learning_area_teachers
+        // Map: class_streams + students with stream_id → student_academic_enrollments
+        $sql = "SELECT COUNT(DISTINCT aac.id) as total_classes, 
+                       COUNT(DISTINCT sae.student_id) as total_students,
+                       IFNULL(ROUND(COUNT(DISTINCT sae.student_id)/NULLIF(COUNT(DISTINCT aac.id),0),0),0) as average_class_size
+                FROM academic_year_class_learning_area_teachers ayclat
+                JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
+                LEFT JOIN student_academic_enrollments sae ON aycs.id = sae.academic_year_class_stream_id 
+                  AND sae.enrollment_status = 'active'
+                WHERE ayclat.staff_id = ?";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         return [
@@ -40,13 +43,16 @@ class SubjectTeacherAnalyticsService
     public function getSectionsStats()
     {
         // Query DB for sections/streams taught by this subject teacher
-        $sql = "SELECT COUNT(DISTINCT cs.id) as total_sections, 
+        // Map: class_assignments + class_streams → academic_year_class_learning_area_teachers + academic_year_class_streams
+        $sql = "SELECT COUNT(DISTINCT aycs.id) as total_sections, 
                        GROUP_CONCAT(DISTINCT c.name) as forms_taught, 
-                       COUNT(DISTINCT cs.id) as streams_count
-                FROM class_assignments ca
-                JOIN class_streams cs ON cs.id = ca.stream
-                JOIN classes c ON cs.class_id = c.id
-                WHERE ca.user_id = ? AND ca.role = 'subject_teacher'";
+                       COUNT(DISTINCT aycs.id) as streams_count
+                FROM academic_year_class_learning_area_teachers ayclat
+                JOIN academic_year_class_learning_areas aycla ON ayclat.academic_year_class_learning_area_id = aycla.id
+                JOIN academic_year_classes aac ON aac.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = aac.id
+                JOIN classes c ON aac.class_id = c.id
+                WHERE ayclat.staff_id = ?";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         $forms = isset($row['forms_taught']) ? explode(',', $row['forms_taught']) : [];
@@ -61,21 +67,31 @@ class SubjectTeacherAnalyticsService
     public function getAssessmentsDueStats()
     {
         // Query DB for pending assessments that belong to classes/subjects assigned to this teacher
-        $sql = "SELECT COUNT(*) as pending_assessments,
+        $sql = "SELECT COUNT(DISTINCT a.id) as pending_assessments,
                        SUM(CASE WHEN a.assessment_date >= CURDATE() AND a.assessment_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as due_soon,
                        SUM(CASE WHEN a.assessment_date < CURDATE() THEN 1 ELSE 0 END) as overdue
                 FROM assessments a
-                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
-                WHERE a.status = 'pending'";
+                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                  AND aycla.learning_area_id = a.learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                  AND aycs.id = a.academic_year_class_stream_id
+                WHERE a.status IN ('submitted','pending_approval')";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
 
         // Count distinct students covered by these pending assessments (based on assessment_results)
-        $studentCountSql = "SELECT COUNT(DISTINCT ar.student_id) as total_students_assessed
+        $studentCountSql = "SELECT COUNT(DISTINCT ar.student_academic_enrollment_id) as total_students_assessed
                             FROM assessment_results ar
                             JOIN assessments a ON ar.assessment_id = a.id
-                            JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
-                            WHERE a.status = 'pending'";
+                            JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                            JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                              AND aycla.learning_area_id = a.learning_area_id
+                            JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                            JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                              AND aycs.id = a.academic_year_class_stream_id
+                            WHERE a.status IN ('submitted','pending_approval')";
         $scStmt = $this->db->query($studentCountSql, [$this->userId]);
         $scRow = $scStmt->fetch();
 
@@ -91,13 +107,18 @@ class SubjectTeacherAnalyticsService
     public function getGradedStats()
     {
         // Query DB for assessments graded this week
-        $sql = "SELECT COUNT(*) as graded_this_week,
-                       IFNULL(AVG(marks_obtained),0) as average_score,
-                       SUM(CASE WHEN marks_obtained >= 70 THEN 1 ELSE 0 END) as high_performers,
-                       SUM(CASE WHEN marks_obtained < 40 THEN 1 ELSE 0 END) as low_performers
+        $sql = "SELECT COUNT(DISTINCT ar.id) as graded_this_week,
+                       IFNULL(AVG(ar.marks_obtained),0) as average_score,
+                       SUM(CASE WHEN ar.marks_obtained >= 70 THEN 1 ELSE 0 END) as high_performers,
+                       SUM(CASE WHEN ar.marks_obtained < 40 THEN 1 ELSE 0 END) as low_performers
                 FROM assessment_results ar
                 JOIN assessments a ON ar.assessment_id = a.id
-                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                  AND aycla.learning_area_id = a.learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                  AND aycs.id = a.academic_year_class_stream_id
                 WHERE WEEK(ar.submitted_at) = WEEK(CURDATE()) AND ar.is_submitted = 1";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
@@ -113,13 +134,18 @@ class SubjectTeacherAnalyticsService
     public function getExamsStats()
     {
         // Query DB for upcoming exams scoped to this teacher via assignments
-        $sql = "SELECT COUNT(*) as scheduled_exams,
+        $sql = "SELECT COUNT(DISTINCT es.id) as scheduled_exams,
                        MIN(DATEDIFF(es.exam_date, CURDATE())) as next_exam_days,
                        COUNT(DISTINCT c.id) as forms_with_exams,
-                       COUNT(*) as total_exam_sessions
+                       COUNT(DISTINCT es.id) as total_exam_sessions
                 FROM exam_schedules es
-                JOIN class_assignments ca ON ca.class_id = es.class_id AND (ca.subject_id IS NULL OR ca.subject_id = es.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
-                JOIN classes c ON es.class_id = c.id
+                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                  AND aycla.learning_area_id = es.learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                  AND aycs.id = es.academic_year_class_stream_id
+                JOIN classes c ON ayc.class_id = c.id
                 WHERE es.exam_date >= CURDATE()";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
@@ -155,10 +181,15 @@ class SubjectTeacherAnalyticsService
     public function getPendingAssessments()
     {
         // Query DB for pending assessments list
-        $sql = "SELECT a.id, a.class_id as class, a.title, a.assessment_date as due_date
+        $sql = "SELECT a.id, a.academic_year_class_stream_id as class, a.title, a.assessment_date as due_date
                 FROM assessments a
-                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
-                WHERE a.status = 'pending'";
+                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                  AND aycla.learning_area_id = a.learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                  AND aycs.id = a.academic_year_class_stream_id
+                WHERE a.status IN ('submitted','pending_approval')";
         $stmt = $this->db->query($sql, [$this->userId]);
         $data = $stmt->fetchAll();
         $total = count($data);
@@ -171,9 +202,14 @@ class SubjectTeacherAnalyticsService
     public function getExamSchedule()
     {
         // Query DB for upcoming exam schedule scoped to this teacher via assignments
-        $sql = "SELECT es.id, es.class_id as class, es.exam_date as date, es.start_time as time, es.room_id as room
+        $sql = "SELECT es.id, es.academic_year_class_stream_id as class, es.exam_date as date, es.start_time as time, es.room_id as room
                 FROM exam_schedules es
-                JOIN class_assignments ca ON ca.class_id = es.class_id AND (ca.subject_id IS NULL OR ca.subject_id = es.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                  AND aycla.learning_area_id = es.learning_area_id
+                JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                  AND aycs.id = es.academic_year_class_stream_id
                 WHERE es.exam_date >= CURDATE()
                 ORDER BY es.exam_date, es.start_time";
         $stmt = $this->db->query($sql, [$this->userId]);
@@ -191,19 +227,19 @@ class SubjectTeacherAnalyticsService
     public function getSubjectPerformanceChart(): array
     {
         try {
+            // Map: class_streams + students with stream_id → academic_year_class_streams + student_academic_enrollments
             $sql = "SELECT 
                         CASE 
-                            WHEN c.name = cs.stream_name THEN c.name
-                            ELSE CONCAT(c.name, ' ', COALESCE(cs.stream_name, ''))
+                            WHEN v.class_name = v.stream_name THEN v.class_name
+                            ELSE CONCAT(v.class_name, ' ', COALESCE(v.stream_name, ''))
                         END as class_name,
-                        AVG(ar.marks_obtained) as average_score
-                    FROM assessment_results ar
-                    JOIN assessments a ON ar.assessment_id = a.id
-                    JOIN students s ON ar.student_id = s.id
-                    JOIN class_streams cs ON s.stream_id = cs.id
-                    JOIN classes c ON cs.class_id = c.id
-                    JOIN class_assignments ca ON ca.class_id = c.id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
-                    GROUP BY c.id, c.name, cs.stream_name
+                        AVG(v.percentage) as average_score
+                    FROM vw_assessment_results_detail v
+                    JOIN assessments a ON v.assessment_id = a.id
+                    JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                    JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                      AND aycla.learning_area_id = a.learning_area_id
+                    GROUP BY v.class_name, v.stream_name
                     ORDER BY average_score DESC
                     LIMIT 10";
             $stmt = $this->db->query($sql, [$this->userId]);
@@ -235,7 +271,12 @@ class SubjectTeacherAnalyticsService
                         COUNT(DISTINCT a.id) as assessments_count
                     FROM assessment_results ar
                     JOIN assessments a ON ar.assessment_id = a.id
-                    JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                    JOIN academic_year_class_learning_area_teachers aclat ON aclat.staff_id = ?
+                    JOIN academic_year_class_learning_areas aycla ON aycla.id = aclat.academic_year_class_learning_area_id
+                      AND aycla.learning_area_id = a.learning_area_id
+                    JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                    JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
+                      AND aycs.id = a.academic_year_class_stream_id
                     WHERE ar.is_submitted = 1 
                         AND ar.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
                     GROUP BY DATE_FORMAT(ar.submitted_at, '%Y-%m')

@@ -101,6 +101,11 @@ class BankPaymentWebhook
                 return formatResponse(false, null, 'Missing required payment fields');
             }
 
+            $application = $this->getApplicationByReference($accountNumber);
+            if ($application) {
+                return $this->recordApplicationPaymentFromBank($application, $amount, $transactionRef, $transactionDate, $bankName, $narration, $paymentData);
+            }
+
             // FIX: Validate admission number and get student
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
@@ -126,10 +131,10 @@ class BankPaymentWebhook
                 return formatResponse(false, null, "Payment amount exceeds outstanding balance. Max allowed: " . number_format($maxAllowed, 2));
             }
 
-            // Check for duplicate transaction - FIX: Use row locking to prevent race condition
+            // Check for duplicate transaction - FIX: Use row locking to prevent race condition (3NF: payments table)
             $stmt = $this->db->prepare("
-                SELECT id FROM payment_transactions 
-                WHERE reference_no = ?
+                SELECT id FROM payments 
+                WHERE reference = ?
                 LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
@@ -158,10 +163,10 @@ class BankPaymentWebhook
                 $narration . ' - ' . $student['admission_number']  // p_notes
             ]);
 
-            // Get the payment ID
+            // Get the payment ID (3NF: payments table)
             $stmt = $this->db->prepare("
-                SELECT id FROM payment_transactions 
-                WHERE reference_no = ? 
+                SELECT id FROM payments 
+                WHERE reference = ? 
                 ORDER BY id DESC LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
@@ -169,12 +174,16 @@ class BankPaymentWebhook
 
             if ($payment) {
                 // Record bank transaction details
+                // NOTE: status is 'recorded' (not 'processed') because
+                // sp_process_student_payment already credited the balance.
+                // Using 'processed' would fire trg_bank_payment_processed
+                // and double-credit the student.
                 $stmt = $this->db->prepare("
                     INSERT INTO bank_transactions (
                         student_id, transaction_ref, amount, transaction_date,
                         bank_name, account_number, narration, status,
-                        webhook_data
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processed', ?)
+                        source_type, webhook_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', 'api_callback', ?)
                 ");
 
                 $stmt->execute([
@@ -203,7 +212,8 @@ class BankPaymentWebhook
         } catch (Exception $e) {
             error_log("Bank Payment Processing Error: " . $e->getMessage());
             $this->logWebhookError('KCB', $e->getMessage(), $paymentData);
-            return formatResponse(false, null, 'Failed to process bank payment: ' . $e->getMessage());
+            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -227,6 +237,11 @@ class BankPaymentWebhook
 
             if (!$accountNumber || !$amount || !$transactionRef) {
                 return formatResponse(false, null, 'Invalid payment data format');
+            }
+
+            $application = $this->getApplicationByReference($accountNumber);
+            if ($application) {
+                return $this->recordApplicationPaymentFromBank($application, $amount, $transactionRef, $transactionDate, $bankName, $bankName . ' Payment', $paymentData);
             }
 
             // Get student by admission number
@@ -264,7 +279,8 @@ class BankPaymentWebhook
 
         } catch (Exception $e) {
             error_log("Bank Payment Error: " . $e->getMessage());
-            return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+            error_log('[BankPaymentWebhook] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -276,12 +292,13 @@ class BankPaymentWebhook
     private function getStudentByAdmission($accountNumber)
     {
         try {
-            $admissionCol = $this->resolveAdmissionColumn();
-            $sql = "SELECT s.id, s.first_name, s.last_name, s." . $admissionCol . " AS admission_number, 
+$admissionCol = $this->resolveAdmissionColumn();
+            $sql = "SELECT s.id, p.first_name, p.last_name, s." . $admissionCol . " AS admission_number, 
                            COALESCE(sp.parent_id, 0) AS parent_id
                     FROM students s
+                    LEFT JOIN persons p ON p.id = s.person_id
                     LEFT JOIN student_parents sp ON s.id = sp.student_id
-                    WHERE s." . $admissionCol . " = ? 
+                    WHERE s." . $admissionCol . " = ?
                     LIMIT 1";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$accountNumber]);
@@ -290,6 +307,96 @@ class BankPaymentWebhook
             error_log("Error fetching student: " . $e->getMessage());
             return null;
         }
+    }
+
+    private function getApplicationByReference(string $reference): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT aa.id AS application_id, aa.application_no, aa.parent_id,
+                    CASE WHEN EXISTS (
+                        SELECT 1 FROM student_academic_enrollments sae
+                        WHERE sae.student_id = aa.enrolled_student_id
+                          AND sae.enrollment_status = 'active'
+                    ) THEN aa.enrolled_student_id ELSE NULL END AS student_id
+             FROM admission_applications aa
+             LEFT JOIN students s ON s.id = aa.enrolled_student_id
+             WHERE (aa.application_no = :reference OR s.admission_no = :reference)
+               AND aa.status NOT IN ('cancelled', 'rejected')
+             LIMIT 1"
+        );
+        $stmt->execute(['reference' => trim($reference)]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
+    private function recordApplicationPaymentFromBank(array $application, float $amount, string $transactionRef, string $transactionDate, string $bankName, string $narration, array $payload)
+    {
+        if ($amount <= 0) return formatResponse(false, null, 'Payment amount must be greater than zero');
+
+        $duplicate = $this->db->prepare("SELECT id FROM admission_payments WHERE reference_no = :reference LIMIT 1");
+        $duplicate->execute(['reference' => $transactionRef]);
+        if ($duplicate->fetchColumn()) return formatResponse(false, null, 'Duplicate transaction');
+
+        $insert = $this->db->prepare(
+            "INSERT INTO admission_payments
+                (application_id, student_id, amount, payment_method, reference_no, receipt_no,
+                 payment_date, notes, status, recorded_by, created_at)
+             VALUES (:application_id, :student_id, :amount, 'bank_transfer', :reference_no, :receipt_no,
+                     :payment_date, :notes, 'recorded', 1, NOW())"
+        );
+        $insert->execute([
+            'application_id' => (int) $application['application_id'],
+            'student_id' => !empty($application['student_id']) ? (int) $application['student_id'] : null,
+            'amount' => $amount,
+            'reference_no' => $transactionRef,
+            'receipt_no' => 'BANK-' . $transactionRef,
+            'payment_date' => $transactionDate,
+            'notes' => $narration . ' — confirmed bank payment using account reference',
+        ]);
+        $paymentId = (int) $this->db->lastInsertId();
+
+        $bank = $this->db->prepare(
+            "INSERT INTO bank_transactions
+                (transaction_ref, student_id, amount, transaction_date, bank_name, account_number,
+                 narration, status, matching_status, reconciled, reconciled_at, source_type, webhook_data)
+             VALUES (:transaction_ref, :student_id, :amount, :transaction_date, :bank_name, :account_number,
+                     :narration, 'recorded', 'matched', 1, NOW(), 'api_callback', :webhook_data)"
+        );
+        $bank->execute([
+            'transaction_ref' => $transactionRef,
+            'student_id' => !empty($application['student_id']) ? (int) $application['student_id'] : null,
+            'amount' => $amount,
+            'transaction_date' => $transactionDate,
+            'bank_name' => $bankName,
+            'account_number' => $application['application_no'],
+            'narration' => $narration,
+            'webhook_data' => json_encode($payload),
+        ]);
+
+        $posted = 0;
+        if (!empty($application['student_id'])) {
+            $paymentService = new \App\API\Modules\admission\AdmissionPaymentService($this->db);
+            $posted = $paymentService->postApplicationPaymentsToStudent(
+                (int) $application['application_id'],
+                (int) $application['student_id'],
+                !empty($application['parent_id']) ? (int) $application['parent_id'] : null,
+                1,
+                (string) $application['application_no']
+            );
+            try {
+                (new \App\API\Modules\admission\StudentAdmissionWorkflow())->advanceAfterConfirmedPayment((int) $application['application_id']);
+            } catch (\Throwable $workflowError) {
+                error_log('[BankPaymentWebhook] payment workflow advancement deferred: ' . $workflowError->getMessage());
+            }
+        }
+
+        return formatResponse(true, [
+            'payment_id' => $paymentId,
+            'application_id' => (int) $application['application_id'],
+            'posted_to_student' => $posted,
+            'account_type' => !empty($application['student_id']) ? 'student' : 'admission_application',
+            'transaction_ref' => $transactionRef,
+        ], !empty($application['student_id']) ? 'Bank payment allocated to student account' : 'Bank payment accepted against admission application');
     }
 
     /**
@@ -363,19 +470,15 @@ class BankPaymentWebhook
             ];
             $mappedSource = $sourceMap[$source] ?? 'generic_bank';
 
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_webhooks_log (
-                    source, webhook_data, status, created_at
-                ) VALUES (?, ?, 'received', NOW())
-            ");
-
-            $stmt->execute([
-                $mappedSource,
-                json_encode($data)
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => $mappedSource,
+                'webhook_data' => $data,
+                'status' => 'received',
             ]);
 
             // Also log to file
-            $logFile = __DIR__ . '/../../../../logs/bank_webhooks.log';
+            $logFile = dirname(__DIR__, 3) . '/logs/bank_webhooks.log';
             $logDir = dirname($logFile);
 
             $storage = new \App\API\Services\UploadService();
@@ -399,9 +502,10 @@ class BankPaymentWebhook
     private function getStudentOutstandingBalance($studentId)
     {
         try {
+            // 3NF: derive from student_fee_obligations via vw_student_fee_balances (amount_due - amount_paid - waivers)
             $stmt = $this->db->prepare("
                 SELECT COALESCE(SUM(balance), 0) as outstanding
-                FROM student_fees
+                FROM vw_student_fee_balances
                 WHERE student_id = ? AND balance > 0
             ");
             $stmt->execute([$studentId]);
@@ -451,19 +555,15 @@ class BankPaymentWebhook
             ];
             $mappedSource = $sourceMap[$source] ?? 'generic_bank';
 
-            // Truncate error message to fit in database column
+            // Truncate error message to keep the structured entry compact
             $truncatedError = substr($error, 0, 500);
 
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_webhooks_log (
-                    source, webhook_data, status, error_message, created_at
-                ) VALUES (?, ?, 'failed', ?, NOW())
-            ");
-
-            $stmt->execute([
-                $mappedSource,
-                json_encode($data),
-                $truncatedError
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'webhook',
+                'source' => $mappedSource,
+                'webhook_data' => $data,
+                'status' => 'failed',
+                'error_message' => $truncatedError,
             ]);
 
         } catch (Exception $e) {
@@ -480,11 +580,12 @@ class BankPaymentWebhook
             // Get student contact info - note: students may not have direct phone/email
             // Contact info is typically stored in parent or student_contacts tables
             $stmt = $this->db->prepare("
-                SELECT COALESCE(p.phone_1, '') as parent_phone, 
-                       COALESCE(p.email, '') as parent_email
+                SELECT COALESCE(pp.phone, '') as parent_phone, 
+                       COALESCE(pp.email, '') as parent_email
                 FROM students s
                 LEFT JOIN student_parents sp ON s.id = sp.student_id
                 LEFT JOIN parents p ON sp.parent_id = p.id
+                LEFT JOIN persons pp ON pp.id = p.person_id
                 WHERE s.id = ?
                 LIMIT 1
             ");

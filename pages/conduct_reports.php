@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-clipboard-check me-2"></i>Conduct Reports</h4>
+                    <h4 class="mb-1"><i class="bi bi-clipboard-check me-2"></i>Conduct Reports</h4>
                     <p class="text-muted mb-0">Track and report student conduct and behavior</p>
                 </div>
                 <button class="btn btn-primary" id="generateReports">
-                    <i class="fas fa-file-pdf me-1"></i> Generate Reports
+                    <i class="bi bi-file-pdf me-1"></i> Generate Reports
                 </button>
             </div>
         </div>
@@ -49,7 +49,7 @@
                 <div class="col-md-2">
                     <label class="form-label">&nbsp;</label>
                     <button class="btn btn-secondary w-100" id="searchBtn">
-                        <i class="fas fa-search"></i> Search
+                        <i class="bi bi-search"></i> Search
                     </button>
                 </div>
             </div>
@@ -115,12 +115,12 @@
                 <table class="table table-hover" id="conductTable">
                     <thead>
                         <tr>
-                            <th>Student</th>
-                            <th>Class</th>
-                            <th>Conduct Grade</th>
-                            <th>Discipline Cases</th>
-                            <th>Class Teacher Remarks</th>
-                            <th>Actions</th>
+                            <th scope="col">Student</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Conduct Grade</th>
+                            <th scope="col">Discipline Cases</th>
+                            <th scope="col">Class Teacher Remarks</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -130,4 +130,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/conduct_reports.js"></script>
+<?php asset_script($appBase, 'js/pages/conduct_reports.js'); ?>

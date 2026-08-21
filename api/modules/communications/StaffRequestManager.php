@@ -134,8 +134,8 @@ class StaffRequestManager
     {
         $mail = new \App\API\Services\MessageService($this->db);
         $sms = new \App\API\Services\SMS\SMSGateway();
-        // Fetch requester
-        $stmt = $this->db->prepare("SELECT s.email, s.phone FROM staff_requests r JOIN staff s ON r.staff_id = s.id WHERE r.id = ?");
+        // Fetch requester email/phone from persons (staff has no email/phone columns)
+        $stmt = $this->db->prepare("SELECT p.email, p.phone FROM internal_conversations c JOIN staff s ON s.id = c.created_by LEFT JOIN persons p ON p.id = s.person_id WHERE c.id = ?");
         $stmt->execute([$id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row) {

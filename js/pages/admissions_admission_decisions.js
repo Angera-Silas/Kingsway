@@ -11,10 +11,11 @@ const admissionDecisionsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("admissionDecisionsController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("admissionDecisionsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -25,13 +26,47 @@ const admissionDecisionsController = {
             }
 
             this.setupEventListeners();
+            await this.loadClasses();
             await this.loadApplications();
 
-            console.log("admissionDecisionsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Admission Decisions Controller:", error);
             this.showError(error.message || "Failed to initialize admission decisions page.");
         }
+    },
+
+    loadClasses: async function() {
+        try {
+            let classes = [];
+            if (API?.admission?.getPlacementClasses) {
+                const response = await API.admission.getPlacementClasses();
+                const payload = response?.data || response || {};
+                classes = payload.classes || (Array.isArray(payload) ? payload : []);
+            }
+            if (!classes.length && API?.academic?.listClasses) {
+                const response = await API.academic.listClasses({ limit: 200 });
+                const payload = response?.data || response || {};
+                classes = Array.isArray(payload) ? payload : payload.classes || [];
+            }
+            this.populateClassSelects(classes);
+        } catch (error) {
+            console.error('Failed to load classes:', error);
+        }
+    },
+
+    populateClassSelects: function(classes) {
+        ['filterClass', 'recommendedClass'].forEach(selectId => {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            const currentVal = select.value;
+            const firstOption = select.querySelector('option:first-child');
+            const firstLabel = firstOption ? firstOption.textContent : 'All Classes';
+            const firstValue = firstOption ? firstOption.value : '';
+            let html = `<option value="${firstValue}">${firstLabel}</option>`;
+            html += classes.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+            select.innerHTML = html;
+            if (currentVal) select.value = currentVal;
+        });
     },
 
     loadApplications: async function() {
@@ -427,14 +462,10 @@ const admissionDecisionsController = {
                 assigned_class_id: decisionData.recommended_class
             })
                 .then(response => {
-                    if (response.success) {
-                        showNotification('success', 'Admission decision recorded successfully');
-                        bootstrap.Modal.getInstance(document.getElementById('makeDecisionModal')).hide();
-                        document.getElementById('makeDecisionForm').reset();
-                        this.loadApplications();
-                    } else {
-                        showNotification('error', response.message || 'Failed to record decision');
-                    }
+                    showNotification('success', 'Admission decision recorded successfully');
+                    bootstrap.Modal.getInstance(document.getElementById('makeDecisionModal')).hide();
+                    document.getElementById('makeDecisionForm').reset();
+                    this.loadApplications();
                 })
                 .catch(error => {
                     console.error('Failed to submit decision:', error);
@@ -490,21 +521,17 @@ function initWhenAPIReady() {
       typeof window.API.apiCall === "function");
 
   if (hasApi) {
-    console.log("API is ready, initializing admission decisions controller");
     window.admissionDecisionsController.init();
     return;
   }
 
-  console.log("API not ready yet, waiting...");
   setTimeout(initWhenAPIReady, 100);
 }
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", function () {
-    console.log("DOM loaded, waiting for API to be ready");
     initWhenAPIReady();
   });
 } else {
-  console.log("DOM already loaded, waiting for API to be ready");
   initWhenAPIReady();
 }

@@ -17,14 +17,14 @@ const reportCardsCtrl = (() => {
 
     /* ─── State ─────────────────────────────────────────────── */
     const state = {
-        years: [], terms: [], classes: [], students: [],
+        years: [], terms: [], classes: [], streams: [], students: [],
         currentYear: null, currentTerm: null,
         pagination: { page: 1, limit: 15, total: 0, total_pages: 1 },
         summary: { total: 0, generated: 0, pending: 0, downloaded: 0 },
         currentAcademicYear: null,
         currentTermFromContext: null
     };
-    const filters = { year_id: '', term_id: '', class_id: '', search: '' };
+    const filters = { year_id: '', term_id: '', class_id: '', stream_id: '', search: '' };
     let searchTimeout = null;
 
     /* ─── API helper ─────────────────────────────────────────── */
@@ -47,16 +47,17 @@ const reportCardsCtrl = (() => {
     /* ─── Init ───────────────────────────────────────────────── */
     async function init() {
         try {
+            await window.AuthContext?.ready();
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
+            await GradingScale.preload();
             
             // Initialize Academic Context if available
             if (window.AcademicContext) {
                 // Subscribe to context changes
                 window.AcademicContext.subscribe((context, event, data) => {
-                    console.log('AcademicContext changed in report_cards:', event, data);
                     if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                         // Reload years, terms, and data when academic year or term changes
                         loadYears();
@@ -80,6 +81,7 @@ const reportCardsCtrl = (() => {
             updateContextSelects();
             loadData();
             bindEvents();
+            bindStreamEvents();
         } catch (e) {
             console.error('[reportCardsCtrl] init error', e);
             toast('Failed to initialise: ' + e.message, 'error');
@@ -99,6 +101,26 @@ const reportCardsCtrl = (() => {
     async function loadClasses() {
         const r = await api('academic/classes-list');
         state.classes = r.data || [];
+    }
+
+    async function loadStreams(classId) {
+        if (!classId) { state.streams = []; updateStreamFilter(); return; }
+        try {
+            const r = await api(`students/student/streams?class_id=${classId}`);
+            const inner = r.data?.data || r.data || [];
+            state.streams = Array.isArray(inner) ? inner : (inner.streams || []);
+        } catch (e) {
+            state.streams = [];
+        }
+        updateStreamFilter();
+    }
+
+    function updateStreamFilter() {
+        const el = document.getElementById('streamFilter');
+        if (!el) return;
+        el.innerHTML = '<option value="">All Streams</option>' +
+            state.streams.map(s => `<option value="${s.id}">${esc(s.name || s.stream_name || '—')}</option>`).join('');
+        if (filters.stream_id) el.value = filters.stream_id;
     }
 
     function updateContextSelects() {
@@ -148,9 +170,10 @@ const reportCardsCtrl = (() => {
 
         try {
             const params = new URLSearchParams({ page, limit: state.pagination.limit });
-            if (filters.class_id) params.append('class_id', filters.class_id);
-            if (filters.term_id)  params.append('term_id',  filters.term_id);
-            if (filters.search)   params.append('search',   filters.search);
+            if (filters.class_id)   params.append('class_id',   filters.class_id);
+            if (filters.stream_id)  params.append('stream_id',  filters.stream_id);
+            if (filters.term_id)    params.append('term_id',    filters.term_id);
+            if (filters.search)     params.append('search',     filters.search);
 
             const r = await api(`students/student?${params}`);
             /* Double-wrapped response: data.data.students[] */
@@ -228,7 +251,7 @@ const reportCardsCtrl = (() => {
 
         } catch (e) {
             console.error('[loadData]', e);
-            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger p-4"><i class="bi bi-exclamation-triangle me-2"></i>${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger p-4"><i class="bi bi-exclamation-triangle me-2"></i>${esc(e.message)}</td></tr>`;
         }
     }
 
@@ -277,7 +300,7 @@ const reportCardsCtrl = (() => {
         const termId  = document.getElementById('termFilter')?.value  || state.currentTerm?.id;
         const classId = document.getElementById('classFilter')?.value || '';
         if (!termId) { toast('Select a term first', 'error'); return; }
-        if (!confirm('Generate report cards for all students in the selected filter?')) return;
+        if (!(await window.confirmAction('Confirm', 'Generate report cards for all students in the selected filter?'))) return;
         try {
             await api('academic/reports-generate-student-reports', 'POST', {
                 term_id: termId, class_id: classId || undefined,
@@ -413,36 +436,39 @@ const reportCardsCtrl = (() => {
         }
 
         const studentName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-        const grade = student.cbc_grade || deriveCBCGrade(student.overall_pct);
 
-        // Use PrintManager for consistent printing
-        if (window.PrintManager) {
-            const sections = [
-                {
-                    title: 'Student Information',
-                    fields: [
-                        { label: 'Student', value: studentName },
-                        { label: 'Admission No', value: student.admission_no || '—' },
-                        { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
-                        { label: 'CBC Grade', value: grade },
-                        { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
-                        { label: 'Position', value: student.rank || student.position || '—' },
-                        { label: 'Status', value: student.card_status || 'pending' }
-                    ]
-                }
-            ];
-
+        if (window.PrintManager && window.PrintManager.printReportCard) {
+            const level = student.cbc_level || deriveCBCLevel(student.class_name);
+            window.PrintManager.printReportCard({
+                level: level,
+                student: {
+                    first_name: student.first_name,
+                    last_name: student.last_name,
+                    admission_no: student.admission_no,
+                    class_name: student.class_name,
+                    stream_name: student.stream_name,
+                    gender: student.gender
+                },
+                term: state.currentTerm || {},
+                scores: state.currentScores || [],
+                competencies: state.currentCompetencies || [],
+                values: state.currentValues || [],
+                attendance: state.currentAttendance || {},
+                comments: state.currentComments || {},
+                filename: `report_card_${student.admission_no || student.id}_${Date.now()}`,
+            });
+        } else if (window.PrintManager) {
             window.PrintManager.printRecord({
                 title: 'Student Report Card',
                 subtitle: `Kingsway Academy - ${studentName}`,
-                sections: sections,
-                orientation: 'portrait',
-                paperSize: 'A4',
-                reportCode: 'RC-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-                signatureSection: [
-                    { label: 'Class Teacher' },
-                    { label: 'Principal' }
-                ]
+                sections: [{ title: 'Student Information', fields: [
+                    { label: 'Student', value: studentName },
+                    { label: 'Admission No', value: student.admission_no || '—' },
+                    { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
+                    { label: 'CBC Grade', value: student.cbc_grade || '—' },
+                    { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
+                ]}],
+                orientation: 'portrait', paperSize: 'A4',
             });
         } else {
             toast('PrintManager not available', 'error');
@@ -497,7 +523,7 @@ const reportCardsCtrl = (() => {
     async function printAll() {
         const termId  = document.getElementById('termFilter')?.value;
         const classId = document.getElementById('classFilter')?.value;
-        if (!termId || !classId) { toast('Select both term and class to print all', 'error'); return; }
+        if (!termId || !classId) { toast('Select both term and class to print summary', 'error'); return; }
         if (!state.students.length) {
             toast('No report card data loaded for printing', 'error');
             return;
@@ -515,6 +541,82 @@ const reportCardsCtrl = (() => {
             orientation: 'landscape',
             paperSize: 'A4'
         });
+    }
+
+    function getSelectedStudents() {
+        return state.students.filter(s => {
+            const cb = document.querySelector(`.student-select[value="${s.id}"]`);
+            return cb && cb.checked;
+        });
+    }
+
+    async function printCards(selectedIds) {
+        const termId = filters.term_id || state.currentTerm?.id;
+        if (!termId) { toast('Select a term first', 'error'); return; }
+
+        let studentsToPrint = state.students;
+        if (selectedIds && selectedIds.length) {
+            studentsToPrint = state.students.filter(s => selectedIds.includes(String(s.id)));
+        }
+        if (!studentsToPrint.length) { toast('No students to print', 'error'); return; }
+
+        if (!window.PrintManager) { toast('PrintManager not available', 'error'); return; }
+
+        try {
+            toast('Building report cards…', 'primary');
+
+            const termLabel = state.terms.find(t => String(t.id) === String(termId))?.name || state.currentTerm?.name || '';
+            const allCards = [];
+
+            for (const student of studentsToPrint) {
+                const params = new URLSearchParams({ student_id: String(student.id), term_id: String(termId) });
+                const resp = await api(`academic/student-results?${params}`);
+                const payload = resp.data || {};
+                const summary = payload.summary || {};
+                const subjects = Array.isArray(payload.subjects) ? payload.subjects : [];
+                const cardHtml = buildReportCardHtml(student, summary, subjects, termLabel);
+                allCards.push(cardHtml);
+            }
+
+            if (!allCards.length) { toast('No cards could be generated', 'error'); return; }
+
+            const combinedHtml = allCards.map((html, i) => {
+                const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                const bodyContent = bodyMatch ? bodyMatch[1] : html;
+                const sep = i < allCards.length - 1 ? '<div style="page-break-after:always"></div>' : '';
+                return bodyContent + sep;
+            }).join('');
+
+            const styleMatch = allCards[0].match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+            const styles = styleMatch ? styleMatch[1] : '';
+
+            const fullDoc = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><style>${styles}
+    body { font-family: Arial, sans-serif; margin: 20px; color: #1f2937; }
+    @page { margin: 20mm 15mm; }
+</style></head><body>${combinedHtml}</body></html>`;
+
+            await window.PrintManager.printHtml({
+                html: fullDoc,
+                isFullDocument: true,
+                title: 'Report Cards',
+                filename: `report_cards_${new Date().toISOString().slice(0,10)}`,
+                orientation: 'portrait',
+                paperSize: 'A4',
+                reportCode: 'RC-BULK-' + new Date().toISOString().slice(0,10).replace(/-/g, ''),
+            });
+
+            toast(`Printed ${allCards.length} report card(s)`, 'success');
+        } catch (e) {
+            toast('Print failed: ' + e.message, 'error');
+        }
+    }
+
+    async function printSelected() {
+        const selected = getSelectedStudents();
+        if (!selected.length) { toast('Select students using checkboxes first', 'error'); return; }
+        await printCards(selected.map(s => String(s.id)));
     }
 
     async function startWorkflow(e) {
@@ -581,34 +683,60 @@ const reportCardsCtrl = (() => {
     function bindEvents() {
         document.getElementById('loadBtn')?.addEventListener('click', () => loadData(1));
         document.getElementById('clearBtn')?.addEventListener('click', () => {
-            filters.year_id = ''; filters.term_id = ''; filters.class_id = ''; filters.search = '';
-            ['yearFilter','termFilter','classFilter'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            filters.year_id = ''; filters.term_id = ''; filters.class_id = ''; filters.stream_id = ''; filters.search = '';
+            ['yearFilter','termFilter','classFilter','streamFilter'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             const sb = document.getElementById('searchBox'); if (sb) sb.value = '';
             loadData(1);
         });
         document.getElementById('generateAllBtn')?.addEventListener('click', generateAll);
         document.getElementById('downloadAllBtn')?.addEventListener('click', downloadAll);
+        document.getElementById('printCardsBtn')?.addEventListener('click', () => printCards());
         document.getElementById('printAllBtn')?.addEventListener('click', printAll);
         document.getElementById('yearFilter')?.addEventListener('change', e => { filters.year_id = e.target.value; loadData(1); });
         document.getElementById('termFilter')?.addEventListener('change', e => { filters.term_id = e.target.value; loadData(1); });
-        document.getElementById('classFilter')?.addEventListener('change', e => { filters.class_id = e.target.value; loadData(1); });
+        document.getElementById('classFilter')?.addEventListener('change', e => { filters.class_id = e.target.value; loadStreams(e.target.value); loadData(1); });
+        document.getElementById('streamFilter')?.addEventListener('change', e => { filters.stream_id = e.target.value; loadData(1); });
         document.getElementById('searchBox')?.addEventListener('keyup', e => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => { filters.search = e.target.value.trim(); loadData(1); }, 400);
         });
         document.getElementById('selectAll')?.addEventListener('change', e => {
-            document.querySelectorAll('.student-select').forEach(cb => cb.checked = e.target.checked);
+            document.querySelectorAll('.student-select').forEach(cb => {
+                cb.checked = e.target.checked;
+            });
+            togglePrintSelectedBtn();
+        });
+    }
+
+    function togglePrintSelectedBtn() {
+        const btn = document.getElementById('printSelectedBtn');
+        if (!btn) return;
+        const checked = document.querySelectorAll('.student-select:checked').length;
+        btn.style.display = checked ? 'inline-block' : 'none';
+    }
+
+    function bindStreamEvents() {
+        document.addEventListener('change', e => {
+            if (e.target.matches('.student-select')) togglePrintSelectedBtn();
         });
     }
 
     /* ─── Helpers ─────────────────────────────────────────────── */
     function esc(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function gradeBadge(g) { const u = (g||'').toUpperCase(); return ['EE','ME','AE','BE'].includes(u) ? `<span class="grade-${u}">${u}</span>` : `<span class="badge bg-secondary">${u||'—'}</span>`; }
+    function gradeBadge(g) { const u = (g||'').toUpperCase(); return ['EE','ME','AE','BE'].includes(GradingScale.band(u)) ? `<span class="grade-${u}">${u}</span>` : `<span class="badge bg-secondary">${u||'—'}</span>`; }
     function cardStatusPill(s) {
         const m = { generated:'rc-generated', pending:'rc-pending', approved:'rc-approved', distributed:'rc-distributed', downloaded:'rc-approved', not_generated:'rc-pending' };
         return `<span class="rc-pill ${m[s]||'rc-pending'}">${esc(s)}</span>`;
     }
-    function deriveCBCGrade(p) { if (p==null) return '—'; const n=Number(p); return n>=80?'EE':n>=50?'ME':n>=25?'AE':'BE'; }
+    function deriveCBCGrade(p) { if (p==null) return '—'; return GradingScale.grade(p) || '—'; }
+    function deriveCBCLevel(className) {
+        const c = (className || '').toLowerCase();
+        if (/pp|pre.?prim|play|nursery|kg/.test(c)) return 'PP';
+        if (/\b(1|2|3)\b/.test(c) && /grade|class/.test(c)) return 'LowerPrimary';
+        if (/\b(4|5|6)\b/.test(c) && /grade|class/.test(c)) return 'UpperPrimary';
+        if (/\b(7|8|9)\b/.test(c) && /grade|class/.test(c)) return 'JuniorSecondary';
+        return 'LowerPrimary';
+    }
 
     /* ─── DOMContentLoaded ────────────────────────────────────── */
     document.addEventListener('DOMContentLoaded', init);
@@ -617,6 +745,7 @@ const reportCardsCtrl = (() => {
     return {
         init, loadPage: loadData,
         generateCard, downloadCard, printCard, generateAll,
-        startWorkflow, exportCSV
+        startWorkflow, exportCSV,
+        printCards, printSelected
     };
 })();

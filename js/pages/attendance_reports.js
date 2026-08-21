@@ -11,6 +11,7 @@ const attendanceReportsController = {
   _trendsChart: null,
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -114,7 +115,7 @@ const attendanceReportsController = {
 
   _loadClassBreakdownFallback: async function (params, tbody) {
     try {
-      const classRes = await callAPI('/academic/classes?status=active', 'GET');
+      const classRes = await callAPI('/academic/classes/list?status=active', 'GET');
       const classes  = Array.isArray(classRes?.data) ? classRes.data : (Array.isArray(classRes) ? classRes : []);
       this._classData = classes.map(c => ({ ...c, class_name: c.name }));
       this._renderClassTable(tbody, this._classData);
@@ -217,7 +218,7 @@ const attendanceReportsController = {
     const sel = document.getElementById('arClass');
     if (!sel) return;
     try {
-      const r = await callAPI('/academic/classes?status=active', 'GET');
+      const r = await callAPI('/academic/classes/list?status=active', 'GET');
       const classes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       classes.forEach(c => sel.add(new Option(c.name, c.id)));
     } catch (e) { /* optional */ }

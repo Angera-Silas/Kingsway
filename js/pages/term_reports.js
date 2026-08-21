@@ -30,10 +30,8 @@ const termReportsCtrl = (() => {
 
     function cbcGrade(pct) {
         const n = parseFloat(pct);
-        if (n >= 80) return '<span class="grade-EE">EE</span>';
-        if (n >= 50) return '<span class="grade-ME">ME</span>';
-        if (n >= 25) return '<span class="grade-AE">AE</span>';
-        return '<span class="grade-BE">BE</span>';
+        const g = GradingScale.grade(n);
+        return g ? '<span class="grade-' + GradingScale.band(g) + '">' + g + '</span>' : '-';
     }
 
     function statusBadge(status) {
@@ -470,10 +468,13 @@ const termReportsCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+
+        await GradingScale.preload();
 
         await Promise.all([loadYears(), loadTerms(), loadClasses()]);
 

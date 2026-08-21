@@ -644,7 +644,7 @@
     };
 
     controller.applyForOpportunity = async function (jobId) {
-        if (!jobId || !window.confirm('Submit an internal application for this opportunity?')) {
+        if (!jobId || !(await window.confirmAction('Confirm', 'Submit an internal application for this opportunity?'))) {
             return;
         }
 
@@ -705,12 +705,12 @@
         return new Date(2000, number - 1, 1).toLocaleString('en-GB', { month: 'short' });
     };
 
-    controller.notify = function (message, type = 'info') {
+    controller.notify = async function (message, type = 'info') {
         if (typeof window.API?.showNotification === 'function') {
             window.API.showNotification(message, type);
             return;
         }
-        window.alert(message);
+        await window.infoDialog('Notice', message);
     };
 
     controller.setButtonBusy = function (button, busy, text) {

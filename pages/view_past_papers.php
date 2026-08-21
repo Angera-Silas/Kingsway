@@ -96,15 +96,15 @@
             <table class="table table-hover table-striped" id="papersTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Title</th>
-                        <th>Subject</th>
-                        <th>Year</th>
-                        <th>Class Level</th>
-                        <th>Type</th>
-                        <th>Uploaded By</th>
-                        <th>Date</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Title</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Year</th>
+                        <th scope="col">Class Level</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Uploaded By</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -122,4 +122,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/view_past_papers.js"></script>
+<?php asset_script($appBase, 'js/pages/view_past_papers.js'); ?>

@@ -13,6 +13,8 @@ namespace App\Config;
 
 define('DEBUG', true);
 
+define('APP_BASE_PATH', __DIR__ . '/..');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root
@@ -55,9 +57,6 @@ define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
 
-define('CURRENT_YEAR', date('Y'));
-define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
-
 /*
 |--------------------------------------------------------------------------
 | Database
@@ -69,6 +68,35 @@ define('DB_USER', $_ENV['DB_USER'] ?? 'root');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
 define('DB_PASS', $_ENV['DB_PASS'] ?? 'admin123');
+
+/*
+|--------------------------------------------------------------------------
+| Academic year and term — read from database, fall back to calendar
+|--------------------------------------------------------------------------
+*/
+
+try {
+    $_db = new \PDO(
+        'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+        DB_USER,
+        DB_PASS,
+        [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
+    );
+    $_row = $_db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetch();
+    define('CURRENT_YEAR', $_row ? (int) $_row['id'] : (int) date('Y'));
+    $_row2 = $_db->query(
+        "SELECT ayt.id
+           FROM academic_year_terms ayt
+           JOIN academic_years ay ON ay.id = ayt.academic_year_id
+          WHERE ay.is_current = 1 AND ayt.status = 'current'
+          LIMIT 1"
+    )->fetch();
+    define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    $_db = null;
+} catch (\Exception $_e) {
+    define('CURRENT_YEAR', (int) date('Y'));
+    define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -95,6 +123,8 @@ define(
     'JWT_AUDIENCE',
     $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
 );
+define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? JWT_SECRET);
+define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'localhost');
 
 
 $authIdleTimeoutSeconds = max(
@@ -200,6 +230,15 @@ define(
     $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690'
 );
 
+define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? 'https://chat.africastalking.com');
+define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? '');
+define('AFRICASTALKING_WEBHOOK_TOKEN', $_ENV['AFRICASTALKING_WEBHOOK_TOKEN'] ?? '');
+define('WHATSAPP_2FA_TEMPLATE_ID', $_ENV['WHATSAPP_2FA_TEMPLATE_ID'] ?? '');
+define('COMMUNICATION_WORKER_SECRET', $_ENV['COMMUNICATION_WORKER_SECRET'] ?? '');
+define('TWILIO_ACCOUNT_SID', $_ENV['TWILIO_ACCOUNT_SID'] ?? '');
+define('TWILIO_AUTH_TOKEN', $_ENV['TWILIO_AUTH_TOKEN'] ?? '');
+define('TWILIO_FROM', $_ENV['TWILIO_FROM'] ?? '');
+
 /*
 |--------------------------------------------------------------------------
 | M-Pesa
@@ -216,6 +255,14 @@ define(
     MPESA_ENVIRONMENT === 'production'
     ? 'https://api.safaricom.co.ke'
     : 'https://sandbox.safaricom.co.ke'
+);
+
+define(
+    'MPESA_CALLBACK_BASE_URL',
+    rtrim(
+        (string) ($_ENV['MPESA_CALLBACK_BASE_URL'] ?? BASE_URL),
+        '/'
+    )
 );
 
 define(
@@ -295,11 +342,24 @@ define(
     $_ENV['KCB_CREDIT_ACCOUNT'] ?? ''
 );
 
+define('KCB_DEBIT_ACCOUNT', $_ENV['KCB_DEBIT_ACCOUNT'] ?? '');
+define('KCB_COLLECTION_ACCOUNT_IDENTIFIER', $_ENV['KCB_COLLECTION_ACCOUNT_IDENTIFIER'] ?? '');
+define('KCB_CALLBACK_BASE_URL', $_ENV['KCB_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : ''));
+define('KCB_FUNDS_TRANSFER_PATH', $_ENV['KCB_FUNDS_TRANSFER_PATH'] ?? '/fundstransfer/1.0.0/api/v1/transfer');
+define('KCB_COMPANY_CODE', $_ENV['KCB_COMPANY_CODE'] ?? '');
+define('KCB_FUNDS_TRANSFER_TRANSACTION_TYPE', $_ENV['KCB_FUNDS_TRANSFER_TRANSACTION_TYPE'] ?? 'IF');
+define('KCB_IPN_PATH', $_ENV['KCB_IPN_PATH'] ?? '/ipn/1.0.0');
+define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/request/1.0.0');
+define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
+define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
+define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+
 define(
     'KCB_PUBLIC_KEY_PATH',
     $_ENV['KCB_PUBLIC_KEY_PATH']
     ?? __DIR__ . '/kcb_public_key.pem'
 );
+define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SIGNATURE'] ?? '0', FILTER_VALIDATE_BOOLEAN));
 
 /*
 |--------------------------------------------------------------------------

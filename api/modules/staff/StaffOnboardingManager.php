@@ -40,13 +40,19 @@ class StaffOnboardingManager extends BaseAPI
 
             $this->db->beginTransaction();
 
-            // Verify staff exists
+            // Verify staff exists.
+            // Identity lives on persons (4NF); department membership is now a
+            // time-boxed row in staff_department_assignments (s.department_id dropped).
             $stmt = $this->db->prepare("
-                SELECT s.*, st.name as staff_type, sc.category_name, d.name as department_name
+                SELECT s.*, p.first_name, p.last_name,
+                       st.name as staff_type, sc.category_name, d.name as department_name,
+                       sda.department_id
                 FROM staff s
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE s.id = ?
             ");
             $stmt->execute([$data['staff_id']]);
@@ -57,10 +63,15 @@ class StaffOnboardingManager extends BaseAPI
                 return formatResponse(false, null, 'Staff member not found');
             }
 
-            // Check if onboarding already exists
+            // Check if onboarding already exists.
+            // The dropped staff_onboarding parent table is replaced by a
+            // workflow_instances row (reference_type='staff_onboarding').
             $stmt = $this->db->prepare("
-                SELECT * FROM staff_onboarding 
-                WHERE staff_id = ? AND status NOT IN ('completed', 'cancelled')
+                SELECT id FROM workflow_instances
+                WHERE reference_type = 'staff_onboarding'
+                  AND reference_id = ?
+                  AND status NOT IN ('completed', 'cancelled')
+                LIMIT 1
             ");
             $stmt->execute([$data['staff_id']]);
             if ($stmt->fetch()) {
@@ -74,35 +85,44 @@ class StaffOnboardingManager extends BaseAPI
                 ?? $data['expected_end_date']
                 ?? date('Y-m-d', strtotime($startDate . " +{$probationMonths} months"));
 
-            // Create onboarding record using the current staff_onboarding schema.
-            $sql = "INSERT INTO staff_onboarding (
-                staff_id, mentor_id, contract_type, probation_months, start_date,
-                target_completion, expected_end_date, status, progress_percent,
-                initiated_by, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)";
-
-            $stmt = $this->db->prepare($sql);
+            // Create the onboarding header as a workflow_instances row. Fields that
+            // lost their dedicated column (mentor_id, probation_months, target dates,
+            // notes) are preserved in data_json so no information is discarded.
+            $workflowDefId = $this->resolveStaffOnboardingWorkflowId();
+            $initiatedBy = (int)($data['initiated_by'] ?? $this->getCurrentUserId() ?? 0);
+            $stmt = $this->db->prepare("
+                INSERT INTO workflow_instances
+                    (workflow_id, reference_type, reference_id, current_stage, status,
+                     started_by, started_at, data_json)
+                VALUES (?, 'staff_onboarding', ?, 'onboarding', 'in_progress', ?, NOW(), ?)
+            ");
             $stmt->execute([
-                $data['staff_id'],
-                $data['mentor_id'] ?? null,
-                $data['contract_type'] ?? 'probation',
-                $probationMonths,
-                $startDate,
-                $targetCompletion,
-                $data['expected_end_date'] ?? $targetCompletion,
-                $data['initiated_by'] ?? $this->getCurrentUserId(),
-                $data['notes'] ?? $data['remarks'] ?? "Onboarding for {$staff['first_name']} {$staff['last_name']}"
+                $workflowDefId,
+                (int)$data['staff_id'],
+                $initiatedBy,
+                json_encode([
+                    'mentor_id'         => $data['mentor_id'] ?? null,
+                    'contract_type'     => $data['contract_type'] ?? 'probation',
+                    'probation_months'  => $probationMonths,
+                    'start_date'        => $startDate,
+                    'target_completion' => $targetCompletion,
+                    'expected_end_date' => $data['expected_end_date'] ?? $targetCompletion,
+                    'notes'             => $data['notes'] ?? $data['remarks']
+                                            ?? "Onboarding for {$staff['first_name']} {$staff['last_name']}",
+                ]),
             ]);
 
-            $onboardingId = $this->db->lastInsertId();
+            $onboardingId = (int)$this->db->lastInsertId();
 
-            // Call stored procedure to auto-generate onboarding tasks
-            $stmt = $this->db->prepare("CALL sp_auto_generate_onboarding_tasks(?)");
-            $stmt->execute([$onboardingId]);
-            $stmt->closeCursor();
-
-            $stmt = $this->db->prepare("UPDATE staff_onboarding SET status = 'in_progress' WHERE id = ?");
-            $stmt->execute([$onboardingId]);
+            // Seed onboarding_tasks directly from active templates. (The legacy
+            // sp_auto_generate_onboarding_tasks procedure still targets the dropped
+            // staff_onboarding table and would fail, so we do not CALL it.)
+            $this->seedOnboardingTasks(
+                $onboardingId,
+                isset($staff['staff_type_id']) ? (int)$staff['staff_type_id'] : null,
+                $startDate,
+                isset($staff['department_id']) ? (int)$staff['department_id'] : null
+            );
 
             $stmt = $this->db->prepare("
                 INSERT INTO staff_contracts (staff_id, contract_type, start_date, end_date, salary, status, created_by)
@@ -114,7 +134,7 @@ class StaffOnboardingManager extends BaseAPI
                 $startDate,
                 $targetCompletion,
                 $staff['salary'] ?? 0,
-                $data['initiated_by'] ?? $this->getCurrentUserId(),
+                $initiatedBy,
             ]);
 
             $this->db->commit();
@@ -153,12 +173,15 @@ class StaffOnboardingManager extends BaseAPI
         try {
             $this->db->beginTransaction();
 
-            // Verify onboarding exists
+            // Verify the onboarding header (a workflow_instances row) exists, and pull
+            // the staff identity from persons for logging/response.
             $stmt = $this->db->prepare("
-                SELECT so.*, s.first_name, s.last_name
-                FROM staff_onboarding so
-                JOIN staff s ON so.staff_id = s.id
-                WHERE so.id = ?
+                SELECT wi.id, wi.status, wi.data_json,
+                       p.first_name, p.last_name
+                FROM workflow_instances wi
+                JOIN staff s ON s.id = wi.reference_id
+                JOIN persons p ON p.id = s.person_id
+                WHERE wi.id = ? AND wi.reference_type = 'staff_onboarding'
             ");
             $stmt->execute([$onboardingId]);
             $onboarding = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -168,59 +191,45 @@ class StaffOnboardingManager extends BaseAPI
                 return formatResponse(false, null, 'Onboarding record not found');
             }
 
-            $updates = [];
+            // Fields that lost a dedicated column are merged back into data_json so
+            // no history is lost; status/completion map to real workflow_instances columns.
+            $meta = json_decode($onboarding['data_json'] ?? '', true) ?: [];
+            $columnUpdates = [];
             $params = [];
 
-            if (isset($data['expected_end_date'])) {
-                $updates[] = "expected_end_date = ?";
-                $params[] = $data['expected_end_date'];
+            foreach (['expected_end_date', 'mentor_id', 'target_completion', 'probation_outcome'] as $jsonField) {
+                if (isset($data[$jsonField])) {
+                    $meta[$jsonField] = $data[$jsonField];
+                }
             }
-
-            if (isset($data['mentor_id'])) {
-                $updates[] = "mentor_id = ?";
-                $params[] = $data['mentor_id'];
+            if (isset($data['remarks'])) {
+                $meta['notes'] = $data['remarks'];
+            }
+            if (isset($data['notes'])) {
+                $meta['notes'] = $data['notes'];
             }
 
             if (isset($data['status'])) {
-                $validStatuses = ['pending', 'in_progress', 'completed', 'extended', 'terminated'];
+                $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
                 if (!in_array($data['status'], $validStatuses)) {
                     $this->db->rollBack();
                     return formatResponse(false, null, 'Invalid status');
                 }
-                $updates[] = "status = ?";
+                $columnUpdates[] = "status = ?";
                 $params[] = $data['status'];
 
                 if ($data['status'] === 'completed') {
-                    $updates[] = "completion_date = NOW()";
-                    $updates[] = "actual_completion = CURDATE()";
-                    $updates[] = "progress_percent = 100";
+                    $columnUpdates[] = "completed_at = NOW()";
                 }
             }
 
-            if (isset($data['remarks'])) {
-                $updates[] = "notes = ?";
-                $params[] = $data['remarks'];
-            }
-            if (isset($data['notes'])) {
-                $updates[] = "notes = ?";
-                $params[] = $data['notes'];
-            }
-            if (isset($data['target_completion'])) {
-                $updates[] = "target_completion = ?";
-                $params[] = $data['target_completion'];
-            }
-            if (isset($data['probation_outcome'])) {
-                $updates[] = "probation_outcome = ?";
-                $params[] = $data['probation_outcome'];
-            }
-
-            if (empty($updates)) {
-                $this->db->rollBack();
-                return formatResponse(false, null, 'No fields to update');
-            }
+            // Always persist the merged metadata.
+            $columnUpdates[] = "data_json = ?";
+            $params[] = json_encode($meta);
 
             $params[] = $onboardingId;
-            $sql = "UPDATE staff_onboarding SET " . implode(', ', $updates) . " WHERE id = ?";
+            $sql = "UPDATE workflow_instances SET " . implode(', ', $columnUpdates)
+                 . " WHERE id = ? AND reference_type = 'staff_onboarding'";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -254,12 +263,16 @@ class StaffOnboardingManager extends BaseAPI
     public function getTasks($onboardingId, $filters = [])
     {
         try {
+            // Identity is on persons. assigned_to references staff (see
+            // vw_onboarding_pending_by_role); completed_by is stamped with a user id.
             $sql = "SELECT ot.*,
-                       CONCAT(assigned.first_name, ' ', assigned.last_name) as assigned_to_name,
-                       CONCAT(completed.first_name, ' ', completed.last_name) as completed_by_name
+                       CONCAT(ap.first_name, ' ', ap.last_name) as assigned_to_name,
+                       CONCAT(cp.first_name, ' ', cp.last_name) as completed_by_name
                 FROM onboarding_tasks ot
-                LEFT JOIN users assigned ON ot.assigned_to = assigned.id
-                LEFT JOIN users completed ON ot.completed_by = completed.id
+                LEFT JOIN staff assigned_s ON ot.assigned_to = assigned_s.id
+                LEFT JOIN persons ap ON ap.id = assigned_s.person_id
+                LEFT JOIN users completed_u ON ot.completed_by = completed_u.id
+                LEFT JOIN persons cp ON cp.id = completed_u.person_id
                 WHERE ot.onboarding_id = ?";
 
             $params = [$onboardingId];
@@ -317,7 +330,12 @@ class StaffOnboardingManager extends BaseAPI
                 $params[] = (int)$filters['staff_id'];
             }
             if (!empty($filters['department_id'])) {
-                $where[] = 'staff_id IN (SELECT id FROM staff WHERE department_id = ?)';
+                // staff.department_id is dropped — resolve current membership via the
+                // staff_department_assignments junction (effective_to IS NULL = current).
+                $where[] = 'staff_id IN (
+                    SELECT staff_id FROM staff_department_assignments
+                    WHERE department_id = ? AND effective_to IS NULL
+                )';
                 $params[] = (int)$filters['department_id'];
             }
 
@@ -363,9 +381,10 @@ class StaffOnboardingManager extends BaseAPI
             $documents = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $stmt = $this->db->prepare("
-                SELECT pr.*, CONCAT(r.first_name, ' ', r.last_name) AS reviewer_name
+                SELECT pr.*, CONCAT(rp.first_name, ' ', rp.last_name) AS reviewer_name
                 FROM staff_probation_reviews pr
                 LEFT JOIN staff r ON r.id = pr.reviewer_id
+                LEFT JOIN persons rp ON rp.id = r.person_id
                 WHERE pr.onboarding_id = ?
                 ORDER BY pr.review_month ASC
             ");
@@ -513,17 +532,22 @@ class StaffOnboardingManager extends BaseAPI
                 );
             }
 
-            // Update onboarding status
-            $sql = "UPDATE staff_onboarding 
-                   SET status = 'completed', 
-                       completion_date = NOW(),
-                       actual_completion = CURDATE(),
-                       progress_percent = 100,
-                       notes = CONCAT(COALESCE(notes, ''), ' | Completed on ', NOW())
-                   WHERE id = ?";
+            // Complete the onboarding header. The dropped staff_onboarding parent
+            // table is the workflow_instances row (reference_type='staff_onboarding');
+            // fields that lost a dedicated column (notes, actual_completion) are
+            // merged back into data_json. progress_percent is DERIVED by the view.
+            $meta = $this->fetchOnboardingMeta($onboardingId);
+            $meta['actual_completion'] = date('Y-m-d');
+            $meta['notes'] = ($meta['notes'] ?? '') . ' | Completed on ' . date('Y-m-d H:i:s');
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$onboardingId]);
+            $stmt = $this->db->prepare("
+                UPDATE workflow_instances
+                   SET status = 'completed',
+                       completed_at = NOW(),
+                       data_json = ?
+                 WHERE id = ? AND reference_type = 'staff_onboarding'
+            ");
+            $stmt->execute([json_encode($meta), $onboardingId]);
 
             $this->db->commit();
             $this->logAction('update', $onboardingId, "Completed onboarding");
@@ -631,15 +655,12 @@ class StaffOnboardingManager extends BaseAPI
 
             $outcome = $data['outcome'] ?? 'continue';
             if ($outcome === 'confirm_permanent') {
-                $stmt = $this->db->prepare("
-                    UPDATE staff_onboarding
-                       SET probation_outcome = 'confirmed',
-                           status = 'completed',
-                           actual_completion = ?,
-                           progress_percent = 100
-                     WHERE id = ?
-                ");
-                $stmt->execute([date('Y-m-d'), (int)$data['onboarding_id']]);
+                // workflow_instances.status has no 'confirmed' value — 'completed'
+                // is used, with the probation outcome carried in data_json.
+                $meta = $this->fetchOnboardingMeta((int)$data['onboarding_id']);
+                $meta['probation_outcome'] = 'confirmed';
+                $meta['actual_completion'] = date('Y-m-d');
+                $this->updateWorkflowInstanceStatus((int)$data['onboarding_id'], 'completed', $meta);
 
                 $stmt = $this->db->prepare("
                     UPDATE staff_contracts
@@ -650,21 +671,17 @@ class StaffOnboardingManager extends BaseAPI
             } elseif ($outcome === 'extend_probation') {
                 $extendMonths = max(1, (int)($data['extend_months'] ?? 3));
                 $newTarget = date('Y-m-d', strtotime(date('Y-m-d') . " +{$extendMonths} months"));
-                $stmt = $this->db->prepare("
-                    UPDATE staff_onboarding
-                       SET probation_outcome = 'extended',
-                           target_completion = ?,
-                           expected_end_date = ?
-                     WHERE id = ?
-                ");
-                $stmt->execute([$newTarget, $newTarget, (int)$data['onboarding_id']]);
+                $meta = $this->fetchOnboardingMeta((int)$data['onboarding_id']);
+                $meta['probation_outcome'] = 'extended';
+                $meta['target_completion'] = $newTarget;
+                $meta['expected_end_date'] = $newTarget;
+                $this->updateWorkflowInstanceStatus((int)$data['onboarding_id'], null, $meta);
             } elseif ($outcome === 'terminate') {
-                $stmt = $this->db->prepare("
-                    UPDATE staff_onboarding
-                       SET probation_outcome = 'terminated', status = 'terminated'
-                     WHERE id = ?
-                ");
-                $stmt->execute([(int)$data['onboarding_id']]);
+                // workflow_instances.status enum has no 'terminated' — 'cancelled'
+                // carries the semantics, with probation_outcome in data_json.
+                $meta = $this->fetchOnboardingMeta((int)$data['onboarding_id']);
+                $meta['probation_outcome'] = 'terminated';
+                $this->updateWorkflowInstanceStatus((int)$data['onboarding_id'], 'cancelled', $meta);
                 $stmt = $this->db->prepare("UPDATE staff SET status = 'inactive' WHERE id = ?");
                 $stmt->execute([(int)$data['staff_id']]);
             }
@@ -711,20 +728,118 @@ class StaffOnboardingManager extends BaseAPI
 
     private function recalculateProgress(int $onboardingId): void
     {
+        // No-op under the normalized schema. progress_percent is no longer a stored
+        // column on a staff_onboarding row (that table is dropped) — it is DERIVED
+        // live from onboarding_tasks status counts by vw_staff_onboarding_progress
+        // and vw_onboarding_dashboard. Kept as a stable seam so callers that used to
+        // trigger a recalculation continue to work without change.
+    }
+
+    /**
+     * Read the data_json payload of the workflow_instances row that acts as the
+     * onboarding header (reference_type='staff_onboarding').
+     */
+    private function fetchOnboardingMeta(int $onboardingId): array
+    {
         $stmt = $this->db->prepare("
-            SELECT COUNT(*) AS total,
-                   SUM(status = 'completed') AS done,
-                   SUM(status = 'skipped') AS skipped
-              FROM onboarding_tasks
-             WHERE onboarding_id = ?
+            SELECT data_json FROM workflow_instances
+            WHERE id = ? AND reference_type = 'staff_onboarding'
         ");
         $stmt->execute([$onboardingId]);
-        $counts = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total' => 0, 'done' => 0, 'skipped' => 0];
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new Exception('Onboarding record not found');
+        }
+        return json_decode($row['data_json'] ?? '', true) ?: [];
+    }
 
-        $active = (int)$counts['total'] - (int)$counts['skipped'];
-        $pct = $active > 0 ? round((int)$counts['done'] * 100 / $active) : 0;
+    /**
+     * Update the workflow_instances onboarding header. A null $status leaves the
+     * workflow status untouched and only rewrites data_json (used when extending
+     * probation, where the workflow stays in_progress).
+     */
+    private function updateWorkflowInstanceStatus(int $onboardingId, ?string $status, array $meta): void
+    {
+        if ($status !== null) {
+            $stmt = $this->db->prepare("
+                UPDATE workflow_instances
+                   SET status = ?, data_json = ?
+                 WHERE id = ? AND reference_type = 'staff_onboarding'
+            ");
+            $stmt->execute([$status, json_encode($meta), $onboardingId]);
+            return;
+        }
+        $stmt = $this->db->prepare("
+            UPDATE workflow_instances
+               SET data_json = ?
+             WHERE id = ? AND reference_type = 'staff_onboarding'
+        ");
+        $stmt->execute([json_encode($meta), $onboardingId]);
+    }
 
-        $stmt = $this->db->prepare("UPDATE staff_onboarding SET progress_percent = ? WHERE id = ?");
-        $stmt->execute([$pct, $onboardingId]);
+    /**
+     * Resolve the workflow_definitions.id for the 'staff_onboarding' workflow,
+     * creating a minimal definition if none is seeded. workflow_instances.workflow_id
+     * is NOT NULL, so a definition must exist before an onboarding header can be written.
+     */
+    private function resolveStaffOnboardingWorkflowId(): int
+    {
+        $stmt = $this->db->prepare("SELECT id FROM workflow_definitions WHERE code = 'staff_onboarding' LIMIT 1");
+        $stmt->execute();
+        $id = (int)$stmt->fetchColumn();
+        if ($id) {
+            return $id;
+        }
+        $this->db->prepare("
+            INSERT INTO workflow_definitions (code, name, description, category, is_active, created_at, updated_at)
+            VALUES ('staff_onboarding', 'Staff Onboarding', 'New staff onboarding task checklist', 'staff_affairs', 1, NOW(), NOW())
+        ")->execute();
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
+     * Seed onboarding_tasks for a new onboarding instance from the active task templates.
+     * Templates whose applies_to_type_ids is set are filtered to the staff's type; NULL/empty
+     * applies-to means the template applies to everyone. Due dates derive from the start date
+     * plus the template's days_from_start.
+     */
+    private function seedOnboardingTasks(int $onboardingId, ?int $staffTypeId, string $startDate, ?int $departmentId): void
+    {
+        $tpl = $this->db->prepare("
+            SELECT task_name, description, category, days_from_start, priority
+            FROM onboarding_task_templates
+            WHERE status = 'active'
+              AND (
+                    applies_to_type_ids IS NULL
+                 OR applies_to_type_ids = ''
+                 OR JSON_CONTAINS(applies_to_type_ids, CAST(? AS JSON))
+              )
+            ORDER BY display_order, id
+        ");
+        $tpl->execute([$staffTypeId ?? 0]);
+        $templates = $tpl->fetchAll(PDO::FETCH_ASSOC);
+        if (!$templates) {
+            return;
+        }
+
+        $insert = $this->db->prepare("
+            INSERT INTO onboarding_tasks
+                (onboarding_id, task_name, description, category, department_id, due_date, priority, sequence, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL ? DAY), ?, ?, 'pending', NOW(), NOW())
+        ");
+        $seq = 0;
+        foreach ($templates as $t) {
+            $insert->execute([
+                $onboardingId,
+                $t['task_name'],
+                $t['description'] ?? null,
+                $t['category'] ?? null,
+                $departmentId,
+                $startDate,
+                (int)($t['days_from_start'] ?? 0),
+                $t['priority'] ?? 'medium',
+                ++$seq,
+            ]);
+        }
     }
 }

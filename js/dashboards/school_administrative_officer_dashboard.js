@@ -455,23 +455,6 @@ const schoolAdminDashboardController = {
     };
   },
 
-  fetchAPI: async function (route, action) {
-    try {
-      // Legacy ?route=&action= dispatch preserved, routed via API.callAPI.
-      const data = await API.callAPI(
-        "/",
-        "GET",
-        null,
-        { route, action },
-        { checkPermission: false }
-      );
-      return data?.data || data;
-    } catch (error) {
-      this.log(`API Error (${route}/${action}): ${error.message}`, "warn");
-      return null;
-    }
-  },
-
   /**
    * Process cards data from API response
    * Handles both snake_case (from API) and camelCase property names
@@ -1278,10 +1261,13 @@ const schoolAdminDashboardController = {
   },
 };
 
-// Initialize on DOM ready
-document.addEventListener("DOMContentLoaded", () => {
+if (window.__APP_BOOTED__) {
   schoolAdminDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    schoolAdminDashboardController.init();
+  }, { once: true });
+}
 
 // Also support legacy name for backward compatibility
 const adminOfficerDashboardController = schoolAdminDashboardController;

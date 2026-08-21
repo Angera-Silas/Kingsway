@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\activities\ActivitiesAPI;
+use App\API\Modules\activities\SportsManager;
 use Exception;
 
 /**
@@ -14,10 +15,12 @@ use Exception;
 class ActivitiesController extends BaseController
 {
     private ActivitiesAPI $api;
+    private SportsManager $sports;
 
     public function __construct() {
         parent::__construct();
         $this->api = new ActivitiesAPI();
+        $this->sports = new SportsManager();
     }
 
     public function index()
@@ -30,40 +33,9 @@ class ActivitiesController extends BaseController
      */
     public function getList($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = $this->db;
-
-            // Get recent activities/announcements
-            $query = "
-                SELECT 
-                    id,
-                    title,
-                    description,
-                    activity_date as created_at,
-                    activity_type as type
-                FROM activities
-                WHERE status = 'active'
-                ORDER BY activity_date DESC
-                LIMIT 10
-            ";
-
-            $result = $db->query($query);
-            $activities = [];
-            while ($row = $result->fetch()) {
-                $activities[] = [
-                    'id' => $row['id'],
-                    'title' => $row['title'] ?? 'Activity',
-                    'description' => $row['description'] ?? '',
-                    'created_at' => $row['created_at'],
-                    'type' => $row['type'] ?? 'general'
-                ];
-            }
-
-            return $this->success($activities, 'Activities retrieved');
-
-        } catch (\Exception $e) {
-            return $this->error('Failed to fetch activities: ' . $e->getMessage());
-        }
+        $limit = $data['limit'] ?? 10;
+        $result = $this->api->getRecentActivities($limit);
+        return $this->handleResponse($result);
     }
 
     // ========================================
@@ -883,6 +855,86 @@ class ActivitiesController extends BaseController
     }
 
     // ========================================
+    // SECTION 9.5: Sports Module
+    // Backs the sports.php page (js/pages/sports.js).
+    // Routes: /activities/sports/teams, /activities/sports/team-members,
+    //         /activities/sports/fixtures, /activities/sports/standings
+    // ========================================
+
+    /**
+     * GET /api/activities/sports/teams
+     * GET /api/activities/sports/teams/{id}
+     */
+    public function getSportsTeams($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $result = $this->sports->getTeam($id);
+        } else {
+            $result = $this->sports->listTeams($data);
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/activities/sports/teams
+     */
+    public function postSportsTeams($id = null, $data = [], $segments = [])
+    {
+        $result = $this->sports->createTeam($data, $this->getCurrentUserId());
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/activities/sports/team-members?team_id={id}
+     */
+    public function getSportsTeamMembers($id = null, $data = [], $segments = [])
+    {
+        $result = $this->sports->listTeamMembers($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/activities/sports/fixtures
+     * GET /api/activities/sports/fixtures/{id}
+     */
+    public function getSportsFixtures($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $result = $this->sports->getFixture($id);
+        } else {
+            $result = $this->sports->listFixtures($data);
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/activities/sports/fixtures
+     */
+    public function postSportsFixtures($id = null, $data = [], $segments = [])
+    {
+        $result = $this->sports->createFixture($data, $this->getCurrentUserId());
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/activities/sports/fixtures/record-result/{id}
+     */
+    public function postSportsFixturesRecordResult($id = null, $data = [], $segments = [])
+    {
+        $result = $this->sports->recordResult($id, $data, $this->getCurrentUserId());
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/activities/sports/standings
+     */
+    public function getSportsStandings($id = null, $data = [], $segments = [])
+    {
+        $result = $this->sports->getStandings($data);
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
     // SECTION 10: Evaluation Workflow
     // ========================================
 
@@ -1034,43 +1086,8 @@ class ActivitiesController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = \App\Database\Database::getInstance();
-            $stats = [];
-
-            $stmt = $db->query("SELECT COUNT(*) FROM activities WHERE status = 'active'");
-            $stats['active_activities'] = (int)($stmt->fetchColumn() ?: 0);
-
-            try {
-                $stmt = $db->query("SELECT COUNT(DISTINCT student_id) FROM activity_enrollments WHERE status = 'active'");
-                $stats['students_enrolled'] = (int)($stmt->fetchColumn() ?: 0);
-            } catch (\Exception $e) {
-                $stats['students_enrolled'] = 0;
-            }
-
-            try {
-                $stmt = $db->query("SELECT COUNT(*) FROM activities WHERE start_date > CURDATE() AND status = 'active'");
-                $stats['upcoming_events'] = (int)($stmt->fetchColumn() ?: 0);
-            } catch (\Exception $e) {
-                $stats['upcoming_events'] = 0;
-            }
-
-            try {
-                $stmt = $db->query("SELECT COUNT(*) FROM activity_awards WHERE YEAR(awarded_date) = YEAR(CURDATE()) AND MONTH(awarded_date) BETWEEN 1 AND 12");
-                $stats['awards_this_term'] = (int)($stmt->fetchColumn() ?: 0);
-            } catch (\Exception $e) {
-                $stats['awards_this_term'] = 0;
-            }
-
-            return $this->success($stats);
-        } catch (\Exception $e) {
-            return $this->success([
-                'active_activities' => 0,
-                'students_enrolled' => 0,
-                'upcoming_events'   => 0,
-                'awards_this_term'  => 0,
-            ]);
-        }
+        $result = $this->api->getStats();
+        return $this->handleResponse($result);
     }
 
     /**

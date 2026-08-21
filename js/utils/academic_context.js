@@ -367,10 +367,13 @@
             if (typeof BroadcastChannel !== 'undefined') {
                 try {
                     const channel = new BroadcastChannel('academic_context');
+                    // Never post subscribers (functions) across the channel — they
+                    // are not cloneable and throw DataCloneError on postMessage.
+                    const clone = { ...this.state, subscribers: undefined };
                     channel.postMessage({
                         type: eventType,
                         timestamp: Date.now(),
-                        context: this.state
+                        context: clone
                     });
                 } catch (error) {
                     console.warn('BroadcastChannel not available:', error);

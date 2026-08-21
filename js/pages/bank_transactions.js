@@ -21,13 +21,12 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
-                console.log("Initializing BankTransactionsController...");
                 await Promise.all([
                     this.loadData(),
                     this.loadAccounts()
                 ]);
-                console.log("BankTransactionsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing BankTransactionsController:", error);
                 this.showNotification("Failed to load bank transactions", "error");
@@ -39,7 +38,8 @@
          */
         loadData: async function () {
             try {
-                this.data = await API.callAPI("/accounts/bank-transactions", "GET");
+                var response = await API.callAPI("/accounts/bank-transactions", "GET");
+                this.data = (response && response.transactions) ? response.transactions : [];
                 if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading bank transactions:", error);
@@ -56,7 +56,8 @@
          */
         loadAccounts: async function () {
             try {
-                this.accounts = await API.callAPI("/accounts/bank-accounts", "GET");
+                var response = await API.callAPI("/accounts/bank-accounts", "GET");
+                this.accounts = (response && response.bank_accounts) ? response.bank_accounts : [];
                 if (!Array.isArray(this.accounts)) this.accounts = [];
             } catch (error) {
                 console.error("Error loading accounts:", error);
@@ -77,8 +78,9 @@
             var modalOptions = '<option value="">Select Account</option>';
 
             this.accounts.forEach(function (acc) {
-                var label = (acc.bank_name || "") + " - " + (acc.account_name || acc.account_number || "");
-                options += '<option value="' + acc.id + '">' + label + '</option>';
+                var label = (acc.bank_name || "") + " - " + (acc.name || acc.account_no || "");
+                var filterValue = acc.account_no || acc.id;
+                options += '<option value="' + filterValue + '">' + label + '</option>';
                 modalOptions += '<option value="' + acc.id + '">' + label + '</option>';
             });
 
@@ -92,21 +94,13 @@
         renderStats: function () {
             var totalCount = this.data.length;
             var credits = 0;
-            var debits = 0;
             var unreconciled = 0;
 
             this.data.forEach(function (txn) {
                 var amount = parseFloat(txn.amount) || 0;
-                var type = (txn.type || txn.transaction_type || "").toLowerCase();
+                credits += amount;
 
-                if (type === "credit") {
-                    credits += amount;
-                } else if (type === "debit") {
-                    debits += amount;
-                }
-
-                var reconciled = txn.reconciled || txn.is_reconciled || false;
-                if (!reconciled || reconciled === "No" || reconciled === "0" || reconciled === false) {
+                if (!txn.reconciled) {
                     unreconciled++;
                 }
             });
@@ -119,7 +113,7 @@
             if (el) el.textContent = "KES " + this.formatCurrency(credits);
 
             el = document.getElementById("kpiDebits");
-            if (el) el.textContent = "KES " + this.formatCurrency(debits);
+            if (el) el.textContent = "KES 0.00";
 
             el = document.getElementById("kpiUnreconciled");
             if (el) el.textContent = unreconciled;
@@ -148,32 +142,26 @@
             var html = "";
 
             pageItems.forEach(function (txn, index) {
-                var type = txn.type || txn.transaction_type || "Credit";
-                var typeBadge = type.toLowerCase() === "credit"
-                    ? '<span class="badge bg-success">Credit</span>'
-                    : '<span class="badge bg-danger">Debit</span>';
+                var status = txn.status || "pending";
+                var statusBadge = '<span class="badge bg-' + self.statusColor(status) + '">' +
+                    self.escapeHtml(status.charAt(0).toUpperCase() + status.slice(1)) + '</span>';
 
-                var reconciled = txn.reconciled || txn.is_reconciled || false;
-                var isReconciled = reconciled === true || reconciled === "Yes" || reconciled === "1" || reconciled === 1;
+                var isReconciled = !!txn.reconciled;
                 var reconciledBadge = isReconciled
                     ? '<span class="badge bg-success"><i class="fas fa-check"></i> Yes</span>'
                     : '<span class="badge bg-warning text-dark"><i class="fas fa-times"></i> No</span>';
 
-                var accountName = txn.account_name || txn.bank_account || "-";
-                if (!accountName || accountName === "-") {
-                    var acc = self.accounts.find(function (a) { return a.id == txn.account_id; });
-                    if (acc) accountName = (acc.bank_name || "") + " - " + (acc.account_name || "");
-                }
+                var accountName = (txn.bank_name || "") + " - " + (txn.account_number || "");
 
                 html += '<tr>' +
                     '<td>' + (start + index + 1) + '</td>' +
-                    '<td>' + self.formatDate(txn.date || txn.transaction_date || txn.created_at) + '</td>' +
+                    '<td>' + self.formatDate(txn.transaction_date || txn.created_at) + '</td>' +
                     '<td>' + self.escapeHtml(accountName) + '</td>' +
-                    '<td><code>' + self.escapeHtml(txn.reference || txn.reference_no || "-") + '</code></td>' +
-                    '<td>' + self.escapeHtml(txn.description || "-") + '</td>' +
-                    '<td class="text-center">' + typeBadge + '</td>' +
+                    '<td><code>' + self.escapeHtml(txn.transaction_ref || "-") + '</code></td>' +
+                    '<td>' + self.escapeHtml(txn.narration || "-") + '</td>' +
+                    '<td class="text-center">' + statusBadge + '</td>' +
                     '<td class="text-end fw-bold">KES ' + self.formatCurrency(txn.amount) + '</td>' +
-                    '<td class="text-end">KES ' + self.formatCurrency(txn.balance_after || txn.running_balance || 0) + '</td>' +
+                    '<td class="text-end text-muted">-</td>' +
                     '<td class="text-center">' + reconciledBadge + '</td>' +
                     '<td class="text-center">' +
                         '<div class="btn-group btn-group-sm">' +
@@ -204,25 +192,27 @@
             var dateTo = document.getElementById("btDateTo")?.value || "";
 
             this.filtered = this.data.filter(function (txn) {
-                if (accountFilter && String(txn.account_id) !== accountFilter) return false;
+                if (accountFilter) {
+                    var txnAccount = txn.account_number || txn.bank_name || "";
+                    if (String(txnAccount) !== accountFilter) return false;
+                }
 
-                var type = (txn.type || txn.transaction_type || "").toLowerCase();
-                if (typeFilter && type !== typeFilter.toLowerCase()) return false;
+                var status = (txn.status || "").toLowerCase();
+                if (typeFilter && status !== typeFilter.toLowerCase()) return false;
 
                 if (reconciledFilter) {
-                    var reconciled = txn.reconciled || txn.is_reconciled || false;
-                    var isReconciled = reconciled === true || reconciled === "Yes" || reconciled === "1" || reconciled === 1;
+                    var isReconciled = !!txn.reconciled;
                     if (reconciledFilter === "Yes" && !isReconciled) return false;
                     if (reconciledFilter === "No" && isReconciled) return false;
                 }
 
-                var txnDate = txn.date || txn.transaction_date || txn.created_at || "";
+                var txnDate = txn.transaction_date || txn.created_at || "";
                 if (dateFrom && txnDate && new Date(txnDate) < new Date(dateFrom)) return false;
                 if (dateTo && txnDate && new Date(txnDate) > new Date(dateTo)) return false;
 
                 if (search) {
-                    var hay = ((txn.reference || "") + " " + (txn.description || "") + " " +
-                        (txn.account_name || "")).toLowerCase();
+                    var hay = ((txn.transaction_ref || "") + " " + (txn.narration || "") + " " +
+                        (txn.bank_name || "") + " " + (txn.account_number || "")).toLowerCase();
                     if (hay.indexOf(search) === -1) return false;
                 }
                 return true;
@@ -275,7 +265,7 @@
                 account_id: document.getElementById("bt_account").value,
                 date: document.getElementById("bt_date").value,
                 reference: document.getElementById("bt_reference").value,
-                type: document.getElementById("bt_type").value,
+                status: document.getElementById("bt_status").value || "pending",
                 description: document.getElementById("bt_description").value,
                 amount: parseFloat(document.getElementById("bt_amount").value) || 0
             };
@@ -299,29 +289,28 @@
         /**
          * View transaction details
          */
-        viewTransaction: function (id) {
+        viewTransaction: async function (id) {
             var txn = this.data.find(function (t) { return t.id === id; });
             if (!txn) return;
 
-            var msg = "Date: " + this.formatDate(txn.date || txn.transaction_date) + "\n" +
-                "Account: " + (txn.account_name || txn.bank_account || "-") + "\n" +
-                "Reference: " + (txn.reference || txn.reference_no || "-") + "\n" +
-                "Type: " + (txn.type || txn.transaction_type || "-") + "\n" +
-                "Description: " + (txn.description || "-") + "\n" +
+            var msg = "Date: " + this.formatDate(txn.transaction_date || txn.created_at) + "\n" +
+                "Account: " + ((txn.bank_name || "") + " - " + (txn.account_number || "-")) + "\n" +
+                "Reference: " + (txn.transaction_ref || "-") + "\n" +
+                "Status: " + (txn.status || "-") + "\n" +
+                "Description: " + (txn.narration || "-") + "\n" +
                 "Amount: KES " + this.formatCurrency(txn.amount) + "\n" +
-                "Balance After: KES " + this.formatCurrency(txn.balance_after || txn.running_balance || 0) + "\n" +
                 "Reconciled: " + (txn.reconciled ? "Yes" : "No");
-            alert(msg);
+            await window.infoDialog('Notice', msg);
         },
 
         /**
          * Reconcile a transaction
          */
         reconcile: async function (id) {
-            if (!confirm("Mark this transaction as reconciled?")) return;
+            if (!(await window.confirmAction('Confirm', "Mark this transaction as reconciled?"))) return;
 
             try {
-                await API.callAPI("/accounts/bank-transactions/" + id + "/reconcile", "PUT", { reconciled: true });
+                await API.callAPI("/accounts/bank-transactions/" + id, "PUT", { reconciled: true });
 
                 this.showNotification("Transaction reconciled", "success");
                 await this.loadData();
@@ -335,7 +324,7 @@
          * Delete transaction
          */
         deleteTransaction: async function (id) {
-            if (!confirm("Are you sure you want to delete this transaction?")) return;
+            if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this transaction?", { confirmText: 'Delete', danger: true }))) return;
 
             try {
                 await API.callAPI("/accounts/bank-transactions/" + id, "DELETE");
@@ -352,18 +341,17 @@
          * Export data as CSV
          */
         exportCSV: function () {
-            var headers = ["#", "Date", "Account", "Reference", "Description", "Type", "Amount (KES)", "Balance After (KES)", "Reconciled"];
+            var headers = ["#", "Date", "Account", "Reference", "Description", "Status", "Amount (KES)", "Reconciled"];
             var self = this;
             var rows = this.filtered.map(function (txn, i) {
                 return [
                     i + 1,
-                    self.formatDate(txn.date || txn.transaction_date || txn.created_at),
-                    (txn.account_name || txn.bank_account || "").replace(/,/g, " "),
-                    txn.reference || txn.reference_no || "",
-                    (txn.description || "").replace(/,/g, " "),
-                    txn.type || txn.transaction_type || "",
+                    self.formatDate(txn.transaction_date || txn.created_at),
+                    ((txn.bank_name || "") + " - " + (txn.account_number || "")).replace(/,/g, " "),
+                    txn.transaction_ref || "",
+                    (txn.narration || "").replace(/,/g, " "),
+                    txn.status || "",
                     txn.amount || 0,
-                    txn.balance_after || txn.running_balance || 0,
                     txn.reconciled ? "Yes" : "No"
                 ];
             });
@@ -437,6 +425,13 @@
             });
         },
 
+        statusColor: function (status) {
+            status = (status || "").toLowerCase();
+            if (status === "processed") return "success";
+            if (status === "failed") return "danger";
+            return "warning text-dark";
+        },
+
         formatDate: function (value) {
             if (!value) return "-";
             var d = new Date(value);
@@ -454,11 +449,11 @@
                 .replace(/'/g, "&#39;");
         },
 
-        showNotification: function (message, type) {
+        showNotification: async function (message, type) {
             if (typeof showNotification === "function") {
                 showNotification(message, type || "info");
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
         },
 
@@ -473,4 +468,10 @@
     };
 
     window.BankTransactionsController = BankTransactionsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => BankTransactionsController.init().catch(() => {}));
+    } else {
+        BankTransactionsController.init().catch(() => {});
+    }
 })();

@@ -16,15 +16,15 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="fas fa-exchange-alt me-2 text-info"></i>Bank Transactions</h2>
+            <h2 class="mb-1"><i class="bi bi-arrow-left-right me-2 text-info"></i>Bank Transactions</h2>
             <p class="text-muted mb-0">Record, track and reconcile bank transactions</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="BankTransactionsController.exportCSV()">
-                <i class="fas fa-download me-1"></i> Export CSV
+                <i class="bi bi-download me-1"></i> Export CSV
             </button>
             <button class="btn btn-info text-white" onclick="BankTransactionsController.showCreateModal()">
-                <i class="fas fa-plus me-1"></i> Add Transaction
+                <i class="bi bi-plus-lg me-1"></i> Add Transaction
             </button>
         </div>
     </div>
@@ -36,7 +36,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-info bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-exchange-alt fa-lg text-info"></i>
+                            <i class="bi bi-arrow-left-right fa-lg text-info"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Total Transactions</h6>
@@ -51,7 +51,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-success bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-arrow-down fa-lg text-success"></i>
+                            <i class="bi bi-arrow-down fa-lg text-success"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Credits (KES)</h6>
@@ -66,7 +66,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-arrow-up fa-lg text-danger"></i>
+                            <i class="bi bi-arrow-up fa-lg text-danger"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Debits (KES)</h6>
@@ -81,7 +81,7 @@
                 <div class="card-body">
                     <div class="d-flex align-items-center">
                         <div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3">
-                            <i class="fas fa-exclamation-triangle fa-lg text-warning"></i>
+                            <i class="bi bi-exclamation-triangle fa-lg text-warning"></i>
                         </div>
                         <div>
                             <h6 class="text-muted mb-1">Unreconciled</h6>
@@ -108,11 +108,12 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small text-muted">Type</label>
+                    <label class="form-label small text-muted">Status</label>
                     <select class="form-select" id="btTypeFilter" onchange="BankTransactionsController.filterData()">
-                        <option value="">All Types</option>
-                        <option value="Credit">Credit</option>
-                        <option value="Debit">Debit</option>
+                        <option value="">All Statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="processed">Processed</option>
+                        <option value="failed">Failed</option>
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -133,7 +134,7 @@
                 </div>
                 <div class="col-md-2">
                     <button class="btn btn-outline-secondary w-100" onclick="BankTransactionsController.clearFilters()">
-                        <i class="fas fa-times me-1"></i> Clear
+                        <i class="bi bi-x-lg me-1"></i> Clear
                     </button>
                 </div>
             </div>
@@ -148,11 +149,11 @@
                     <thead class="table-light">
                         <tr>
                             <th width="50">#</th>
-                            <th>Date</th>
-                            <th>Account</th>
-                            <th>Reference</th>
-                            <th>Description</th>
-                            <th class="text-center">Type</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Account</th>
+                            <th scope="col">Reference</th>
+                            <th scope="col">Description</th>
+                            <th class="text-center">Status</th>
                             <th class="text-end">Amount (KES)</th>
                             <th class="text-end">Balance After (KES)</th>
                             <th class="text-center">Reconciled</th>
@@ -185,7 +186,7 @@
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title" id="bankTransactionModalLabel">
-                    <i class="fas fa-exchange-alt me-2"></i> Add Bank Transaction
+                    <i class="bi bi-arrow-left-right me-2"></i> Add Bank Transaction
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -208,11 +209,11 @@
                             <input type="text" class="form-control" id="bt_reference" placeholder="Transaction reference">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Type <span class="text-danger">*</span></label>
-                            <select class="form-select" id="bt_type" required>
-                                <option value="">Select Type</option>
-                                <option value="Credit">Credit</option>
-                                <option value="Debit">Debit</option>
+                            <label class="form-label">Status <span class="text-danger">*</span></label>
+                            <select class="form-select" id="bt_status" required>
+                                <option value="pending" selected>Pending</option>
+                                <option value="processed">Processed</option>
+                                <option value="failed">Failed</option>
                             </select>
                         </div>
                         <div class="col-12">
@@ -229,14 +230,14 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-info text-white" onclick="BankTransactionsController.saveTransaction()">
-                    <i class="fas fa-save me-1"></i> Save Transaction
+                    <i class="bi bi-check-lg me-1"></i> Save Transaction
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/bank_transactions.js"></script>
+<?php asset_script($appBase, 'js/pages/bank_transactions.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankTransactionsController !== 'undefined') {

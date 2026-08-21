@@ -17,11 +17,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-layer-group me-2"></i>Balances by Class</h4>
+                    <h4 class="mb-1"><i class="bi bi-layers me-2"></i>Balances by Class</h4>
                     <p class="text-muted mb-0">View fee balances and collections per class</p>
                 </div>
                 <button class="btn btn-outline-primary" id="exportReport">
-                    <i class="fas fa-file-excel me-1"></i> Export Report
+                    <i class="bi bi-file-excel me-1"></i> Export Report
                 </button>
             </div>
         </div>
@@ -54,7 +54,7 @@
                 </div>
                 <div class="col-md-3">
                     <button class="btn btn-primary w-100" id="applyFiltersBtn">
-                        <i class="fas fa-filter me-1"></i> Apply Filters
+                        <i class="bi bi-funnel me-1"></i> Apply Filters
                     </button>
                 </div>
             </div>
@@ -143,14 +143,14 @@
                 <table class="table table-hover" id="classBalancesTable">
                     <thead>
                         <tr>
-                            <th>#</th>
-                            <th>Class</th>
-                            <th>Students</th>
-                            <th>Expected</th>
-                            <th>Collected</th>
-                            <th>Balance</th>
-                            <th>% Collected</th>
-                            <th>Actions</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Students</th>
+                            <th scope="col">Expected</th>
+                            <th scope="col">Collected</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">% Collected</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -170,16 +170,16 @@
                 <table class="table table-hover table-bordered" id="classBillingTable">
                     <thead class="table-dark">
                         <tr>
-                            <th>#</th>
-                            <th>Student Name</th>
-                            <th>Adm. No.</th>
-                            <th>Type</th>
-                            <th>Total Billed</th>
-                            <th>Total Paid</th>
-                            <th>Balance</th>
-                            <th>Status</th>
-                            <th>Last Payment</th>
-                            <th>Action</th>
+                            <th scope="col">#</th>
+                            <th scope="col">Student Name</th>
+                            <th scope="col">Adm. No.</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Total Billed</th>
+                            <th scope="col">Total Paid</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Last Payment</th>
+                            <th scope="col">Action</th>
                         </tr>
                     </thead>
                     <tbody id="tbody_class_billing">
@@ -196,18 +196,18 @@
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="fas fa-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>
+        <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="billingHistoryContent">
         <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" onclick="BalancesByClassController.printBillingStatement()"><i class="fas fa-print me-1"></i>Print Statement</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="BalancesByClassController.printBillingStatement()"><i class="bi bi-printer me-1"></i>Print Statement</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="<?= (defined('APP_BASE') ? APP_BASE : '/Kingsway') ?>/js/pages/balances_by_class.js"></script>
+<?php asset_script($appBase, 'js/pages/balances_by_class.js'); ?>

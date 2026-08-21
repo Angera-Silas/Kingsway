@@ -50,10 +50,7 @@ const classResultsController = (() => {
     function cbcGrade(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
-        if (n >= 80) return 'EE';
-        if (n >= 50) return 'ME';
-        if (n >= 25) return 'AE';
-        return 'BE';
+        return GradingScale.grade(n) || null;
     }
 
     async function loadYears() {
@@ -355,15 +352,17 @@ const classResultsController = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
 
+        await GradingScale.preload();
+
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in class_results:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

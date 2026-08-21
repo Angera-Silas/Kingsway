@@ -1,605 +1,543 @@
 /**
- * Communications Controller
- * Handles messaging, announcements, SMS, parent communications, staff forums
- * Integrates with /api/communications endpoints
+ * Communications — Internal Messages Controller
+ *
+ * Two-pane internal messaging inbox for system users. Conversations live in
+ * the normalised internal_messages schema and are exposed by:
+ *   GET  /communications/conversations            → list my conversations
+ *   GET  /communications/conversations/{id}       → thread (marks read)
+ *   POST /communications/conversations            → create + send first message
+ *   POST /communications/conversations/{id}       → reply
+ *   GET  /communications/recipients?q={term}      → search users to message
  */
 
 const communicationsController = {
+  conversations: [],
+  filteredConversations: [],
+  activeConversationId: null,
+  activeConversation: null,
   messages: [],
-  announcements: [],
-  contacts: [],
-  groups: [],
-  filteredData: [],
-  currentFilters: {},
+  filter: "all",
+  search: "",
+  selectedRecipients: [],
+  recipientResults: [],
+  initialized: false,
 
-  /**
-   * Initialize controller
-   */
+  // ==========================================================================
+  // Lifecycle
+  // ==========================================================================
   init: async function () {
-    try {
-      showNotification("Loading communications data...", "info");
-      await Promise.all([
-        this.loadMessages(),
-        this.loadAnnouncements(),
-        this.loadContacts(),
-      ]);
-      this.checkUserPermissions();
-      showNotification("Communications loaded successfully", "success");
-    } catch (error) {
-      console.error("Error initializing communications controller:", error);
-      showNotification("Failed to load communications", "error");
+    if (this.initialized) return;
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    if (!AuthContext.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
+      return;
+    }
+    this.initialized = true;
+    this.setupEventListeners();
+    await this.loadConversations();
+    const requestedConversation = parseInt(new URLSearchParams(window.location.search).get("conversation_id"), 10);
+    if (requestedConversation > 0) {
+      this.openConversation(requestedConversation);
     }
   },
 
-  // ============================================================================
-  // MESSAGES & COMMUNICATIONS
-  // ============================================================================
+  setupEventListeners: function () {
+    const root = document.getElementById("kwMessaging");
+    if (!root) return;
 
-  /**
-   * Load messages
-   */
-  loadMessages: async function () {
-    try {
-      const response = await API.communications.getCommunication();
-      this.messages = response.data || response || [];
-      this.filteredData = [...this.messages];
-      this.renderMessagesTable();
-    } catch (error) {
-      console.error("Error loading messages:", error);
-      const container = document.getElementById("messagesContainer");
-      if (container) {
-        container.innerHTML =
-          '<div class="alert alert-danger">Failed to load messages</div>';
+    document.getElementById("btnNewMessage")?.addEventListener("click", () => this.startCompose());
+    document.getElementById("btnSendMessage")?.addEventListener("click", () => this.sendNewMessage());
+    document.getElementById("btnSendReply")?.addEventListener("click", () => this.sendReply());
+    document.getElementById("replyBox")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        this.sendReply();
       }
+    });
+    document.getElementById("msgSearch")?.addEventListener("input", (e) => {
+      this.search = e.target.value.trim().toLowerCase();
+      this.applyFilters();
+    });
+    document.getElementById("newRecipientSearch")?.addEventListener("input", (e) => {
+      clearTimeout(this._recipientDebounce);
+      this._recipientDebounce = setTimeout(() => this.searchRecipients(e.target.value), 300);
+    });
+
+    root.querySelectorAll(".kw-msg-filter").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.filter = btn.dataset.filter;
+        root.querySelectorAll(".kw-msg-filter").forEach((b) => b.classList.toggle("active", b === btn));
+        this.applyFilters();
+      });
+    });
+
+    root.querySelectorAll("[data-start-compose]").forEach((btn) => {
+      btn.addEventListener("click", () => this.startCompose());
+    });
+    root.querySelector("[data-cancel-compose]")?.addEventListener("click", () => this.cancelCompose());
+
+    root.querySelector("#conversationList")?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-conversation-id]");
+      if (item) this.openConversation(parseInt(item.dataset.conversationId, 10));
+    });
+
+    root.querySelector("#recipientResults")?.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-recipient-id]");
+      if (item) this.addRecipient(parseInt(item.dataset.recipientId, 10), item.dataset.name);
+    });
+
+    root.querySelector("#selectedRecipients")?.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-remove-recipient]");
+      if (chip) this.removeRecipient(parseInt(chip.dataset.removeRecipient, 10));
+    });
+  },
+
+  // ==========================================================================
+  // Conversation list
+  // ==========================================================================
+  loadConversations: async function () {
+    const listEl = document.getElementById("conversationList");
+    if (listEl) {
+      listEl.innerHTML =
+        '<div class="kw-msg-loading text-center py-5"><div class="spinner-border text-success" role="status"></div></div>';
+    }
+    try {
+      const response = await callAPI("/communications/conversations", "GET");
+      this.conversations = Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+        ? response
+        : [];
+      this.applyFilters();
+    } catch (error) {
+      console.error("Error loading conversations:", error);
+      if (listEl) {
+        listEl.innerHTML =
+          '<div class="alert alert-danger m-3">Failed to load conversations. Please refresh.</div>';
+      }
+      showNotification("Failed to load conversations", "error");
     }
   },
 
-  /**
-   * Render messages table
-   */
-  renderMessagesTable: function () {
-    const container = document.getElementById("messagesContainer");
-    if (!container) return;
+  applyFilters: function () {
+    let list = this.conversations;
+    if (this.filter === "unread") {
+      list = list.filter((c) => parseInt(c.unread_count || 0, 10) > 0);
+    } else if (this.filter === "group") {
+      list = list.filter((c) => c.conversation_type && c.conversation_type !== "one_on_one");
+    }
+    if (this.search) {
+      const term = this.search;
+      list = list.filter((c) =>
+        `${c.title || ""} ${c.participant_names || ""} ${c.last_sender_name || ""} ${c.last_message || ""}`
+          .toLowerCase()
+          .includes(term)
+      );
+    }
+    this.filteredConversations = list;
+    this.renderConversationList();
+  },
 
-    if (this.filteredData.length === 0) {
-      container.innerHTML =
-        '<div class="alert alert-info">No messages found.</div>';
+  renderConversationList: function () {
+    const listEl = document.getElementById("conversationList");
+    if (!listEl) return;
+
+    if (this.filteredConversations.length === 0) {
+      listEl.innerHTML =
+        '<div class="kw-msg-empty-list">' +
+        '<i class="bi bi-inbox"></i>' +
+        "<p>No conversations found.</p>" +
+        "</div>";
       return;
     }
 
-    let html = `
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead class="table-light">
-                        <tr>
-                            <th>From</th>
-                            <th>To</th>
-                            <th>Subject</th>
-                            <th>Type</th>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
+    listEl.innerHTML = this.filteredConversations
+      .map((c) => {
+        const id = parseInt(c.id, 10);
+        const active = id === this.activeConversationId ? " active" : "";
+        const unread = parseInt(c.unread_count || 0, 10);
+        const name = this.escapeHtml(c.participant_names || c.title || "Conversation");
+        const preview = this.escapeHtml(this.truncate(c.last_message || "No messages yet", 80));
+        const time = this.formatListTime(c.last_message_at || c.created_at);
+        const sender = c.last_sender_name ? this.escapeHtml(c.last_sender_name) + ": " : "";
+        const isGroup = c.conversation_type && c.conversation_type !== "one_on_one";
+        const initials = this.avatarInitials(c.participant_names || c.title || "?");
+        const colorClass = this.avatarColor(initials);
+        const unreadBadge = unread > 0
+          ? `<span class="kw-msg-unread">${unread > 99 ? "99+" : unread}</span>`
+          : "";
+        const groupBadge = isGroup
+          ? '<span class="badge rounded-pill kw-badge-group">' + c.conversation_type + "</span>"
+          : "";
 
-    this.filteredData.forEach((msg) => {
-      const statusBadge = this.getMessageStatusBadge(msg.status);
-      const typeBadge = this.getMessageTypeBadge(msg.type);
-
-      html += `
-                <tr>
-                    <td>${msg.from_name || "N/A"}</td>
-                    <td>${
-                      msg.to_name || msg.recipient_count
-                        ? `${msg.recipient_count} recipients`
-                        : "N/A"
-                    }</td>
-                    <td><strong>${
-                      msg.subject || msg.message_preview || "No Subject"
-                    }</strong></td>
-                    <td>${typeBadge}</td>
-                    <td>${this.formatDate(msg.created_at)}</td>
-                    <td>${statusBadge}</td>
-                    <td>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-info" onclick="communicationsController.viewMessage(${
-                              msg.id
-                            })" title="View">
-                                <i class="bi bi-eye"></i>
-                            </button>
-                            <button class="btn btn-warning" onclick="communicationsController.replyMessage(${
-                              msg.id
-                            })" title="Reply" data-permission="communications_send">
-                                <i class="bi bi-reply"></i>
-                            </button>
-                            <button class="btn btn-danger" onclick="communicationsController.deleteMessage(${
-                              msg.id
-                            })" title="Delete" data-permission="communications_delete">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-    });
-
-    html += "</tbody></table></div>";
-    container.innerHTML = html;
-    this.checkUserPermissions();
+        return (
+          '<div class="kw-msg-item' + active + '" data-conversation-id="' + id + '" role="button" tabindex="0">' +
+          '<span class="kw-avatar ' + colorClass + '">' + this.escapeHtml(initials) + "</span>" +
+          '<div class="kw-msg-item-body">' +
+          '<div class="kw-msg-item-top">' +
+          '<span class="kw-msg-item-name">' + name + "</span>" +
+          '<span class="kw-msg-item-time">' + time + "</span>" +
+          "</div>" +
+          '<div class="kw-msg-item-bottom">' +
+          '<span class="kw-msg-item-preview">' + sender + preview + "</span>" +
+          '<span class="kw-msg-item-meta">' + groupBadge + unreadBadge + "</span>" +
+          "</div>" +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
   },
 
-  /**
-   * Get message status badge
-   */
-  getMessageStatusBadge: function (status) {
-    const badges = {
-      sent: '<span class="badge bg-success">Sent</span>',
-      pending: '<span class="badge bg-warning">Pending</span>',
-      failed: '<span class="badge bg-danger">Failed</span>',
-      delivered: '<span class="badge bg-info">Delivered</span>',
-      read: '<span class="badge bg-primary">Read</span>',
-    };
-    return badges[status] || '<span class="badge bg-secondary">Unknown</span>';
-  },
-
-  /**
-   * Get message type badge
-   */
-  getMessageTypeBadge: function (type) {
-    const badges = {
-      sms: '<span class="badge bg-primary">SMS</span>',
-      email: '<span class="badge bg-info">Email</span>',
-      notification: '<span class="badge bg-warning">Notification</span>',
-      internal: '<span class="badge bg-secondary">Internal</span>',
-    };
-    return badges[type] || '<span class="badge bg-secondary">Message</span>';
-  },
-
-  /**
-   * Send message with optional attachments
-   */
-  sendMessage: async function (event) {
-    if (event) event.preventDefault();
-
+  // ==========================================================================
+  // Thread
+  // ==========================================================================
+  openConversation: async function (id) {
+    this.activeConversationId = id;
+    this.showView("thread");
+    this.renderThreadLoading();
     try {
-      const channel = document.getElementById("messageChannel").value;
-      const recipients = document.getElementById("messageRecipients").value;
-      const subject = document.getElementById("messageSubject").value;
-      const body = document.getElementById("messageBody").value;
-      const scheduledTime = document.getElementById("scheduledTime").value;
-      const attachmentsInput = document.getElementById("messageAttachments");
+      const response = await callAPI("/communications/conversations/" + id, "GET");
+      const data = response?.data || response || {};
+      this.activeConversation = data.conversation || {};
+      this.messages = Array.isArray(data.messages) ? data.messages : [];
+      this.renderThread();
+      this.markConversationReadLocally(id);
+      this.scrollThreadToBottom();
+    } catch (error) {
+      console.error("Error loading conversation:", error);
+      const el = document.getElementById("threadMessages");
+      if (el) el.innerHTML = '<div class="alert alert-danger m-3">Failed to load conversation.</div>';
+      showNotification("Failed to load conversation", "error");
+    }
+  },
 
-      if (!channel || !recipients || !body) {
-        showNotification("Please fill in all required fields", "warning");
-        return;
+  renderThreadLoading: function () {
+    const el = document.getElementById("threadMessages");
+    if (el) {
+      el.innerHTML =
+        '<div class="text-center py-5"><div class="spinner-border text-success" role="status"></div></div>';
+    }
+  },
+
+  renderThread: function () {
+    const titleEl = document.getElementById("threadTitle");
+    const partsEl = document.getElementById("threadParticipants");
+    const msgsEl = document.getElementById("threadMessages");
+    if (!titleEl || !partsEl || !msgsEl) return;
+
+    const conv = this.activeConversation || {};
+    titleEl.textContent = conv.title || "Conversation";
+
+    const groupBadge = document.getElementById("threadGroupBadge");
+    if (groupBadge) {
+      const isGroup = conv.conversation_type && conv.conversation_type !== "one_on_one";
+      groupBadge.classList.toggle("d-none", !isGroup);
+      if (isGroup) groupBadge.textContent = conv.conversation_type;
+    }
+    partsEl.textContent = conv.participant_names || "";
+
+    if (this.messages.length === 0) {
+      msgsEl.innerHTML =
+        '<div class="kw-msg-empty-list py-5"><i class="bi bi-chat"></i><p>No messages yet. Say hello!</p></div>';
+      return;
+    }
+
+    msgsEl.innerHTML = this.messages
+      .map((m) => {
+        const isMine = parseInt(m.is_mine || 0, 10) === 1;
+        const body = this.escapeHtml(m.message_body || m.message || "");
+        const bodyHtml = this.linkify(body);
+        const sender = this.escapeHtml(m.sender_name || (isMine ? "You" : "Unknown"));
+        const time = this.formatBubbleTime(m.created_at);
+        const readIcon = isMine
+          ? m.read_at
+            ? '<i class="bi bi-check2-all kw-msg-read-icon" title="Read"></i>'
+            : '<i class="bi bi-check2 kw-msg-read-icon" title="Sent"></i>'
+          : "";
+        const priorityDot =
+          m.priority === "high" || m.priority === "urgent"
+            ? '<span class="kw-msg-priority" title="' + this.escapeHtml(m.priority) + '">' +
+              (m.priority === "urgent" ? "!!" : "!") +
+              "</span>"
+            : "";
+
+        return (
+          '<div class="kw-msg-row ' + (isMine ? "mine" : "theirs") + '">' +
+          '<div class="kw-msg-bubble">' +
+          '<div class="kw-msg-bubble-meta">' +
+          priorityDot +
+          (isMine ? "" : '<span class="kw-msg-bubble-sender">' + sender + "</span>") +
+          "</div>" +
+          '<div class="kw-msg-bubble-text">' + bodyHtml + "</div>" +
+          '<div class="kw-msg-bubble-time">' + time + readIcon + "</div>" +
+          "</div>" +
+          "</div>"
+        );
+      })
+      .join("");
+  },
+
+  markConversationReadLocally: function (id) {
+    const conv = this.conversations.find((c) => parseInt(c.id, 10) === id);
+    if (conv) conv.unread_count = 0;
+    this.renderConversationList();
+  },
+
+  sendReply: async function () {
+    const box = document.getElementById("replyBox");
+    const text = (box?.value || "").trim();
+    if (!text || this.activeConversationId === null) return;
+    const id = this.activeConversationId;
+    try {
+      box.value = "";
+      await callAPI("/communications/conversations/" + id, "POST", { message: text });
+      await this.openConversation(id);
+    } catch (error) {
+      console.error("Error sending reply:", error);
+      box.value = text;
+      showNotification("Failed to send reply", "error");
+    }
+  },
+
+  scrollThreadToBottom: function () {
+    const el = document.getElementById("threadMessages");
+    if (el) el.scrollTop = el.scrollHeight;
+  },
+
+  // ==========================================================================
+  // Compose
+  // ==========================================================================
+  startCompose: function () {
+    this.activeConversationId = null;
+    this.selectedRecipients = [];
+    this.recipientResults = [];
+    this.showView("compose");
+    document.getElementById("selectedRecipients").innerHTML = "";
+    document.getElementById("newRecipientSearch").value = "";
+    document.getElementById("newSubject").value = "";
+    document.getElementById("newMessage").value = "";
+    document.getElementById("newPriority").value = "normal";
+    document.getElementById("newRecipientSearch").focus();
+  },
+
+  cancelCompose: function () {
+    this.showView("empty");
+  },
+
+  searchRecipients: async function (term) {
+    const panel = document.getElementById("recipientResults");
+    if (!panel) return;
+    if (!term.trim()) {
+      panel.classList.add("d-none");
+      return;
+    }
+    try {
+      const response = await callAPI("/communications/recipients", "GET", null, { q: term });
+      this.recipientResults = Array.isArray(response?.data)
+        ? response.data
+        : Array.isArray(response)
+        ? response
+        : [];
+      const selected = new Set(this.selectedRecipients.map((r) => r.id));
+      const available = this.recipientResults.filter((r) => !selected.has(parseInt(r.id, 10)));
+      if (available.length === 0) {
+        panel.innerHTML = '<div class="kw-msg-recipient-empty">No matching users</div>';
+      } else {
+        panel.innerHTML = available
+          .map(
+            (r) =>
+              '<button type="button" class="kw-msg-recipient-item" data-recipient-id="' +
+              parseInt(r.id, 10) +
+              '" data-name="' +
+              this.escapeHtml(r.full_name || r.username) +
+              '">' +
+              '<span class="kw-avatar ' + this.avatarColor(r.full_name || r.username) + '">' +
+              this.escapeHtml(this.avatarInitials(r.full_name || r.username)) +
+              "</span>" +
+              '<span class="kw-msg-recipient-item-name">' +
+              this.escapeHtml(r.full_name || r.username) +
+              "</span>" +
+              '<span class="kw-msg-recipient-item-role">' +
+              this.escapeHtml(r.roles || "") +
+              "</span>" +
+              "</button>"
+          )
+          .join("");
       }
+      panel.classList.remove("d-none");
+    } catch (error) {
+      console.error("Error searching recipients:", error);
+      panel.classList.add("d-none");
+    }
+  },
 
-      // Build FormData to support file attachments
-      const formData = new FormData();
-      formData.append("channel", channel);
-      formData.append("type", channel);
-      formData.append("recipient_type", recipients);
-      formData.append("subject", subject || "");
-      formData.append("message", body);
+  addRecipient: function (id, name) {
+    if (this.selectedRecipients.some((r) => r.id === id)) return;
+    this.selectedRecipients.push({ id, name });
+    document.getElementById("recipientResults").classList.add("d-none");
+    document.getElementById("newRecipientSearch").value = "";
+    this.renderSelectedRecipients();
+  },
 
-      if (scheduledTime) {
-        formData.append("scheduled_time", scheduledTime);
-      }
+  removeRecipient: function (id) {
+    this.selectedRecipients = this.selectedRecipients.filter((r) => r.id !== id);
+    this.renderSelectedRecipients();
+  },
 
-      // Append multiple attachments if present
-      if (attachmentsInput && attachmentsInput.files.length > 0) {
-        for (let i = 0; i < attachmentsInput.files.length; i++) {
-          formData.append("attachments[]", attachmentsInput.files[i]);
-        }
-      }
+  renderSelectedRecipients: function () {
+    const el = document.getElementById("selectedRecipients");
+    if (!el) return;
+    el.innerHTML = this.selectedRecipients
+      .map(
+        (r) =>
+          '<span class="kw-msg-chip">' +
+          this.escapeHtml(r.name) +
+          '<button type="button" class="kw-msg-chip-x" data-remove-recipient="' +
+          r.id +
+          '" aria-label="Remove ' +
+          this.escapeHtml(r.name) +
+          '">&times;</button>' +
+          "</span>"
+      )
+      .join("");
+  },
 
-      // Call API with file upload option
-      await window.API.apiCall(
-        "/communications/send",
-        "POST",
-        formData,
-        {},
-        { isFile: true }
-      );
+  sendNewMessage: async function () {
+    const recipients = this.selectedRecipients.map((r) => r.id);
+    const subject = (document.getElementById("newSubject").value || "").trim();
+    const message = (document.getElementById("newMessage").value || "").trim();
+    const priority = document.getElementById("newPriority").value;
 
-      showNotification("Message sent successfully", "success");
-      bootstrap.Modal.getInstance(
-        document.getElementById("composeModal")
-      ).hide();
-      document.getElementById("composeForm").reset();
-      await this.loadMessages();
+    if (recipients.length === 0) {
+      showNotification("Select at least one recipient", "warning");
+      return;
+    }
+    if (!message) {
+      showNotification("Type a message", "warning");
+      return;
+    }
+
+    const sendBtn = document.getElementById("btnSendMessage");
+    if (sendBtn) sendBtn.disabled = true;
+    try {
+      const response = await callAPI("/communications/conversations", "POST", {
+        recipients,
+        subject,
+        message,
+        priority,
+      });
+      const data = response?.data || response || {};
+      const conversationId = data.conversation?.id
+        ? parseInt(data.conversation.id, 10)
+        : this.findNewConversationId();
+      showNotification("Message sent", "success");
+      this.cancelCompose();
+      await this.loadConversations();
+      if (conversationId) this.openConversation(conversationId);
     } catch (error) {
       console.error("Error sending message:", error);
-      showNotification(
-        "Failed to send message: " + (error.message || "Unknown error"),
-        "error"
-      );
+      showNotification("Failed to send message: " + (error.message || "Unknown error"), "error");
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
     }
   },
 
-  /**
-   * View message
-   */
-  viewMessage: async function (messageId) {
-    try {
-      const message = await API.communications.getCommunication(messageId);
-      alert(
-        `Message Details:\n\nFrom: ${message.from_name}\nTo: ${message.to_name}\nSubject: ${message.subject}\nMessage: ${message.message}\nDate: ${message.created_at}\nStatus: ${message.status}`
-      );
-    } catch (error) {
-      console.error("Error loading message:", error);
-      showNotification("Failed to load message", "error");
-    }
+  findNewConversationId: function () {
+    // The created conversation is normally the newest in the freshly-loaded list.
+    const ids = this.conversations.map((c) => parseInt(c.id, 10));
+    if (ids.length > 0) return Math.max.apply(null, ids);
+    return null;
   },
 
-  /**
-   * Reply to message
-   */
-  replyMessage: function (messageId) {
-    console.log("Reply feature coming soon");
+  showView: function (view) {
+    const empty = document.getElementById("threadEmpty");
+    const thread = document.getElementById("threadView");
+    const compose = document.getElementById("composeView");
+    if (empty) empty.classList.toggle("d-none", view !== "empty");
+    if (thread) thread.classList.toggle("d-none", view !== "thread");
+    if (compose) compose.classList.toggle("d-none", view !== "compose");
+    if (view !== "thread") this.activeConversationId = null;
   },
 
-  /**
-   * Delete message
-   */
-  deleteMessage: async function (messageId) {
-    if (!confirm("Delete this message?")) return;
-
-    try {
-      await API.communications.deleteCommunication(messageId);
-      showNotification("Message deleted successfully", "success");
-      await this.loadMessages();
-    } catch (error) {
-      console.error("Error deleting message:", error);
-      showNotification("Failed to delete message", "error");
-    }
+  // ==========================================================================
+  // Utilities
+  // ==========================================================================
+  escapeHtml: function (value) {
+    if (value === null || value === undefined) return "";
+    return String(value).replace(/[&<>"']/g, (m) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    })[m]);
   },
 
-  // ============================================================================
-  // ANNOUNCEMENTS
-  // ============================================================================
-
-  /**
-   * Load announcements
-   */
-  loadAnnouncements: async function () {
-    try {
-      const response = await API.communications.getAnnouncement();
-      this.announcements = response.data || response || [];
-    } catch (error) {
-      console.error("Error loading announcements:", error);
-      this.announcements = [];
-    }
+  truncate: function (value, length) {
+    const s = String(value || "");
+    return s.length > length ? s.slice(0, length - 1) + "\u2026" : s;
   },
 
-  /**
-   * Create announcement
-   */
-  createAnnouncement: async function () {
-    try {
-      const data = {
-        title: prompt("Title:"),
-        content: prompt("Content:"),
-        target_audience: prompt(
-          "Target Audience (All/Students/Parents/Staff):"
-        ),
-        priority: prompt("Priority (Normal/High/Urgent):"),
-      };
-
-      await API.communications.createAnnouncement(data);
-      showNotification("Announcement created successfully", "success");
-      await this.loadAnnouncements();
-    } catch (error) {
-      console.error("Error creating announcement:", error);
-      showNotification("Failed to create announcement", "error");
-    }
-  },
-
-  /**
-   * View announcement
-   */
-  viewAnnouncement: async function (announcementId) {
-    try {
-      const announcement = await API.communications.getAnnouncement(
-        announcementId
-      );
-      alert(
-        `Announcement:\n\nTitle: ${announcement.title}\nContent: ${announcement.content}\nAudience: ${announcement.target_audience}\nDate: ${announcement.created_at}`
-      );
-    } catch (error) {
-      console.error("Error loading announcement:", error);
-      showNotification("Failed to load announcement", "error");
-    }
-  },
-
-  /**
-   * Delete announcement
-   */
-  deleteAnnouncement: async function (announcementId) {
-    if (!confirm("Delete this announcement?")) return;
-
-    try {
-      await API.communications.deleteAnnouncement(announcementId);
-      showNotification("Announcement deleted successfully", "success");
-      await this.loadAnnouncements();
-    } catch (error) {
-      console.error("Error deleting announcement:", error);
-      showNotification("Failed to delete announcement", "error");
-    }
-  },
-
-  // ============================================================================
-  // CONTACTS & GROUPS
-  // ============================================================================
-
-  /**
-   * Load contacts
-   */
-  loadContacts: async function () {
-    try {
-      const response = await API.communications.getContact();
-      this.contacts = response.data || response || [];
-    } catch (error) {
-      console.error("Error loading contacts:", error);
-      this.contacts = [];
-    }
-  },
-
-  /**
-   * Create contact
-   */
-  createContact: async function () {
-    try {
-      const data = {
-        name: prompt("Name:"),
-        email: prompt("Email:"),
-        phone: prompt("Phone:"),
-        type: prompt("Type (Student/Parent/Staff/Other):"),
-      };
-
-      await API.communications.createContact(data);
-      showNotification("Contact created successfully", "success");
-      await this.loadContacts();
-    } catch (error) {
-      console.error("Error creating contact:", error);
-      showNotification("Failed to create contact", "error");
-    }
-  },
-
-  /**
-   * Create group
-   */
-  createGroup: async function () {
-    try {
-      const data = {
-        name: prompt("Group Name:"),
-        description: prompt("Description:"),
-        type: prompt("Type (Class/Department/Custom):"),
-      };
-
-      await API.communications.createGroup(data);
-      showNotification("Group created successfully", "success");
-    } catch (error) {
-      console.error("Error creating group:", error);
-      showNotification("Failed to create group", "error");
-    }
-  },
-
-  // ============================================================================
-  // PARENT MESSAGES
-  // ============================================================================
-
-  /**
-   * Send parent message
-   */
-  sendParentMessage: async function () {
-    try {
-      const data = {
-        student_id: prompt("Student ID:"),
-        subject: prompt("Subject:"),
-        message: prompt("Message:"),
-        type: prompt("Type (SMS/Email/Both):"),
-      };
-
-      await API.communications.createParentMessage(data);
-      showNotification("Message sent to parent successfully", "success");
-    } catch (error) {
-      console.error("Error sending parent message:", error);
-      showNotification("Failed to send parent message", "error");
-    }
-  },
-
-  /**
-   * Broadcast to parents
-   */
-  broadcastToParents: async function () {
-    try {
-      const data = {
-        class_id: prompt("Class ID (or leave empty for all):"),
-        subject: prompt("Subject:"),
-        message: prompt("Message:"),
-        type: "sms",
-      };
-
-      await API.communications.createParentMessage(data);
-      showNotification("Broadcast sent successfully", "success");
-    } catch (error) {
-      console.error("Error broadcasting to parents:", error);
-      showNotification("Failed to broadcast message", "error");
-    }
-  },
-
-  // ============================================================================
-  // STAFF COMMUNICATIONS
-  // ============================================================================
-
-  /**
-   * Create staff forum topic
-   */
-  createStaffForumTopic: async function () {
-    try {
-      const data = {
-        title: prompt("Topic Title:"),
-        content: prompt("Content:"),
-        category: prompt("Category (General/Academic/Admin/Other):"),
-      };
-
-      await API.communications.createStaffForumTopic(data);
-      showNotification("Forum topic created successfully", "success");
-    } catch (error) {
-      console.error("Error creating forum topic:", error);
-      showNotification("Failed to create forum topic", "error");
-    }
-  },
-
-  /**
-   * Create staff request
-   */
-  createStaffRequest: async function () {
-    try {
-      const data = {
-        request_type: prompt("Request Type (Leave/Resource/Other):"),
-        subject: prompt("Subject:"),
-        description: prompt("Description:"),
-      };
-
-      await API.communications.createStaffRequest(data);
-      showNotification("Request submitted successfully", "success");
-    } catch (error) {
-      console.error("Error creating staff request:", error);
-      showNotification("Failed to create request", "error");
-    }
-  },
-
-  // ============================================================================
-  // SMS
-  // ============================================================================
-
-  /**
-   * Send bulk SMS
-   */
-  sendBulkSMS: async function () {
-    try {
-      const data = {
-        message: prompt("SMS Message:"),
-        recipient_type: prompt("Recipient Type (Students/Parents/Staff):"),
-        filter: prompt("Filter (e.g., class_id, grade_level):"),
-      };
-
-      await API.communications.createCommunication({
-        ...data,
-        type: "sms",
-      });
-      showNotification("Bulk SMS sent successfully", "success");
-    } catch (error) {
-      console.error("Error sending bulk SMS:", error);
-      showNotification("Failed to send bulk SMS", "error");
-    }
-  },
-
-  /**
-   * View SMS delivery reports
-   */
-  viewSMSReports: async function () {
-    try {
-      const logs = await API.communications.getLog();
-
-      let message = "SMS Delivery Reports:\n\n";
-      if (logs.data && logs.data.length > 0) {
-        logs.data.slice(0, 10).forEach((log) => {
-          message += `${log.recipient}: ${log.status} - ${log.created_at}\n`;
-        });
-      } else {
-        message += "No SMS logs found.";
-      }
-
-      alert(message);
-    } catch (error) {
-      console.error("Error loading SMS reports:", error);
-      showNotification("Failed to load SMS reports", "error");
-    }
-  },
-
-  // ============================================================================
-  // UTILITIES
-  // ============================================================================
-
-  /**
-   * Format date
-   */
-  formatDate: function (date) {
-    if (!date) return "N/A";
-    return new Date(date).toLocaleString("en-GB");
-  },
-
-  /**
-   * Check user permissions
-   */
-  checkUserPermissions: function () {
-    const currentUser = AuthContext.getUser();
-    if (!currentUser || !currentUser.permissions) return;
-
-    document.querySelectorAll("[data-permission]").forEach((btn) => {
-      const requiredPerm = btn.getAttribute("data-permission");
-      if (!currentUser.permissions.includes(requiredPerm)) {
-        btn.style.display = "none";
-      }
-    });
-  },
-
-  /**
-   * Show quick actions
-   */
-  showQuickActions: function () {
-    alert(
-      "Quick Actions:\n1. Send Message\n2. Create Announcement\n3. Send Parent Message\n4. Bulk SMS\n5. Create Forum Topic"
+  linkify: function (escaped) {
+    // Input is already HTML-escaped. Wrap http(s) links in safe anchors.
+    return escaped.replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
     );
   },
 
-  /**
-   * Search messages
-   */
-  searchMessages: function (query) {
-    const term = query.toLowerCase();
-    this.filteredData = this.messages.filter(
-      (m) =>
-        (m.subject || "").toLowerCase().includes(term) ||
-        (m.message || "").toLowerCase().includes(term) ||
-        (m.from_name || "").toLowerCase().includes(term)
+  avatarInitials: function (name) {
+    const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  },
+
+  avatarColor: function (name) {
+    const palette = ["kw-av-green", "kw-av-blue", "kw-av-gold", "kw-av-purple", "kw-av-teal", "kw-av-orange"];
+    let hash = 0;
+    for (let i = 0; i < String(name).length; i++) {
+      hash = (hash * 31 + String(name).charCodeAt(i)) >>> 0;
+    }
+    return palette[hash % palette.length];
+  },
+
+  formatListTime: function (value) {
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    if (sameDay) {
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString([], { day: "2-digit", month: "short" });
+  },
+
+  formatBubbleTime: function (value) {
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "";
+    return (
+      d.toLocaleDateString([], { day: "2-digit", month: "short" }) +
+      " " +
+      d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     );
-    this.renderMessagesTable();
-  },
-
-  /**
-   * Filter by type
-   */
-  filterByType: function (type) {
-    if (type) {
-      this.filteredData = this.messages.filter((m) => m.type === type);
-    } else {
-      this.filteredData = [...this.messages];
-    }
-    this.renderMessagesTable();
-  },
-
-  /**
-   * Filter by status
-   */
-  filterByStatus: function (status) {
-    if (status) {
-      this.filteredData = this.messages.filter((m) => m.status === status);
-    } else {
-      this.filteredData = [...this.messages];
-    }
-    this.renderMessagesTable();
   },
 };
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('messagesContainer') || document.getElementById('communicationsContainer')) {
-        communicationsController.init();
+// Boot: handle both normal loads and lazy injection (PageShell may append this
+// script after DOMContentLoaded has already fired).
+(function () {
+  function boot() {
+    if (document.getElementById("kwMessaging")) {
+      communicationsController.init();
     }
-});
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();

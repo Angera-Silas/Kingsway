@@ -19,6 +19,21 @@ const viewAttendanceController = {
   },
 
   init: async function () {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    if (
+      !window.AuthContext?.hasAnyPermission?.(['attendance_view', 'student_attendance_view', 'attendance_manage', 'attendance.view', 'student_attendance.view', 'attendance.manage'])
+    ) {
+      const container = document.querySelector("#attendanceContainer .container-fluid") || document.querySelector(".container-fluid");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to view attendance records." +
+          "</div>";
+      }
+      return;
+    }
+
     this.setDefaultDates();
     this.bindEvents();
 

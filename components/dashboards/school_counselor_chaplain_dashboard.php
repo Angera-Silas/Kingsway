@@ -3,8 +3,17 @@
  * Kingsway role dashboard component.
  * Presentation only; data is supplied by the matching named JS controller.
  */
+$rootId = 'chaplainDashboard';
+$periods = [
+    ['key' => 'today', 'label' => 'Today'],
+    ['key' => 'week', 'label' => 'This Week'],
+    ['key' => 'term', 'label' => 'This Term'],
+];
+$default = 'week';
+require __DIR__ . '/partials/period_selector.php';
+
 $dashboardConfig = [
-    'root_id' => 'chaplainDashboard',
+    'root_id' => $rootId,
     'title' => 'Chaplain / Counselor Dashboard',
     'subtitle' => 'Counseling cases, follow-ups, wellbeing and pastoral activities.',
     'icon' => 'bi-heart-pulse',
