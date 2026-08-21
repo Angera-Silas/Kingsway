@@ -196,6 +196,10 @@ const accountantAssetsDashboardController = Object.assign(
   }
 );
 
-document.addEventListener("DOMContentLoaded", function () {
+if (window.__APP_BOOTED__) {
   accountantAssetsDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    accountantAssetsDashboardController.init();
+  }, { once: true });
+}

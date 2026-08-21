@@ -1,7 +1,7 @@
 /**
  * Manage Timetable Page Controller
  * Full timetable management: load, filter, edit, generate, conflict-check, export, print
- * Connected to class_schedules table via SchedulesAPI
+ * Connected to timetable_entries via SchedulesAPI (day_of_week numeric 1=Mon..7=Sun)
  * Integrates with AcademicContext for academic year awareness
  */
 const timetableController = (() => {
@@ -18,6 +18,7 @@ const timetableController = (() => {
   let currentTerm = null;
 
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,7 +28,6 @@ const timetableController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in manage_timetable:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload timetable when academic year or term changes
           loadTimetable();
@@ -119,7 +119,7 @@ const timetableController = (() => {
       if (sf) {
         subjects.forEach((s) => {
           const o = document.createElement("option");
-          o.value = s.id || s.subject_id;
+          o.value = s.learning_area_id || s.id || s.subject_id;
           const area = s.learning_area_name || s.subject_name || "";
           o.textContent = area ? `${area} - ${s.name}` : s.name;
           sf.appendChild(o);
@@ -357,7 +357,7 @@ const timetableController = (() => {
     const subOpts = subjects
       .map(
         (s) =>
-          `<option value="${s.id || s.subject_id}" ${(td.dataset.subjectId || "") == (s.id || s.subject_id) ? "selected" : ""}>${s.learning_area_name ? `${s.learning_area_name} - ` : ""}${s.name || s.subject_name}</option>`,
+          `<option value="${s.learning_area_id || s.id || s.subject_id}" ${(td.dataset.subjectId || "") == (s.learning_area_id || s.id || s.subject_id) ? "selected" : ""}>${s.learning_area_name ? `${s.learning_area_name} - ` : ""}${s.name || s.subject_name}</option>`,
       )
       .join("");
     const teachOpts = teachers
@@ -410,11 +410,7 @@ const timetableController = (() => {
         // Create new entry
         res = await API.schedules.createTimetable(entryData);
       }
-      if (res?.success === false) {
-        showNotification(res.message || res.error || "Failed to save.", "danger");
-      } else {
-        showNotification("Timetable entry saved!", "success");
-      }
+      showNotification("Timetable entry saved!", "success");
       await loadTimetable();
     } catch (e) {
       console.error("Save cell:", e);
@@ -424,7 +420,7 @@ const timetableController = (() => {
 
   async function removeCell(day, startTime, entryId, td) {
     const classId = document.getElementById("classFilter").value;
-    if (!confirm("Remove this timetable entry?")) return;
+    if (!(await window.confirmAction('Confirm Deletion', "Remove this timetable entry?", { confirmText: 'Delete', danger: true }))) return;
     try {
       if (entryId) {
         await API.schedules.deleteTimetableById(entryId);
@@ -527,12 +523,8 @@ const timetableController = (() => {
         time_slot: timeSlot,
         conflict_type: conflictType,
       });
-      if (res?.success !== false) {
-        showNotification("Conflict reported successfully!", "success");
-        bootstrap.Modal.getInstance(document.getElementById("conflictModal"))?.hide();
-      } else {
-        showNotification(res.message || "Failed to submit.", "danger");
-      }
+      showNotification("Conflict reported successfully!", "success");
+      bootstrap.Modal.getInstance(document.getElementById("conflictModal"))?.hide();
     } catch (e) {
       showNotification("Failed to submit conflict report.", "danger");
     }
@@ -640,14 +632,7 @@ const timetableController = (() => {
     }
   }
 
-  function showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   async function generateTimetable() {
     const classId = document.getElementById("generateClass")?.value || "";

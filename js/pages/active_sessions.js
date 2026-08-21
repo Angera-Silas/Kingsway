@@ -328,7 +328,8 @@ const ActiveSessionsController = {
       session.username ||
       session.email ||
       `user ${session.userId}`;
-    const confirmed = window.confirm(
+    const confirmed = await window.confirmAction(
+      'Confirm',
       `Revoke the active session for ${account}? The user will need to sign in again on that client.`,
     );
     if (!confirmed) return;

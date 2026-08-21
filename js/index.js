@@ -67,6 +67,7 @@
     }
 
     allowed.add("profile");
+    allowed.add("account_settings");
 
     return allowed;
   }

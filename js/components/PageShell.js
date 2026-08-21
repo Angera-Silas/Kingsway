@@ -123,7 +123,7 @@ const PageShell = (() => {
      *                                         The first entry whose test() returns true is used.
      *                                         The last entry should always have test: () => true as fallback.
      */
-    function loadRoleTemplate(options) {
+    async function loadRoleTemplate(options) {
         const {
             loadingId,
             contentId,
@@ -141,9 +141,26 @@ const PageShell = (() => {
             if (loadingEl) loadingEl.innerHTML = html;
         }
 
-        // Auth check
+        // Auth check — MUST wait for the silent boot refresh (AuthContext.ready())
+        // before gating. The access token is in-memory only; on a fresh page load
+        // it is restored asynchronously from the HttpOnly refresh cookie. Gating
+        // synchronously here bounces valid users to index.php and aborts the
+        // in-flight refresh POST (NS_BINDING_ABORTED).
         if (typeof AuthContext === 'undefined') {
             showError('<div class="alert alert-danger">Authentication system not loaded. Please refresh the page.</div>');
+            return;
+        }
+        try {
+            await Promise.race([
+                AuthContext.ready(),
+                new Promise(function (_, reject) {
+                    setTimeout(function () {
+                        reject(new Error('Authentication timed out'));
+                    }, 15000);
+                }),
+            ]);
+        } catch (e) {
+            showError('<div class="alert alert-danger">' + e.message + '. Please refresh the page.</div>');
             return;
         }
         if (!AuthContext.isAuthenticated()) {
@@ -167,7 +184,12 @@ const PageShell = (() => {
             return;
         }
 
-        const templateUrl = (window.APP_BASE || '') + templateDir + match.file;
+        // Role templates are injected HTML rather than normal document
+        // navigations. Give each fetch a fresh URL so a service-worker or
+        // browser cache cannot restore an older table after the template has
+        // changed.
+        const templateUrl = (window.APP_BASE || '') + templateDir + match.file +
+            '?v=' + Date.now();
 
         fetch(templateUrl)
             .then(function (response) {

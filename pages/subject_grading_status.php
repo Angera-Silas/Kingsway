@@ -65,15 +65,15 @@
                             <table class="table table-hover" id="statusTable">
                                 <thead>
                                     <tr>
-                                        <th>Assessment</th>
-                                        <th>Subject</th>
-                                        <th>Class</th>
-                                        <th>Type</th>
-                                        <th>Date</th>
-                                        <th>Total Students</th>
-                                        <th>Graded</th>
-                                        <th>Pending</th>
-                                        <th>Status</th>
+                                        <th scope="col">Assessment</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Total Students</th>
+                                        <th scope="col">Graded</th>
+                                        <th scope="col">Pending</th>
+                                        <th scope="col">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="statusTableBody">
@@ -92,4 +92,4 @@
     </div>
 </div>
 
-<script src="js/pages/subject_grading_status.js"></script>
+<?php asset_script($appBase, 'js/pages/subject_grading_status.js'); ?>

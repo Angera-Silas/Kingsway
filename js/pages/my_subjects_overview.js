@@ -18,6 +18,7 @@ const MySubjectsController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,7 +28,6 @@ const MySubjectsController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in my_subjects_overview:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadMySubjects();
         }
@@ -73,18 +73,15 @@ const MySubjectsController = {
 
   async loadAcademicYears() {
     try {
-      const res = await window.API.apiCall('/academic/years', 'GET');
-      if (res?.success) {
-        const years = res.data || [];
-        const yearSelect = document.getElementById('academicYearSelect');
-        if (yearSelect) {
-          yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
-            years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
-          
-          // Set current academic year if available
-          if (this.state.currentAcademicYear) {
-            yearSelect.value = this.state.currentAcademicYear;
-          }
+      const years = await window.API.academic.listYears() || [];
+      const yearSelect = document.getElementById('academicYearSelect');
+      if (yearSelect) {
+        yearSelect.innerHTML = '<option value="">Select Academic Year</option>' + 
+          years.map(year => `<option value="${year.id}">${year.name}</option>`).join('');
+        
+        // Set current academic year if available
+        if (this.state.currentAcademicYear) {
+          yearSelect.value = this.state.currentAcademicYear;
         }
       }
     } catch (error) {
@@ -112,15 +109,9 @@ const MySubjectsController = {
         params.term_id = this.state.currentTerm;
       }
 
-      const res = await window.API.apiCall('/academic/my-subjects', 'GET', params);
-      
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        this.renderSubjectsTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load your subjects', 'error');
-      }
+      this.state.subjects = await window.API.academic.getMySubjects(params) || [];
+      this.renderSubjectsTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading my subjects:', error);
       this.showNotification('Failed to load your subjects', 'error');

@@ -27,8 +27,6 @@
             to Excel</button>
         <button class="btn btn-success btn-sm" onclick="showDuplicateForNewYear()"><i class="bi bi-files"></i> Duplicate
             for New Year</button>
-        <button class="btn btn-primary btn-sm" onclick="showCreateStructureModal()"><i class="bi bi-plus-circle"></i>
-            Create Structure</button>
     </div>
 </div>
 
@@ -179,27 +177,6 @@
     </div>
 </div>
 
-<!-- Create/Edit Fee Structure Modal -->
-<div class="modal" id="feeStructureModal">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title" id="modalTitle">Create Fee Structure</h3>
-                <button class="btn-close" onclick="closeModal('feeStructureModal')">×</button>
-            </div>
-            <div class="modal-body" id="modalBody">
-                <!-- Form content -->
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('feeStructureModal')">Cancel</button>
-                <button class="btn btn-outline" onclick="saveDraft()"><i class="bi bi-save"></i> Save as Draft</button>
-                <button class="btn btn-primary" onclick="saveAndSubmit()"><i class="bi bi-check-circle"></i> Save &
-                    Submit for Approval</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- View Fee Structure Details Modal -->
 <div class="modal" id="viewFeeStructureModal">
     <div class="modal-dialog modal-lg">
@@ -213,9 +190,6 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('viewFeeStructureModal')">Close</button>
-                <button class="btn btn-outline" onclick="viewPaymentHistory()"><i class="bi bi-cash-stack"></i> Payment
-                    History</button>
-                <button class="btn btn-warning" onclick="editStructure()"><i class="bi bi-pencil"></i> Edit</button>
             </div>
         </div>
     </div>
@@ -361,14 +335,4 @@
     }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/fee_structure_accountant.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof window.FeeStructureAccountantController !== 'undefined') {
-            window.FeeStructureAccountantController.init();
-        } else {
-            console.error('FeeStructureAccountantController not found');
-        }
-    });
-</script>
 </div>

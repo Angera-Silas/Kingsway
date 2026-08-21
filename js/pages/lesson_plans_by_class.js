@@ -12,19 +12,16 @@ const LessonPlansByClassController = (() => {
   async function loadData(page = 1) {
     try {
       pagination.page = page;
-      const params = new URLSearchParams({ page, limit: pagination.limit });
+      const params = { page, limit: pagination.limit };
 
       const cls = document.getElementById("classFilterLPC")?.value;
-      if (cls) params.append("class_id", cls);
+      if (cls) params.class_id = cls;
       const coverage = document.getElementById("coverageFilter")?.value;
-      if (coverage) params.append("coverage", coverage);
+      if (coverage) params.coverage = coverage;
       const search = document.getElementById("searchByClass")?.value;
-      if (search) params.append("search", search);
+      if (search) params.search = search;
 
-      const response = await window.API.apiCall(
-        `/academic/lesson-plans/by-class?${params.toString()}`,
-        "GET",
-      );
+      const response = await window.API.academic.getLessonPlansByClass(params);
       const data = response?.data || response || [];
       classData = Array.isArray(data) ? data : data.classes || data.data || [];
       if (data.pagination) pagination = { ...pagination, ...data.pagination };
@@ -131,9 +128,8 @@ const LessonPlansByClassController = (() => {
 
   async function viewDetail(classId) {
     try {
-      const resp = await window.API.apiCall(
-        `/academic/lesson-plans/by-class/${classId}`,
-        "GET",
+      const resp = await window.API.academic.getLessonPlansByClassDetail(
+        classId,
       );
       const detail = resp?.data || resp;
       const subjects = detail?.subjects || detail?.data || [];
@@ -172,11 +168,7 @@ const LessonPlansByClassController = (() => {
     }
   }
 
-  function showNotification(message, type) {
-    if (window.API?.showNotification)
-      window.API.showNotification(message, type);
-    else alert((type === "error" ? "Error: " : "") + message);
-  }
+  function showNotification(message, type) { window.showNotification(message, type); }
 
   function attachListeners() {
     document
@@ -204,7 +196,6 @@ const LessonPlansByClassController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in lesson_plans_by_class:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload data when academic year or term changes
           loadData();

@@ -203,7 +203,7 @@ class MaintenanceAPI extends BaseAPI
     {
         try {
             $equipmentRes = $this->equipmentManager->getOverdueEquipment();
-            $vehicleRes = $this->vehicleManager->getUpcomingVehicleSchedule();
+            $vehicleRes = $this->vehicleManager->getUpcomingSchedule();
 
             return [
                 'success' => true,
@@ -215,10 +215,8 @@ class MaintenanceAPI extends BaseAPI
                 ]
             ];
         } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Error generating dashboard summary: ' . $e->getMessage()
-            ];
+            error_log('[MaintenanceAPI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

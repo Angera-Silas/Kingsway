@@ -181,7 +181,7 @@
         </div>
         <div class="card-body p-0" style="max-height:250px;overflow-y:auto;">
           <table class="table table-sm table-hover align-middle mb-0">
-            <thead class="table-light"><tr><th>Row</th><th>Field</th><th>Error</th></tr></thead>
+            <thead class="table-light"><tr><th scope="col">Row</th><th scope="col">Field</th><th scope="col">Error</th></tr></thead>
             <tbody id="diErrorsBody"></tbody>
           </table>
         </div>
@@ -257,9 +257,9 @@
           <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
               <tr>
-                <th>#</th><th>Type</th><th>File</th><th>Total</th>
-                <th>Imported</th><th>Errors</th><th>Status</th>
-                <th>Imported By</th><th>Date</th>
+                <th scope="col">#</th><th scope="col">Type</th><th scope="col">File</th><th scope="col">Total</th>
+                <th scope="col">Imported</th><th scope="col">Errors</th><th scope="col">Status</th>
+                <th scope="col">Imported By</th><th scope="col">Date</th>
               </tr>
             </thead>
             <tbody id="diLogsBody">
@@ -291,5 +291,5 @@
 .di-type-btn.selected { background:#e7f0ff !important; border-color:#0d6efd !important; }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/data_import.js"></script>
+<?php asset_script($appBase, 'js/pages/data_import.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => dataImportController.init());</script>

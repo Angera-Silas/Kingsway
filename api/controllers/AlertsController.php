@@ -1,13 +1,17 @@
 <?php
 namespace App\API\Controllers;
 
+use App\API\Modules\system\SystemAPI;
 use Exception;
 
 class AlertsController extends BaseController
 {
-    public function __construct()
+    private $api;
+
+    public function __construct($request = null)
     {
-        parent::__construct();
+        parent::__construct($request);
+        $this->api = new SystemAPI();
     }
 
     /**
@@ -15,21 +19,20 @@ class AlertsController extends BaseController
      */
     public function get($id = null, $data = [], $segments = [])
     {
-        // Require authentication
-        $user = $_SERVER['auth_user'] ?? null;
-        if (!$user)
+        if (!$this->user) {
             return $this->unauthorized('Authentication required');
+        }
 
         try {
-            // Note: 'link' column doesn't exist in system_alerts table - removed from query
-            // Severity enum values: 'info', 'warning', 'critical'
-            $query = "SELECT id, severity, title, message, created_at FROM system_alerts WHERE resolved = 0 ORDER BY FIELD(severity, 'critical','warning','info') ASC, created_at DESC LIMIT 50";
-            $stmt = $this->db->query($query);
-            $rows = $stmt ? $stmt->fetchAll() : [];
-
-            return $this->success(['alerts' => $rows]);
+            $limit = min(50, (int)($_GET['limit'] ?? 50));
+            $result = $this->api->getActiveAlerts($limit);
+            if (!empty($result['success'])) {
+                return $this->success($result['data']);
+            }
+            return $this->error('An internal error occurred.');
         } catch (Exception $e) {
-            return $this->error('Failed to fetch alerts: ' . $e->getMessage());
+            error_log('[AlertsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->error('An internal error occurred.');
         }
     }
 }

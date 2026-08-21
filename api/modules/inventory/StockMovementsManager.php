@@ -28,38 +28,53 @@ class StockMovementsManager extends BaseAPI
         try {
             $this->db->beginTransaction();
 
+            $inboundTypes = ['purchase', 'return', 'adjustment_in', 'transfer_in'];
+            $outboundTypes = ['sale', 'issue', 'adjustment_out', 'transfer_out', 'disposal'];
+
+            $type = $data['transaction_type'];
+            $direction = in_array($type, $inboundTypes) ? 'in' : 'out';
+
+            $referenceMap = [
+                'purchase' => 'purchase',
+                'return' => 'purchase',
+                'sale' => 'sale',
+                'issue' => 'sale',
+                'adjustment_in' => 'adjustment',
+                'adjustment_out' => 'adjustment',
+                'transfer_in' => 'transfer',
+                'transfer_out' => 'transfer'
+            ];
+            $referenceType = $referenceMap[$type] ?? 'adjustment';
+
             $sql = "
                 INSERT INTO inventory_transactions (
                     item_id, transaction_type, quantity, unit_cost,
-                    total_cost, reference_type, reference_id, location_id,
-                    notes, transaction_date, created_by, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    reference_type, reference_id,
+                    notes, transaction_date, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['item_id'],
-                $data['transaction_type'],
-                $data['quantity'],
+                $direction,
+                abs((int) $data['quantity']),
                 $data['unit_cost'] ?? 0,
-                $data['total_cost'] ?? ($data['quantity'] * ($data['unit_cost'] ?? 0)),
-                $data['reference_type'] ?? null,
+                $referenceType,
                 $data['reference_id'] ?? null,
-                $data['location_id'] ?? null,
                 $data['notes'] ?? null,
-                $data['transaction_date'] ?? date('Y-m-d H:i:s'),
-                $userId
+                $data['transaction_date'] ?? date('Y-m-d H:i:s')
             ]);
 
             $transactionId = $this->db->lastInsertId();
 
             // Update item quantity if not handled by trigger
             if (!empty($data['update_quantity'])) {
-                $this->updateItemQuantity($data['item_id'], $data['transaction_type'], $data['quantity']);
+                $this->updateItemQuantity($data['item_id'], $type, (int) $data['quantity']);
             }
 
             $this->db->commit();
-            $this->logAction('create', $transactionId, "Recorded stock movement: {$data['transaction_type']}");
+            $this->logAction('create', $transactionId, "Recorded stock movement: {$type}");
 
             return formatResponse(true, ['transaction_id' => $transactionId]);
 
@@ -80,9 +95,9 @@ class StockMovementsManager extends BaseAPI
         $outboundTypes = ['sale', 'issue', 'adjustment_out', 'transfer_out', 'disposal'];
 
         if (in_array($transactionType, $inboundTypes)) {
-            $sql = "UPDATE inventory_items SET quantity_on_hand = quantity_on_hand + ? WHERE id = ?";
+            $sql = "UPDATE inventory_items SET current_quantity = current_quantity + ? WHERE id = ?";
         } elseif (in_array($transactionType, $outboundTypes)) {
-            $sql = "UPDATE inventory_items SET quantity_on_hand = quantity_on_hand - ? WHERE id = ?";
+            $sql = "UPDATE inventory_items SET current_quantity = current_quantity - ? WHERE id = ?";
         } else {
             return;
         }
@@ -117,7 +132,7 @@ class StockMovementsManager extends BaseAPI
 
             // Location filter
             if (!empty($params['location_id'])) {
-                $where[] = "t.location_id = ?";
+                $where[] = "i.location_id = ?";
                 $bindings[] = $params['location_id'];
             }
 
@@ -157,15 +172,13 @@ class StockMovementsManager extends BaseAPI
                 SELECT 
                     t.*,
                     i.item_name,
-                    i.item_code,
+                    i.code AS item_code,
                     i.sku,
-                    i.unit_of_measure,
-                    l.location_name,
-                    u.username as created_by_name
+                    i.unit AS unit_of_measure,
+                    l.location_name
                 FROM inventory_transactions t
                 LEFT JOIN inventory_items i ON t.item_id = i.id
-                LEFT JOIN locations l ON t.location_id = l.id
-                LEFT JOIN users u ON t.created_by = u.id
+                LEFT JOIN inventory_locations l ON i.location_id = l.id
                 WHERE $whereClause
                 ORDER BY t.$sort $order
                 LIMIT ? OFFSET ?
@@ -220,7 +233,7 @@ class StockMovementsManager extends BaseAPI
                     transaction_type,
                     COUNT(*) as transaction_count,
                     SUM(quantity) as total_quantity,
-                    SUM(total_cost) as total_value
+                    SUM(quantity * COALESCE(unit_cost, 0)) as total_value
                 FROM inventory_transactions
                 WHERE $whereClause
                 GROUP BY transaction_type
@@ -236,10 +249,10 @@ class StockMovementsManager extends BaseAPI
                 SELECT 
                     t.item_id,
                     i.item_name,
-                    i.item_code,
+                    i.code AS item_code,
                     COUNT(*) as movement_count,
                     SUM(t.quantity) as total_quantity,
-                    SUM(t.total_cost) as total_value
+                    SUM(t.quantity * COALESCE(t.unit_cost, 0)) as total_value
                 FROM inventory_transactions t
                 LEFT JOIN inventory_items i ON t.item_id = i.id
                 WHERE $whereClause
@@ -259,7 +272,7 @@ class StockMovementsManager extends BaseAPI
                     transaction_type,
                     COUNT(*) as count,
                     SUM(quantity) as quantity,
-                    SUM(total_cost) as value
+                    SUM(quantity * COALESCE(unit_cost, 0)) as value
                 FROM inventory_transactions
                 WHERE $whereClause
                 GROUP BY DATE(transaction_date), transaction_type
@@ -291,11 +304,10 @@ class StockMovementsManager extends BaseAPI
             $sql = "
                 SELECT 
                     t.*,
-                    l.location_name,
-                    u.username as created_by_name
+                    l.location_name
                 FROM inventory_transactions t
-                LEFT JOIN locations l ON t.location_id = l.id
-                LEFT JOIN users u ON t.created_by = u.id
+                LEFT JOIN inventory_items i ON t.item_id = i.id
+                LEFT JOIN inventory_locations l ON i.location_id = l.id
                 WHERE t.item_id = ?
                 ORDER BY t.transaction_date DESC, t.created_at DESC
                 LIMIT ?

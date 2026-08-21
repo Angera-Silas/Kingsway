@@ -29,39 +29,39 @@ class MessageService
             'address' => defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : '',
             'phone' => defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '',
             'email' => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingsway.ac.ke',
-            'principal_name' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr, Bett Junior',
-            'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher',
-            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '../../uploads/school_assets/official_school_logo.png'
+            'principal_name' => '',
+            'principal_title' => 'Headteacher',
+            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '',
+            'name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School',
+            'motto' => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'Learning, character and service',
+            'portal_url' => defined('APP_URL') ? APP_URL : '#'
         ];
+
+        // Get headteacher from staff table
+        try {
+            $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+            $defaultDetails['principal_name'] = $hStmt->fetchColumn() ?: '';
+        } catch (\Exception $e) {
+            $defaultDetails['principal_name'] = defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : '';
+        }
 
         $schoolDetails = array_merge($defaultDetails, $schoolDetails);
 
         // Load formal template if exists, fallback to bootstrap template
-        $templatePath = __DIR__ . '/../modules/communications/templates/formal_email_template.html';
+        $templatePath = __DIR__ . '/../modules/communications/templates/branded_email_template.html';
         if (!file_exists($templatePath)) {
             $templatePath = __DIR__ . '/../modules/communications/templates/email_bootstrap_template.html';
         }
 
         $template = file_get_contents($templatePath);
 
-        // Build logo section - use Content-ID for MIME attachment
-        // This is the standard way to embed images in emails (works best with Gmail)
-        $logoSection = '';
-        if (!empty($schoolDetails['logo'])) {
-            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
-            if (!file_exists($logoPath)) {
-                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
-            }
-            if (file_exists($logoPath)) {
-                // Use cid: reference for MIME attachment (will be added in sendEmail)
-                $logoSection = '<img src="cid:school_logo" alt="Kingsway Preparatory School Logo" style="max-height: 95px; width: auto; display: block; border-radius: 6px; margin: 0; padding: 0; border: 2px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.2);" />';
-            } else {
-                // Fallback to URL if file not found
-                $logoUrl = htmlspecialchars($schoolDetails['logo']);
-                $logoSection = '<img src="' . $logoUrl . '" alt="Kingsway Preparatory School Logo" style="max-height: 95px; width: auto; display: block; border-radius: 6px; margin: 0; padding: 0; border: none;" />';
-            }
-        }
+        // Build logo section — use CID reference so sendEmail() can embed it as a
+        // MIME inline attachment.  Gmail strips data: URIs which broke the old approach.
+        $logoSection = '<img src="cid:kingsway-logo" width="70" alt="Kingsway Preparatory School" style="display:block;max-width:70px;height:auto;border:0;border-radius:8px;" />';
 
+        $formattedBody = $this->ensureHtmlBody($formattedBody);
+
+        $profile = $this->emailProfile($subject);
         $replacements = [
             '{{subject}}' => $subject,
             '{{body}}' => $formattedBody,
@@ -75,6 +75,12 @@ class MessageService
             '{{sender_name}}' => htmlspecialchars($schoolDetails['principal_name']),
             '{{sender_title}}' => htmlspecialchars($schoolDetails['principal_title']),
             '{{school_logo}}' => $logoSection
+            ,'{{school_name}}' => htmlspecialchars($schoolDetails['name'])
+            ,'{{school_motto}}' => htmlspecialchars($schoolDetails['motto'])
+            ,'{{school_link}}' => htmlspecialchars($schoolDetails['portal_url'])
+            ,'{{message_type}}' => $profile['label']
+            ,'{{accent}}' => $profile['accent']
+            ,'{{accent_soft}}' => $profile['soft']
         ];
         return strtr($template, $replacements);
     }    /**
@@ -145,6 +151,60 @@ class MessageService
         return $formatted;
     }
 
+    /**
+     * Convert a plain-text body to safe HTML paragraphs.
+     * If the body already contains HTML tags it is returned unchanged.
+     */
+    private function ensureHtmlBody(string $body): string
+    {
+        if (preg_match('/<[^>]+>/', $body)) {
+            return $body;
+        }
+
+        $escaped = htmlspecialchars($body, ENT_QUOTES, 'UTF-8');
+
+        $paragraphs = preg_split('/\n\s*\n/', $escaped);
+        if (count($paragraphs) > 1) {
+            $html = '';
+            foreach ($paragraphs as $p) {
+                $p = trim($p);
+                if ($p !== '') {
+                    $html .= '<p style="margin:0 0 14px 0;line-height:1.75;">' . nl2br($p) . '</p>';
+                }
+            }
+            return $html;
+        }
+
+        $sentences = preg_split('/(?<=\.)\s+(?=[A-Z])/', $escaped);
+        if (count($sentences) > 1) {
+            $html = '';
+            foreach ($sentences as $s) {
+                $s = trim($s);
+                if ($s !== '') {
+                    $html .= '<p style="margin:0 0 12px 0;line-height:1.75;">' . $s . '</p>';
+                }
+            }
+            return $html;
+        }
+
+        return '<p style="margin:0 0 12px 0;line-height:1.75;">' . $escaped . '</p>';
+    }
+
+    /**
+     * Embed the school logo as a CID inline image on a PHPMailer instance.
+     * Must be called before $mail->send() when the HTML body references cid:kingsway-logo.
+     */
+    public function embedLogo($mail): void
+    {
+        $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
+        if (!file_exists($logoPath)) {
+            $logoPath = __DIR__ . '/../../images/official_school_logo.png';
+        }
+        if (file_exists($logoPath)) {
+            $mail->addEmbeddedImage($logoPath, 'kingsway-logo', 'official_school_logo.png', PHPMailer::ENCODING_BASE64, 'image/png');
+        }
+    }
+
     // Render email using Bootstrap template
     public function renderEmail($subject, $body, $signature, $footer, $media = '', $schoolDetails = [])
     {
@@ -153,6 +213,8 @@ class MessageService
             return $this->renderFormalEmail($subject, $body, $signature, $footer, $media, $schoolDetails);
         }
 
+        return $this->renderFormalEmail($subject, $body, $signature, $footer, $media, $schoolDetails);
+        /* legacy renderer retained below for reference */
         $template = file_get_contents(__DIR__ . '/../modules/communications/templates/email_bootstrap_template.html');
         $replacements = [
             '{{subject}}' => $subject,
@@ -196,14 +258,8 @@ class MessageService
             $mail->Subject = $subject;
             $mail->Body = $htmlBody;
 
-            // Attach logo as embedded image (MIME attachment with Content-ID)
-            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
-            if (!file_exists($logoPath)) {
-                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
-            }
-            if (file_exists($logoPath)) {
-                $mail->addEmbeddedImage($logoPath, 'school_logo', 'official_school_logo.png', 'base64', 'image/png');
-            }
+            // Embed the school logo as a CID inline image (referenced as cid:kingsway-logo in the template)
+            $this->embedLogo($mail);
 
             // Attachments
             foreach ($attachments as $filePath) {
@@ -230,5 +286,15 @@ class MessageService
         foreach ($recipientList as $recipients) {
             $this->sendEmail($recipients, $subject, $htmlBody, $attachments);
         }
+    }
+
+    private function emailProfile($subject)
+    {
+        $text = strtolower((string) $subject);
+        if (strpos($text, 'invoice') !== false || strpos($text, 'payment') !== false || strpos($text, 'fee') !== false) return ['label' => 'Account notice', 'accent' => '#087f5b', 'soft' => '#e5f7ef'];
+        if (strpos($text, 'reminder') !== false || strpos($text, 'due') !== false) return ['label' => 'Reminder', 'accent' => '#a15c00', 'soft' => '#fff4db'];
+        if (strpos($text, 'reply') !== false || strpos($text, 'response') !== false) return ['label' => 'Reply', 'accent' => '#6f42c1', 'soft' => '#f1eafd'];
+        if (strpos($text, 'notification') !== false || strpos($text, 'interview') !== false || strpos($text, 'schedule') !== false) return ['label' => 'Notification', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
+        return ['label' => 'Information', 'accent' => '#0067a5', 'soft' => '#e5f2fa'];
     }
 }

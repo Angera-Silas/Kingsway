@@ -64,9 +64,10 @@ class StaffAttendanceManager
     public function getStaffAttendanceHistory($staffId)
     {
         $sql = "SELECT sa.*,
-                       CONCAT(st.first_name, ' ', st.last_name) as staff_name
+                       CONCAT(p.first_name, ' ', p.last_name) as staff_name
                 FROM staff_attendance sa
-                LEFT JOIN staff st ON sa.staff_id = st.id
+                JOIN staff st ON sa.staff_id = st.id
+                JOIN persons p ON p.id = st.person_id
                 WHERE sa.staff_id = ?
                 ORDER BY sa.date DESC";
         $stmt = $this->db->prepare($sql);
@@ -105,11 +106,12 @@ class StaffAttendanceManager
     public function getDepartmentAttendance($departmentId, $termId = null, $yearId = null)
     {
         $sql = "SELECT sa.*,
-                       CONCAT(s.first_name, ' ', s.last_name) as staff_name
+                       CONCAT(p.first_name, ' ', p.last_name) as staff_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                WHERE s.department_id = ?
-                ORDER BY sa.date DESC, s.first_name, s.last_name
+                JOIN persons p ON p.id = s.person_id
+                JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.department_id = ?
+                ORDER BY sa.date DESC, p.first_name, p.last_name
                 LIMIT 500";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$departmentId]);
@@ -150,19 +152,20 @@ class StaffAttendanceManager
     public function getChronicAbsentees($departmentId = null, $termId = null, $yearId = null, $threshold = 0.2)
     {
         $sql = "SELECT sa.staff_id,
-                       CONCAT(s.first_name, ' ', s.last_name) as staff_name,
+                       CONCAT(p.first_name, ' ', p.last_name) as staff_name,
                        COUNT(*) as total_days,
                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                        (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 WHERE 1=1";
         $params = [];
         if ($departmentId) {
-            $sql .= " AND s.department_id = ?";
+            $sql .= " AND s.id IN (SELECT sda.staff_id FROM staff_department_assignments sda WHERE sda.department_id = ?)";
             $params[] = $departmentId;
         }
-        $sql .= " GROUP BY sa.staff_id, s.first_name, s.last_name
+        $sql .= " GROUP BY sa.staff_id, p.first_name, p.last_name
                 HAVING absent_ratio > ?
                 ORDER BY absent_ratio DESC";
         $params[] = $threshold;

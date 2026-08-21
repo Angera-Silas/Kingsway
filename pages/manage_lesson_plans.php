@@ -95,7 +95,7 @@
             Create, review, and approve lesson plans
         </small>
     </div>
-    <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal">
+    <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal" data-permission="lesson_plans_create">
         <i class="bi bi-plus-circle me-1"></i>Create Lesson Plan
     </button>
 </div>
@@ -197,14 +197,14 @@
             <table class="table table-striped table-hover table-academic" id="lessonPlansTable">
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Lesson Title</th>
-                        <th>Subject</th>
-                        <th>Class</th>
-                        <th>Teacher</th>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Lesson Title</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Teacher</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -226,13 +226,13 @@
             <table class="table table-striped table-hover table-academic" id="myLessonPlansTable">
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Lesson Title</th>
-                        <th>Subject</th>
-                        <th>Class</th>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Lesson Title</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -248,13 +248,13 @@
             <table class="table table-striped table-hover table-academic" id="pendingLessonPlansTable">
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Lesson Title</th>
-                        <th>Subject</th>
-                        <th>Class</th>
-                        <th>Teacher</th>
-                        <th>Date</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Lesson Title</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Teacher</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -270,13 +270,13 @@
             <table class="table table-striped table-hover table-academic" id="approvedLessonPlansTable">
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>Lesson Title</th>
-                        <th>Subject</th>
-                        <th>Class</th>
-                        <th>Teacher</th>
-                        <th>Date</th>
-                        <th>Approved By</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Lesson Title</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Teacher</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Approved By</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -305,4 +305,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_lesson_plans.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/manage_lesson_plans.js'); ?>

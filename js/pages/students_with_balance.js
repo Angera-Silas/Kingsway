@@ -17,12 +17,14 @@ const StudentsWithBalanceController = {
   },
 
   init: async function () {
+    await window.AuthContext.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.attachEventListeners();
     await this.loadClasses();
+    await this.loadAcademicYear();
     await this.loadData();
   },
 
@@ -83,6 +85,18 @@ const StudentsWithBalanceController = {
     }
   },
 
+  loadAcademicYear: async function () {
+    try {
+      const resp = await window.API.academic.listYears();
+      const payload = this.unwrapPayload(resp);
+      const years = Array.isArray(payload) ? payload : (payload?.items || []);
+      const current = years.find((year) => year.is_current || year.is_current_year) || years[0];
+      if (current) this.data.academicYearId = current.id;
+    } catch (error) {
+      console.warn("Failed to load current academic year:", error);
+    }
+  },
+
   populateClassFilter: function () {
     const select = document.getElementById("filterClass");
     if (!select) return;
@@ -109,11 +123,13 @@ const StudentsWithBalanceController = {
         balance_only: 1,
       };
 
+      if (this.data.academicYearId) params.academic_year = this.data.academicYearId;
+
       if (this.filters.search) params.search = this.filters.search;
       if (this.filters.class_id) params.class_id = this.filters.class_id;
       if (this.filters.amount_range) params.amount_range = this.filters.amount_range;
 
-      const resp = await window.API.finance.getPaymentStatus(params);
+      const resp = await window.API.finance.getStudentPaymentStatusList(params);
       const payload = this.unwrapPayload(resp);
 
       if (payload) {
@@ -124,7 +140,9 @@ const StudentsWithBalanceController = {
 
       // Also try loading outstanding fees summary
       try {
-        const summaryResp = await window.API.finance.getOutstandingFees();
+        const summaryResp = await window.API.finance.getOutstandingFees(
+          this.data.academicYearId ? { academic_year: this.data.academicYearId } : {},
+        );
         const summaryPayload = this.unwrapPayload(summaryResp);
         if (summaryPayload) {
           this.data.summary = {
@@ -428,7 +446,7 @@ const StudentsWithBalanceController = {
   },
 
   sendReminder: async function (studentId) {
-    if (!confirm("Send payment reminder to this student's parent/guardian?")) return;
+    if (!(await window.confirmAction("Send Reminder", "Send payment reminder to this student's parent/guardian?"))) return;
 
     try {
       await window.API.apiCall("/communications/send-reminder", "POST", {
@@ -451,7 +469,7 @@ const StudentsWithBalanceController = {
       return;
     }
 
-    if (!confirm(`Send payment reminders to ${selected.length} parent(s)/guardian(s)?`)) return;
+    if (!(await window.confirmAction("Send Reminders", `Send payment reminders to ${selected.length} parent(s)/guardian(s)?`, { confirmText: "Send Reminders" }))) return;
 
     try {
       for (const id of selected) {
@@ -540,7 +558,7 @@ const StudentsWithBalanceController = {
     if (window.API?.showNotification) {
       window.API.showNotification(message, "success");
     } else {
-      alert(message);
+      window.infoDialog("Success", message);
     }
   },
 
@@ -548,7 +566,7 @@ const StudentsWithBalanceController = {
     if (window.API?.showNotification) {
       window.API.showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      window.infoDialog("Error", "Error: " + message);
     }
   },
 };

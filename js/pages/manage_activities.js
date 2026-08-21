@@ -16,6 +16,7 @@ const activitiesController = {
   // ─── INIT ──────────────────────────────────────────────────────────────────
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -118,7 +119,7 @@ const activitiesController = {
 
       this.populateActivitySelects(list);
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load activities: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load activities: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -189,7 +190,7 @@ const activitiesController = {
   },
 
   deleteActivity: async function (id) {
-    if (!confirm('Delete this activity? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this activity? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.delete(id);
       API.showNotification('Activity deleted', 'success');
@@ -254,7 +255,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      if (container) container.innerHTML = `<div class="alert alert-danger">Failed to load categories: ${e.message}</div>`;
+      if (container) container.innerHTML = `<div class="alert alert-danger">Failed to load categories: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -304,7 +305,7 @@ const activitiesController = {
   },
 
   deleteCategory: async function (id) {
-    if (!confirm('Delete this category?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this category?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteCategory(id);
       API.showNotification('Category deleted', 'success');
@@ -367,7 +368,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load participants: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load participants: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -405,7 +406,7 @@ const activitiesController = {
   },
 
   withdrawParticipant: async function (id) {
-    if (!confirm('Withdraw this participant?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Withdraw this participant?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.withdrawParticipant(id, 'Withdrawn by admin');
       API.showNotification('Participant withdrawn', 'success');
@@ -457,7 +458,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load schedules: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load schedules: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -516,7 +517,7 @@ const activitiesController = {
   },
 
   deleteSchedule: async function (id) {
-    if (!confirm('Delete this schedule?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this schedule?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteSchedule(id);
       API.showNotification('Schedule deleted', 'success');
@@ -568,7 +569,7 @@ const activitiesController = {
           </table>
         </div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load resources: ${e.message}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load resources: ${this.esc(e.message)}</div>`;
     }
   },
 
@@ -630,7 +631,7 @@ const activitiesController = {
   },
 
   deleteResource: async function (id) {
-    if (!confirm('Delete this resource?')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete this resource?', { confirmText: 'Delete', danger: true }))) return;
     try {
       await window.API.activities.deleteResource(id);
       API.showNotification('Resource deleted', 'success');

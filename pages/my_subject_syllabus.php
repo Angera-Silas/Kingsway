@@ -87,13 +87,13 @@
             <table class="table table-hover table-striped" id="syllabusTable">
                 <thead class="table-light">
                     <tr>
-                        <th>#</th>
-                        <th>Strand</th>
-                        <th>Sub-Strand</th>
-                        <th>Competency Indicators</th>
-                        <th>Assessment Criteria</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">#</th>
+                        <th scope="col">Strand</th>
+                        <th scope="col">Sub-Strand</th>
+                        <th scope="col">Competency Indicators</th>
+                        <th scope="col">Assessment Criteria</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -111,4 +111,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/my_subject_syllabus.js"></script>
+<?php asset_script($appBase, 'js/pages/my_subject_syllabus.js'); ?>

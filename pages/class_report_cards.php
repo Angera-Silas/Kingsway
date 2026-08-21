@@ -76,12 +76,12 @@
                                         <th style="width: 50px;">
                                             <input type="checkbox" id="selectAllStudents">
                                         </th>
-                                        <th>Student</th>
-                                        <th>Adm No</th>
-                                        <th>Class</th>
-                                        <th>Term Average</th>
-                                        <th>Overall Grade</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Student</th>
+                                        <th scope="col">Adm No</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Term Average</th>
+                                        <th scope="col">Overall Grade</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="studentsTableBody">
@@ -100,4 +100,4 @@
     </div>
 </div>
 
-<script src="js/pages/class_report_cards.js"></script>
+<?php asset_script($appBase, 'js/pages/class_report_cards.js'); ?>

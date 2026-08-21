@@ -19,14 +19,14 @@
                 class="btn btn-outline-secondary"
                 id="resetTokenFiltersBtn"
             >
-                <i class="fas fa-undo me-1"></i> Reset filters
+                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset filters
             </button>
             <button
                 type="button"
                 class="btn btn-primary"
                 id="refreshTokensBtn"
             >
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
         </div>
     </div>
@@ -54,7 +54,7 @@
                     </label>
                     <div class="input-group">
                         <span class="input-group-text">
-                            <i class="fas fa-search"></i>
+                            <i class="bi bi-search"></i>
                         </span>
                         <input
                             class="form-control"
@@ -116,13 +116,13 @@
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>Type</th>
-                        <th>Owner</th>
-                        <th>Credential</th>
-                        <th>Status</th>
-                        <th>Created</th>
-                        <th>Last used</th>
-                        <th>Expires</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Owner</th>
+                        <th scope="col">Credential</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Created</th>
+                        <th scope="col">Last used</th>
+                        <th scope="col">Expires</th>
                         <th class="text-end">Action</th>
                     </tr>
                 </thead>
@@ -150,7 +150,7 @@
                         class="btn btn-outline-secondary"
                         id="tokenPreviousPage"
                     >
-                        <i class="fas fa-chevron-left me-1"></i> Previous
+                        <i class="bi bi-chevron-left me-1"></i> Previous
                     </button>
                     <span
                         class="btn btn-outline-secondary disabled"
@@ -163,7 +163,7 @@
                         class="btn btn-outline-secondary"
                         id="tokenNextPage"
                     >
-                        Next <i class="fas fa-chevron-right ms-1"></i>
+                        Next <i class="bi bi-chevron-right ms-1"></i>
                     </button>
                 </div>
             </nav>

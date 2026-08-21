@@ -72,24 +72,28 @@ class CategoriesManager extends BaseAPI
     public function createCategory($data)
     {
         try {
-            if (empty($data['category_name'])) {
+            if (empty($data['category_name']) && empty($data['name'])) {
                 return formatResponse(false, null, 'Category name is required');
             }
 
+            $name = $data['category_name'] ?? $data['name'];
+            $code = $data['code'] ?? strtoupper(substr(preg_replace('/[^A-Za-z0-9]+/', '_', trim($name)), 0, 20));
+
             $sql = "
                 INSERT INTO inventory_categories (
-                    category_name, description, parent_category_id, status, created_at
-                ) VALUES (?, ?, ?, 'active', NOW())
+                    name, code, description, parent_id, status, created_at
+                ) VALUES (?, ?, ?, ?, 'active', NOW())
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['category_name'],
+                $name,
+                $code,
                 $data['description'] ?? null,
-                $data['parent_category_id'] ?? null
+                $data['parent_category_id'] ?? $data['parent_id'] ?? null
             ]);
 
             $categoryId = $this->db->lastInsertId();
-            $this->logAction('create', $categoryId, "Created category: {$data['category_name']}");
+            $this->logAction('create', $categoryId, "Created category: {$name}");
 
             return formatResponse(true, ['id' => $categoryId], 'Category created successfully');
 
@@ -101,7 +105,7 @@ class CategoriesManager extends BaseAPI
     public function updateCategory($id, $data)
     {
         try {
-            $stmt = $this->db->prepare("SELECT category_name FROM inventory_categories WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT name FROM inventory_categories WHERE id = ?");
             $stmt->execute([$id]);
             $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -111,12 +115,20 @@ class CategoriesManager extends BaseAPI
 
             $updates = [];
             $params = [];
-            $allowedFields = ['category_name', 'description', 'parent_category_id', 'status'];
 
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    $updates[] = "$field = ?";
-                    $params[] = $data[$field];
+            $fieldMap = [
+                'category_name' => 'name',
+                'name' => 'name',
+                'description' => 'description',
+                'parent_category_id' => 'parent_id',
+                'parent_id' => 'parent_id',
+                'status' => 'status'
+            ];
+
+            foreach ($fieldMap as $key => $column) {
+                if (isset($data[$key]) && !in_array("$column = ?", $updates, true)) {
+                    $updates[] = "$column = ?";
+                    $params[] = $data[$key];
                 }
             }
 
@@ -129,9 +141,32 @@ class CategoriesManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
-            $this->logAction('update', $id, "Updated category: {$category['category_name']}");
+            $this->logAction('update', $id, "Updated category: {$category['name']}");
 
             return formatResponse(true, null, 'Category updated successfully');
+
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteCategory($id)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT name FROM inventory_categories WHERE id = ?");
+            $stmt->execute([$id]);
+            $category = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$category) {
+                return formatResponse(false, null, 'Category not found', 404);
+            }
+
+            $stmt = $this->db->prepare("UPDATE inventory_categories SET status = 'inactive', updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$id]);
+
+            $this->logAction('delete', $id, "Deactivated category: {$category['name']}");
+
+            return formatResponse(true, null, 'Category deleted successfully');
 
         } catch (Exception $e) {
             return $this->handleException($e);

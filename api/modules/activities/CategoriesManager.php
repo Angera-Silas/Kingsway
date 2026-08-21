@@ -101,7 +101,7 @@ class CategoriesManager extends BaseAPI
             $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$category) {
-                throw new Exception('Category not found');
+                throw new \RuntimeException('Category not found', 404);
             }
 
             return [
@@ -128,7 +128,7 @@ class CategoriesManager extends BaseAPI
         try {
             // Validate required fields
             if (empty($data['name'])) {
-                throw new Exception('Category name is required');
+                throw new \InvalidArgumentException('Category name is required');
             }
 
             // Check for duplicate name
@@ -195,7 +195,7 @@ class CategoriesManager extends BaseAPI
             $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$category) {
-                throw new Exception('Category not found');
+                throw new \RuntimeException('Category not found', 404);
             }
 
             // Check for duplicate name if name is being updated
@@ -268,11 +268,11 @@ class CategoriesManager extends BaseAPI
             $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$category) {
-                throw new Exception('Category not found');
+                throw new \RuntimeException('Category not found', 404);
             }
 
             if ($category['activity_count'] > 0) {
-                throw new Exception('Cannot delete category with existing activities. Please reassign or delete activities first.');
+                throw new \InvalidArgumentException('Cannot delete category with existing activities. Please reassign or delete activities first.');
             }
 
             $this->db->beginTransaction();
@@ -290,7 +290,9 @@ class CategoriesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to delete category $id");
             throw $e;
         }
@@ -352,7 +354,7 @@ class CategoriesManager extends BaseAPI
             $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$category) {
-                throw new Exception('Category not found');
+                throw new \RuntimeException('Category not found', 404);
             }
 
             $newStatus = $category['is_active'] ? 0 : 1;

@@ -63,14 +63,14 @@
                             <table class="table table-hover" id="catsTable">
                                 <thead>
                                     <tr>
-                                        <th>CAT Name</th>
-                                        <th>Subject</th>
-                                        <th>Class</th>
-                                        <th>Type</th>
-                                        <th>Date</th>
-                                        <th>Status</th>
-                                        <th>Students</th>
-                                        <th>Actions</th>
+                                        <th scope="col">CAT Name</th>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Students</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="catsTableBody">
@@ -165,4 +165,4 @@
     </div>
 </div>
 
-<script src="js/pages/my_subject_cats.js"></script>
+<?php asset_script($appBase, 'js/pages/my_subject_cats.js'); ?>

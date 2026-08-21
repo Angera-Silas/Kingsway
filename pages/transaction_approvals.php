@@ -69,13 +69,13 @@
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th>Reference</th>
-              <th>Description</th>
-              <th>Amount</th>
-              <th>Submitted By</th>
-              <th>Submitted At</th>
-              <th>Age</th>
-              <th>Notes</th>
+              <th scope="col">Reference</th>
+              <th scope="col">Description</th>
+              <th scope="col">Amount</th>
+              <th scope="col">Submitted By</th>
+              <th scope="col">Submitted At</th>
+              <th scope="col">Age</th>
+              <th scope="col">Notes</th>
               <th class="text-end">Actions</th>
             </tr>
           </thead>
@@ -94,5 +94,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/transaction_approvals.js"></script>
+<?php asset_script($appBase, 'js/pages/transaction_approvals.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => transactionApprovalsController.init());</script>

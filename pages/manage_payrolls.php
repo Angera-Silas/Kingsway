@@ -604,26 +604,26 @@
     <section class="payroll-hero">
         <div class="row g-4 align-items-end">
             <div class="col-lg-7">
-                <div class="payroll-eyebrow"><i class="fas fa-shield-alt"></i> Director Payroll Control</div>
+                <div class="payroll-eyebrow"><i class="bi bi-shield-lock"></i> Director Payroll Control</div>
                 <h1 class="payroll-title">Payroll Governance</h1>
                 <p class="payroll-subtitle">Approve staff pay, child-fee deductions, and payment status from one executive ledger.</p>
             </div>
             <div class="col-lg-5">
                 <div class="payroll-actions">
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.exportCsv()">
-                        <i class="fas fa-file-csv me-1"></i> Export CSV
+                        <i class="bi bi-file-csv me-1"></i> Export CSV
                     </button>
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.printPayrollReport()">
-                        <i class="fas fa-print me-1"></i> Print PDF
+                        <i class="bi bi-printer me-1"></i> Print PDF
                     </button>
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.refresh()">
-                        <i class="fas fa-sync-alt me-1"></i> Refresh
+                        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
                     </button>
                     <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
-                        <i class="fas fa-users-cog me-1"></i> Bulk Payroll
+                        <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
-                    <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showProcessPayrollModal()">
-                        <i class="fas fa-plus-circle me-1"></i> Single Payroll
+                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showProcessPayrollModal()">
+                        <i class="bi bi-plus-lg-circle me-1"></i> Single Payroll
                     </button>
                 </div>
             </div>
@@ -633,25 +633,25 @@
     <!-- Director Payroll Board -->
     <div class="payroll-board">
         <div class="payroll-metric featured" data-payroll-card="net">
-            <div class="metric-icon"><i class="fas fa-coins"></i></div>
+            <div class="metric-icon"><i class="bi bi-coin"></i></div>
             <div class="metric-label">This Month's Net Pay</div>
             <div class="metric-value" id="statThisMonthNet">KES --</div>
             <div class="metric-note">Total payroll exposure for the selected period.</div>
         </div>
         <div class="payroll-metric" data-payroll-card="staff">
-            <div class="metric-icon"><i class="fas fa-users"></i></div>
+            <div class="metric-icon"><i class="bi bi-people"></i></div>
             <div class="metric-label">Total Staff</div>
             <div class="metric-value" id="statTotalStaff">--</div>
             <div class="metric-note">Eligible payroll staff</div>
         </div>
         <div class="payroll-metric" data-payroll-card="children_staff">
-            <div class="metric-icon"><i class="fas fa-child"></i></div>
+            <div class="metric-icon"><i class="bi bi-person-bounding-box"></i></div>
             <div class="metric-label">Staff With Children</div>
             <div class="metric-value" id="statStaffWithChildren">--</div>
             <div class="metric-note">Fee deduction candidates</div>
         </div>
         <div class="payroll-metric" data-payroll-card="children_fees">
-            <div class="metric-icon"><i class="fas fa-graduation-cap"></i></div>
+            <div class="metric-icon"><i class="bi bi-mortarboard"></i></div>
             <div class="metric-label">Children Fees Deducted</div>
             <div class="metric-value" id="statChildrenFees">KES --</div>
             <div class="metric-note">Offset against student balances</div>
@@ -707,15 +707,15 @@
     <!-- Payroll Records Table -->
     <div class="payroll-panel">
         <div class="payroll-panel-header">
-            <h5><i class="fas fa-list me-2" style="color: var(--payroll-gold)"></i>Payroll Records</h5>
+            <h5><i class="bi bi-list-ul me-2" style="color: var(--payroll-gold)"></i>Payroll Records</h5>
             <span class="status-badge pending" id="payrollCount">0 records</span>
         </div>
         <div class="table-responsive">
             <table class="table mb-0" id="payrollTable">
                 <thead>
 	                    <tr id="payrollTableHeader">
-	                        <th>Staff</th>
-	                        <th>Period</th>
+	                        <th scope="col">Staff</th>
+	                        <th scope="col">Period</th>
 	                        <th class="text-end">Basic Salary</th>
 	                        <th class="text-end">Allowances</th>
 	                        <th class="text-end">Statutory Ded.</th>
@@ -749,7 +749,7 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-money-check-alt me-2"></i>Process Staff Payroll</h5>
+                <h5 class="modal-title"><i class="bi bi-credit-card me-2"></i><span id="processPayrollModalTitle">Prepare Staff Payroll</span></h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -802,7 +802,7 @@
                                 <div class="col-md-6">
                                     <h6 style="color: #8895a7; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;">Salary Info</h6>
                                     <p class="mb-1"><strong>Basic Salary:</strong> <span id="staffInfoSalary" style="color: var(--payroll-success); font-weight: 700;">KES 0.00</span></p>
-                                    <p class="mb-1"><strong>Children in School:</strong> <span id="staffInfoChildrenCount" class="status-badge processing">0</span></p>
+                                <p class="mb-1" data-review-only><strong>Children in School:</strong> <span id="staffInfoChildrenCount" class="status-badge processing">0</span></p>
                                 </div>
                             </div>
                         </div>
@@ -810,7 +810,7 @@
                 </div>
 
                 <!-- Step 2: Children & Fee Deductions -->
-                <div id="payrollStep2" class="d-none">
+                <div id="payrollStep2" class="d-none" data-review-only>
                     <hr style="border-color: var(--payroll-line); margin: 20px 0;">
                     <div class="step-header">
                         <div class="step-number">2</div>
@@ -819,7 +819,7 @@
                     </div>
 
                     <div style="background: rgba(201, 168, 76, 0.08); border: 1px solid rgba(201, 168, 76, 0.2); border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;">
-                        <i class="fas fa-info-circle me-2" style="color: var(--payroll-gold)"></i>
+                        <i class="bi bi-info-circle me-2" style="color: var(--payroll-gold)"></i>
                         <span style="font-size: 0.88rem; color: var(--payroll-ink);">Configure how much to deduct from salary for each child's school fees.</span>
                     </div>
 
@@ -852,28 +852,28 @@
                     <div class="row">
                         <div class="col-md-6">
                             <h6 style="color: var(--payroll-success); font-family: 'DM Sans', sans-serif; font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px;">
-                                <i class="fas fa-arrow-up me-1"></i> Earnings
+                                <i class="bi bi-arrow-up me-1"></i> Earnings
                             </h6>
                             <table class="table table-sm" style="font-size: 0.88rem;">
                                 <tr>
                                     <td style="color: #6b7a8d;">Basic Salary</td>
                                     <td class="text-end" style="font-weight: 700;" id="calcBasicSalary">0.00</td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">House Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="houseAllowance" class="form-control form-control-sm text-end"
                                                value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Transport Allowance</td>
                                     <td class="text-end">
                                         <input type="number" id="transportAllowance" class="form-control form-control-sm text-end"
                                                value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Other Allowances</td>
                                     <td class="text-end">
                                         <input type="number" id="otherAllowances" class="form-control form-control-sm text-end"
@@ -889,7 +889,7 @@
 
                         <div class="col-md-6">
                             <h6 style="color: var(--payroll-danger); font-family: 'DM Sans', sans-serif; font-weight: 700; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px;">
-                                <i class="fas fa-arrow-down me-1"></i> Deductions
+                                <i class="bi bi-arrow-down me-1"></i> Deductions
                             </h6>
                             <table class="table table-sm" style="font-size: 0.88rem;">
                                 <tr>
@@ -897,8 +897,8 @@
                                     <td class="text-end" style="font-weight: 600;" id="calcNSSF">0.00</td>
                                 </tr>
                                 <tr>
-                                    <td style="color: #6b7a8d;">NHIF</td>
-                                    <td class="text-end" style="font-weight: 600;" id="calcNHIF">0.00</td>
+                                    <td style="color: #6b7a8d;">SHIF (employee)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcSHIF">0.00</td>
                                 </tr>
                                 <tr>
                                     <td style="color: #6b7a8d;">PAYE Tax</td>
@@ -908,11 +908,19 @@
                                     <td style="color: #6b7a8d;">Housing Levy (1.5%)</td>
                                     <td class="text-end" style="font-weight: 600;" id="calcHousingLevy">0.00</td>
                                 </tr>
-                                <tr style="background: rgba(201, 168, 76, 0.08);">
-                                    <td style="font-weight: 700; color: #9a7d2e;"><i class="fas fa-graduation-cap me-1"></i>Children Fees</td>
+                                <tr data-accountant-hidden>
+                                    <td style="color: #6b7a8d;">Employer NSSF (school cost)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcEmployerNSSF">0.00</td>
+                                </tr>
+                                <tr data-accountant-hidden>
+                                    <td style="color: #6b7a8d;">Employer Housing Levy (school cost)</td>
+                                    <td class="text-end" style="font-weight: 600;" id="calcEmployerHousingLevy">0.00</td>
+                                </tr>
+                                <tr style="background: rgba(201, 168, 76, 0.08);" data-review-only>
+                                    <td style="font-weight: 700; color: #9a7d2e;"><i class="bi bi-mortarboard me-1"></i>Children Fees</td>
                                     <td class="text-end" style="font-weight: 700; color: #9a7d2e;" id="calcChildrenFees">0.00</td>
                                 </tr>
-                                <tr>
+                                <tr data-review-only>
                                     <td style="color: #6b7a8d;">Other Deductions</td>
                                     <td class="text-end">
                                         <input type="number" id="otherDeductions" class="form-control form-control-sm text-end"
@@ -938,7 +946,7 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 600;">Cancel</button>
                 <button type="button" class="btn" id="processPayrollBtn" onclick="PayrollManagerController.submitPayroll()" disabled
                         style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700; padding: 10px 24px;">
-                    <i class="fas fa-check-circle me-1"></i> Process Payroll
+                    <i class="bi bi-check-lg-circle me-1"></i><span id="processPayrollButtonLabel">Prepare Draft</span>
                 </button>
             </div>
         </div>
@@ -950,7 +958,7 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-users-cog me-2"></i>Prepare Bulk Payroll</h5>
+                <h5 class="modal-title"><i class="bi bi-people-cog me-2"></i>Prepare Bulk Payroll</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -978,8 +986,8 @@
                     </div>
                     <div class="col-md-6 d-flex align-items-end">
                         <div class="alert alert-info mb-0 w-100" style="font-size: 0.85rem;">
-                            <i class="fas fa-info-circle me-1"></i>
-                            Bulk payroll excludes child-fee deductions. Use Single Payroll when fee deductions need review.
+                            <i class="bi bi-info-circle me-1"></i>
+                            Bulk payroll uses each staff member's approved statutory configuration. Review staff-child fee instructions in Single Payroll before processing deductions.
                         </div>
                     </div>
                 </div>
@@ -997,8 +1005,8 @@
                         <thead style="position: sticky; top: 0; z-index: 1; background: #0B1426; color: #fff;">
                             <tr>
                                 <th style="width: 42px;"></th>
-                                <th>Staff</th>
-                                <th>Position</th>
+                                <th scope="col">Staff</th>
+                                <th scope="col">Position</th>
                                 <th class="text-end">Basic</th>
                                 <th class="text-end">Allowances</th>
                                 <th class="text-end">Statutory Ded.</th>
@@ -1015,7 +1023,7 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn" onclick="PayrollManagerController.submitBulkPayroll()"
                         style="background: var(--payroll-gold); color: #0B1426; border: none; border-radius: 10px; font-weight: 700;">
-                    <i class="fas fa-check-circle me-1"></i> Process Selected Payrolls
+                    <i class="bi bi-check-lg-circle me-1"></i> Process Selected Payrolls
                 </button>
             </div>
         </div>
@@ -1027,7 +1035,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-file-invoice me-2"></i>Detailed Payslip</h5>
+                <h5 class="modal-title"><i class="bi bi-file-invoice me-2"></i>Detailed Payslip</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="payslipContent">
@@ -1036,11 +1044,11 @@
             <div class="modal-footer" style="border-top: 1px solid var(--payroll-line); padding: 16px 28px;">
                 <button type="button" class="btn" onclick="PayrollManagerController.printPayslip()"
                         style="background: transparent; border: 1px solid var(--payroll-navy); color: var(--payroll-navy); border-radius: 10px; font-weight: 600;">
-                    <i class="fas fa-print me-1"></i> Print
+                    <i class="bi bi-printer me-1"></i> Print
                 </button>
                 <button type="button" class="btn" onclick="PayrollManagerController.downloadPayslip()"
                         style="background: transparent; border: 1px solid var(--payroll-success); color: var(--payroll-success); border-radius: 10px; font-weight: 600;">
-                    <i class="fas fa-download me-1"></i> Download PDF
+                    <i class="bi bi-download me-1"></i> Download PDF
                 </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 600;">Close</button>
             </div>
@@ -1131,5 +1139,6 @@
     </div>
 </div>
 
-<script src="js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/payroll_manager.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/staff_access.js'); ?>
+<?php asset_script($appBase, 'js/pages/payroll_manager.js'); ?>
+<?php asset_script($appBase, 'js/pages/payroll_source_account.js'); ?>

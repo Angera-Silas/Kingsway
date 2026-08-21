@@ -43,7 +43,7 @@ class MenuBuilderService
     {
         $sql = "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain
                 FROM sidebar_menu_items mi
-                LEFT JOIN routes r ON r.id = mi.route_id";
+                LEFT JOIN routes_registry r ON r.id = mi.route_id";
         if ($activeOnly) {
             $sql .= " WHERE mi.is_active = 1";
         }
@@ -61,7 +61,7 @@ class MenuBuilderService
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
              FROM sidebar_menu_items mi
-             LEFT JOIN routes r ON r.id = mi.route_id
+             LEFT JOIN routes_registry r ON r.id = mi.route_id
              WHERE mi.id = ?",
             [$id]
         );
@@ -76,7 +76,7 @@ class MenuBuilderService
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url
              FROM sidebar_menu_items mi
-             LEFT JOIN routes r ON r.id = mi.route_id
+             LEFT JOIN routes_registry r ON r.id = mi.route_id
              WHERE mi.parent_id = ? AND mi.is_active = 1
              ORDER BY mi.display_order",
             [$parentId]
@@ -167,48 +167,25 @@ class MenuBuilderService
     // =========================================================================
 
     /**
-     * Get config for a menu item
+     * Get config for a menu item.
+     *
+     * The legacy sidebar_menu_configs table was retired; the cosmetic UI
+     * config columns are no longer persisted. Returns null.
      */
     public function getMenuItemConfig(int $menuItemId): ?array
     {
-        $stmt = $this->db->query(
-            "SELECT * FROM sidebar_menu_configs WHERE menu_item_id = ?",
-            [$menuItemId]
-        );
-        return $stmt->fetch() ?: null;
+        return null;
     }
 
     /**
-     * Create or update menu item config
+     * Create or update menu item config.
+     *
+     * The legacy sidebar_menu_configs table was retired; cosmetic UI config
+     * is no longer persisted. No-op that returns success to keep the admin
+     * API contract stable.
      */
     public function saveMenuItemConfig(int $menuItemId, array $config): bool
     {
-        $this->db->query(
-            "INSERT INTO sidebar_menu_configs (menu_item_id, show_badge, badge_source, badge_color, open_in_new_tab, requires_confirmation, confirmation_message, visibility_rule, css_class, tooltip)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-                show_badge = VALUES(show_badge),
-                badge_source = VALUES(badge_source),
-                badge_color = VALUES(badge_color),
-                open_in_new_tab = VALUES(open_in_new_tab),
-                requires_confirmation = VALUES(requires_confirmation),
-                confirmation_message = VALUES(confirmation_message),
-                visibility_rule = VALUES(visibility_rule),
-                css_class = VALUES(css_class),
-                tooltip = VALUES(tooltip)",
-            [
-                $menuItemId,
-                $config['show_badge'] ?? 0,
-                $config['badge_source'] ?? null,
-                $config['badge_color'] ?? 'danger',
-                $config['open_in_new_tab'] ?? 0,
-                $config['requires_confirmation'] ?? 0,
-                $config['confirmation_message'] ?? null,
-                is_array($config['visibility_rule'] ?? null) ? json_encode($config['visibility_rule']) : ($config['visibility_rule'] ?? null),
-                $config['css_class'] ?? null,
-                $config['tooltip'] ?? null
-            ]
-        );
         return true;
     }
 
@@ -223,13 +200,10 @@ class MenuBuilderService
     {
         $stmt = $this->db->query(
             "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
-                    rmi.is_default, rmi.custom_order,
-                    mic.show_badge, mic.badge_source, mic.badge_color, mic.open_in_new_tab,
-                    mic.requires_confirmation, mic.confirmation_message, mic.css_class, mic.tooltip
+                    rmi.is_default, rmi.custom_order
              FROM sidebar_menu_items mi
              JOIN role_sidebar_menus rmi ON rmi.menu_item_id = mi.id
-             LEFT JOIN routes r ON r.id = mi.route_id
-             LEFT JOIN sidebar_menu_configs mic ON mic.menu_item_id = mi.id
+             LEFT JOIN routes_registry r ON r.id = mi.route_id
              WHERE rmi.role_id = ? AND mi.is_active = 1
              ORDER BY COALESCE(rmi.custom_order, mi.display_order)",
             [$roleId]
@@ -239,42 +213,25 @@ class MenuBuilderService
 
     /**
      * Get menu items that were explicitly delegated to a given role.
-     * This implements per-menu-item delegation (role_delegations_items).
+     *
+     * The legacy role_delegations_items table (per-menu delegation) was
+     * retired without a live equivalent; the live role_delegations table
+     * carries no menu_item_id. Returns an empty list.
      */
     public function getDelegatedMenuItemsForRole(int $delegateRoleId): array
     {
-        $stmt = $this->db->query(
-            "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
-                    rdi.active as delegation_active
-             FROM role_delegations_items rdi
-             JOIN sidebar_menu_items mi ON mi.id = rdi.menu_item_id
-             LEFT JOIN routes r ON r.id = mi.route_id
-             LEFT JOIN sidebar_menu_configs mic ON mic.menu_item_id = mi.id
-             WHERE rdi.delegate_role_id = ? AND rdi.active = 1 AND mi.is_active = 1
-             ORDER BY mi.display_order",
-            [$delegateRoleId]
-        );
-        return $stmt->fetchAll();
+        return [];
     }
 
     /**
      * Get menu items that were explicitly delegated to a specific user.
-     * New: user-level per-menu-item delegation (user_delegations_items).
+     *
+     * The legacy user_delegations_items table (per-menu delegation) was
+     * retired without a live equivalent. Returns an empty list.
      */
     public function getDelegatedMenuItemsForUser(int $delegateUserId): array
     {
-        $stmt = $this->db->query(
-            "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
-                    udi.active as delegation_active
-             FROM user_delegations_items udi
-             JOIN sidebar_menu_items mi ON mi.id = udi.menu_item_id
-             LEFT JOIN routes r ON r.id = mi.route_id
-             LEFT JOIN sidebar_menu_configs mic ON mic.menu_item_id = mi.id
-             WHERE udi.delegate_user_id = ? AND udi.active = 1 AND mi.is_active = 1
-             ORDER BY mi.display_order",
-            [$delegateUserId]
-        );
-        return $stmt->fetchAll();
+        return [];
     }
 
     /**
@@ -374,43 +331,37 @@ class MenuBuilderService
     // =========================================================================
 
     /**
-     * Get menu overrides for a user
+     * Get menu overrides for a user.
+     *
+     * The legacy user_sidebar_overrides table was retired; per-user menu
+     * overrides have no live home. Returns an empty list.
      */
     public function getUserMenuOverrides(int $userId): array
     {
-        $stmt = $this->db->query(
-            "SELECT umo.*, mi.label as menu_label
-             FROM user_sidebar_overrides umo
-             JOIN sidebar_menu_items mi ON mi.id = umo.menu_item_id
-             WHERE umo.user_id = ?",
-            [$userId]
-        );
-        return $stmt->fetchAll();
+        return [];
     }
 
     /**
-     * Set user menu override
+     * Set user menu override.
+     *
+     * The legacy user_sidebar_overrides table was retired; per-user menu
+     * overrides have no live home. No-op that returns success to keep the
+     * admin API contract stable.
      */
     public function setUserMenuOverride(int $userId, int $menuItemId, string $overrideType, ?int $customOrder = null): bool
     {
-        $this->db->query(
-            "INSERT INTO user_sidebar_overrides (user_id, menu_item_id, override_type, custom_order)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE custom_order = VALUES(custom_order)",
-            [$userId, $menuItemId, $overrideType, $customOrder]
-        );
         return true;
     }
 
     /**
-     * Remove user menu override
+     * Remove user menu override.
+     *
+     * The legacy user_sidebar_overrides table was retired; per-user menu
+     * overrides have no live home. No-op that returns success to keep the
+     * admin API contract stable.
      */
     public function removeUserMenuOverride(int $userId, int $menuItemId, string $overrideType): bool
     {
-        $this->db->query(
-            "DELETE FROM user_sidebar_overrides WHERE user_id = ? AND menu_item_id = ? AND override_type = ?",
-            [$userId, $menuItemId, $overrideType]
-        );
         return true;
     }
 
@@ -454,8 +405,8 @@ class MenuBuilderService
                 }
 
                 if ($treatAsClassTeacher) {
-                    // Find canonical teacher route/menu (route name 'teacher_dashboard')
-                    $routeId = $this->findRouteIdByName('teacher_dashboard');
+                    // Find canonical teacher route/menu (route name 'class_teacher_dashboard')
+                    $routeId = $this->findRouteIdByName('class_teacher_dashboard');
                     if ($routeId) {
                         $stmt3 = $this->db->query("SELECT id FROM sidebar_menu_items WHERE route_id = ? AND is_active = 1 LIMIT 1", [$routeId]);
                         $menuRow = $stmt3->fetch();
@@ -474,7 +425,9 @@ class MenuBuilderService
             // Non-fatal: if view/table missing or query fails, continue without forcing menu change
         }
 
-        // Also include menu items explicitly delegated to this role (per-item delegation)
+        // Per-role/per-user menu delegation was retired with the legacy
+        // role_delegations_items / user_delegations_items tables; the helpers
+        // now return empty lists.
         try {
             $delegated = $this->getDelegatedMenuItemsForRole($roleId);
             if (!empty($delegated)) {
@@ -482,7 +435,7 @@ class MenuBuilderService
                 $menuItems = array_merge($menuItems, $delegated);
             }
         } catch (\Exception $e) {
-            // If the role_delegations_items table does not exist yet, ignore
+            // Non-fatal
         }
 
         // If this is the Accountant role (role_id = 10), prefer new workflow parent groups
@@ -495,14 +448,15 @@ class MenuBuilderService
             // Non-fatal: continue with original menuItems on error
         }
 
-        // Also include menu items explicitly delegated to this specific user (user-level delegation)
+        // Per-user menu delegation was retired with the legacy
+        // user_delegations_items table; the helper now returns an empty list.
         try {
             $userDelegated = $this->getDelegatedMenuItemsForUser($userId);
             if (!empty($userDelegated)) {
                 $menuItems = array_merge($menuItems, $userDelegated);
             }
         } catch (\Exception $e) {
-            // If the user_delegations_items table does not exist yet, ignore
+            // Non-fatal
         }
 
         // 2. Get user overrides
@@ -996,7 +950,7 @@ class MenuBuilderService
             return null;
 
         $stmt = $this->db->query(
-            "SELECT id FROM routes WHERE name = ? LIMIT 1",
+            "SELECT id FROM routes_registry WHERE name = ? LIMIT 1",
             [$name]
         );
         $result = $stmt->fetch();

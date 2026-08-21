@@ -47,17 +47,16 @@ class BudgetManager
             // Insert main budget record
             $stmt = $this->db->prepare("
                 INSERT INTO budgets (
-                    name, description, fiscal_year, start_date, end_date,
+                    name, description, academic_year, term,
                     total_amount, status, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
                 $data['name'],
                 $data['description'] ?? null,
                 $data['fiscal_year'],
-                $data['start_date'] ?? ($data['fiscal_year'] . '-01-01'),
-                $data['end_date'] ?? ($data['fiscal_year'] . '-12-31'),
+                $data['term'] ?? null,
                 $data['total_amount'],
                 $data['status'] ?? 'draft',
                 $data['created_by'] ?? null
@@ -69,16 +68,15 @@ class BudgetManager
             if (!empty($data['line_items'])) {
                 $stmt = $this->db->prepare("
                     INSERT INTO budget_line_items (
-                        budget_id, category, department_id, 
+                        budget_id, category_id,
                         description, allocated_amount
-                    ) VALUES (?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?)
                 ");
 
                 foreach ($data['line_items'] as $item) {
                     $stmt->execute([
                         $budgetId,
-                        $item['category'],
-                        $item['department_id'] ?? null,
+                        $item['category_id'] ?? null,
                         $item['description'] ?? null,
                         $item['allocated_amount']
                     ]);
@@ -96,7 +94,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to create budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -153,19 +152,21 @@ class BudgetManager
 
             // Log amendment if applicable
             if (!empty($data['amendment_reason'])) {
+                $oldAmount = (float) ($budget['total_amount'] ?? 0);
+                $newAmount = (float) ($data['total_amount'] ?? $oldAmount);
                 $stmt = $this->db->prepare("
                     INSERT INTO budget_amendments (
-                        budget_id, amendment_reason, old_amount, 
-                        new_amount, amended_by
+                        budget_id, amendment_type, amount_change,
+                        reason, requested_by
                     ) VALUES (?, ?, ?, ?, ?)
                 ");
 
                 $stmt->execute([
                     $budgetId,
+                    $newAmount > $oldAmount ? 'supplementary' : ($newAmount < $oldAmount ? 'reduction' : 'supplementary'),
+                    $newAmount - $oldAmount,
                     $data['amendment_reason'],
-                    $budget['total_amount'] ?? 0,
-                    $data['total_amount'] ?? 0,
-                    $data['amended_by'] ?? null
+                    $data['amended_by'] ?? $data['created_by'] ?? null
                 ]);
             }
 
@@ -177,7 +178,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to update budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -207,7 +209,7 @@ class BudgetManager
             // Get line items with actual spending
             $stmt = $this->db->prepare("
                 SELECT bli.*,
-                       d.name as department_name,
+                       ec.name as category_name,
                        COALESCE(SUM(e.amount), 0) as actual_spent,
                        (bli.allocated_amount - COALESCE(SUM(e.amount), 0)) as variance,
                        CASE 
@@ -216,7 +218,7 @@ class BudgetManager
                            ELSE 0 
                        END as utilization_percentage
                 FROM budget_line_items bli
-                LEFT JOIN departments d ON bli.department_id = d.id
+                LEFT JOIN expense_categories ec ON ec.id = bli.category_id
                 LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
@@ -240,7 +242,8 @@ class BudgetManager
             return formatResponse(true, $budget);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to retrieve budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -267,7 +270,7 @@ class BudgetManager
             $params = [];
 
             if (!empty($filters['fiscal_year'])) {
-                $sql .= " AND b.fiscal_year = ?";
+                $sql .= " AND b.academic_year = ?";
                 $params[] = $filters['fiscal_year'];
             }
 
@@ -283,7 +286,7 @@ class BudgetManager
                 $params[] = $search;
             }
 
-            $sql .= " GROUP BY b.id ORDER BY b.fiscal_year DESC, b.created_at DESC LIMIT ? OFFSET ?";
+            $sql .= " GROUP BY b.id ORDER BY b.academic_year DESC, b.created_at DESC LIMIT ? OFFSET ?";
             $params[] = $limit;
             $params[] = $offset;
 
@@ -296,7 +299,7 @@ class BudgetManager
             $countParams = array_slice($params, 0, -2);
 
             if (!empty($filters['fiscal_year']))
-                $countSql .= " AND b.fiscal_year = ?";
+                $countSql .= " AND b.academic_year = ?";
             if (!empty($filters['status']))
                 $countSql .= " AND b.status = ?";
             if (!empty($filters['search']))
@@ -317,7 +320,8 @@ class BudgetManager
             ]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to list budgets: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -330,8 +334,7 @@ class BudgetManager
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT bli.category,
-                       d.name as department_name,
+                SELECT COALESCE(ec.name, 'Uncategorized') as category,
                        SUM(bli.allocated_amount) as allocated,
                        COALESCE(SUM(e.amount), 0) as spent,
                        (SUM(bli.allocated_amount) - COALESCE(SUM(e.amount), 0)) as variance,
@@ -341,11 +344,11 @@ class BudgetManager
                            ELSE 0
                        END as utilization_percentage
                 FROM budget_line_items bli
-                LEFT JOIN departments d ON bli.department_id = d.id
+                LEFT JOIN expense_categories ec ON ec.id = bli.category_id
                 LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
                     AND e.status = 'approved'
                 WHERE bli.budget_id = ?
-                GROUP BY bli.category, d.name
+                GROUP BY ec.id, ec.name
                 ORDER BY variance DESC
             ");
 
@@ -355,7 +358,8 @@ class BudgetManager
             return formatResponse(true, ['variances' => $variances]);
 
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to generate variance report: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -375,7 +379,7 @@ class BudgetManager
                 SET status = 'approved',
                     approved_by = ?,
                     approved_at = NOW()
-                WHERE id = ? AND status = 'pending'
+                WHERE id = ? AND status IN ('submitted', 'under_review')
             ");
 
             $stmt->execute([$approvedBy, $budgetId]);
@@ -393,7 +397,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to approve budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -421,7 +426,7 @@ class BudgetManager
             $this->db->beginTransaction();
 
             // Delete budget items first
-            $stmt = $this->db->prepare("DELETE FROM budget_items WHERE budget_id = ?");
+            $stmt = $this->db->prepare("DELETE FROM budget_line_items WHERE budget_id = ?");
             $stmt->execute([$budgetId]);
 
             // Delete budget
@@ -436,7 +441,8 @@ class BudgetManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return formatResponse(false, null, 'Failed to delete budget: ' . $e->getMessage());
+            error_log('[BudgetManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 }

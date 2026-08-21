@@ -67,6 +67,19 @@ if ($appBase === '.')
             padding: 1rem;
         }
     }
+
+    #viewApplicationModal .modal-body,
+    #newApplicationModal .modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    @media (max-height: 600px) {
+        #viewApplicationModal .modal-body,
+        #newApplicationModal .modal-body {
+            max-height: 55vh;
+        }
+    }
 </style>
 
 <div class="new-applications-page">
@@ -155,20 +168,8 @@ if ($appBase === '.')
             </div>
             <div class="col-md-3">
                 <label class="form-label small fw-semibold">Class Applied For</label>
-                <select id="filterClass" class="form-select">
+                <select id="filterClass" class="form-select grade-select-dynamic">
                     <option value="">All Classes</option>
-                    <option value="Playground">Playground</option>
-                    <option value="PP1">PP1</option>
-                    <option value="PP2">PP2</option>
-                    <option value="Grade1">Grade 1</option>
-                    <option value="Grade2">Grade 2</option>
-                    <option value="Grade3">Grade 3</option>
-                    <option value="Grade4">Grade 4</option>
-                    <option value="Grade5">Grade 5</option>
-                    <option value="Grade6">Grade 6</option>
-                    <option value="Grade7">Grade 7</option>
-                    <option value="Grade8">Grade 8</option>
-                    <option value="Grade9">Grade 9</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -197,15 +198,15 @@ if ($appBase === '.')
                     <table class="table table-hover align-middle mb-0">
                         <thead class="bg-light">
                             <tr>
-                                <th>Application No</th>
-                                <th>Applicant Name</th>
-                                <th>Gender</th>
-                                <th>Class Applied For</th>
-                                <th>Guardian Name</th>
-                                <th>Guardian Phone</th>
-                                <th>Status</th>
-                                <th>Submitted Date</th>
-                                <th>Actions</th>
+                                <th scope="col">Application No</th>
+                                <th scope="col">Applicant Name</th>
+                                <th scope="col">Gender</th>
+                                <th scope="col">Class Applied For</th>
+                                <th scope="col">Guardian Name</th>
+                                <th scope="col">Guardian Phone</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Submitted Date</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="applicationsTableBody">
@@ -253,6 +254,11 @@ if ($appBase === '.')
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="tab-health" data-bs-toggle="tab" data-bs-target="#content-health" type="button" role="tab">
                                 <i class="bi bi-heart-pulse me-1"></i> Health
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tab-documents" data-bs-toggle="tab" data-bs-target="#content-documents" type="button" role="tab">
+                                <i class="bi bi-paperclip me-1"></i> Documents
                             </button>
                         </li>
                     </ul>
@@ -304,27 +310,24 @@ if ($appBase === '.')
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label fw-semibold">Grade Applying For <span class="text-danger">*</span></label>
-                                    <select name="grade_applying_for" id="gradeSelect" class="form-select" required>
+                                    <select name="grade_applying_for" id="gradeSelect" class="form-select grade-select-dynamic" required>
                                         <option value="">Select Grade</option>
-                                        <option value="Playground">Playground</option>
-                                        <option value="PP1">PP1</option>
-                                        <option value="PP2">PP2</option>
-                                        <option value="Grade1">Grade 1</option>
-                                        <option value="Grade2">Grade 2</option>
-                                        <option value="Grade3">Grade 3</option>
-                                        <option value="Grade4">Grade 4</option>
-                                        <option value="Grade5">Grade 5</option>
-                                        <option value="Grade6">Grade 6</option>
-                                        <option value="Grade7">Grade 7</option>
-                                        <option value="Grade8">Grade 8</option>
-                                        <option value="Grade9">Grade 9</option>
                                     </select>
                                 </div>
                                 <div class="col-md-4">
+                                    <label class="form-label fw-semibold">Target Intake Term <span class="text-danger">*</span></label>
+                                    <select id="targetTermSelect" class="form-select" required disabled>
+                                        <option value="">Select Term</option>
+                                    </select>
+                                    <input type="hidden" name="target_term_id" id="targetTermInput">
+                                    <small class="text-muted">Term this applicant intends to join.</small>
+                                </div>
+                                <div class="col-md-4">
                                     <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                                    <select name="academic_year" id="academicYearSelect" class="form-select" required>
+                                    <select id="academicYearSelect" class="form-select" required disabled>
                                         <option value="">Select Year</option>
                                     </select>
+                                    <input type="hidden" name="academic_year" id="academicYearInput">
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label fw-semibold">Application Source</label>
@@ -356,12 +359,41 @@ if ($appBase === '.')
                         <!-- Parent/Guardian Tab -->
                         <div class="tab-pane fade" id="content-parent" role="tabpanel">
                             <div class="row g-3">
-                                <div class="col-md-12">
-                                    <label class="form-label fw-semibold">Parent/Guardian <span class="text-danger">*</span></label>
+                                <div class="col-12">
+                                    <label class="form-label fw-semibold">Parent / Guardian <span class="text-danger">*</span></label>
+                                    <div class="btn-group w-100" role="group" aria-label="Parent type">
+                                        <input type="radio" class="btn-check" name="parent_type" id="parentTypeExisting" value="existing" checked>
+                                        <label class="btn btn-outline-primary" for="parentTypeExisting">Existing Parent</label>
+                                        <input type="radio" class="btn-check" name="parent_type" id="parentTypeNew" value="new">
+                                        <label class="btn btn-outline-primary" for="parentTypeNew">New Parent</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-12" id="existingParentFields">
+                                    <label class="form-label fw-semibold">Select Existing Parent <span class="text-danger">*</span></label>
                                     <select name="parent_id" id="parentSelect" class="form-select" required>
                                         <option value="">Select Parent/Guardian</option>
                                     </select>
-                                    <small class="text-muted">Parent must exist in the system. If not, please add parent first.</small>
+                                    <small class="text-muted">Parent must exist in the system.</small>
+                                </div>
+                                <div class="col-md-6" id="newParentFields" style="display:none;">
+                                    <label class="form-label fw-semibold">Parent Full Name <span class="text-danger">*</span></label>
+                                    <input type="text" name="new_parent_name" class="form-control" placeholder="Enter full name">
+                                </div>
+                                <div class="col-md-6" id="newParentIdField" style="display:none;">
+                                    <label class="form-label fw-semibold">National ID / Passport No.</label>
+                                    <input type="text" name="new_parent_id_number" class="form-control" placeholder="ID number">
+                                </div>
+                                <div class="col-md-6" id="newParentPhoneField" style="display:none;">
+                                    <label class="form-label fw-semibold">Phone Number <span class="text-danger">*</span></label>
+                                    <input type="tel" name="new_parent_phone" class="form-control" placeholder="e.g. 0720 113 030">
+                                </div>
+                                <div class="col-md-6" id="newParentEmailField" style="display:none;">
+                                    <label class="form-label fw-semibold">Email Address</label>
+                                    <input type="email" name="new_parent_email" class="form-control" placeholder="parent@email.com">
+                                </div>
+                                <div class="col-12" id="newParentAddressField" style="display:none;">
+                                    <label class="form-label fw-semibold">Residential Address</label>
+                                    <input type="text" name="new_parent_address" class="form-control" placeholder="Town, Sub-county, County">
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label fw-semibold">Relationship</label>
@@ -419,6 +451,65 @@ if ($appBase === '.')
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Documents Tab -->
+                        <div class="tab-pane fade" id="content-documents" role="tabpanel">
+                            <div class="alert alert-warning small mb-3">
+                                <i class="bi bi-info-circle-fill me-1"></i>
+                                Documents are part of the application — they are uploaded now, not after submission.
+                                Accepted formats: PDF, JPG, PNG (max 5MB each).
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Birth Certificate <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_birth_certificate" class="form-control" required accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Passport Photo <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_passport_photo" class="form-control" required accept=".jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6" id="newParentIdDocWrap">
+                                    <label class="form-label fw-semibold">Parent / Guardian ID</label>
+                                    <input type="file" name="doc_parent_id" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required when registering a new parent/guardian.</small>
+                                </div>
+                                <div class="col-md-6" id="immunizationDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Immunization Card <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_immunization_card" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Playgroup to Grade 3.</small>
+                                </div>
+                                <div class="col-md-6" id="schoolReportDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Previous School Report <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_previous_school_report" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Grade 4–9 applicants.</small>
+                                </div>
+                                <div class="col-md-6" id="medicalDocWrap" style="display:none;">
+                                    <label class="form-label fw-semibold">Medical Test Results <span class="text-danger">*</span></label>
+                                    <input type="file" name="doc_medical_records" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Required for Grade 4–9 applicants — to identify conditions/disabilities (e.g. eyesight, ulcers).</small>
+                                </div>
+                            </div>
+                            <h6 class="fw-semibold text-muted mt-4 mb-2"><i class="bi bi-plus-circle me-2"></i>Additional Documents (Optional)</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Progress Report</label>
+                                    <input type="file" name="doc_progress_report" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Leaving Certificate</label>
+                                    <input type="file" name="doc_leaving_certificate" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Transfer Letter</label>
+                                    <input type="file" name="doc_transfer_letter" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">Other Documents</label>
+                                    <input type="file" name="doc_other" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                    <small class="text-muted">Student portfolio, reports, or any other relevant document.</small>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -460,8 +551,4 @@ if ($appBase === '.')
     console.log("new_applications.php loaded. APP_BASE:", window.APP_BASE);
 </script>
 
-<script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/new_applications.js?v=<?= time() ?>"
-    onload="console.log('new_applications.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load new_applications.js. Check path:', this.src)">
-</script>
+<?php asset_script($appBase, 'js/pages/new_applications.js'); ?>

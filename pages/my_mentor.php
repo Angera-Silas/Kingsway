@@ -62,11 +62,11 @@
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                   <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Topic / Agenda</th>
-                    <th>Duration</th>
-                    <th>Notes</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Topic / Agenda</th>
+                    <th scope="col">Duration</th>
+                    <th scope="col">Notes</th>
                   </tr>
                 </thead>
                 <tbody id="mmMeetingBody">
@@ -87,4 +87,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>/js/pages/my_mentor.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/my_mentor.js'); ?>

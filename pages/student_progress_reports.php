@@ -68,14 +68,14 @@
                             <table class="table table-hover" id="progressTable">
                                 <thead>
                                     <tr>
-                                        <th>Student</th>
-                                        <th>Adm No</th>
-                                        <th>Class</th>
-                                        <th>Previous Average</th>
-                                        <th>Current Average</th>
-                                        <th>Change</th>
-                                        <th>Trend</th>
-                                        <th>Actions</th>
+                                        <th scope="col">Student</th>
+                                        <th scope="col">Adm No</th>
+                                        <th scope="col">Class</th>
+                                        <th scope="col">Previous Average</th>
+                                        <th scope="col">Current Average</th>
+                                        <th scope="col">Change</th>
+                                        <th scope="col">Trend</th>
+                                        <th scope="col">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="progressTableBody">
@@ -94,4 +94,4 @@
     </div>
 </div>
 
-<script src="js/pages/student_progress_reports.js"></script>
+<?php asset_script($appBase, 'js/pages/student_progress_reports.js'); ?>

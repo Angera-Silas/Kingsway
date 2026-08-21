@@ -25,10 +25,7 @@ const performanceReportsCtrl = (() => {
     function cbcBand(score) {
         const n = Number(score);
         if (!Number.isFinite(n)) return null;
-        if (n >= 80) return 'EE';
-        if (n >= 50) return 'ME';
-        if (n >= 25) return 'AE';
-        return 'BE';
+        return GradingScale.grade(n) || null;
     }
 
     function gradeBadge(code) {
@@ -393,6 +390,7 @@ const performanceReportsCtrl = (() => {
 
     async function init() {
         try {
+            await GradingScale.preload();
             await Promise.all([loadTerms(), loadClasses(), loadSubjects()]);
             await generateReport();
         } catch (error) {

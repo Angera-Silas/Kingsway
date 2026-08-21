@@ -17,9 +17,7 @@ class FeeStructureAdminController {
     this.viewingGroup = null;
     this.deleteTarget = null;
     this.duplicateSourceYear = null;
-    this.userRole =
-      document.querySelector(".admin-layout")?.getAttribute("data-user-role") ||
-      "admin";
+    this.userRole = window.AuthContext?.getRoles?.()?.[0] || "admin";
     this.charts = {};
 
     this.availableYears = [];
@@ -40,43 +38,50 @@ class FeeStructureAdminController {
     this.currentStructures = [];
     this.currentAggregated = [];
     this.currentFormTerms = [];
+    this.classes = [];
+    this.formModel = null;
+    this._uidCounter = 0;
   }
 
   /**
    * Initialize the controller
    */
-  static init() {
+  static async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     const controller = new FeeStructureAdminController();
     window.adminController = controller;
+    controller.normalizeLegacyLayout();
     controller.setupEventListeners();
-    controller.loadDropdowns();
-    controller.loadFeeStructures();
+    await controller.loadDropdowns();
+    await controller.loadFeeStructures();
+    await controller.loadPendingApprovals();
     controller.initializeCharts();
-    console.log("FeeStructureAdminController initialized");
+  }
+
+  normalizeLegacyLayout() {
+    // Older cached role templates may still contain the aggregate line-item
+    // table. Remove it before any data is rendered so the admin page always
+    // uses the canonical grade matrix.
+    const legacyTable = document.getElementById('feeStructuresTable');
+    const matrix = document.getElementById('adminActiveFeeMatrix');
+    if (!legacyTable || matrix) return;
+
+    const shell = legacyTable.closest('.fee-table-shell') || legacyTable.parentElement;
+    if (!shell) return;
+    const card = document.createElement('div');
+    card.className = 'console-card mb-4';
+    card.innerHTML = '<div class="card-header d-flex align-items-center justify-content-between"><div><h5 class="mb-1">Active Fee Structure</h5><small class="text-muted">The approved Day and Full Boarder amounts exactly as configured by grade and term.</small></div><span class="badge rounded-pill text-bg-success">Active</span></div><div class="card-body" id="adminActiveFeeMatrix"><div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading active fee matrix…</div></div>';
+    shell.replaceWith(card);
+    document.getElementById('paginationControls')?.closest('.pagination-footer')?.remove();
   }
 
   /**
    * Setup event listeners
    */
   setupEventListeners() {
-    document
-      .getElementById("academicYearFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("schoolLevelFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("studentTypeFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("termFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document
-      .getElementById("statusFilter")
-      ?.addEventListener("change", () => this.applyFilters());
-    document.getElementById("searchFeeStructure")?.addEventListener(
-      "input",
-      this.debounce(() => this.applyFilters(), 500),
+    document.getElementById("adminMatrixAcademicYearFilter")?.addEventListener(
+      "change",
+      () => this.loadCanonicalMatrix(),
     );
 
     window.exportFeeStructures = () => this.exportFeeStructures();
@@ -101,31 +106,36 @@ class FeeStructureAdminController {
         yearsResponse,
         levelsResponse,
         studentTypesResponse,
-        feeTypesResponse,
         termsResponse,
+        classesResponse,
       ] = await Promise.all([
         API.academic.getAllAcademicYears().catch(() => []),
         API.academic.listLevels().catch(() => []),
         API.finance.listStudentTypes().catch(() => []),
-        API.finance.listFeeTypes().catch(() => []),
         API.academic.listTerms().catch(() => []),
+        API.academic.listClasses({ limit: 200 }).catch(() => []),
       ]);
 
-      this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];
-      this.levels = Array.isArray(levelsResponse) ? levelsResponse : [];
-      this.studentTypes = Array.isArray(studentTypesResponse)
-        ? studentTypesResponse
-        : [];
-      this.feeTypes = Array.isArray(feeTypesResponse) ? feeTypesResponse : [];
-      this.terms = Array.isArray(termsResponse) ? termsResponse : [];
+      const unwrapList = (response, keys = []) => {
+        if (Array.isArray(response)) return response;
+        for (const key of [...keys, 'items', 'results', 'records']) {
+          if (Array.isArray(response?.[key])) return response[key];
+          if (Array.isArray(response?.data?.[key])) return response.data[key];
+        }
+        if (Array.isArray(response?.data)) return response.data;
+        return [];
+      };
+      this.academicYears = unwrapList(yearsResponse, ['years', 'academic_years', 'academicYears', 'year_list']);
+      this.levels = unwrapList(levelsResponse, ['levels', 'school_levels']);
+      this.studentTypes = unwrapList(studentTypesResponse, ['student_types', 'types']);
+      this.feeTypes = [{ code: 'SCHOOL_FEES', name: 'School Fees' }];
+      this.terms = unwrapList(termsResponse, ['terms']);
+      this.classes = unwrapList(classesResponse, ['classes']);
 
       this.buildTermMaps();
 
       this.populateAcademicYearSelect("duplicateTargetYear");
-      this.populateAcademicYearSelect("academicYearFilter", true);
-      this.populateLevelFilterFromList();
-      this.populateStudentTypeFilterFromList();
-      this.populateTermFilterFromList();
+      this.populateAcademicYearSelect("adminMatrixAcademicYearFilter");
     } catch (error) {
       console.error("Failed to load dropdown data:", error);
     }
@@ -138,7 +148,7 @@ class FeeStructureAdminController {
 
     this.terms.forEach((term) => {
       if (!term || !term.id) return;
-      const yearValue = this.parseAcademicYear(term.year || term.year_code);
+      const yearValue = this.parseAcademicYear(term.year_code || term.year || "");
       if (!this.termsByYear[yearValue]) {
         this.termsByYear[yearValue] = [];
       }
@@ -185,6 +195,11 @@ class FeeStructureAdminController {
 
     if (selected) {
       select.value = selected;
+    } else if (elementId === "adminMatrixAcademicYearFilter") {
+      const current = this.academicYears.find(year => year.is_current || year.status === 'current') || this.academicYears[0];
+      if (current) {
+        select.value = this.parseAcademicYear(current.year_code || current.year_name || current.year || current.id);
+      }
     }
   }
 
@@ -267,13 +282,6 @@ class FeeStructureAdminController {
     const filters = {
       page: page,
       limit: this.itemsPerPage,
-      academic_year: document.getElementById("academicYearFilter")?.value || "",
-      term_id: document.getElementById("termFilter")?.value || "",
-      level_id: document.getElementById("schoolLevelFilter")?.value || "",
-      student_type_id:
-        document.getElementById("studentTypeFilter")?.value || "",
-      status: document.getElementById("statusFilter")?.value || "",
-      search: document.getElementById("searchFeeStructure")?.value || "",
     };
 
     Object.keys(filters).forEach((key) => {
@@ -294,6 +302,7 @@ class FeeStructureAdminController {
 
       const structures = response?.fee_structures || response?.structures || [];
       const pagination = response?.pagination || {};
+      this.billingSummary = response?.billing_summary || response?.data?.billing_summary || { billed_students: 0, billed_amount: 0 };
 
       this.currentStructures = Array.isArray(structures) ? structures : [];
       const aggregated = this.aggregateFeeStructures(this.currentStructures);
@@ -303,9 +312,31 @@ class FeeStructureAdminController {
       this.updateStatistics(this.currentAggregated);
       this.renderPagination(pagination);
       this.updateCharts(this.currentAggregated);
+      await this.loadCanonicalMatrix();
     } catch (error) {
       console.error("Failed to load fee structures:", error);
       this.showError("Failed to load fee structures. Please try again.");
+    }
+  }
+
+  async loadCanonicalMatrix() {
+    const body = document.getElementById('adminActiveFeeMatrix');
+    if (!body || !window.FeeStructureMatrix) return;
+
+    const selectedYear = document.getElementById('adminMatrixAcademicYearFilter')?.value ||
+      this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
+    if (!selectedYear) {
+      body.innerHTML = '<div class="alert alert-warning mb-0">No academic year is available for the fee matrix.</div>';
+      return;
+    }
+    body.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading active fee matrix…</div>';
+
+    try {
+      const model = await window.FeeStructureMatrix.load(selectedYear);
+      window.FeeStructureMatrix.render(body, model);
+      await this.renderActiveExtraCharges(body, selectedYear);
+    } catch (error) {
+      body.innerHTML = `<div class="alert alert-danger mb-0">${this._esc(error.message || 'Failed to load active fee matrix')}</div>`;
     }
   }
 
@@ -511,14 +542,8 @@ class FeeStructureAdminController {
     const pendingCount = structures.filter((s) =>
       ["pending_review", "reviewed"].includes(s.status),
     ).length;
-    const totalExpected = structures.reduce(
-      (sum, s) => sum + (s.total_expected_revenue || 0),
-      0,
-    );
-    const totalStudents = structures.reduce(
-      (sum, s) => sum + (s.student_count || 0),
-      0,
-    );
+    const totalExpected = Number(this.billingSummary?.billed_amount || 0);
+    const totalStudents = Number(this.billingSummary?.billed_students || 0);
 
     const totalEl = document.getElementById("totalStructures");
     const activeEl = document.getElementById("activeStructures");
@@ -696,16 +721,19 @@ class FeeStructureAdminController {
       return;
     }
 
-    const items = this.getFeeItemsForGroup(group);
-    const details = {
-      ...group,
-      fee_items: items,
-      total_amount: group.total_amount,
-      expected_revenue: group.total_expected_revenue,
-    };
-
-    this.displayStructureDetails(details, true);
     this.viewingGroup = group;
+    const modal = document.getElementById('viewFeeStructureModal');
+    const body = document.getElementById('viewModalBody');
+    if (modal && body && window.FeeStructureMatrix) {
+      modal.querySelector('.modal-title').textContent = 'Fee Structure Matrix';
+      body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm"></div> Loading…</div>';
+      this.showModal(modal.id);
+      window.FeeStructureMatrix.load(group.academic_year, [group.student_type_id]).then(model => {
+        window.FeeStructureMatrix.render(body, model);
+      }).catch(e => { body.innerHTML = `<div class="alert alert-danger">${this._esc(e.message || 'Failed to load matrix')}</div>`; });
+    } else {
+      this.showError('Fee structure matrix is not available');
+    }
   }
 
   getFeeItemsForGroup(group) {
@@ -802,22 +830,87 @@ class FeeStructureAdminController {
       groupKey ||
       this.viewingGroup?.group_key ||
       this.editingGroup?.group_key;
-    const group = this.currentAggregated.find((g) => g.group_key === resolvedKey);
+    const group = this.currentAggregated.find(
+      (g) => g.group_key === resolvedKey,
+    );
     if (!group) {
       this.showError("Fee structure not found for editing");
       return;
     }
 
     this.editingGroup = group;
-    const breakdown = this.buildTermBreakdown(group);
-    this.renderStructureForm({
-      academic_year: group.academic_year,
-      level_id: group.level_id,
-      student_type_id: group.student_type_id,
-      term_breakdown: breakdown,
-    });
-    this.showModal("feeStructureModal");
+    const academicYear =
+      this.parseAcademicYear(group.academic_year) || this.getDefaultYear();
+
+    const gradeRange = this.resolveGradeRangeForLevel(group.level_id);
+    if (!gradeRange) {
+      this.showError("Could not resolve the grade range for this level. Please use Create instead.");
+      return;
+    }
+
+    const studentTypeIds = [parseInt(group.student_type_id, 10)].filter(
+      (id) => !isNaN(id),
+    );
+
+    API.finance
+      .getFeeStructureBundleGrid({
+        academic_year: academicYear,
+        from_id: gradeRange.from_id,
+        to_id: gradeRange.to_id,
+        student_type_ids: studentTypeIds,
+      })
+      .then((resp) => {
+        const data = resp?.data ?? resp ?? {};
+        this.renderStructureForm({
+          academic_year: academicYear,
+          grade_range: data.grade_range || gradeRange,
+          student_type_ids: studentTypeIds,
+          items: data.items || {},
+        });
+        this.showModal("feeStructureModal");
+      })
+      .catch((error) => {
+        console.error("Failed to load fee structure bundle grid:", error);
+        this.showError(error.message || "Failed to load fee structure for editing");
+      });
   }
+
+  resolveGradeRangeForLevel(levelId) {
+    if (!levelId) return null;
+    const classIds = (this.classes || [])
+      .filter((c) => String(c.level_id) === String(levelId))
+      .map((c) => parseInt(c.id, 10))
+      .filter((id) => !isNaN(id));
+    if (!classIds.length) return null;
+    return {
+      from_id: Math.min(...classIds),
+      to_id: Math.max(...classIds),
+    };
+  }
+
+  getDefaultYear() {
+    const current = this.academicYears.find((y) => y.is_current);
+    return (
+      this.parseAcademicYear(current?.year_code || current?.year || "") ||
+      String(new Date().getFullYear())
+    );
+  }
+
+  termNumber(term) {
+    const n = parseInt(
+      String(term?.term_number ?? term?.code ?? "")
+        .replace("T", "")
+        .replace("t", ""),
+      10,
+    );
+    return isNaN(n) ? null : n;
+  }
+
+  termKey(term) {
+    const n = this.termNumber(term);
+    return n ? `term${n}` : "";
+  }
+
 
   editFromView() {
     if (this.viewingGroup) {
@@ -825,76 +918,70 @@ class FeeStructureAdminController {
     }
   }
 
-  buildTermBreakdown(group) {
-    const breakdown = {};
-    const rows = this.currentStructures.filter(
-      (row) =>
-        row.academic_year === group.academic_year &&
-        row.level_id === group.level_id &&
-        row.student_type_id === group.student_type_id &&
-        row.term_id === group.term_id,
-    );
-
-    rows.forEach((row) => {
-      const feeKey = row.fee_type_code || row.fee_name || row.fee_type_name;
-      if (!feeKey) return;
-      if (!breakdown[feeKey]) {
-        breakdown[feeKey] = {};
-      }
-      const termNumber =
-        row.term_number || row.term || this.termNumberMap[row.term_id] || null;
-      const termKey = termNumber
-        ? `term${termNumber}`
-        : `term${row.term_id}`;
-      breakdown[feeKey][termKey] = parseFloat(row.amount) || 0;
-    });
-
-    return breakdown;
-  }
 
   openCreateModal() {
     this.editingGroup = null;
     this.renderStructureForm();
     this.showModal("feeStructureModal");
   }
-
   renderStructureForm(data = {}) {
     const modalTitle = document.getElementById("modalTitle");
     const modalBody = document.getElementById("modalBody");
     if (!modalBody) return;
 
     const academicYear =
-      data.academic_year ||
-      this.parseAcademicYear(
-        this.academicYears.find((year) => year.is_current)?.year_code,
-      ) ||
-      "";
-    const levelId = data.level_id || "";
-    const studentTypeId = data.student_type_id || "";
-    const termBreakdown = data.term_breakdown || {};
-
+      data.academic_year || this.getDefaultYear();
+    const gradeRange =
+      data.grade_range || {
+        from_id: data.from_id || "",
+        to_id: data.to_id || "",
+      };
+    const studentTypeIds = Array.isArray(data.student_type_ids)
+      ? data.student_type_ids
+          .map((id) => parseInt(id, 10))
+          .filter((id) => !isNaN(id))
+      : [];
+    const items = data.items || {};
     const terms = this.getTermsForYear(academicYear);
     this.currentFormTerms = terms;
 
     if (modalTitle) {
       modalTitle.textContent = this.editingGroup
-        ? "Edit Fee Structure"
-        : "Create Fee Structure";
+        ? "Edit Fee Structure Bundle"
+        : "Create Fee Structure Bundle";
     }
 
-    const termHeaders = terms
-      .map(
-        (term) =>
-          `<th class="text-center">${term.name || `Term ${term.term_number}`}</th>`,
-      )
-      .join("");
+    const rows = [];
+    if (Object.keys(items).length > 0) {
+      Object.keys(items).forEach((code) => {
+        this._uidCounter = (this._uidCounter || 0) + 1;
+        const node = items[code] || {};
+        rows.push({
+          _uid: "row" + this._uidCounter,
+          code,
+          name: node.name || code,
+          values: node.terms || {},
+        });
+      });
+    } else {
+      (this.feeTypes || []).forEach((feeType) => {
+        this._uidCounter = (this._uidCounter || 0) + 1;
+        rows.push({
+          _uid: "row" + this._uidCounter,
+          code: feeType.code || feeType.name,
+          name: feeType.name || feeType.code || feeType.code,
+          values: {},
+        });
+      });
+    }
 
-    const termTotals = terms
-      .map(
-        (term) =>
-          `<th class="text-end" data-term-total="${term.term_number}">KES 0.00</th>`,
-      )
-      .join("");
+    this.formModel = {
+      academic_year: academicYear,
+      from_id: gradeRange.from_id || "",
+      to_id: gradeRange.to_id || "",
+      student_type_ids: studentTypeIds,
+      rows,
+    };
 
     modalBody.innerHTML = `
       <div class="row g-3 mb-3">
@@ -903,42 +990,33 @@ class FeeStructureAdminController {
           <select class="form-select" id="structureAcademicYear"></select>
         </div>
         <div class="col-md-4">
-          <label class="form-label">School Level *</label>
-          <select class="form-select" id="structureLevel"></select>
+          <label class="form-label">From Class (Grade) *</label>
+          <select class="form-select" id="structureFromClass"></select>
         </div>
         <div class="col-md-4">
-          <label class="form-label">Student Type *</label>
-          <select class="form-select" id="structureStudentType"></select>
+          <label class="form-label">To Class (Grade) *</label>
+          <select class="form-select" id="structureToClass"></select>
         </div>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label d-block">Student Types *</label>
+        <div class="d-flex flex-wrap gap-3" id="structureStudentTypes"></div>
       </div>
 
       <div class="table-responsive">
         <table class="table table-bordered align-middle" id="structureItemsTable">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 30%">Fee Type</th>
-              ${termHeaders}
-              <th class="text-end" style="width: 15%">Annual Total</th>
-              <th style="width: 8%"></th>
-            </tr>
-          </thead>
+          <thead class="table-light"></thead>
           <tbody></tbody>
-          <tfoot>
-            <tr class="table-light">
-              <th class="text-end">Totals</th>
-              ${termTotals}
-              <th class="text-end" id="structureGrandTotal">KES 0.00</th>
-              <th></th>
-            </tr>
-          </tfoot>
+          <tfoot></tfoot>
         </table>
       </div>
 
-      <div class="d-flex justify-content-between">
-        <button class="btn btn-sm btn-outline-primary" id="addFeeRowBtn">
-          <i class="bi bi-plus-circle"></i> Add Fee Type
+      <div class="d-flex justify-content-between mt-2">
+        <button class="btn btn-sm btn-outline-primary" id="addFeeRowBtn" type="button">
+          <i class="bi bi-plus-circle"></i> Add Fee Item
         </button>
-        <small class="text-muted">All amounts are in KES</small>
+        <small class="text-muted">All amounts are in KES. Leave a cell blank to exclude it for that term / student type.</small>
       </div>
     `;
 
@@ -946,83 +1024,241 @@ class FeeStructureAdminController {
     const yearSelect = document.getElementById("structureAcademicYear");
     if (yearSelect && academicYear) yearSelect.value = academicYear;
 
-    this.populateLevelSelect("structureLevel");
-    const levelSelect = document.getElementById("structureLevel");
-    if (levelSelect && levelId) levelSelect.value = levelId;
-
-    this.populateStudentTypeSelect("structureStudentType");
-    const studentTypeSelect = document.getElementById("structureStudentType");
-    if (studentTypeSelect && studentTypeId)
-      studentTypeSelect.value = studentTypeId;
-
-    const tbody = modalBody.querySelector("#structureItemsTable tbody");
-    if (tbody) tbody.innerHTML = "";
-
-    const feeKeys = Object.keys(termBreakdown);
-    if (feeKeys.length > 0) {
-      feeKeys.forEach((feeKey) => {
-        this.addFeeItemRow(feeKey, termBreakdown[feeKey]);
-      });
-    } else if (this.feeTypes.length > 0) {
-      this.feeTypes.forEach((feeType) => {
-        this.addFeeItemRow(feeType.code || feeType.name, {});
-      });
-    } else {
-      this.addFeeItemRow("", {});
+    this.populateClassSelect("structureFromClass");
+    this.populateClassSelect("structureToClass");
+    if (document.getElementById("structureFromClass")) {
+      document.getElementById("structureFromClass").value = String(
+        this.formModel.from_id || "",
+      );
+    }
+    if (document.getElementById("structureToClass")) {
+      document.getElementById("structureToClass").value = String(
+        this.formModel.to_id || "",
+      );
     }
 
+    this.renderStudentTypeCheckboxes();
+    this.renderFeeRows();
+
     document.getElementById("addFeeRowBtn")?.addEventListener("click", () => {
-      this.addFeeItemRow("", {});
+      this.addFeeRow();
     });
 
     document
       .getElementById("structureItemsTable")
       ?.addEventListener("input", (event) => {
-        if (event.target.classList.contains("term-amount")) {
-          this.updateFormTotals();
-        }
+        const input = event.target;
+        if (!input.classList.contains("cell-amount")) return;
+        const { row: uid, term, type } = input.dataset;
+        const row = this.formModel.rows.find((r) => r._uid === uid);
+        if (!row) return;
+        if (!row.values[term]) row.values[term] = {};
+        const raw = input.value;
+        row.values[term][type] = raw === "" ? null : parseFloat(raw);
+        this.updateFormTotals();
       });
 
     document
       .getElementById("structureItemsTable")
-      ?.addEventListener("change", (event) => {
-        if (event.target.classList.contains("fee-type-select")) {
-          this.updateFormTotals();
-        }
+      ?.addEventListener("click", (event) => {
+        const btn = event.target.closest(".remove-fee-row");
+        if (!btn) return;
+        this.formModel.rows = this.formModel.rows.filter(
+          (r) => r._uid !== btn.dataset.row,
+        );
+        this.renderFeeRows();
+      });
+
+    yearSelect?.addEventListener("change", () => {
+      this.formModel.academic_year = yearSelect.value;
+      this.currentFormTerms = this.getTermsForYear(yearSelect.value);
+      this.formModel.rows.forEach((row) => {
+        row.values = {};
+      });
+      this.renderFeeRows();
+    });
+
+    document
+      .getElementById("structureFromClass")
+      ?.addEventListener("change", (e) => {
+        this.formModel.from_id = e.target.value;
+      });
+    document
+      .getElementById("structureToClass")
+      ?.addEventListener("change", (e) => {
+        this.formModel.to_id = e.target.value;
       });
 
     this.updateFormTotals();
   }
 
-  populateLevelSelect(elementId) {
+  populateClassSelect(elementId) {
     const select = document.getElementById(elementId);
     if (!select) return;
-    select.innerHTML = '<option value="">Select level</option>';
-    this.levels
+    select.innerHTML = '<option value="">Select class</option>';
+    (this.classes || [])
       .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-      .forEach((level) => {
+      .sort(
+        (a, b) =>
+          String(a.level_name || a.level_id || "").localeCompare(
+            String(b.level_name || b.level_id || ""),
+          ) ||
+          String(a.name || "").localeCompare(String(b.name || "")),
+      )
+      .forEach((c) => {
         const option = document.createElement("option");
-        option.value = level.id;
-        option.textContent = `${level.name} (${level.code})`;
+        option.value = c.id;
+        const level = c.level_name || c.level_code || "";
+        option.textContent = level ? `${c.name} (${level})` : c.name;
         select.appendChild(option);
       });
   }
 
-  populateStudentTypeSelect(elementId) {
-    const select = document.getElementById(elementId);
-    if (!select) return;
-    select.innerHTML = '<option value="">Select type</option>';
-    this.studentTypes
-      .slice()
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-      .forEach((type) => {
-        const option = document.createElement("option");
-        option.value = type.id;
-        option.textContent = `${type.name} (${type.code})`;
-        select.appendChild(option);
-      });
+  studentTypeById(id) {
+    return (this.studentTypes || []).find(
+      (t) => parseInt(t.id, 10) === parseInt(id, 10),
+    );
   }
+
+  renderStudentTypeCheckboxes() {
+    const container = document.getElementById("structureStudentTypes");
+    if (!container) return;
+    container.innerHTML = "";
+    (this.studentTypes || []).forEach((type) => {
+      const id = parseInt(type.id, 10);
+      const checked = (this.formModel?.student_type_ids || []).includes(id);
+      const wrap = document.createElement("div");
+      wrap.className = "form-check form-check-inline";
+      wrap.innerHTML = `
+        <input class="form-check-input bundle-st-type" type="checkbox" value="${id}" ${checked ? "checked" : ""} id="st-${id}">
+        <label class="form-check-label" for="st-${id}">${this._esc(type.name)}${type.code ? ` (${this._esc(type.code)})` : ""}</label>
+      `;
+      container.appendChild(wrap);
+    });
+
+    container.querySelectorAll(".bundle-st-type").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = parseInt(cb.value, 10);
+        const ids = this.formModel.student_type_ids;
+        const idx = ids.indexOf(id);
+        if (cb.checked && idx === -1) ids.push(id);
+        if (!cb.checked && idx !== -1) ids.splice(idx, 1);
+        this.renderFeeRows();
+      });
+    });
+  }
+
+  renderFeeRows() {
+    const tbody = document.querySelector("#structureItemsTable tbody");
+    const tfoot = document.querySelector("#structureItemsTable tfoot");
+    if (!tbody) return;
+    const stIds = this.formModel?.student_type_ids || [];
+    const terms = this.currentFormTerms || [];
+    const stCount = Math.max(stIds.length, 1);
+
+    const thead = document.querySelector("#structureItemsTable thead");
+    if (thead) {
+      const termHeaders = terms
+        .map(
+          (term) =>
+            `<th class="text-center" colspan="${stCount}">${this._esc(term.name || `Term ${term.term_number}`)}</th>`,
+        )
+        .join("");
+      const typeHeaders = terms
+        .map(() => {
+          if (!stIds.length) {
+            return '<th class="text-center fw-normal text-muted">\u2014</th>';
+          }
+          return stIds
+            .map((id) => {
+              const st = this.studentTypeById(id);
+              return `<th class="text-center fw-normal">${st ? this._esc(st.name) : id}</th>`;
+            })
+            .join("");
+        })
+        .join("");
+      thead.innerHTML = `
+        <tr>
+          <th rowspan="2" style="width: 20%">Fee Item</th>
+          ${termHeaders}
+          <th rowspan="2" class="text-end" style="width: 11%">Annual Total</th>
+          <th rowspan="2" style="width: 5%"></th>
+        </tr>
+        <tr>${typeHeaders}</tr>
+      `;
+    }
+
+    tbody.innerHTML = "";
+    this.formModel.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const cells = terms
+        .map((term) => {
+          const termKey = this.termKey(term);
+          return stIds
+            .map((stId) => {
+              const value = row.values?.[termKey]?.[stId];
+              const shown =
+                value === null || value === undefined || value === ""
+                  ? ""
+                  : value;
+              return `<td><input type="number" class="form-control form-control-sm cell-amount text-end" data-row="${this._esc(row._uid)}" data-term="${termKey}" data-type="${stId}" value="${shown}" min="0" step="0.01" /></td>`;
+            })
+            .join("");
+        })
+        .join("");
+
+      tr.innerHTML = `
+        <td>
+          <input type="text" class="form-control form-control-sm fee-item-name" data-row="${this._esc(row._uid)}" value="${this._esc(row.name)}" />
+        </td>
+        ${cells || `<td class="text-center text-muted" colspan="${terms.length * stCount}">Select at least one student type</td>`}
+        <td class="text-end row-total">KES 0.00</td>
+        <td class="text-center">
+          <button class="btn btn-sm btn-outline-danger remove-fee-row" data-row="${this._esc(row._uid)}" type="button"><i class="bi bi-x"></i></button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    if (tfoot) tfoot.innerHTML = this.renderFormTotalsRow(terms, stIds);
+
+    tbody.querySelectorAll(".fee-item-name").forEach((input) => {
+      input.addEventListener("change", () => {
+        const row = this.formModel.rows.find(
+          (r) => r._uid === input.dataset.row,
+        );
+        if (!row) return;
+        const value = input.value.trim();
+        row.name = value;
+        if (!row.code) row.code = value;
+      });
+    });
+
+    this.updateFormTotals();
+  }
+
+  renderFormTotalsRow(terms, stIds) {
+    const cells = terms
+      .map((term) => {
+        const termKey = this.termKey(term);
+        return stIds
+          .map(
+            (stId) =>
+              `<th class="text-end tt-total" data-term="${termKey}" data-type="${stId}">KES 0.00</th>`,
+          )
+          .join("");
+      })
+      .join("");
+    return `
+      <tr class="table-light">
+        <th class="text-end">Totals</th>
+        ${cells || '<th class="text-center">\u2014</th>'}
+        <th class="text-end" id="structureGrandTotal">KES 0.00</th>
+        <th></th>
+      </tr>
+    `;
+  }
+
 
   getTermsForYear(yearValue) {
     const key = this.parseAcademicYear(yearValue);
@@ -1030,7 +1266,7 @@ class FeeStructureAdminController {
     if (terms && terms.length) {
       return terms
         .slice()
-        .sort((a, b) => (a.term_number || a.id) - (b.term_number || b.id));
+        .sort((a, b) => (this.termNumber(a) || 0) - (this.termNumber(b) || 0));
     }
     return [
       { term_number: 1, name: "Term 1" },
@@ -1038,100 +1274,39 @@ class FeeStructureAdminController {
       { term_number: 3, name: "Term 3" },
     ];
   }
-
-  addFeeItemRow(feeKey = "", termAmounts = {}) {
-    const tableBody = document.querySelector("#structureItemsTable tbody");
-    if (!tableBody) return;
-
-    const row = document.createElement("tr");
-    const feeOptions = this.buildFeeTypeOptions(feeKey);
-
-    const termInputs = this.currentFormTerms
-      .map((term) => {
-        const termKey = `term${term.term_number}`;
-        const value = termAmounts?.[termKey] ?? "";
-        return `
-          <td>
-            <input type="number" class="form-control form-control-sm term-amount text-end" data-term="${term.term_number}" value="${value}" min="0" step="0.01" />
-          </td>
-        `;
-      })
-      .join("");
-
-    row.innerHTML = `
-      <td>
-        <select class="form-select form-select-sm fee-type-select">
-          ${feeOptions}
-        </select>
-      </td>
-      ${termInputs}
-      <td class="text-end row-total">KES 0.00</td>
-      <td class="text-center">
-        <button class="btn btn-sm btn-outline-danger remove-fee-row" type="button">
-          <i class="bi bi-x"></i>
-        </button>
-      </td>
-    `;
-
-    row
-      .querySelector(".remove-fee-row")
-      ?.addEventListener("click", () => {
-        row.remove();
-        this.updateFormTotals();
-      });
-
-    tableBody.appendChild(row);
-  }
-
-  buildFeeTypeOptions(selectedKey) {
-    const options = ['<option value="">Select fee type</option>'];
-
-    this.feeTypes.forEach((feeType) => {
-      const value = feeType.code || feeType.name;
-      const label = feeType.code
-        ? `${feeType.code} - ${feeType.name}`
-        : feeType.name;
-      const selected = value === selectedKey ? "selected" : "";
-      options.push(`<option value="${value}" ${selected}>${label}</option>`);
+  addFeeRow() {
+    if (!this.formModel) return;
+    this._uidCounter = (this._uidCounter || 0) + 1;
+    this.formModel.rows.push({
+      _uid: "row" + this._uidCounter,
+      code: "",
+      name: "New fee item",
+      values: {},
     });
-
-    if (
-      selectedKey &&
-      !this.feeTypes.some(
-        (ft) => ft.code === selectedKey || ft.name === selectedKey,
-      )
-    ) {
-      options.push(
-        `<option value="${selectedKey}" selected>${selectedKey}</option>`,
-      );
-    }
-
-    return options.join("");
+    this.renderFeeRows();
   }
 
   updateFormTotals() {
     const rows = document.querySelectorAll("#structureItemsTable tbody tr");
-    const termTotals = {};
+    const typeTotals = {};
     let grandTotal = 0;
 
     rows.forEach((row) => {
       let rowTotal = 0;
-      row.querySelectorAll(".term-amount").forEach((input) => {
-        const termNumber = input.dataset.term;
+      row.querySelectorAll(".cell-amount").forEach((input) => {
         const amount = parseFloat(input.value) || 0;
         rowTotal += amount;
-        termTotals[termNumber] = (termTotals[termNumber] || 0) + amount;
+        const key = `${input.dataset.term}:${input.dataset.type}`;
+        typeTotals[key] = (typeTotals[key] || 0) + amount;
       });
-      row.querySelector(".row-total").textContent =
-        this.formatCurrency(rowTotal);
+      const cell = row.querySelector(".row-total");
+      if (cell) cell.textContent = this.formatCurrency(rowTotal);
       grandTotal += rowTotal;
     });
 
-    Object.entries(termTotals).forEach(([termNumber, total]) => {
-      const cell = document.querySelector(
-        `[data-term-total="${termNumber}"]`,
-      );
-      if (cell) cell.textContent = this.formatCurrency(total);
+    document.querySelectorAll(".tt-total").forEach((th) => {
+      const key = `${th.dataset.term}:${th.dataset.type}`;
+      th.textContent = this.formatCurrency(typeTotals[key] || 0);
     });
 
     const grandTotalCell = document.getElementById("structureGrandTotal");
@@ -1139,68 +1314,84 @@ class FeeStructureAdminController {
       grandTotalCell.textContent = this.formatCurrency(grandTotal);
     }
   }
+  collectBundleData(requireAll = true) {
+    const academicYear = document.getElementById(
+      "structureAcademicYear",
+    )?.value;
+    const fromId = document.getElementById("structureFromClass")?.value;
+    const toId = document.getElementById("structureToClass")?.value;
+    const stIds = this.formModel?.student_type_ids || [];
 
-  collectStructureFormData(requireAll = true) {
-    const academicYear =
-      document.getElementById("structureAcademicYear")?.value;
-    const levelId = document.getElementById("structureLevel")?.value;
-    const studentTypeId =
-      document.getElementById("structureStudentType")?.value;
-
-    if (requireAll && (!academicYear || !levelId || !studentTypeId)) {
-      this.showError("Please select academic year, level, and student type.");
+    if (
+      requireAll &&
+      (!academicYear || !fromId || !toId || stIds.length === 0)
+    ) {
+      this.showError(
+        "Please select academic year, grade range, and at least one student type.",
+      );
       return null;
     }
 
-    const termBreakdown = {};
-    const rows = document.querySelectorAll("#structureItemsTable tbody tr");
+    if (requireAll && parseInt(toId, 10) < parseInt(fromId, 10)) {
+      this.showError("To Class cannot come before From Class.");
+      return null;
+    }
 
-    rows.forEach((row) => {
-      const feeTypeKey = row.querySelector(".fee-type-select")?.value;
-      if (!feeTypeKey) return;
-
-      termBreakdown[feeTypeKey] = {};
-      row.querySelectorAll(".term-amount").forEach((input) => {
-        const termNumber = input.dataset.term;
-        const amount = parseFloat(input.value) || 0;
-        termBreakdown[feeTypeKey][`term${termNumber}`] = amount;
+    const items = {};
+    (this.formModel?.rows || []).forEach((row) => {
+      const code = String(row.code || "").trim();
+      if (!code) return;
+      items[code] = {};
+      this.currentFormTerms.forEach((term) => {
+        const termKey = this.termKey(term);
+        items[code][termKey] = {};
+        stIds.forEach((stId) => {
+          const raw = row.values?.[termKey]?.[stId];
+          const parsed = parseFloat(raw);
+          items[code][termKey][stId] =
+            raw === null || raw === undefined || raw === "" || isNaN(parsed)
+              ? null
+              : parsed;
+        });
       });
     });
 
-    if (requireAll && Object.keys(termBreakdown).length === 0) {
+    if (requireAll && Object.keys(items).length === 0) {
       this.showError("Please add at least one fee item.");
       return null;
     }
 
     return {
       academic_year: this.parseAcademicYear(academicYear),
-      level_id: parseInt(levelId, 10),
-      student_type_id: parseInt(studentTypeId, 10),
-      term_breakdown: termBreakdown,
+      grade_range: {
+        from_id: parseInt(fromId, 10),
+        to_id: parseInt(toId, 10),
+      },
+      student_type_ids: stIds,
+      items,
     };
   }
-
   async saveFeeStructure() {
-    const payload = this.collectStructureFormData(true);
+    const payload = this.collectBundleData(true);
     if (!payload) return;
 
     try {
-      if (this.editingGroup) {
-        await API.finance.updateAnnualStructure(payload);
-        this.showSuccess("Fee structure updated successfully");
-      } else {
-        payload.created_by = this.getCurrentUserId();
-        await API.finance.createAnnualStructure(payload);
-        this.showSuccess("Fee structure created successfully");
-      }
-
+      payload.created_by = this.getCurrentUserId();
+      const resp = await API.finance.createFeeStructureBundle(payload);
+      const d = resp?.data ?? resp ?? {};
+      const msg =
+        d.message || resp?.message || "Fee structure bundle saved successfully";
+      this.showSuccess(
+        `${msg}\nRows created: ${d.total_rows_created ?? "-"} | Archived: ${d.total_rows_archived ?? 0} | Classes: ${d.class_count ?? "-"}`,
+      );
       this.closeModal("feeStructureModal");
       this.loadFeeStructures(this.currentPage);
     } catch (error) {
-      console.error("Failed to save fee structure:", error);
-      this.showError(error.message || "Failed to save fee structure");
+      console.error("Failed to save fee structure bundle:", error);
+      this.showError(error.message || "Failed to save fee structure bundle");
     }
   }
+
 
   reviewStructure(groupKey) {
     const group = this.currentAggregated.find((g) => g.group_key === groupKey);
@@ -1416,7 +1607,7 @@ class FeeStructureAdminController {
   }
 
   showDuplicateModal() {
-    const filterYear = document.getElementById("academicYearFilter")?.value;
+    const filterYear = document.getElementById("adminMatrixAcademicYearFilter")?.value;
     if (filterYear) {
       this.duplicateSourceYear = filterYear;
     }
@@ -1428,13 +1619,9 @@ class FeeStructureAdminController {
   }
 
   clearFilters() {
-    document.getElementById("academicYearFilter").value = "";
-    document.getElementById("schoolLevelFilter").value = "";
-    document.getElementById("studentTypeFilter").value = "";
-    document.getElementById("termFilter").value = "";
-    document.getElementById("statusFilter").value = "";
-    document.getElementById("searchFeeStructure").value = "";
-    this.loadFeeStructures(1);
+    const year = document.getElementById("adminMatrixAcademicYearFilter");
+    if (year) year.value = this.parseAcademicYear(this.academicYears.find(y => y.is_current)?.year_code || this.academicYears[0]?.year_code || '');
+    this.loadCanonicalMatrix();
   }
 
   formatCurrency(amount) {
@@ -1486,13 +1673,15 @@ class FeeStructureAdminController {
     }
   }
 
-  showSuccess(message) {
-    alert(message);
+  async showSuccess(message) {
+    await window.infoDialog('Notice', message);
   }
 
-  showError(message) {
-    alert("Error: " + message);
+  async showError(message) {
+    await window.infoDialog('Notice', "Error: " + message);
   }
+
+  _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
   debounce(func, wait) {
     let timeout;
@@ -1511,68 +1700,273 @@ class FeeStructureAdminController {
   // ============================================================
 
   async loadPendingApprovals() {
+    this.loadPendingExtraCharges();
     const tbody = document.getElementById('pendingApprovalsBody');
-    const badge = document.getElementById('pendingApprovalsBadge');
+    const badge = document.getElementById('pendingApprovalBadge');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></td></tr>';
     try {
-      const resp = await window.API.apiCall('/finance/fees-bundle-list?status=submitted', 'GET');
-      const bundles = resp?.data?.bundles || resp?.data || [];
-      if (badge) badge.textContent = bundles.length;
-      if (!bundles.length) {
+      let resp = await window.API.apiCall('/finance/fees-bundle-list?status=submitted&limit=200', 'GET');
+      let bundles = resp?.data?.bundles || resp?.bundles || resp?.data || [];
+      if (!Array.isArray(bundles) || !bundles.length) {
+        resp = await window.API.apiCall('/finance/fees-bundle-list?limit=200', 'GET');
+        const allBundles = resp?.data?.bundles || resp?.bundles || resp?.data || [];
+        bundles = Array.isArray(allBundles)
+          ? allBundles.filter(bundle => String(bundle.status || '').toLowerCase() === 'submitted')
+          : [];
+      }
+      const grouped = Object.values(bundles.reduce((groups, bundle) => {
+        const key = String(bundle.academic_year || bundle.academic_year_id || '');
+        if (!groups[key]) groups[key] = { key, academic_year: bundle.academic_year, ids: [], terms: new Set(), types: new Set(), classes: 0, submitted_by_name: bundle.submitted_by_name, status: bundle.status || 'submitted' };
+        const group = groups[key];
+        group.ids.push(Number(bundle.id));
+        group.terms.add(bundle.term_name || `Term ${bundle.term_id}`);
+        group.types.add(bundle.student_type_name || bundle.student_type_id);
+        group.classes = Math.max(group.classes, Number(bundle.class_count || 0));
+        return groups;
+      }, {})).map(group => ({ ...group, terms: [...group.terms], types: [...group.types] }));
+      this.pendingApprovalBundles = grouped;
+      if (badge) badge.textContent = `${grouped.length} pending`;
+      if (!grouped.length) {
         tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No bundles pending approval</td></tr>';
         return;
       }
-      tbody.innerHTML = bundles.map(b => `
+      tbody.innerHTML = grouped.map(b => `
         <tr>
-          <td>${b.level_name || b.level_id}</td>
           <td>${b.academic_year}</td>
-          <td>${b.term_name || b.term_id}</td>
-          <td>${b.student_type_name || b.student_type_id}</td>
-          <td class="text-end fw-bold">KES ${Number(b.total_amount || 0).toLocaleString()}</td>
+          <td>${this._esc(b.terms.join(', '))}</td>
+          <td>${this._esc(b.types.join(', '))}</td>
+          <td>${b.classes ? `${b.classes} classes` : 'All configured classes'}</td>
           <td>${b.submitted_by_name || '—'}</td>
-          <td>${b.submitted_at ? b.submitted_at.substring(0,10) : '—'}</td>
+          <td><span class="badge text-bg-warning">${b.status || 'submitted'}</span></td>
           <td>
-            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle(${b.id})">
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.viewBundleMatrix('${this._esc(b.key)}')">
+              <i class="bi bi-eye"></i> View matrix
+            </button>
+            <button class="btn btn-sm btn-outline-primary me-1" onclick="window.adminController && window.adminController.reviewBundle('${this._esc(b.key)}')">
+              <i class="bi bi-search"></i> Review
+            </button>
+            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle('${this._esc(b.key)}')">
               <i class="bi bi-check-lg"></i> Approve
             </button>
-            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle(${b.id})">
+            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle('${this._esc(b.key)}')">
               <i class="bi bi-x-lg"></i> Reject
             </button>
           </td>
         </tr>`).join('');
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${e.message || ''}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${this._esc(e.message || '')}</td></tr>`;
+    }
+  }
+
+  // ============================================================
+  // EXTRA CHARGE APPROVAL WORKFLOW (submitted → active)
+  // ============================================================
+
+  canApproveStructures() {
+    const ctx = window.AuthContext;
+    if (!ctx || typeof ctx.hasRole !== 'function') return false;
+    return ctx.hasRole('director')
+      || ctx.hasRole('school administrator')
+      || ctx.hasRole('school admin')
+      || ctx.hasRole('system administrator');
+  }
+
+  _chargeAmountHtml(c) {
+    const tiers = Array.isArray(c.pricing_tiers) ? c.pricing_tiers : [];
+    if (tiers.length) {
+      return tiers.map(t => `<div><small>${this._esc(t.label || 'Tier')}: ${Number(t.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 })}</small></div>`).join('');
+    }
+    let html = Number(c.amount).toLocaleString('en-KE', { minimumFractionDigits: 0 });
+    if (c.calculation_mode === 'per_unit' && c.unit_label) html += ` <small class="text-muted">/ ${this._esc(c.unit_label)}</small>`;
+    return html;
+  }
+
+  _billingLabel(c) {
+    const models = { added_to_fees: 'Added to Fees', paid_separately: 'Paid Separately', optional: 'Optional' };
+    return models[c.billing_model] || c.billing_model || '—';
+  }
+
+  _frequencyLabel(c) {
+    const freqs = { one_time: 'One Time', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', per_term: 'Per Term', per_year: 'Per Year' };
+    return freqs[c.billing_frequency] || c.billing_frequency || '—';
+  }
+
+  _targetLabel(c) {
+    const targets = { new_admissions: 'New Admissions', existing_students: 'Existing Students', all_students: 'All Students', boarders: 'Boarders', day_students: 'Day Students', specific_class: 'Specific Class' };
+    let label = targets[c.target_scope] || c.target_scope || '—';
+    if (c.target_scope === 'specific_class' && c.class_name) label += ` (${c.class_name})`;
+    return label;
+  }
+
+  _resolveYearId(yearCode) {
+    const want = String(yearCode || '');
+    if (!want) return 0;
+    const year = (this.academicYears || []).find(item => this.parseAcademicYear(item.year_code || item.year_name || item.year || item.id) === want);
+    return year ? Number(year.id) : 0;
+  }
+
+  async loadPendingExtraCharges() {
+    const tbody = document.getElementById('pendingExtraChargesBody');
+    const badge = document.getElementById('pendingExtraChargesBadge');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></td></tr>';
+    try {
+      const resp = await window.API.apiCall('/finance/extra-charges?status=submitted', 'GET');
+      const charges = resp?.charges || resp?.data?.charges || [];
+      this.pendingExtraCharges = Array.isArray(charges) ? charges : [];
+      if (badge) badge.textContent = `${this.pendingExtraCharges.length} pending`;
+      if (!this.pendingExtraCharges.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No extra charges pending approval</td></tr>';
+        return;
+      }
+      const canApprove = this.canApproveStructures();
+      tbody.innerHTML = this.pendingExtraCharges.map(c => `
+        <tr>
+          <td><strong>${this._esc(c.name)}</strong>${c.description ? `<br><small class="text-muted">${this._esc(c.description)}</small>` : ''}${c.gl_account_name ? `<br><small class="text-muted"><i class="bi bi-bank"></i> ${this._esc(c.gl_account_name)}</small>` : ''}</td>
+          <td>${this._chargeAmountHtml(c)}</td>
+          <td>${this._esc(this._billingLabel(c))}</td>
+          <td>${this._esc(this._targetLabel(c))}</td>
+          <td>${this._esc(c.created_by_name || '—')}</td>
+          <td><span class="badge text-bg-warning">${this._esc(c.status || 'submitted')}</span></td>
+          <td class="text-end">
+            ${canApprove ? `
+            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveExtraChargeRow(${Number(c.id)})">
+              <i class="bi bi-check-lg"></i> Approve
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectExtraChargeRow(${Number(c.id)})">
+              <i class="bi bi-x-lg"></i> Reject
+            </button>` : '<span class="text-muted small">Awaiting Director / School Administrator</span>'}
+          </td>
+        </tr>`).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${this._esc(e.message || '')}</td></tr>`;
+    }
+  }
+
+  async approveExtraChargeRow(id) {
+    if (!(await window.confirmAction('Confirm', 'Approve this extra charge? It becomes part of the active fee structure.'))) return;
+    const notes = await window.promptAction('Input', 'Approval notes (optional):') || '';
+    try {
+      await window.API.apiCall(`/finance/extra-charges/approve/${id}`, 'POST', { notes });
+      await window.infoDialog('Notice', 'Extra charge approved. It is now listed under Active Fee Structure.');
+      this.loadPendingExtraCharges();
+      this.loadCanonicalMatrix();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Approval failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
+  async rejectExtraChargeRow(id) {
+    const reason = await window.promptAction('Input', 'Rejection reason (required):');
+    if (!reason || !String(reason).trim()) return;
+    try {
+      await window.API.apiCall(`/finance/extra-charges/reject/${id}`, 'POST', { notes: String(reason).trim() });
+      await window.infoDialog('Notice', 'Extra charge rejected and returned to draft.');
+      this.loadPendingExtraCharges();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Reject failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
+  async renderActiveExtraCharges(container, yearCode) {
+    try {
+      const yearId = this._resolveYearId(yearCode);
+      const query = yearId ? `?academic_year=${yearId}&status=active` : '?status=active';
+      const resp = await window.API.apiCall(`/finance/extra-charges${query}`, 'GET');
+      const charges = resp?.charges || resp?.data?.charges || [];
+      if (!Array.isArray(charges) || !charges.length) return;
+      const section = document.createElement('div');
+      section.className = 'mt-4 pt-3 border-top';
+      section.innerHTML = `
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h6 class="mb-0"><i class="bi bi-plus-circle me-1"></i>Extra Charges</h6>
+          <span class="badge rounded-pill text-bg-secondary">${charges.length} approved</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="table-light"><tr>
+              <th>Charge</th><th>Amount</th><th>Billing</th><th>Frequency</th><th>Target</th><th>Status</th>
+            </tr></thead>
+            <tbody>
+              ${charges.map(c => `
+                <tr>
+                  <td><strong>${this._esc(c.name)}</strong>${c.description ? `<br><small class="text-muted">${this._esc(c.description)}</small>` : ''}</td>
+                  <td>${this._chargeAmountHtml(c)}</td>
+                  <td>${this._esc(this._billingLabel(c))}</td>
+                  <td>${this._esc(this._frequencyLabel(c))}</td>
+                  <td>${this._esc(this._targetLabel(c))}</td>
+                  <td><span class="badge text-bg-success">Active</span></td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+      container.appendChild(section);
+    } catch (e) {
+      console.error('Failed to load active extra charges:', e);
+    }
+  }
+
+  async viewBundleMatrix(id) {
+    const bundle = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(id));
+    const body = document.getElementById('adminFeeMatrixBody');
+    if (!bundle || !body || !window.FeeStructureMatrix) return;
+    document.getElementById('adminFeeMatrixMeta').textContent = `${bundle.academic_year || ''} · ${bundle.terms.join(', ')} · ${bundle.types.join(', ')}`;
+    body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm"></div> Loading…</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('adminFeeMatrixModal')).show();
+    try {
+      const model = await window.FeeStructureMatrix.load(bundle.academic_year);
+      window.FeeStructureMatrix.render(body, model);
+    } catch (e) {
+      body.innerHTML = `<div class="alert alert-danger">${this._esc(e.message || 'Failed to load matrix')}</div>`;
+    }
+  }
+
+  async reviewBundle(approvalId) {
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
+    const notes = await window.promptAction('Review feedback', 'Enter review feedback or observations:');
+    if (notes === null || notes === undefined || !String(notes).trim()) return;
+    try {
+      for (const id of group.ids) await window.API.apiCall(`/finance/fees-bundle-review/${id}`, 'POST', { action: 'approve', notes: String(notes).trim() });
+      await window.infoDialog('Notice', 'Review recorded. The structure remains pending final approval.');
+      this.loadPendingApprovals();
+    } catch (e) {
+      await window.infoDialog('Notice', 'Review failed: ' + (e.message || 'Unknown error'));
     }
   }
 
   async approveBundle(approvalId) {
-    if (!confirm('Approve this fee structure bundle? This will immediately generate fee obligations for all affected students.')) return;
-    const notes = prompt('Approval notes (optional):') || '';
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
+    if (!(await window.confirmAction('Confirm', 'Approve this fee structure bundle? This will immediately generate fee obligations for all affected students.'))) return;
+    const notes = await window.promptAction('Input', 'Approval notes (optional):') || '';
     try {
-      const resp = await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
-        action: 'approve', notes
-      });
-      const d = resp?.data || {};
-      alert(`Bundle approved successfully.\nStudents billed: ${d.students_processed || 0}\nObligations created: ${d.obligations_created || 0}`);
+      let students = 0, obligations = 0;
+      for (const id of group.ids) {
+        const resp = await window.API.apiCall(`/finance/fees-bundle-approve/${id}`, 'POST', { action: 'approve', notes });
+        const d = resp?.data || {};
+        students += Number(d.students_processed || 0); obligations += Number(d.obligations_created || 0);
+      }
+      await window.infoDialog('Notice', `Fee structure approved successfully.\nStudents billed: ${students}\nObligations created: ${obligations}`);
       this.loadPendingApprovals();
       if (typeof this.loadFeeStructures === 'function') this.loadFeeStructures();
     } catch (e) {
-      alert('Approval failed: ' + (e.message || 'Unknown error'));
+      await window.infoDialog('Notice', 'Approval failed: ' + (e.message || 'Unknown error'));
     }
   }
 
   async rejectBundle(approvalId) {
-    const reason = prompt('Rejection reason (required):');
+    const group = (this.pendingApprovalBundles || []).find(item => String(item.key) === String(approvalId));
+    if (!group) return;
+    const reason = await window.promptAction('Input', 'Rejection reason (required):');
     if (!reason) return;
     try {
-      await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
-        action: 'reject', notes: reason
-      });
-      alert('Bundle rejected. Accountant can revise and resubmit.');
+      for (const id of group.ids) await window.API.apiCall(`/finance/fees-bundle-approve/${id}`, 'POST', { action: 'reject', notes: reason });
+      await window.infoDialog('Notice', 'Bundle rejected. Accountant can revise and resubmit.');
       this.loadPendingApprovals();
     } catch (e) {
-      alert('Reject failed: ' + (e.message || 'Unknown error'));
+      await window.infoDialog('Notice', 'Reject failed: ' + (e.message || 'Unknown error'));
     }
   }
 }
@@ -1580,10 +1974,10 @@ class FeeStructureAdminController {
 // Expose for inline onclick handlers
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    FeeStructureAdminController.init();
+    FeeStructureAdminController.init().catch(() => {});
     window.adminController = FeeStructureAdminController;
   });
 } else {
-  FeeStructureAdminController.init();
+  FeeStructureAdminController.init().catch(() => {});
   window.adminController = FeeStructureAdminController;
 }

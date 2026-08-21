@@ -15,6 +15,8 @@ use RuntimeException;
 
 define('DEBUG', false);
 
+define('APP_BASE_PATH', __DIR__ . '/..');
+
 /*
 |--------------------------------------------------------------------------
 | Application URL and storage root
@@ -26,7 +28,7 @@ define(
     rtrim(
         (string) (
             $_ENV['BASE_URL']
-            ?? 'https://www.kingswaypreparatoryschool.sc.ke'
+            ?? 'https://kingswaypreparatoryschool.sc.ke'
         ),
         '/'
     )
@@ -60,9 +62,6 @@ define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
 
-define('CURRENT_YEAR', date('Y'));
-define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
-
 /*
 |--------------------------------------------------------------------------
 | Database
@@ -73,7 +72,31 @@ define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
 define('DB_USER', $_ENV['DB_USER'] ?? 'kingswa4_root');
 define('DB_NAME', $_ENV['DB_NAME'] ?? 'kingswa4_kingswayacademy');
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
+// WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? '');
+
+try {
+    $_db = new \PDO(
+        'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=utf8mb4',
+        DB_USER,
+        DB_PASS,
+        [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]
+    );
+    $_row = $_db->query("SELECT id FROM academic_years WHERE is_current = 1 ORDER BY id DESC LIMIT 1")->fetch();
+    define('CURRENT_YEAR', $_row ? (int) $_row['id'] : (int) date('Y'));
+    $_row2 = $_db->query(
+        "SELECT ayt.id
+           FROM academic_year_terms ayt
+           JOIN academic_years ay ON ay.id = ayt.academic_year_id
+          WHERE ay.is_current = 1 AND ayt.status = 'current'
+          LIMIT 1"
+    )->fetch();
+    define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    $_db = null;
+} catch (\Exception $_e) {
+    define('CURRENT_YEAR', (int) date('Y'));
+    define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -81,11 +104,18 @@ define('DB_PASS', $_ENV['DB_PASS'] ?? '');
 |--------------------------------------------------------------------------
 */
 
+// WARNING: Default secret is insecure. Must be overridden in .env for any non-development environment.
 $jwtSecret = trim((string) ($_ENV['JWT_SECRET'] ?? ''));
 
 if ($jwtSecret === '') {
     throw new RuntimeException(
         'JWT_SECRET must be configured in production.'
+    );
+}
+
+if (strlen($jwtSecret) < 64) {
+    throw new RuntimeException(
+        'JWT_SECRET must be at least 64 characters in production. Generate with: openssl rand -hex 32'
     );
 }
 
@@ -104,6 +134,46 @@ define(
 define(
     'JWT_AUDIENCE',
     $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
+);
+define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? '');
+define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'kingswaypreparatoryschool.sc.ke');
+if (strlen((string) TFA_ENCRYPTION_KEY) < 64) {
+    throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a 64-character hex key in production.');
+}
+
+
+$authIdleTimeoutSeconds = max(
+    300,
+    (int) ($_ENV['AUTH_IDLE_TIMEOUT_SECONDS'] ?? 1800)
+);
+
+define(
+    'AUTH_IDLE_TIMEOUT_SECONDS',
+    $authIdleTimeoutSeconds
+);
+
+$authRefreshWindowSeconds = max(
+    60,
+    min(
+        max(60, JWT_EXPIRY - 60),
+        (int) ($_ENV['AUTH_REFRESH_WINDOW_SECONDS'] ?? 600)
+    )
+);
+
+define(
+    'AUTH_REFRESH_WINDOW_SECONDS',
+    $authRefreshWindowSeconds
+);
+
+define(
+    'AUTH_SESSION_MONITOR_INTERVAL_SECONDS',
+    max(
+        15,
+        (int) (
+            $_ENV['AUTH_SESSION_MONITOR_INTERVAL_SECONDS']
+            ?? 30
+        )
+    )
 );
 
 /*
@@ -175,6 +245,15 @@ define(
     $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690'
 );
 
+define('SMS_WHATSAPP_API_URL', $_ENV['SMS_WHATSAPP_API_URL'] ?? 'https://chat.africastalking.com');
+define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? '');
+define('AFRICASTALKING_WEBHOOK_TOKEN', $_ENV['AFRICASTALKING_WEBHOOK_TOKEN'] ?? '');
+define('WHATSAPP_2FA_TEMPLATE_ID', $_ENV['WHATSAPP_2FA_TEMPLATE_ID'] ?? '');
+define('COMMUNICATION_WORKER_SECRET', $_ENV['COMMUNICATION_WORKER_SECRET'] ?? '');
+define('TWILIO_ACCOUNT_SID', $_ENV['TWILIO_ACCOUNT_SID'] ?? '');
+define('TWILIO_AUTH_TOKEN', $_ENV['TWILIO_AUTH_TOKEN'] ?? '');
+define('TWILIO_FROM', $_ENV['TWILIO_FROM'] ?? '');
+
 /*
 |--------------------------------------------------------------------------
 | M-Pesa
@@ -191,6 +270,18 @@ define(
     MPESA_ENVIRONMENT === 'production'
         ? 'https://api.safaricom.co.ke'
         : 'https://sandbox.safaricom.co.ke'
+);
+
+// Callback URLs handed to Safaricom must be publicly reachable HTTPS and are
+// resolved independently of the local BASE_URL (localhost cannot be reached
+// by Safaricom even in sandbox). Set MPESA_CALLBACK_BASE_URL per environment;
+// falls back to BASE_URL for simple single-host production setups.
+define(
+    'MPESA_CALLBACK_BASE_URL',
+    rtrim(
+        (string) ($_ENV['MPESA_CALLBACK_BASE_URL'] ?? BASE_URL),
+        '/'
+    )
 );
 
 define(
@@ -242,7 +333,19 @@ define(
 define(
     'KCB_BASE_URL',
     $_ENV['KCB_BASE_URL']
-        ?? 'https://uat.buni.kcbgroup.com'
+        ?? 'https://api.buni.kcbgroup.com'
+);
+
+define(
+    'KCB_TOKEN_ENDPOINT',
+    $_ENV['KCB_TOKEN_ENDPOINT']
+        ?? ($_ENV['TOKEN_ENDPOINT'] ?? 'https://accounts.buni.kcbgroup.com/oauth2/token')
+);
+
+define(
+    'KCB_REVOKE_ENDPOINT',
+    $_ENV['KCB_REVOKE_ENDPOINT']
+        ?? ($_ENV['REVOKE_ENDPOINT'] ?? 'https://accounts.buni.kcbgroup.com/oauth2/revoke')
 );
 
 define(
@@ -271,10 +374,35 @@ define(
 );
 
 define(
+    'KCB_DEBIT_ACCOUNT',
+    $_ENV['KCB_DEBIT_ACCOUNT'] ?? ''
+);
+
+define(
+    'KCB_COLLECTION_ACCOUNT_IDENTIFIER',
+    $_ENV['KCB_COLLECTION_ACCOUNT_IDENTIFIER'] ?? ''
+);
+
+define(
+    'KCB_CALLBACK_BASE_URL',
+    $_ENV['KCB_CALLBACK_BASE_URL'] ?? (defined('BASE_URL') ? BASE_URL : '')
+);
+
+define('KCB_FUNDS_TRANSFER_PATH', $_ENV['KCB_FUNDS_TRANSFER_PATH'] ?? '/fundstransfer/1.0.0/api/v1/transfer');
+define('KCB_COMPANY_CODE', $_ENV['KCB_COMPANY_CODE'] ?? '');
+define('KCB_FUNDS_TRANSFER_TRANSACTION_TYPE', $_ENV['KCB_FUNDS_TRANSFER_TRANSACTION_TYPE'] ?? 'IF');
+define('KCB_IPN_PATH', $_ENV['KCB_IPN_PATH'] ?? '/ipn/1.0.0');
+define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/request/1.0.0');
+define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
+define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
+define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+
+define(
     'KCB_PUBLIC_KEY_PATH',
     $_ENV['KCB_PUBLIC_KEY_PATH']
         ?? __DIR__ . '/kcb_public_key.pem'
 );
+define('KCB_VERIFY_CALLBACK_SIGNATURE', filter_var($_ENV['KCB_VERIFY_CALLBACK_SIGNATURE'] ?? '1', FILTER_VALIDATE_BOOLEAN));
 
 /*
 |--------------------------------------------------------------------------

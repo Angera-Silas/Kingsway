@@ -15,18 +15,18 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h4 class="mb-0"><i class="fas fa-calendar-check"></i> View Attendance</h4>
+            <h4 class="mb-0"><i class="bi bi-calendar-check"></i> View Attendance</h4>
             <div class="btn-group">
-                <a href="<?= $appBase ?>/home.php?route=mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink">
+                <a href="<?= $appBase ?>/home.php?route=mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink" data-permission="attendance_create">
                     <i class="bi bi-check2-square"></i> Mark Attendance
                 </a>
-                <a href="<?= $appBase ?>/home.php?route=boarding_roll_call" class="btn btn-outline-light btn-sm" id="boardingRollCallLink">
+                <a href="<?= $appBase ?>/home.php?route=boarding_roll_call" class="btn btn-outline-light btn-sm" id="boardingRollCallLink" data-permission="boarding_edit">
                     <i class="bi bi-house-door"></i> Boarding Roll Call
                 </a>
-                <button class="btn btn-outline-light btn-sm" id="exportBtn">
+                <button class="btn btn-outline-light btn-sm" id="exportBtn" data-permission="attendance_export">
                     <i class="bi bi-download"></i> Export
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="printBtn">
+                <button class="btn btn-outline-light btn-sm" id="printBtn" data-permission="attendance_print">
                     <i class="bi bi-printer"></i> Print
                 </button>
             </div>
@@ -165,16 +165,16 @@
                     <table class="table table-hover" id="summaryTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Admission No</th>
-                                <th>Student Name</th>
-                                <th>Type</th>
-                                <th>Total Days</th>
-                                <th>Present</th>
-                                <th>Absent</th>
-                                <th>Late</th>
-                                <th>Permission</th>
-                                <th>Attendance %</th>
-                                <th>Actions</th>
+                                <th scope="col">Admission No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Total Days</th>
+                                <th scope="col">Present</th>
+                                <th scope="col">Absent</th>
+                                <th scope="col">Late</th>
+                                <th scope="col">Permission</th>
+                                <th scope="col">Attendance %</th>
+                                <th scope="col">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -206,13 +206,13 @@
                     <table class="table table-bordered" id="dailyTable">
                         <thead class="table-light">
                             <tr>
-                                <th>Admission No</th>
-                                <th>Student Name</th>
-                                <th>Type</th>
-                                <th>Session</th>
-                                <th>Status</th>
-                                <th>Time</th>
-                                <th>Remarks</th>
+                                <th scope="col">Admission No</th>
+                                <th scope="col">Student Name</th>
+                                <th scope="col">Type</th>
+                                <th scope="col">Session</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Time</th>
+                                <th scope="col">Remarks</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -252,14 +252,14 @@
                         <table class="table table-hover" id="permissionsTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th>Student</th>
-                                    <th>Class</th>
-                                    <th>Permission Type</th>
-                                    <th>Start Date</th>
-                                    <th>End Date</th>
-                                    <th>Reason</th>
-                                    <th>Approved By</th>
-                                    <th>Status</th>
+                                    <th scope="col">Student</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Permission Type</th>
+                                    <th scope="col">Start Date</th>
+                                    <th scope="col">End Date</th>
+                                    <th scope="col">Reason</th>
+                                    <th scope="col">Approved By</th>
+                                    <th scope="col">Status</th>
                                 </tr>
                             </thead>
                             <tbody id="permissionsTableBody">
@@ -299,10 +299,10 @@
                                     <table class="table table-sm">
                                         <thead>
                                             <tr>
-                                                <th>Student</th>
-                                                <th>Attendance %</th>
-                                                <th>Days Absent</th>
-                                                <th>Last Absent</th>
+                                                <th scope="col">Student</th>
+                                                <th scope="col">Attendance %</th>
+                                                <th scope="col">Days Absent</th>
+                                                <th scope="col">Last Absent</th>
                                             </tr>
                                         </thead>
                                         <tbody id="lowAttendanceBody">
@@ -363,10 +363,10 @@
                     <table class="table table-sm table-bordered">
                         <thead class="table-light">
                             <tr>
-                                <th>Date</th>
-                                <th>Status</th>
-                                <th>Time</th>
-                                <th>Remarks</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Time</th>
+                                <th scope="col">Remarks</th>
                             </tr>
                         </thead>
                         <tbody id="modalAttendanceBody">

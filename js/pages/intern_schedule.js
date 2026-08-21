@@ -41,7 +41,11 @@ const internScheduleController = (() => {
     if (weekLabel) weekLabel.textContent = getWeekLabel(currentWeek);
 
     try {
-      const r = await callAPI(`/schedules/timetable?user=self&week=${currentWeek}`, 'GET');
+      const params = new URLSearchParams();
+      if (currentAcademicYear) params.set('academic_year_id', currentAcademicYear);
+      if (currentTerm) params.set('academic_year_term_id', currentTerm);
+      const qs = params.toString();
+      const r = await callAPI(`/schedules/timetable-get${qs ? '?' + qs : ''}`, 'GET');
       const data = r?.data || r || {};
       const periods = Array.isArray(data.periods) ? data.periods : [];
       const slots = Array.isArray(data.slots) ? data.slots : (Array.isArray(data) ? data : []);
@@ -66,7 +70,7 @@ const internScheduleController = (() => {
 
   function buildPeriods(slots) {
     const map = {};
-    slots.forEach(s => { if (s.period) map[s.period] = s.start_time || ''; });
+    slots.forEach(s => { const p = s.period_number || s.period; if (p) map[p] = s.start_time || ''; });
     return Object.entries(map).map(([p, t]) => ({ name: p, time: t }));
   }
 
@@ -77,7 +81,7 @@ const internScheduleController = (() => {
     // Build lookup: period -> day -> slot
     const grid = {};
     slots.forEach(s => {
-      const p = s.period || s.period_name || '';
+      const p = s.period_number || s.period || s.period_name || '';
       const d = (s.day || s.day_name || '').charAt(0).toUpperCase() + (s.day || s.day_name || '').slice(1).toLowerCase();
       if (!grid[p]) grid[p] = {};
       grid[p][d] = s;
@@ -85,7 +89,7 @@ const internScheduleController = (() => {
 
     const periodNames = periods.length
       ? periods.map(p => typeof p === 'string' ? p : (p.name || p.period || String(p)))
-      : Object.keys(grid);
+      : Object.keys(grid).sort((a, b) => a - b);
 
     tbody.innerHTML = periodNames.map(period => {
       const periodObj = periods.find(p => (typeof p === 'string' ? p : (p.name || p.period)) === period) || {};
@@ -93,9 +97,9 @@ const internScheduleController = (() => {
       const cells = DAYS.map(day => {
         const s = (grid[period] || {})[day];
         if (!s) return '<td class="text-center text-muted small">—</td>';
-        const subj = s.subject || s.subject_name || s.learning_area || '';
-        const cls = s.class_name || s.grade || s.stream || '';
-        const room = s.room || s.venue || '';
+        const subj = s.subject_name || s.learning_area_name || s.subject || s.learning_area || '';
+        const cls = s.class_name || s.grade || s.stream || '' + (s.stream_name ? ' ' + s.stream_name : '');
+        const room = s.room_name || s.room || s.venue || '';
         return `<td>
           <div class="fw-semibold small">${subj}</div>
           <div class="text-muted" style="font-size:.75rem;">${cls}${room ? ' · ' + room : ''}</div>
@@ -110,7 +114,7 @@ const internScheduleController = (() => {
 
   function computeStats(slots) {
     const classes = new Set(slots.map(s => s.class_name || s.grade || '').filter(Boolean));
-    const subjects = new Set(slots.map(s => s.subject || s.subject_name || '').filter(Boolean));
+    const subjects = new Set(slots.map(s => s.subject_name || s.learning_area_name || s.subject || '').filter(Boolean));
     setStats(slots.length, classes.size, subjects.size);
   }
 
@@ -152,7 +156,6 @@ const internScheduleController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in intern_schedule:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload schedule when academic year or term changes
           loadSchedule();

@@ -16,6 +16,82 @@ class TransportAPI extends BaseAPI
         return $this->paymentManager->verifyStudent($admissionNo, $phone);
     }
 
+    // Summary counts for the transport landing view.
+    // Live tables: transport_routes / transport_vehicles / student_transport_assignments
+    // (legacy `transport_subscriptions` does not exist in the live schema).
+    public function getSummary()
+    {
+        try {
+            $routes   = (int) $this->db->query("SELECT COUNT(*) FROM transport_routes WHERE status='active'")->fetchColumn();
+            $vehicles = (int) $this->db->query("SELECT COUNT(*) FROM transport_vehicles WHERE status='active'")->fetchColumn();
+            $students = (int) $this->db->query("SELECT COUNT(*) FROM student_transport_assignments WHERE status='active'")->fetchColumn();
+            return $this->successResponse([
+                'routes'   => $routes,
+                'vehicles' => $vehicles,
+                'active_subscriptions' => $students,
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'TransportAPI::getSummary');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    // Mark a batch of students present on a transport trip.
+    // Live table: student_transport_attendance (UNIQUE student_id, attendance_date, trip_session).
+    // route_id defaults to the authenticated driver's assigned route when not supplied.
+    public function recordStudentAttendance($userId, $date, $presentIds, $data = [])
+    {
+        try {
+            $routeId = isset($data['route_id']) ? (int) $data['route_id'] : 0;
+            if ($routeId <= 0) {
+                $routeStmt = $this->db->prepare(
+                    "SELECT tvr.route_id
+                     FROM users u
+                     INNER JOIN staff s ON s.person_id = u.person_id
+                     INNER JOIN transport_vehicles v ON v.driver_id = s.id
+                     INNER JOIN transport_vehicle_routes tvr
+                             ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+                     WHERE u.id = ? AND s.status IN ('active', 'on_leave')
+                     LIMIT 1"
+                );
+                $routeStmt->execute([(int) $userId]);
+                $routeId = (int) $routeStmt->fetchColumn();
+            }
+
+            $tripSession = $data['trip_session'] ?? 'morning_pickup';
+            $validSessions = ['morning_pickup', 'evening_dropoff', 'midday_trip', 'special_trip'];
+            if (!in_array($tripSession, $validSessions, true)) {
+                $tripSession = 'morning_pickup';
+            }
+
+            $status = $data['status'] ?? 'picked_up';
+            if ($status === 'present') {
+                $status = 'picked_up';
+            }
+            $validStatuses = ['pending', 'picked_up', 'dropped_off', 'absent', 'excused', 'not_riding'];
+            if (!in_array($status, $validStatuses, true)) {
+                $status = 'picked_up';
+            }
+
+            $stmt = $this->db->prepare(
+                "INSERT INTO student_transport_attendance
+                    (student_id, route_id, attendance_date, trip_session, status, marked_time, marked_by)
+                 VALUES (?, ?, ?, ?, ?, CURTIME(), ?)
+                 ON DUPLICATE KEY UPDATE route_id = VALUES(route_id), status = VALUES(status),
+                     marked_time = CURTIME(), marked_by = VALUES(marked_by)"
+            );
+            $recorded = 0;
+            foreach ($presentIds as $studentId) {
+                $stmt->execute([(int) $studentId, $routeId, $date, $tripSession, $status, (int) $userId]);
+                $recorded++;
+            }
+            return $this->successResponse(['recorded' => $recorded, 'date' => $date]);
+        } catch (Exception $e) {
+            $this->logError($e, 'TransportAPI::recordStudentAttendance');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
     protected $driverManager;
     protected $routeManager;
     protected $stopManager;
@@ -62,6 +138,9 @@ class TransportAPI extends BaseAPI
     // Assign vehicle to route
     public function assignVehicle($data)
     {
+        if (empty($data['vehicle_id']) || empty($data['route_id'])) {
+            throw new \InvalidArgumentException('vehicle_id and route_id are required');
+        }
         return $this->vehicleManager->assignVehicleToRoute($data['vehicle_id'], $data['route_id']);
     }
 
@@ -80,6 +159,9 @@ class TransportAPI extends BaseAPI
     // Assign driver to route (for POST /drivers/assign)
     public function assignDriver($data)
     {
+        if (empty($data['driver_id']) || empty($data['route_id'])) {
+            throw new \InvalidArgumentException('driver_id and route_id are required');
+        }
         return $this->driverManager->assignDriverToRoute($data['driver_id'], $data['route_id']);
     }
 
@@ -190,9 +272,9 @@ class TransportAPI extends BaseAPI
         return $this->assignmentManager->getStudentsByRoute($routeId, $month, $year);
     }
 
-    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId)
+    public function recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId, $financialAccountId = null, $userId = 0)
     {
-        return $this->paymentManager->recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId);
+        return $this->paymentManager->recordPayment($studentId, $amount, $month, $year, $paymentDate, $paymentMethod, $transactionId, $financialAccountId, $userId);
     }
     public function updatePaymentStatus($paymentId, $status)
     {
@@ -282,5 +364,15 @@ class TransportAPI extends BaseAPI
         return $this->vehicleManager->getMaintenanceRecords($vehicleId);
     }
 
+
+    public function getMyRoute($userId)
+    {
+        return $this->driverManager->getRouteForUser($userId);
+    }
+
+    public function getMyVehicle($userId)
+    {
+        return $this->driverManager->getVehicleForUser($userId);
+    }
 
 }

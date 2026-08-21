@@ -14,7 +14,8 @@ const boardingController = {
 
   // ── ENTRY POINT ────────────────────────────────────────────────────
 
-  init: function (role) {
+  init: async function (role) {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -45,7 +46,7 @@ const boardingController = {
       this._set('occupiedBeds',      d.assigned_beds      ?? '0');
       this._set('availableBeds',     d.available_beds     ?? '0');
       this._set('occupancyRate',     (d.occupancy_rate ?? '0') + '%');
-      this._set('healthIssues',      d.health_issues      ?? '0');
+      this._set('healthIssues',      d.urgent_notes       ?? '0');
       this._set('onLeave',           d.on_leave           ?? '0');
       this._set('disciplinaryCases', d.disciplinary_cases ?? '0');
       this._set('rollCallComplete',  (d.roll_call_pct ?? '0') + '%');
@@ -217,7 +218,7 @@ const boardingController = {
   },
 
   _deleteDormitory: async function (id, name) {
-    if (!confirm('Delete dormitory "' + name + '"? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Delete dormitory "' + name + '"? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
       await callAPI('/boarding/dormitories/' + id, 'DELETE');
       showNotification('Dormitory deleted', 'success');
@@ -355,27 +356,98 @@ const boardingController = {
     const assign  = document.getElementById('assignRoomBtn');
     const search  = document.getElementById('searchStudent');
     const confirm = document.getElementById('confirmAssignBtn');
+    const healthCard = document.getElementById('healthCard');
+    const reportHealthBtn = document.getElementById('reportHealthBtn');
 
     if (refresh) refresh.addEventListener('click', () => this._initManager());
-    if (assign)  assign.addEventListener('click', () => {
-      const m = document.getElementById('assignRoomModal');
-      if (m) bootstrap.Modal.getOrCreateInstance(m).show();
-    });
+    if (assign)  assign.addEventListener('click', () => this._openAssignModal());
     if (search)  search.addEventListener('input', () => this._renderStudentsTable());
     if (confirm) confirm.addEventListener('click', () => this._saveAssignment());
+    if (healthCard) healthCard.addEventListener('click', () => this._loadHealthIssueModal());
+    if (reportHealthBtn) reportHealthBtn.addEventListener('click', () => this._saveHealthIssue());
+  },
+
+  _openAssignModal: function () {
+    const form = document.getElementById('assignRoomForm');
+    if (!form) return;
+    form.reset();
+
+    const studentSel = form.querySelector('[name=student_id]');
+    if (studentSel) {
+      studentSel.innerHTML = '<option value="">Select Student</option>' +
+        this._students.map(s => '<option value="' + s.id + '">' + this._esc(s.student_name) + ' (' + this._esc(s.admission_no || '') + ')</option>').join('');
+    }
+
+    const bedSel = form.querySelector('[name=bed_number]');
+    if (bedSel) {
+      bedSel.innerHTML = '<option value="">Select Available Bed</option>';
+      for (let i = 1; i <= 12; i++) {
+        bedSel.insertAdjacentHTML('beforeend', '<option value="B' + i + '">Bed B' + i + '</option>');
+      }
+    }
+
+    const modal = document.getElementById('assignRoomModal');
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
   },
 
   _saveAssignment: async function () {
     const form = document.getElementById('assignRoomForm');
     if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+    const data = Object.fromEntries(new FormData(form));
+    const student = this._students.find(s => s.id == data.student_id);
+    if (!student || !student.dormitory_id) {
+      showNotification('Selected student has no dormitory assignment', 'warning');
+      return;
+    }
+    data.dormitory_id = student.dormitory_id;
     try {
-      await callAPI('/boarding/students', 'POST', Object.fromEntries(new FormData(form)));
+      await callAPI('/students/boarding-assign-dorm', 'POST', data);
       showNotification('Room assigned', 'success');
       const m = document.getElementById('assignRoomModal');
       if (m) bootstrap.Modal.getInstance(m)?.hide();
       await this._loadStudents();
     } catch (e) {
       showNotification('Failed: ' + (e.message || e), 'error');
+    }
+  },
+
+  _loadHealthIssueModal: function (studentId) {
+    const form = document.getElementById('healthIssueForm');
+    if (!form) return;
+    form.reset();
+
+    const sel = form.querySelector('[name=student_id]');
+    if (sel) {
+      sel.innerHTML = '<option value="">Select Student</option>' +
+        this._students.map(s => '<option value="' + s.id + '">' + this._esc(s.student_name) + ' (' + this._esc(s.admission_no || '') + ')</option>').join('');
+      if (studentId) sel.value = studentId;
+    }
+
+    const modal = document.getElementById('healthIssueModal');
+    if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
+  },
+
+  _saveHealthIssue: async function () {
+    const form = document.getElementById('healthIssueForm');
+    if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+
+    const issueType = form.querySelector('[name=issue_type]').value;
+    const severity  = form.querySelector('[name=severity]').value;
+    const data = {
+      student_id:   form.querySelector('[name=student_id]').value,
+      complaint:    form.querySelector('[name=description]').value.trim(),
+      observation:  '[' + issueType + '] Severity: ' + severity,
+      action_taken: form.querySelector('[name=action_taken]').value.trim() || null,
+    };
+
+    try {
+      await callAPI('/health/sick-bay', 'POST', data);
+      showNotification('Health issue reported', 'success');
+      const modal = document.getElementById('healthIssueModal');
+      if (modal) bootstrap.Modal.getInstance(modal)?.hide();
+      await this._loadStats();
+    } catch (e) {
+      showNotification('Failed to report: ' + (e.message || e), 'error');
     }
   },
 
@@ -441,8 +513,9 @@ const boardingController = {
     const sel = document.getElementById('childSelector');
     if (!sel) return;
     try {
-      const r = await callAPI('/parent-portal/children', 'GET');
-      const children = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const r = await callAPI('/parent-portal/dashboard', 'GET');
+      const d = r?.data ?? r ?? {};
+      const children = Array.isArray(d.children) ? d.children : [];
       sel.innerHTML = children.length
         ? children.map(c => `<option value="${c.id}">${this._esc(c.first_name + ' ' + c.last_name)} (${c.admission_no || ''})</option>`).join('')
         : '<option value="">No children found</option>';
@@ -455,9 +528,11 @@ const boardingController = {
   _loadChildInfo: async function (studentId) {
     if (!studentId) return;
     try {
-      const r = await callAPI('/boarding/students?student_id=' + studentId, 'GET');
-      const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      const s = items[0] || {};
+      if (!this._students.length) {
+        const r = await callAPI('/boarding/students', 'GET');
+        this._students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      }
+      const s = this._students.find(x => x.id == studentId) || {};
       this._set('studentName',     s.student_name   || '—');
       this._set('studentClass',    s.class_name     || '—');
       this._set('dormitoryName',   s.dormitory_name || 'Not assigned');
@@ -474,10 +549,11 @@ const boardingController = {
     const tbody = document.querySelector('#leaveHistoryTable tbody');
     if (!tbody) return;
     try {
-      const r = await callAPI('/boarding/exeats?student_id=' + studentId, 'GET');
+      const r = await callAPI('/boarding/exeats', 'GET');
       const items = Array.isArray(r?.data) ? r.data : [];
-      tbody.innerHTML = items.length
-        ? items.map(e => `
+      const mine = items.filter(e => e.student_id == studentId);
+      tbody.innerHTML = mine.length
+        ? mine.map(e => `
           <tr>
             <td>${this._esc(e.permission_type_name || 'Leave')}</td>
             <td>${e.start_date || '—'}</td>
@@ -494,8 +570,18 @@ const boardingController = {
     const child = document.getElementById('childSelector')?.value;
     if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
     if (!child) { showNotification('Please select a child first', 'warning'); return; }
-    const data = Object.fromEntries(new FormData(form));
-    data.student_id = child;
+
+    const typeMap = { weekend: 1, holiday: 1, medical: 4, family: 3, other: 1 };
+    const f = Object.fromEntries(new FormData(form));
+    const data = {
+      student_id:         child,
+      permission_type_id: typeMap[f.leave_type] || 1,
+      departure_date:     f.from_date,
+      return_date:        f.to_date,
+      reason:             f.reason,
+      pickup_person:      f.pickup_person,
+      pickup_contact:     f.pickup_contact,
+    };
     try {
       await callAPI('/boarding/exeats', 'POST', data);
       showNotification('Leave request submitted', 'success');

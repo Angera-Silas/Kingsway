@@ -172,16 +172,16 @@
                 <table class="admin-data-table" id="messagesTable">
                     <thead>
                         <tr>
-                            <th><input type="checkbox" class="select-all" id="selectAll"></th>
-                            <th>ID</th>
-                            <th>Recipient</th>
-                            <th>Channel</th>
-                            <th>Subject/Message</th>
-                            <th>Status</th>
-                            <th>Sent At</th>
-                            <th>Sent By</th>
-                            <th>Cost</th>
-                            <th>Actions</th>
+                            <th scope="col"><input type="checkbox" class="select-all" id="selectAll"></th>
+                            <th scope="col">ID</th>
+                            <th scope="col">Recipient</th>
+                            <th scope="col">Channel</th>
+                            <th scope="col">Subject/Message</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Sent At</th>
+                            <th scope="col">Sent By</th>
+                            <th scope="col">Cost</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="messagesTableBody">
@@ -252,7 +252,7 @@
                         </select>
                     </div>
                     <div class="mb-3" id="recipientSelector">
-                        <input type="text" class="form-control" id="recipientInput" placeholder="Search recipients...">
+                        <input type="text" class="form-control" id="recipientInput" placeholder="Search recipients..." required>
                     </div>
                     <div class="mb-3" id="emailSubjectGroup" style="display:none;">
                         <label class="form-label">Subject</label>
@@ -261,7 +261,7 @@
                     <div class="mb-3">
                         <label class="form-label">Message</label>
                         <textarea class="form-control" id="messageContent" rows="5"
-                            placeholder="Type your message..."></textarea>
+                            placeholder="Type your message..." required></textarea>
                         <div class="d-flex justify-content-between mt-1">
                             <small class="text-muted">Characters: <span id="charCount">0</span>/160 (SMS)</small>
                             <button type="button" class="btn btn-link btn-sm" onclick="insertVariable()">Insert

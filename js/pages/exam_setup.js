@@ -45,8 +45,8 @@ const examSetupController = (() => {
       { grade: "E", min: 0, max: 49, remarks: "Fail" },
     ],
     cbc: [
-      { grade: "EE", min: 80, max: 100, remarks: "Exceeding Expectations" },
-      { grade: "ME", min: 60, max: 79, remarks: "Meeting Expectations" },
+      { grade: "EE", min: 75, max: 100, remarks: "Exceeding Expectations" },
+      { grade: "ME", min: 60, max: 74, remarks: "Meeting Expectations" },
       { grade: "AE", min: 40, max: 59, remarks: "Approaching Expectations" },
       { grade: "BE", min: 0, max: 39, remarks: "Below Expectations" },
     ],
@@ -81,10 +81,10 @@ const examSetupController = (() => {
   const api = (endpoint, method, body) =>
     window.API.apiCall(endpoint, method, body);
 
-  function toast(message, type = "info") {
+  async function toast(message, type = "info") {
     const el = $("examSetupToast");
     if (!el) {
-      alert(message);
+      await window.infoDialog('Notice', message);
       return;
     }
     const iconEl = $("toastIcon");
@@ -1346,6 +1346,7 @@ const examSetupController = (() => {
        INITIALISATION
     ================================================================= */
   async function init() {
+    await window.AuthContext?.ready();
     if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -1355,7 +1356,6 @@ const examSetupController = (() => {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in exam_setup:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload exams when academic year or term changes
           loadExams();

@@ -216,9 +216,10 @@ if (!isset($appBase)) {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
-                            <select name="academic_year" id="academicYearSelect" class="form-select" required>
+                            <select id="academicYearSelect" class="form-select" required disabled>
                                 <option value="">Select Year</option>
                             </select>
+                            <input type="hidden" name="academic_year" id="academicYearInput">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Application Source</label>
@@ -238,11 +239,10 @@ if (!isset($appBase)) {
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Target Term</label>
-                            <select name="target_term_id" id="targetTermSelect" class="form-select">
-                                <option value="">Auto / Current Term</option>
-                                <option value="1">Term 1</option>
-                                <option value="3">Term 3</option>
+                            <select id="targetTermSelect" class="form-select" disabled>
+                                <option value="">Select an open intake</option>
                             </select>
+                            <input type="hidden" name="target_term_id" id="targetTermInput">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label fw-semibold">Previous School</label>
@@ -256,14 +256,39 @@ if (!isset($appBase)) {
                         <i class="bi bi-people me-1"></i> Parent / Guardian
                     </h6>
                     <div class="row g-3 mb-3">
-                        <div class="col-md-8">
-                            <label class="form-label fw-semibold">Parent/Guardian <span class="text-danger">*</span></label>
+                        <div class="col-12">
+                            <div class="btn-group w-100" role="group" aria-label="Parent type">
+                                <input type="radio" class="btn-check" name="parent_type" id="parentTypeExisting" value="existing" checked>
+                                <label class="btn btn-outline-primary" for="parentTypeExisting">Existing Parent</label>
+                                <input type="radio" class="btn-check" name="parent_type" id="parentTypeNew" value="new">
+                                <label class="btn btn-outline-primary" for="parentTypeNew">New Parent</label>
+                            </div>
+                        </div>
+                        <div class="col-md-8" id="existingParentFields">
+                            <label class="form-label fw-semibold">Select Existing Parent <span class="text-danger">*</span></label>
                             <select name="parent_id" id="parentSelect" class="form-select" required>
                                 <option value="">Select Parent/Guardian</option>
                             </select>
-                            <small class="text-muted">
-                                Parent must already exist in the system. Use the Parents module before submitting this application if the guardian is missing.
-                            </small>
+                        </div>
+                        <div class="col-md-8" id="newParentFields" style="display:none;">
+                            <label class="form-label fw-semibold">Parent Full Name <span class="text-danger">*</span></label>
+                            <input type="text" name="new_parent_name" class="form-control" placeholder="Enter full name">
+                        </div>
+                        <div class="col-md-4" id="newParentIdField" style="display:none;">
+                            <label class="form-label fw-semibold">National ID / Passport No.</label>
+                            <input type="text" name="new_parent_id_number" class="form-control" placeholder="ID number">
+                        </div>
+                        <div class="col-md-4" id="newParentPhoneField" style="display:none;">
+                            <label class="form-label fw-semibold">Phone Number <span class="text-danger">*</span></label>
+                            <input type="tel" name="new_parent_phone" class="form-control" placeholder="e.g. 0720 113 030">
+                        </div>
+                        <div class="col-md-4" id="newParentEmailField" style="display:none;">
+                            <label class="form-label fw-semibold">Email Address</label>
+                            <input type="email" name="new_parent_email" class="form-control" placeholder="parent@email.com">
+                        </div>
+                        <div class="col-12" id="newParentAddressField" style="display:none;">
+                            <label class="form-label fw-semibold">Residential Address</label>
+                            <input type="text" name="new_parent_address" class="form-control" placeholder="Town, Sub-county, County">
                         </div>
                     </div>
 
@@ -291,35 +316,71 @@ if (!isset($appBase)) {
                     <!-- Section: Documents -->
                     <h6 class="text-muted text-uppercase fw-semibold mb-3 border-bottom pb-2">
                         <i class="bi bi-paperclip me-1"></i> Supporting Documents
-                        <span class="badge bg-secondary fw-normal ms-2">Optional at submission — can upload later</span>
+                        <span class="badge bg-success fw-normal ms-2">Uploaded as part of this application</span>
                     </h6>
+                    <div class="alert alert-warning small py-2 mb-3">
+                        <i class="bi bi-info-circle-fill me-1"></i>
+                        Documents are part of the application — the application cannot be submitted without the
+                        required documents. Accepted formats: PDF, JPG, PNG (max 5 MB).
+                    </div>
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label">Birth Certificate <span class="text-danger">*</span></label>
-                            <input type="file" name="doc_birth_certificate" class="form-control"
+                            <input type="file" name="doc_birth_certificate" class="form-control" required
                                    accept=".pdf,.jpg,.jpeg,.png">
                             <small class="text-muted">PDF, JPG, or PNG (max 5 MB)</small>
                         </div>
                         <div class="col-md-4">
+                            <label class="form-label">Passport Photo <span class="text-danger">*</span></label>
+                            <input type="file" name="doc_passport_photo" class="form-control" required
+                                   accept=".jpg,.jpeg,.png">
+                        </div>
+                        <div class="col-md-4" id="newParentIdDocWrap">
+                            <label class="form-label">Parent / Guardian ID</label>
+                            <input type="file" name="doc_parent_id" class="form-control"
+                                   accept=".pdf,.jpg,.jpeg,.png">
+                            <small class="text-muted">Required when registering a new parent/guardian.</small>
+                        </div>
+                        <!-- Playgroup–Grade 3: immunization card (via JS) -->
+                        <div class="col-md-4 d-none" id="immunizationDocWrap">
                             <label class="form-label">Immunization Card <span class="text-danger">*</span></label>
                             <input type="file" name="doc_immunization_card" class="form-control"
                                    accept=".pdf,.jpg,.jpeg,.png">
+                            <small class="text-muted">Required for Playgroup to Grade 3.</small>
+                        </div>
+                        <!-- Grade4-9: previous school report + medical test results (via JS) -->
+                        <div class="col-md-4 d-none" id="docPreviousSchoolReport">
+                            <label class="form-label">Previous School Report <span class="text-danger">*</span></label>
+                            <input type="file" name="doc_previous_school_report" class="form-control"
+                                   accept=".pdf,.jpg,.jpeg,.png">
+                            <small class="text-muted">Required for Grade 4–9 applicants.</small>
+                        </div>
+                        <div class="col-md-4 d-none" id="docMedicalRecords">
+                            <label class="form-label">Medical Test Results <span class="text-danger">*</span></label>
+                            <input type="file" name="doc_medical_records" class="form-control"
+                                   accept=".pdf,.jpg,.jpeg,.png">
+                            <small class="text-muted">Required for Grade 4–9 applicants — to identify conditions/disabilities (e.g. eyesight, ulcers).</small>
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label">Passport Photo</label>
-                            <input type="file" name="doc_passport_photo" class="form-control"
-                                   accept=".jpg,.jpeg,.png">
-                        </div>
-                        <!-- Shown for Grade2-6 only via JS -->
-                        <div class="col-md-4 d-none" id="docProgressReport">
-                            <label class="form-label">Latest Progress Report <span class="text-danger">*</span></label>
+                            <label class="form-label">Progress Report</label>
                             <input type="file" name="doc_progress_report" class="form-control"
                                    accept=".pdf,.jpg,.jpeg,.png">
                         </div>
-                        <div class="col-md-4 d-none" id="docLeavingCert">
-                            <label class="form-label">Leaving Certificate <span class="text-danger">*</span></label>
+                        <div class="col-md-4">
+                            <label class="form-label">Leaving Certificate</label>
                             <input type="file" name="doc_leaving_certificate" class="form-control"
                                    accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Transfer Letter</label>
+                            <input type="file" name="doc_transfer_letter" class="form-control"
+                                   accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Other Documents</label>
+                            <input type="file" name="doc_other" class="form-control"
+                                   accept=".pdf,.jpg,.jpeg,.png">
+                            <small class="text-muted">Student portfolio, reports, or other relevant documents.</small>
                         </div>
                     </div>
 
@@ -495,4 +556,4 @@ if (!isset($appBase)) {
 })();
 </script>
 
-<script src="<?= $appBase ?>/js/pages/admissions.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/admissions.js'); ?>

@@ -2,6 +2,7 @@
 namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -37,12 +38,6 @@ class RequisitionsManager extends BaseAPI
                 $bindings[] = $params['status'];
             }
 
-            // Requisition type filter
-            if (!empty($params['requisition_type'])) {
-                $where[] = "r.requisition_type = ?";
-                $bindings[] = $params['requisition_type'];
-            }
-
             // Date range filter
             if (!empty($params['from_date'])) {
                 $where[] = "r.requisition_date >= ?";
@@ -55,7 +50,7 @@ class RequisitionsManager extends BaseAPI
 
             // Search
             if (!empty($search)) {
-                $where[] = "(r.justification LIKE ? OR u.username LIKE ?)";
+                $where[] = "(r.notes LIKE ? OR u.username LIKE ?)";
                 $searchTerm = "%$search%";
                 $bindings[] = $searchTerm;
                 $bindings[] = $searchTerm;
@@ -66,7 +61,7 @@ class RequisitionsManager extends BaseAPI
             // Count total
             $sql = "
                 SELECT COUNT(DISTINCT r.id) 
-                FROM inventory_requisitions r
+                FROM requisitions r
                 LEFT JOIN users u ON r.requested_by = u.id
                 WHERE $whereClause
             ";
@@ -78,15 +73,13 @@ class RequisitionsManager extends BaseAPI
             $sql = "
                 SELECT 
                     r.*,
-                    u.username as requested_by_name,
-                    u.email as requester_email,
-                    COUNT(DISTINCT ri.id) as items_count,
-                    wi.current_stage as workflow_stage,
-                    wi.status as workflow_status
-                FROM inventory_requisitions r
+                    CONCAT(p.first_name, ' ', p.last_name) as requested_by_name,
+                    p.email as requester_email,
+                    COUNT(DISTINCT ri.id) as items_count
+                FROM requisitions r
                 LEFT JOIN users u ON r.requested_by = u.id
+                LEFT JOIN persons p ON p.id = u.person_id
                 LEFT JOIN requisition_items ri ON r.id = ri.requisition_id
-                LEFT JOIN workflow_instances wi ON r.workflow_instance_id = wi.id
                 WHERE $whereClause
                 GROUP BY r.id
                 ORDER BY r.$sort $order
@@ -124,14 +117,11 @@ class RequisitionsManager extends BaseAPI
             $sql = "
                 SELECT 
                     r.*,
-                    u.username as requested_by_name,
-                    u.email as requester_email,
-                    wi.current_stage as workflow_stage,
-                    wi.status as workflow_status,
-                    wi.workflow_data
-                FROM inventory_requisitions r
+                    CONCAT(p.first_name, ' ', p.last_name) as requested_by_name,
+                    p.email as requester_email
+                FROM requisitions r
                 LEFT JOIN users u ON r.requested_by = u.id
-                LEFT JOIN workflow_instances wi ON r.workflow_instance_id = wi.id
+                LEFT JOIN persons p ON p.id = u.person_id
                 WHERE r.id = ?
             ";
 
@@ -148,8 +138,8 @@ class RequisitionsManager extends BaseAPI
                 SELECT 
                     ri.*,
                     i.item_name,
-                    i.item_code,
-                    i.unit_of_measure
+                    i.code as item_code,
+                    i.unit as unit_of_measure
                 FROM requisition_items ri
                 LEFT JOIN inventory_items i ON ri.item_id = i.id
                 WHERE ri.requisition_id = ?
@@ -157,22 +147,6 @@ class RequisitionsManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
             $requisition['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Get workflow history if exists
-            if ($requisition['workflow_instance_id']) {
-                $sql = "
-                    SELECT 
-                        wh.*,
-                        u.username as performed_by_name
-                    FROM workflow_history wh
-                    LEFT JOIN users u ON wh.performed_by = u.id
-                    WHERE wh.workflow_instance_id = ?
-                    ORDER BY wh.created_at ASC
-                ";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([$requisition['workflow_instance_id']]);
-                $requisition['workflow_history'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            }
 
             return formatResponse(true, $requisition);
 
@@ -190,7 +164,7 @@ class RequisitionsManager extends BaseAPI
             $this->db->beginTransaction();
 
             // Validate required fields
-            $required = ['requisition_type', 'items'];
+            $required = ['items'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
                     $this->db->rollBack();
@@ -199,29 +173,33 @@ class RequisitionsManager extends BaseAPI
             }
 
             // Create requisition
+            $id = $this->nextId('requisitions');
+            $priority = ['low' => 'low', 'normal' => 'medium', 'medium' => 'medium', 'high' => 'high', 'urgent' => 'urgent'];
+            $priority = $priority[$data['priority'] ?? 'normal'] ?? 'medium';
             $sql = "
-                INSERT INTO inventory_requisitions (
-                    requested_by, requisition_date, status, justification,
-                    requisition_type, priority, created_at
-                ) VALUES (?, NOW(), 'pending', ?, ?, ?, NOW())
+                INSERT INTO requisitions (
+                    id, requisition_number, requested_by, requisition_date, status, notes,
+                    priority
+                ) VALUES (?, ?, ?, NOW(), 'pending', ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $id,
+                'REQ-' . $id,
                 $userId,
                 $data['justification'] ?? '',
-                $data['requisition_type'],
-                $data['priority'] ?? 'normal'
+                $priority
             ]);
 
-            $requisitionId = $this->db->lastInsertId();
+            $requisitionId = $id;
 
             // Create requisition items
             $sql = "
                 INSERT INTO requisition_items (
-                    requisition_id, item_id, quantity_requested, 
-                    estimated_cost, notes
-                ) VALUES (?, ?, ?, ?, ?)
+                    requisition_id, item_id, requested_quantity, 
+                    unit, unit_cost, notes
+                ) VALUES (?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -230,6 +208,7 @@ class RequisitionsManager extends BaseAPI
                     $requisitionId,
                     $item['item_id'],
                     $item['quantity'],
+                    $item['unit'] ?? 'pcs',
                     $item['estimated_cost'] ?? 0,
                     $item['notes'] ?? null
                 ]);
@@ -258,7 +237,11 @@ class RequisitionsManager extends BaseAPI
         try {
             $this->db->beginTransaction();
 
-            $sql = "UPDATE inventory_requisitions SET status = ? WHERE id = ?";
+            $fetch = $this->db->prepare("SELECT id, requisition_number, requested_by FROM requisitions WHERE id = ?");
+            $fetch->execute([$id]);
+            $requisition = $fetch->fetch(PDO::FETCH_ASSOC);
+
+            $sql = "UPDATE requisitions SET status = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$status, $id]);
 
@@ -269,6 +252,8 @@ class RequisitionsManager extends BaseAPI
 
             $this->db->commit();
             $this->logAction('update', $id, "Updated requisition #{$id} status to {$status}" . ($remarks ? ": $remarks" : ""));
+
+            $this->notifyRequisitionStatus($requisition, $status, (int) $userId, $remarks);
 
             return formatResponse(true, ['requisition_id' => $id, 'status' => $status]);
 
@@ -287,7 +272,7 @@ class RequisitionsManager extends BaseAPI
     {
         try {
             // Check if requisition can be deleted (only pending ones)
-            $sql = "SELECT status, workflow_instance_id FROM inventory_requisitions WHERE id = ?";
+            $sql = "SELECT status FROM requisitions WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
             $requisition = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -303,7 +288,7 @@ class RequisitionsManager extends BaseAPI
             $this->db->beginTransaction();
 
             // Soft delete
-            $sql = "UPDATE inventory_requisitions SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?";
+            $sql = "UPDATE requisitions SET status = 'cancelled', updated_at = NOW() WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
 
@@ -318,5 +303,43 @@ class RequisitionsManager extends BaseAPI
             }
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * Notify the requisition requester of an approved/rejected/fulfilled outcome.
+     */
+    private function notifyRequisitionStatus(?array $requisition, string $status, int $actorUserId, $remarks): void
+    {
+        if (empty($requisition) || empty($requisition['requested_by']) || !in_array($status, ['approved', 'rejected', 'fulfilled'], true)) {
+            return;
+        }
+        try {
+            $service = new NotificationService($this->db);
+            $requester = (int) $requisition['requested_by'];
+            $actor = $service->userName($actorUserId) ?: 'the approver';
+            $label = 'requisition ' . ($requisition['requisition_number'] ?? ('#' . (int) $requisition['id']));
+
+            if ($status === 'approved') {
+                $title = 'Requisition approved';
+                $message = NotificationService::approvedText($label, $actor);
+            } elseif ($status === 'fulfilled') {
+                $title = 'Requisition fulfilled';
+                $message = 'Your ' . $label . ' has been fulfilled.';
+            } else {
+                $title = 'Requisition declined';
+                $message = NotificationService::deniedText($label, $actor, (string) ($remarks ?? ''));
+            }
+
+            $service->push([$requester], 'requisition', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[RequisitionsManager] Notification push failed: ' . $e->getMessage());
+        }
+    }
+
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `{$table}`");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
     }
 }

@@ -11,6 +11,7 @@ const exceptionReportsController = {
   _activeFilter: 'all',
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -21,8 +22,8 @@ const exceptionReportsController = {
   _loadStats: async function () {
     try {
       const [rException, rUnmatched] = await Promise.allSettled([
-        callAPI('/finance/exception-report', 'GET'),
-        callAPI('/payments/unmatched', 'GET'),
+        callAPI('/finance/exception-reports', 'GET'),
+        callAPI('/finance/unmatched-payments', 'GET'),
       ]);
       const exceptions = this._extract(rException);
       const unmatched  = this._extract(rUnmatched);
@@ -42,8 +43,8 @@ const exceptionReportsController = {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
     try {
       const [rException, rUnmatched] = await Promise.allSettled([
-        callAPI('/finance/exception-report', 'GET'),
-        callAPI('/payments/unmatched', 'GET'),
+        callAPI('/finance/exception-reports', 'GET'),
+        callAPI('/finance/unmatched-payments', 'GET'),
       ]);
       const exceptions = this._extract(rException).map(e => ({ ...e, _source: 'exception' }));
       const unmatched  = this._extract(rUnmatched).map(e => ({ ...e, _source: 'unmatched', exception_type: e.exception_type || 'Unmatched Payment', severity: e.severity || 'medium' }));
@@ -78,7 +79,7 @@ const exceptionReportsController = {
         <td class="small text-muted" style="max-width:200px;">${this._esc((e.description || e.notes || '—').substring(0,80))}</td>
         <td class="fw-bold">KES ${Number(e.amount||0).toLocaleString()}</td>
         <td>${this._esc(e.affected_party || e.student_name || e.payer_name || '—')}</td>
-        <td>${this._esc(e.detected_at || e.created_at || '—')}</td>
+        <td>${this._esc(e.detected_at || e.created_at || e.transaction_date || '—')}</td>
         <td>
           <span class="badge bg-${statusCls[status]||'secondary'}">${this._esc(e.status || 'open')}</span>
           ${status === 'open' ? `
@@ -108,9 +109,9 @@ const exceptionReportsController = {
 
   updateStatus: async function (id, status) {
     const confirmMsg = { resolved: 'Mark this exception as resolved?', dismissed: 'Dismiss this exception?', investigating: 'Mark as investigating?' };
-    if (!confirm(confirmMsg[status] || 'Update status?')) return;
+    if (!(await window.confirmAction('Confirm', confirmMsg[status] || 'Update status?'))) return;
     try {
-      await callAPI('/finance/exception-report/' + id, 'PUT', { status });
+      await callAPI('/finance/exception-reports/' + id, 'PUT', { status });
       showNotification('Exception status updated.', 'success');
       await Promise.all([this._loadStats(), this._loadData()]);
     } catch (e) { showNotification(e.message || 'Update failed.', 'danger'); }
@@ -130,6 +131,7 @@ const exceptionReportsController = {
   _extract: function (settled) {
     if (settled.status !== 'fulfilled') return [];
     const r = settled.value;
+    if (Array.isArray(r?.data?.data)) return r.data.data;
     return Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
   },
 

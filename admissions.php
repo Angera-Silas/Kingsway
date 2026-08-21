@@ -3,92 +3,33 @@ $appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? ''))
 if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Admissions';
 $activePage = 'admissions';
+$pageScript = 'admissions';
+// Static marketing content lives in PHP below; the live parts (intake banner,
+// response time / age range / enquiries, grade + preferred-start dropdowns) are
+// rendered by js/pages/public/admissions.js via /api/website/{terms,grades,settings}.
 require_once __DIR__ . '/public/layout/public_data.php';
 
-/* ── Handle full application POST ── */
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    header('Content-Type: application/json');
-    $childName  = trim($_POST['child_name']  ?? '');
-    $parentName = trim($_POST['parent_name'] ?? '');
-    $phone      = trim($_POST['parent_phone'] ?? '');
-    $grade      = trim($_POST['grade_applying'] ?? '');
-    $startTerm  = trim($_POST['preferred_start'] ?? '');
+// Spaces are intentionally "Available" for marketing — capacity is not declared
+// per grade. Kept as a static table (was kw_grade_spaces()).
+$gradeSpaces = [
+    'PP1 (Pre-Primary 1)' => ['4 – 5 years', 'Available'],
+    'PP2 (Pre-Primary 2)' => ['5 – 6 years', 'Available'],
+    'Grade 1'             => ['6 – 7 years', 'Available'],
+    'Grade 2 – 3'         => ['7 – 9 years', 'Available'],
+    'Grade 4 – 6'         => ['10 – 12 years', 'Available'],
+    'Grade 7 – 9 (JSS)'   => ['12 – 15 years', 'Available'],
+];
 
-    if (!$childName || !$parentName || !$phone || !$grade) {
-        echo json_encode(['success'=>false,'message'=>'Please fill in all required fields.']); exit;
-    }
-
-    // Reject applications for terms that do not exist in the system. The form
-    // only offers current/upcoming terms; anything else is tampering or stale.
-    if ($startTerm !== '') {
-        $validTokens = array_map(
-            fn($t) => $t['name'] . ' ' . $t['year'],
-            kw_academic_terms()
-        );
-        if (!in_array($startTerm, $validTokens, true)) {
-            echo json_encode(['success'=>false,'message'=>'Selected start term is not open for applications.']); exit;
-        }
-    }
-
-    // Reject grades that are not a valid, mappable intake grade. This mirrors
-    // the gradeMapping enforced by kw_save_admission_application so an unmapped
-    // grade (e.g. a DB class with no enum equivalent) is rejected, not silently
-    // coerced to Grade1.
-    $validGrades = ['PP1','PP2','Playgroup','Grade 1','Grade 2','Grade 3','Grade 4',
-                    'Grade 5','Grade 6','Grade 7','Grade 8','Grade 9'];
-    if (!in_array($grade, $validGrades, true)) {
-        echo json_encode(['success'=>false,'message'=>'Selected grade is not open for applications.']); exit;
-    }
-
-    $ref = kw_save_admission_application([
-        'child_name'       => $childName,
-        'child_dob'        => trim($_POST['child_dob'] ?? ''),
-        'child_gender'     => trim($_POST['child_gender'] ?? ''),
-        'child_nationality'=> trim($_POST['child_nationality'] ?? 'Kenyan'),
-        'child_prev_school'=> trim($_POST['child_prev_school'] ?? ''),
-        'child_prev_grade' => trim($_POST['child_prev_grade'] ?? ''),
-        'parent_name'      => $parentName,
-        'parent_relationship' => trim($_POST['parent_relationship'] ?? ''),
-        'parent_id'        => trim($_POST['parent_id'] ?? ''),
-        'parent_phone'     => $phone,
-        'parent_alt_phone' => trim($_POST['parent_alt_phone'] ?? ''),
-        'parent_email'     => filter_var(trim($_POST['parent_email'] ?? ''), FILTER_VALIDATE_EMAIL) ?: '',
-        'parent_address'   => trim($_POST['parent_address'] ?? ''),
-        'grade'            => $grade,
-        'boarding'         => trim($_POST['boarding_preference'] ?? 'day'),
-        'start_term'       => $startTerm,
-        'referral'         => trim($_POST['referral_source'] ?? ''),
-        'special_needs'    => trim($_POST['special_needs'] ?? ''),
-        'ip'               => $_SERVER['REMOTE_ADDR'] ?? null,
-    ]);
-
-    if ($ref) {
-        echo json_encode(['success'=>true,'ref'=>$ref,
-            'message'=>"Application received! Your reference number is <strong>{$ref}</strong>. Our admissions team will contact you within 24 hours."]);
-    } else {
-        echo json_encode(['success'=>false,
-            'message'=>'Submission failed. Please try calling us directly on '.kw_school_stat('school_phone','0720 113 030').'.']);
-    }
-    exit;
-}
-
-$terms        = kw_academic_terms();              // current + upcoming only, upcoming-first
-$nextYear     = (int)date('Y') + 1;
-$gradeSpaces  = kw_grade_spaces();
-
-// Grades that actually exist in the system (active classes). These drive the
-// "Grade Applying For" dropdown so applicants can only pick real intake grades.
-$gradeOptions = kw_active_grades();
-
-// The set of term tokens the form may accept. Any POSTed preferred_start that
-// is not in this list is rejected — applications can only target existing terms.
-$validTermTokens = [];
-foreach ($terms as $t) {
-    $validTermTokens[] = $t['name'] . ' ' . $t['year'];
-}
-
-$schoolPhone  = kw_school_stat('school_phone_main', kw_school_stat('school_phone', '0720 113 030'));
-$adSteps      = kw_admission_steps();
+// Fixed six-step admission journey (was kw_admission_steps(); the backing
+// table does not exist, so the defaults are the source of truth).
+$adSteps = [
+    ['step_number'=>1,'icon'=>'bi-file-earmark-plus-fill','color'=>'#198754','title'=>'Submit Application',   'description'=>'Complete and submit the application form below with all required documents.'],
+    ['step_number'=>2,'icon'=>'bi-file-check-fill',        'color'=>'#1976d2','title'=>'Document Review',     'description'=>'Our admissions team reviews the application and verifies all submitted documents.'],
+    ['step_number'=>3,'icon'=>'bi-chat-dots-fill',         'color'=>'#f9c80e','title'=>'Placement Assessment','description'=>'The applicant sits a short placement test and meets with the Head Teacher.'],
+    ['step_number'=>4,'icon'=>'bi-envelope-check-fill',    'color'=>'#9c27b0','title'=>'Offer Letter',        'description'=>'Successful applicants receive an official offer letter within 5 working days.'],
+    ['step_number'=>5,'icon'=>'bi-cash-coin',              'color'=>'#e65100','title'=>'Fee Payment',         'description'=>'A non-refundable admission fee secures the placement. Full term fees follow.'],
+    ['step_number'=>6,'icon'=>'bi-mortarboard-fill',       'color'=>'#00695c','title'=>'Orientation',         'description'=>'The student attends new-student orientation before joining class.'],
+];
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -107,25 +48,17 @@ $adSteps      = kw_admission_steps();
 <div class="py-4" style="background:var(--gold)">
   <div class="container">
     <div class="row g-3 text-center">
-      <?php
-      // Lead with the first upcoming term (the default intake), falling back to
-      // the current term, then to the next calendar year so the banner is never
-      // misleading about which intake is open.
-      $leadTerm = $terms[0] ?? null;
-      $intakeMsg = $leadTerm
-          ? htmlspecialchars($leadTerm['name'] . ' ' . $leadTerm['year'] . ' intake now open')
-          : 'Term 1 ' . $nextYear . ' intake opening soon';
-      ?>
+      <?php $intakeMsg = 'Term ' . ((int)date('Y') + 1) . ' intake opening soon'; ?>
       <?php foreach ([
-        ['bi-calendar-check','Applications Open',$intakeMsg],
-        ['bi-clock','Response Time',kw_school_stat('admissions_response','Within 24 working hours')],
-        ['bi-person-plus','Age Range',kw_school_stat('admissions_age_range','4 – 15 years (PP1 – Grade 9)')],
-        ['bi-telephone','Enquiries',$schoolPhone],
+        ['bi-calendar-check','Applications Open','ad-intake'],
+        ['bi-clock','Response Time','ad-response'],
+        ['bi-person-plus','Age Range','ad-age-range'],
+        ['bi-telephone','Enquiries','ad-enquiries'],
       ] as $q): ?>
       <div class="col-6 col-md-3">
         <i class="bi <?= $q[0] ?> fs-4 text-dark d-block mb-1"></i>
         <div class="fw-bold small text-dark"><?= $q[1] ?></div>
-        <div style="font-size:.78rem;color:var(--green-dark)"><?= $q[2] ?></div>
+        <div style="font-size:.78rem;color:var(--green-dark)" id="<?= $q[2] ?>"><?= $intakeMsg ?></div>
       </div>
       <?php endforeach; ?>
     </div>
@@ -272,7 +205,7 @@ $adSteps      = kw_admission_steps();
 
         <!-- Step indicator -->
         <div class="d-flex align-items-center justify-content-center gap-2 mb-5 flex-wrap">
-          <?php foreach (['Child Information','Parent / Guardian','Application Details','Declaration'] as $si => $sl): ?>
+          <?php foreach (['Child Information','Parent / Guardian','Application Details','Required Documents','Declaration'] as $si => $sl): ?>
           <div class="d-flex align-items-center gap-2">
             <div class="step-circle <?= $si===0?'active':'' ?>" id="step-circle-<?= $si ?>"
                  style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;
@@ -283,7 +216,7 @@ $adSteps      = kw_admission_steps();
             </div>
             <span class="small fw-semibold d-none d-md-inline" style="color:<?= $si===0?'var(--green)':'#999' ?>"
                   id="step-label-<?= $si ?>"><?= $sl ?></span>
-            <?php if ($si < 3): ?>
+            <?php if ($si < 4): ?>
             <div style="width:30px;height:2px;background:#e2e8f0" class="d-none d-md-block"></div>
             <?php endif; ?>
           </div>
@@ -321,9 +254,6 @@ $adSteps      = kw_admission_steps();
               <label class="form-label small fw-semibold">Grade Applying For <span class="text-danger">*</span></label>
               <select name="grade_applying" class="form-control-kw" required>
                 <option value="">Select grade</option>
-                <?php foreach ($gradeOptions as $g): ?>
-                <option value="<?= htmlspecialchars($g) ?>"><?= htmlspecialchars($g) ?></option>
-                <?php endforeach; ?>
               </select>
             </div>
             <div class="col-md-6">
@@ -344,6 +274,10 @@ $adSteps      = kw_admission_steps();
 
         <!-- Section 2: Parent / Guardian -->
         <div class="form-section" id="section-1" style="display:none">
+          <div class="alert alert-success d-none" id="adGuardianPrefill" style="font-size:.9rem">
+            <i class="bi bi-person-check-fill me-1"></i>
+            We've pre-filled your contact details from your portal account. Please review and add the relationship to the child.
+          </div>
           <div class="d-flex align-items-center gap-2 mb-4">
             <div class="bg-primary bg-opacity-10 rounded-2 p-2"><i class="bi bi-people-fill text-primary fs-5"></i></div>
             <h5 class="fw-bold mb-0">Parent / Guardian Information</h5>
@@ -414,13 +348,6 @@ $adSteps      = kw_admission_steps();
               <label class="form-label small fw-semibold">Preferred Start Term</label>
               <select name="preferred_start" class="form-control-kw">
                 <option value="">Select term</option>
-                <?php foreach ($terms as $t): ?>
-                <?php $token = $t['name'] . ' ' . $t['year']; ?>
-                <option value="<?= htmlspecialchars($token) ?>"><?= htmlspecialchars($token) ?> (<?= htmlspecialchars(ucfirst($t['status'])) ?>)</option>
-                <?php endforeach; ?>
-                <?php if (empty($terms)): ?>
-                <option value="" disabled>No intake terms open right now</option>
-                <?php endif; ?>
               </select>
             </div>
             <div class="col-12">
@@ -447,13 +374,90 @@ $adSteps      = kw_admission_steps();
               <i class="bi bi-arrow-left"></i> Back
             </button>
             <button type="button" class="btn-kw-primary" onclick="adNext(2)">
+              Next: Required Documents <i class="bi bi-arrow-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 4: Required Documents -->
+        <div class="form-section" id="section-3" style="display:none">
+          <div class="d-flex align-items-center gap-2 mb-4">
+            <div class="bg-danger bg-opacity-10 rounded-2 p-2"><i class="bi bi-paperclip text-danger fs-5"></i></div>
+            <h5 class="fw-bold mb-0">Required Documents</h5>
+          </div>
+          <div class="alert alert-warning small mb-4" style="font-size:.88rem">
+            <i class="bi bi-info-circle-fill me-1"></i>
+            Documents are part of this application — please upload them now. Applications cannot be submitted without
+            the required documents. Accepted formats: PDF, JPG, PNG (max 5MB each).
+          </div>
+          <div class="row g-4">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Child's Birth Certificate <span class="text-danger">*</span></label>
+              <input type="file" name="doc_birth_certificate" class="form-control-kw" required
+                     accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Scan or photo of the child's birth certificate.</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Child's Passport Photo <span class="text-danger">*</span></label>
+              <input type="file" name="doc_passport_photo" class="form-control-kw" required
+                     accept=".jpg,.jpeg,.png">
+              <small class="text-muted">Recent passport-style photo of the child.</small>
+            </div>
+            <div class="col-md-6" id="adParentIdDocWrap">
+              <label class="form-label small fw-semibold">Parent / Guardian ID <span class="text-danger" id="adParentIdDocReq">*</span></label>
+              <input type="file" name="doc_parent_id" class="form-control-kw"
+                     accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">National ID, passport or driving licence of the parent/guardian.</small>
+            </div>
+            <div class="col-md-6" id="adImmunizationWrap" style="display:none">
+              <label class="form-label small fw-semibold">Immunization Card <span class="text-danger">*</span></label>
+              <input type="file" name="doc_immunization_card" class="form-control-kw"
+                     accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Required for Playgroup to Grade 3 applicants. Child's immunization / vaccination record.</small>
+            </div>
+            <div class="col-md-6" id="adSchoolReportWrap" style="display:none">
+              <label class="form-label small fw-semibold">Previous School Report <span class="text-danger">*</span></label>
+              <input type="file" name="doc_previous_school_report" class="form-control-kw"
+                     accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Required for Grade 4–9 applicants. Latest report or progress record from the previous school.</small>
+            </div>
+            <div class="col-md-6" id="adMedicalWrap" style="display:none">
+              <label class="form-label small fw-semibold">Medical Test Results <span class="text-danger">*</span></label>
+              <input type="file" name="doc_medical_records" class="form-control-kw"
+                     accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Required for Grade 4–9 applicants. Medical reports / test results so the school can support any condition or disability (e.g. eyesight, ulcers).</small>
+            </div>
+          </div>
+
+          <h6 class="fw-semibold text-muted mt-4 mb-3"><i class="bi bi-plus-circle me-2"></i>Additional Documents (Optional)</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Transfer Letter</label>
+              <input type="file" name="doc_transfer_letter" class="form-control-kw" accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Transfer letter from the previous school (if transferring).</small>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Progress Report</label>
+              <input type="file" name="doc_progress_report" class="form-control-kw" accept=".pdf,.jpg,.jpeg,.png">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">Other Documents</label>
+              <input type="file" name="doc_other" class="form-control-kw" accept=".pdf,.jpg,.jpeg,.png">
+              <small class="text-muted">Student portfolio, reports, or any other relevant document.</small>
+            </div>
+          </div>
+          <div class="d-flex justify-content-between mt-4">
+            <button type="button" class="btn-kw-outline" onclick="adPrev(3)">
+              <i class="bi bi-arrow-left"></i> Back
+            </button>
+            <button type="button" class="btn-kw-primary" onclick="adNext(3)">
               Next: Declaration <i class="bi bi-arrow-right"></i>
             </button>
           </div>
         </div>
 
-        <!-- Section 4: Declaration & Submit -->
-        <div class="form-section" id="section-3" style="display:none">
+        <!-- Section 5: Declaration & Submit -->
+        <div class="form-section" id="section-4" style="display:none">
           <div class="d-flex align-items-center gap-2 mb-4">
             <div class="bg-success bg-opacity-10 rounded-2 p-2"><i class="bi bi-patch-check-fill text-success fs-5"></i></div>
             <h5 class="fw-bold mb-0">Declaration &amp; Submission</h5>
@@ -486,7 +490,7 @@ $adSteps      = kw_admission_steps();
           <div id="adStatusMsg" style="display:none" class="mb-3 p-3 rounded-3 small fw-semibold"></div>
 
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <button type="button" class="btn-kw-outline" onclick="adPrev(3)">
+            <button type="button" class="btn-kw-outline" onclick="adPrev(4)">
               <i class="bi bi-arrow-left"></i> Back
             </button>
             <button type="submit" id="adSubmitBtn" class="btn-kw-primary px-5">
@@ -582,7 +586,7 @@ function adNext(fromSection) {
       return;
     }
   }
-  if (fromSection === 2) adUpdateSummary();
+  if (fromSection === 3) adUpdateSummary();
   adShowSection(fromSection + 1);
   window.scrollTo({top: document.getElementById('apply').offsetTop - 80, behavior:'smooth'});
 }
@@ -604,6 +608,58 @@ function adUpdateSummary() {
   document.getElementById('sum-term').textContent     = get('preferred_start') || 'Not specified';
 }
 
+/* ── Prefill guardian details for logged-in parents applying for siblings ── */
+(function () {
+  try {
+    var raw = sessionStorage.getItem('kw_admissions_guardian');
+    if (!raw) return;
+    var g = JSON.parse(raw);
+    var prefill = { parent_name: g.parent_name, parent_phone: g.parent_phone, parent_email: g.parent_email };
+    var used = false;
+    Object.keys(prefill).forEach(function (k) {
+      if (!prefill[k]) return;
+      var el = document.querySelector('[name="' + k + '"]');
+      if (el && !el.value) { el.value = prefill[k]; used = true; }
+    });
+    if (used) {
+      var banner = document.getElementById('adGuardianPrefill');
+      if (banner) banner.classList.remove('d-none');
+    }
+    // Logged-in parents already have their identity on file — their own ID
+    // document is not required again for a sibling application.
+    var parentIdWrap = document.getElementById('adParentIdDocWrap');
+    if (parentIdWrap) {
+      parentIdWrap.style.display = 'none';
+      var parentIdInput = parentIdWrap.querySelector('input');
+      if (parentIdInput) parentIdInput.removeAttribute('required');
+    }
+  } catch (e) { /* prefill is optional */ }
+})();
+
+/* ── Grade-driven document requirements ──
+   Playgroup–Grade 3: immunization card required.
+   Grade 4–9: previous school report + medical test results required. */
+function adSyncDocumentRequirements() {
+  var gradeEl = document.querySelector('[name="grade_applying"]');
+  var gradeMatch = String(gradeEl?.value || '').match(/Grade\s*([4-9])/);
+  var isUpper = !!gradeMatch;
+  function setReq(wrapId, show) {
+    var wrap = document.getElementById(wrapId);
+    if (!wrap) return;
+    wrap.style.display = show ? '' : 'none';
+    var input = wrap.querySelector('input');
+    if (input) {
+      if (show) input.setAttribute('required', 'required');
+      else { input.removeAttribute('required'); input.value = ''; }
+    }
+  }
+  setReq('adSchoolReportWrap', isUpper);
+  setReq('adMedicalWrap', isUpper);
+  setReq('adImmunizationWrap', !isUpper);
+}
+document.querySelector('[name="grade_applying"]')?.addEventListener('change', adSyncDocumentRequirements);
+adSyncDocumentRequirements();
+
 /* ── Form submission ── */
 document.getElementById('admissionForm')?.addEventListener('submit', async function(e) {
   e.preventDefault();
@@ -617,8 +673,13 @@ document.getElementById('admissionForm')?.addEventListener('submit', async funct
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const fd = new FormData(this);
+  // Attach the resolved academic_year_terms.id for the chosen start term so
+  // the server records the target term directly (avoids relying on the label).
+  const termSel = document.querySelector('[name="preferred_start"]');
+  const termId = termSel?.selectedOptions?.[0]?.dataset?.termId;
+  if (termId) fd.append('target_term_id', termId);
   try {
-    const res  = await fetch('<?= $appBase ?>/admissions.php', { method:'POST', body:fd });
+    const res  = await fetch('<?= $appBase ?>/api/public/applications', { method:'POST', body:fd });
     const json = await res.json();
     if (json.success) {
       document.getElementById('admissionFormWrap').querySelector('form').style.display = 'none';
@@ -637,7 +698,7 @@ document.getElementById('admissionForm')?.addEventListener('submit', async funct
     msg.style.display = 'block';
     msg.style.background = '#fff3f3';
     msg.style.color = '#dc3545';
-    msg.textContent = 'Network error. Please try again or call <?= kw_school_stat('school_phone','0720 113 030') ?>.';
+    msg.textContent = 'Network error. Please try again or call 0720 113 030.';
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-send-fill"></i>Submit Application';
   }

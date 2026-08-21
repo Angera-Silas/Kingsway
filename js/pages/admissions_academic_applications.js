@@ -12,10 +12,11 @@ const academicApplicationsController = {
         if (this.initialized) return;
         this.initialized = true;
 
-        console.log("academicApplicationsController: Initializing...");
 
         try {
+            await window.AuthContext?.ready();
             if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                await window.AuthContext?.ready();
                 if (!window.AuthContext.isAuthenticated()) {
                     console.warn("academicApplicationsController: Not authenticated, redirecting to login");
                     window.location.href = `${window.APP_BASE || ""}/index.php`;
@@ -29,7 +30,6 @@ const academicApplicationsController = {
             await this.loadClasses();
             await this.loadApplications();
 
-            console.log("academicApplicationsController: Initialization complete");
         } catch (error) {
             console.error("Failed to initialize Academic Applications Controller:", error);
             this.showError(error.message || "Failed to initialize academic applications page.");
@@ -60,6 +60,22 @@ const academicApplicationsController = {
             option.dataset.studentCount = cls.student_count;
             select.appendChild(option);
         });
+
+        this.populateFilterClasses();
+    },
+
+    populateFilterClasses: function() {
+        const filterSelect = document.getElementById('filterClass');
+        if (!filterSelect) return;
+        const currentVal = filterSelect.value;
+        filterSelect.innerHTML = '<option value="">All Classes</option>';
+        this.classes.forEach(cls => {
+            const option = document.createElement('option');
+            option.value = cls.name || cls.class_name || cls.id;
+            option.textContent = cls.name || cls.class_name || cls.id;
+            filterSelect.appendChild(option);
+        });
+        if (currentVal) filterSelect.value = currentVal;
     },
     
     loadApplications: async function() {
@@ -399,14 +415,10 @@ const academicApplicationsController = {
             ...placementData
         })
             .then(response => {
-                if (response.success) {
-                    showNotification('success', 'Class placement recorded successfully');
-                    bootstrap.Modal.getInstance(document.getElementById('classPlacementModal')).hide();
-                    document.getElementById('classPlacementForm').reset();
-                    this.loadApplications();
-                } else {
-                    showNotification('error', response.message || 'Failed to record placement');
-                }
+                showNotification('success', 'Class placement recorded successfully');
+                bootstrap.Modal.getInstance(document.getElementById('classPlacementModal')).hide();
+                document.getElementById('classPlacementForm').reset();
+                this.loadApplications();
             })
             .catch(error => {
                 console.error('Failed to submit placement:', error);
@@ -464,7 +476,6 @@ function initAcademicApplicationsWhenAPIReady() {
     const hasApi = window.API && typeof window.API.callAPI === "function";
 
     if (hasApi) {
-        console.log("API is ready, initializing academic applications controller");
         window.academicApplicationsController.init();
         return;
     }

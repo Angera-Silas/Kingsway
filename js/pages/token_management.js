@@ -325,12 +325,14 @@ const TokenManagementController = {
       token.tokenType === "api"
         ? token.tokenName || `API token #${token.id}`
         : `refresh token #${token.id}`;
-    const confirmed = window.confirm(
+    const confirmed = await window.confirmAction(
+      "Revoke Token",
       `Revoke ${label} for ${owner}?${
         token.tokenType === "refresh"
           ? " Any linked access session will end immediately."
           : ""
       }`,
+      { confirmText: "Revoke", danger: true },
     );
     if (!confirmed) return;
 

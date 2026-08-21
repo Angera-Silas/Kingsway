@@ -99,7 +99,7 @@ class SuppliersManager extends BaseAPI
     public function createSupplier($data)
     {
         try {
-            $required = ['supplier_name', 'contact_person', 'email', 'phone'];
+            $required = ['supplier_name', 'phone'];
             $missing = [];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
@@ -113,21 +113,16 @@ class SuppliersManager extends BaseAPI
 
             $sql = "
                 INSERT INTO suppliers (
-                    supplier_name, contact_person, email, phone, address,
-                    city, country, payment_terms, rating, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+                    name, contact_person, email, phone, address, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'active', NOW())
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['supplier_name'],
-                $data['contact_person'],
-                $data['email'],
+                $data['supplier_name'] ?? $data['name'],
+                $data['contact_person'] ?? null,
+                $data['email'] ?? null,
                 $data['phone'],
-                $data['address'] ?? null,
-                $data['city'] ?? null,
-                $data['country'] ?? 'Kenya',
-                $data['payment_terms'] ?? 'Net 30',
-                $data['rating'] ?? 0
+                $data['address'] ?? null
             ]);
 
             $supplierId = $this->db->lastInsertId();
@@ -153,23 +148,21 @@ class SuppliersManager extends BaseAPI
 
             $updates = [];
             $params = [];
-            $allowedFields = [
-                'supplier_name',
-                'contact_person',
-                'email',
-                'phone',
-                'address',
-                'city',
-                'country',
-                'payment_terms',
-                'rating',
-                'status'
+
+            $fieldMap = [
+                'supplier_name' => 'name',
+                'name' => 'name',
+                'contact_person' => 'contact_person',
+                'email' => 'email',
+                'phone' => 'phone',
+                'address' => 'address',
+                'status' => 'status'
             ];
 
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    $updates[] = "$field = ?";
-                    $params[] = $data[$field];
+            foreach ($fieldMap as $key => $column) {
+                if (isset($data[$key]) && !in_array("$column = ?", $updates, true)) {
+                    $updates[] = "$column = ?";
+                    $params[] = $data[$key];
                 }
             }
 
@@ -186,6 +179,48 @@ class SuppliersManager extends BaseAPI
 
             return formatResponse(true, null, 'Supplier updated successfully');
 
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Soft-delete (deactivate) a supplier.
+     */
+    public function deleteSupplier($id, $userId)
+    {
+        try {
+            $stmt = $this->db->prepare("UPDATE suppliers SET status = 'inactive', updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$id]);
+
+            $this->logAction('deactivate', $id, "Deactivated supplier #{$id}");
+
+            return formatResponse(true, ['id' => $id], 'Supplier deactivated successfully');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Aggregate outstanding liabilities per supplier from open purchase orders.
+     */
+    public function getOutstandingLiabilities()
+    {
+        try {
+            $sql = "
+                SELECT
+                    s.id              AS vendor_id,
+                    s.supplier_name   AS vendor,
+                    COALESCE(SUM(CASE WHEN po.status NOT IN ('received','cancelled') THEN po.total_amount ELSE 0 END), 0) AS outstanding
+                FROM suppliers s
+                LEFT JOIN purchase_orders po ON po.supplier_id = s.id
+                GROUP BY s.id, s.supplier_name
+                ORDER BY outstanding DESC
+            ";
+            $stmt = $this->db->query($sql);
+            $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+            return formatResponse(true, ['outstanding' => $rows]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }

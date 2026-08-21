@@ -81,6 +81,81 @@ class ActivitiesAPI extends BaseAPI
         return $this->activitiesManager->getActivityStatistics($params);
     }
 
+    /**
+     * Recent active activities for the dashboard list.
+     * Live schema: activities uses start_date (no activity_date/activity_type);
+     * type is surfaced from the category name.
+     */
+    public function getRecentActivities($limit = 10)
+    {
+        try {
+            $limit = max(1, min((int) $limit, 100));
+            $stmt = $this->db->prepare(
+                "SELECT a.id, a.title, a.description, a.start_date AS created_at,
+                        ac.name AS type, a.status, a.category_id
+                 FROM activities a
+                 LEFT JOIN activity_categories ac ON ac.id = a.category_id
+                 WHERE a.status IN ('planned', 'ongoing')
+                 ORDER BY a.start_date DESC
+                 LIMIT ?"
+            );
+            $stmt->execute([$limit]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $activities = array_map(static function ($row) {
+                return [
+                    'id'          => (int) $row['id'],
+                    'title'       => $row['title'] ?? 'Activity',
+                    'description' => $row['description'] ?? '',
+                    'created_at'  => $row['created_at'],
+                    'type'        => $row['type'] ?? 'general',
+                ];
+            }, $rows);
+            return $this->successResponse($activities, 'Activities retrieved');
+        } catch (Exception $e) {
+            $this->logError($e, 'ActivitiesAPI::getRecentActivities');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /**
+     * Activity statistics for the landing view.
+     * Live schema: no activity_enrollments/activity_awards — student counts come
+     * from activity_participants; "active" maps to planned/ongoing statuses.
+     */
+    public function getStats()
+    {
+        try {
+            $active = (int) $this->db->query(
+                "SELECT COUNT(*) FROM activities WHERE status IN ('planned', 'ongoing')"
+            )->fetchColumn();
+
+            $enrolled = 0;
+            try {
+                $enrolled = (int) $this->db->query(
+                    "SELECT COUNT(DISTINCT student_academic_enrollment_id)
+                     FROM activity_participants WHERE status = 'active'"
+                )->fetchColumn();
+            } catch (Exception $e) {
+                $this->logError($e, 'ActivitiesAPI::getStats enrolled');
+            }
+
+            $upcoming = (int) $this->db->query(
+                "SELECT COUNT(*) FROM activities
+                 WHERE start_date > CURDATE() AND status IN ('planned', 'ongoing')"
+            )->fetchColumn();
+
+            return $this->successResponse([
+                'active_activities' => $active,
+                'students_enrolled' => $enrolled,
+                'upcoming_events'   => $upcoming,
+                'awards_this_term'  => 0,
+            ]);
+        } catch (Exception $e) {
+            $this->logError($e, 'ActivitiesAPI::getStats');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
     public function listCategories($params = [])
     {
         return $this->categoriesManager->listCategories($params);

@@ -1,9 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\Database\Database;
+use App\API\Modules\transport\StudentTransportEntitlementManager;
 use Exception;
 
 /**
@@ -13,10 +14,12 @@ use Exception;
 class TransportBillingManager
 {
     private \PDO $db;
+    private StudentTransportEntitlementManager $entitlements;
 
     public function __construct()
     {
-        $this->db = Database::getInstance();
+        $this->db = Database::getInstance()->getConnection();
+        $this->entitlements = new StudentTransportEntitlementManager($this->db);
     }
 
     /**
@@ -45,19 +48,19 @@ class TransportBillingManager
         $academicYear = (int)date('Y', strtotime($startMonth));
 
         $stmt = $this->db->prepare("
-            INSERT INTO transport_subscriptions
-              (student_id, route_id, academic_year, start_month, monthly_fee, direction, status, subscribed_by, notes)
-            VALUES (:sid, :rid, :yr, :sm, :fee, :dir, 'active', :by, :notes)
+            INSERT INTO student_transport_assignments
+              (student_id, route_id, month, year, expected_amount, assignment_date, status, assigned_by, notes)
+            VALUES (:sid, :rid, :m, :y, :fee, :sm, 'active', :by, :notes)
             ON DUPLICATE KEY UPDATE
-              status='active', end_month=NULL, monthly_fee=:fee2, direction=:dir2,
-              subscribed_by=:by2, notes=:notes2, updated_at=NOW()
+              status='active', expected_amount=:fee2, notes=:notes2, updated_at=NOW()
         ");
         $stmt->execute([
-            ':sid' => $studentId, ':rid' => $routeId, ':yr' => $academicYear,
-            ':sm' => $startMonth, ':fee' => $monthlyFee, ':dir' => $direction,
+            ':sid' => $studentId, ':rid' => $routeId,
+            ':m' => (int)date('n', strtotime($startMonth)),
+            ':y' => (int)date('Y', strtotime($startMonth)),
+            ':fee' => $monthlyFee, ':sm' => $startMonth,
             ':by' => $subscribedBy, ':notes' => $notes,
-            ':fee2' => $monthlyFee, ':dir2' => $direction,
-            ':by2' => $subscribedBy, ':notes2' => $notes,
+            ':fee2' => $monthlyFee, ':notes2' => $notes,
         ]);
         $subId = (int)$this->db->lastInsertId();
 
@@ -73,9 +76,9 @@ class TransportBillingManager
     public function unsubscribe(int $subscriptionId, string $endMonth, ?int $userId): bool
     {
         $stmt = $this->db->prepare(
-            "UPDATE transport_subscriptions SET status='cancelled', end_month=:em, updated_at=NOW() WHERE id=:id"
+            "UPDATE student_transport_assignments SET status='withdrawn' WHERE id=:id"
         );
-        $stmt->execute([':em' => $endMonth, ':id' => $subscriptionId]);
+        $stmt->execute([':id' => $subscriptionId]);
         return $stmt->rowCount() > 0;
     }
 
@@ -85,16 +88,18 @@ class TransportBillingManager
      */
     public function generateMonthlyBills(string $billingMonth, ?int $generatedBy): array
     {
-        // Get all active subscriptions covering this month
+        // Get all active transport assignments for the billing month
+        $billingMonthNum = (int)date('n', strtotime($billingMonth));
+        $billingYear = (int)date('Y', strtotime($billingMonth));
         $stmt = $this->db->prepare("
-            SELECT ts.*, tr.name AS route_name
-            FROM transport_subscriptions ts
-            JOIN transport_routes tr ON tr.id = ts.route_id
-            WHERE ts.status = 'active'
-              AND ts.start_month <= :bm
-              AND (ts.end_month IS NULL OR ts.end_month >= :bm2)
+            SELECT sta.*, tr.name AS route_name, tr.fee AS route_fee
+            FROM student_transport_assignments sta
+            JOIN transport_routes tr ON tr.id = sta.route_id
+            WHERE sta.status = 'active'
+              AND sta.month <= :bm
+              AND sta.year = :by
         ");
-        $stmt->execute([':bm' => $billingMonth, ':bm2' => $billingMonth]);
+        $stmt->execute([':bm' => $billingMonthNum, ':by' => $billingYear]);
         $subscriptions = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
         $dueDate   = date('Y-m-t', strtotime($billingMonth)); // last day of month
@@ -107,17 +112,22 @@ class TransportBillingManager
                   (student_id, subscription_id, route_id, billing_month, amount_due, payment_status, due_date, generated_by)
                 VALUES (:sid, :subid, :rid, :bm, :amt, 'pending', :due, :by)
             ");
+            $amount = (float)($sub['expected_amount'] ?? 0) ?: (float)($sub['route_fee'] ?? 0);
             $ins->execute([
                 ':sid'   => $sub['student_id'],
                 ':subid' => $sub['id'],
                 ':rid'   => $sub['route_id'],
                 ':bm'    => $billingMonth,
-                ':amt'   => $sub['monthly_fee'],
+                ':amt'   => $amount,
                 ':due'   => $dueDate,
                 ':by'    => $generatedBy,
             ]);
             if ($ins->rowCount() > 0) $generated++;
             else $skipped++;
+            $this->entitlements->ensureMonthlyEntitlement(
+                (int)$sub['student_id'], (int)$sub['id'], (int)$sub['route_id'],
+                $billingMonth, $amount, $generatedBy ? (int)$generatedBy : null
+            );
         }
 
         return [
@@ -157,13 +167,21 @@ class TransportBillingManager
         $offset = ((int)($filters['page'] ?? 1) - 1) * $limit;
 
         $stmt = $this->db->prepare("
-            SELECT tmb.*, s.first_name, s.last_name, s.admission_no,
-                   tr.name AS route_name, tr.code AS route_code
+            SELECT tmb.*, p.first_name, p.last_name, s.admission_no,
+                   tr.name AS route_name, tr.code AS route_code,
+                   COALESCE(tbp_sum.amount_paid, 0) AS amount_paid,
+                   tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0) AS balance
             FROM transport_monthly_bills tmb
             JOIN students s ON s.id = tmb.student_id
+            JOIN persons p ON p.id = s.person_id
             JOIN transport_routes tr ON tr.id = tmb.route_id
+            LEFT JOIN (
+                SELECT bill_id, SUM(amount) AS amount_paid
+                FROM transport_bill_payments
+                GROUP BY bill_id
+            ) tbp_sum ON tbp_sum.bill_id = tmb.id
             WHERE " . implode(' AND ', $where) . "
-            ORDER BY tmb.billing_month DESC, s.last_name ASC
+            ORDER BY tmb.billing_month DESC, p.last_name ASC
             LIMIT :lim OFFSET :off
         ");
         foreach ($params as $k => $v) $stmt->bindValue($k, $v);
@@ -181,13 +199,18 @@ class TransportBillingManager
     {
         $stmt = $this->db->prepare("
             SELECT COUNT(*) AS total_bills,
-                   SUM(amount_due) AS total_due,
-                   SUM(amount_paid) AS total_paid,
-                   SUM(balance) AS total_outstanding,
-                   SUM(CASE WHEN payment_status='paid' THEN 1 ELSE 0 END) AS paid_count,
-                   SUM(CASE WHEN payment_status='pending' THEN 1 ELSE 0 END) AS pending_count
-            FROM transport_monthly_bills
-            WHERE billing_month = :bm
+                   SUM(tmb.amount_due) AS total_due,
+                   SUM(COALESCE(tbp_sum.amount_paid, 0)) AS total_paid,
+                   SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)) AS total_outstanding,
+                   SUM(CASE WHEN tmb.payment_status='paid' THEN 1 ELSE 0 END) AS paid_count,
+                   SUM(CASE WHEN tmb.payment_status='pending' THEN 1 ELSE 0 END) AS pending_count
+            FROM transport_monthly_bills tmb
+            LEFT JOIN (
+                SELECT bill_id, SUM(amount) AS amount_paid
+                FROM transport_bill_payments
+                GROUP BY bill_id
+            ) tbp_sum ON tbp_sum.bill_id = tmb.id
+            WHERE tmb.billing_month = :bm
         ");
         $stmt->execute([':bm' => $billingMonth]);
         $summary = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -195,9 +218,15 @@ class TransportBillingManager
         // Per-route breakdown
         $stmt2 = $this->db->prepare("
             SELECT tr.name AS route_name, COUNT(*) AS bills, SUM(tmb.amount_due) AS total_due,
-                   SUM(tmb.amount_paid) AS total_paid, SUM(tmb.balance) AS outstanding
+                   SUM(COALESCE(tbp_sum.amount_paid, 0)) AS total_paid,
+                   SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)) AS outstanding
             FROM transport_monthly_bills tmb
             JOIN transport_routes tr ON tr.id = tmb.route_id
+            LEFT JOIN (
+                SELECT bill_id, SUM(amount) AS amount_paid
+                FROM transport_bill_payments
+                GROUP BY bill_id
+            ) tbp_sum ON tbp_sum.bill_id = tmb.id
             WHERE tmb.billing_month = :bm
             GROUP BY tmb.route_id, tr.name
         ");
@@ -229,36 +258,60 @@ class TransportBillingManager
         $bill = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$bill) throw new Exception("Bill {$billId} not found");
 
-        $newPaid    = (float)$bill['amount_paid'] + $amountPaid;
-        $newBalance = (float)$bill['amount_due']  - $newPaid;
+        // Derive current paid from transport_bill_payments
+        $paidStmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM transport_bill_payments WHERE bill_id = :id");
+        $paidStmt->execute([':id' => $billId]);
+        $currentPaid = (float)$paidStmt->fetchColumn();
+
+        $newPaid    = $currentPaid + $amountPaid;
+        $newBalance = (float)$bill['amount_due'] - $newPaid;
         $newStatus  = $newBalance <= 0 ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
 
         $upd = $this->db->prepare(
-            "UPDATE transport_monthly_bills SET amount_paid=:ap, payment_status=:ps, updated_at=NOW() WHERE id=:id"
+            "UPDATE transport_monthly_bills SET payment_status=:ps, updated_at=NOW() WHERE id=:id"
         );
-        $upd->execute([':ap' => $newPaid, ':ps' => $newStatus, ':id' => $billId]);
+        $upd->execute([':ps' => $newStatus, ':id' => $billId]);
 
-        // Insert into payment_transactions for reconciliation trail
+        // Insert into transport_bill_payments for reconciliation trail
         try {
             $pt = $this->db->prepare("
-                INSERT INTO payment_transactions
-                  (student_id, academic_year, payment_method, amount_paid, payment_date,
-                   reference_no, received_by, status, transport_bill_id, notes)
-                VALUES (:sid, :yr, :meth, :amt, NOW(), :ref, :by, 'confirmed', :bid, :notes)
+                INSERT INTO transport_bill_payments
+                  (bill_id, amount, payment_method, transaction_id, received_by, payment_date, notes)
+                VALUES (:bid, :amt, :meth, :ref, :by, :pdate, :notes)
             ");
             $pt->execute([
-                ':sid'   => $bill['student_id'],
-                ':yr'    => (int)date('Y', strtotime($bill['billing_month'])),
-                ':meth'  => $method,
+                ':bid'   => $billId,
                 ':amt'   => $amountPaid,
+                ':meth'  => $method,
                 ':ref'   => $referenceNo,
                 ':by'    => $receivedBy,
-                ':bid'   => $billId,
+                ':pdate' => date('Y-m-d'),
                 ':notes' => $notes,
             ]);
         } catch (Exception $e) {
-            // payment_transactions may not have transport_bill_id yet — log and continue
-            error_log("TransportBilling: could not insert payment_transaction: " . $e->getMessage());
+            error_log("TransportBilling: could not insert bill_payment: " . $e->getMessage());
+        }
+
+        // Mirror bank/cheque transport payments into bank_transactions so they
+        // surface on the bank transactions screen. status stays 'pending' so
+        // trg_bank_payment_processed never fires for these rows.
+        $bankMethods = ['bank', 'bank_transfer', 'cheque'];
+        if (in_array(strtolower((string)$method), $bankMethods, true) && !empty($bill['student_id'])) {
+            try {
+                $bt = $this->db->prepare("
+                    INSERT INTO bank_transactions
+                      (student_id, transaction_ref, amount, transaction_date, narration, source_type, status, reconciled, created_at)
+                    VALUES (?, ?, ?, NOW(), ?, 'manual_entry', 'pending', 0, NOW())
+                ");
+                $bt->execute([
+                    $bill['student_id'],
+                    $referenceNo ?: 'TRN-' . date('YmdHis'),
+                    $amountPaid,
+                    'Transport payment' . ($referenceNo ? " ({$referenceNo})" : ''),
+                ]);
+            } catch (Exception $e) {
+                error_log("TransportBilling: could not mirror bank_transaction: " . $e->getMessage());
+            }
         }
 
         return [
@@ -281,13 +334,14 @@ class TransportBillingManager
         if (!empty($filters['status']))     { $where[] = 'ts.status=:st';      $params[':st']  = $filters['status']; }
 
         $stmt = $this->db->prepare("
-            SELECT ts.*, s.first_name, s.last_name, s.admission_no,
+            SELECT sta.*, p.first_name, p.last_name, s.admission_no,
                    tr.name AS route_name, tr.code AS route_code
-            FROM transport_subscriptions ts
-            JOIN students s ON s.id = ts.student_id
-            JOIN transport_routes tr ON tr.id = ts.route_id
+            FROM student_transport_assignments sta
+            JOIN students s ON s.id = sta.student_id
+            JOIN persons p ON p.id = s.person_id
+            JOIN transport_routes tr ON tr.id = sta.route_id
             WHERE " . implode(' AND ', $where) . "
-            ORDER BY s.last_name, s.first_name
+            ORDER BY p.last_name, p.first_name
         ");
         foreach ($params as $k => $v) $stmt->bindValue($k, $v);
         $stmt->execute();
@@ -300,7 +354,7 @@ class TransportBillingManager
 
     private function generateBillForSubscription(int $subId, string $billingMonth): void
     {
-        $stmt = $this->db->prepare("SELECT * FROM transport_subscriptions WHERE id=:id LIMIT 1");
+        $stmt = $this->db->prepare("SELECT * FROM student_transport_assignments WHERE id=:id LIMIT 1");
         $stmt->execute([':id' => $subId]);
         $sub = $stmt->fetch(\PDO::FETCH_ASSOC);
         if (!$sub) return;
@@ -309,21 +363,27 @@ class TransportBillingManager
         $ins = $this->db->prepare("
             INSERT IGNORE INTO transport_monthly_bills
               (student_id, subscription_id, route_id, billing_month, amount_due, payment_status, due_date)
-            VALUES (:sid, :subid, :rid, :bm, :amt, 'pending', :due)
+              VALUES (:sid, :subid, :rid, :bm, :amt, 'pending', :due)
         ");
         $ins->execute([
             ':sid' => $sub['student_id'], ':subid' => $subId,
             ':rid' => $sub['route_id'],   ':bm' => $billingMonth,
-            ':amt' => $sub['monthly_fee'], ':due' => $dueDate,
+            ':amt' => $sub['expected_amount'] ?? 0, ':due' => $dueDate,
         ]);
+        $this->entitlements->ensureMonthlyEntitlement(
+            (int)$sub['student_id'], (int)$sub['id'], (int)$sub['route_id'],
+            $billingMonth, (float)($sub['expected_amount'] ?? 0), null
+        );
     }
 
     private function getSubscriptionId(int $studentId, int $routeId, string $startMonth): int
     {
+        $month = (int)date('n', strtotime($startMonth));
+        $year = (int)date('Y', strtotime($startMonth));
         $stmt = $this->db->prepare(
-            "SELECT id FROM transport_subscriptions WHERE student_id=:s AND route_id=:r AND start_month=:m LIMIT 1"
+            "SELECT id FROM student_transport_assignments WHERE student_id=:s AND route_id=:r AND month=:m AND year=:y LIMIT 1"
         );
-        $stmt->execute([':s' => $studentId, ':r' => $routeId, ':m' => $startMonth]);
+        $stmt->execute([':s' => $studentId, ':r' => $routeId, ':m' => $month, ':y' => $year]);
         return (int)($stmt->fetchColumn() ?: 0);
     }
 }

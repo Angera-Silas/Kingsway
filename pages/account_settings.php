@@ -1,0 +1,94 @@
+<?php
+/** Professional self-service account settings. */
+?>
+<style>
+    .settings-shell { max-width: 1420px; margin: 0 auto; }
+    .settings-hero { background: linear-gradient(120deg, #0f5b3b, #173d34 62%, #d3ad24); color: #fff; border: 0; overflow: hidden; }
+    .settings-hero .hero-pattern { opacity: .12; font-size: 11rem; line-height: .7; transform: rotate(-12deg); }
+    .settings-nav .nav-link { color: #52605b; text-align: left; border-radius: .65rem; padding: .7rem .85rem; font-weight: 600; }
+    .settings-nav .nav-link:hover { background: #edf6f1; color: #0f5b3b; }
+    .settings-nav .nav-link.active { background: #0f5b3b; color: #fff; box-shadow: 0 5px 14px rgba(15,91,59,.18); }
+    .settings-nav .nav-link i { width: 1.35rem; }
+    .settings-section { scroll-margin-top: 1rem; }
+    .settings-tile { border: 1px solid #e8eeeb; transition: transform .18s, box-shadow .18s; }
+    .settings-tile:hover { transform: translateY(-2px); box-shadow: 0 .5rem 1.2rem rgba(20,45,35,.08)!important; }
+    .settings-icon { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; font-size: 1.2rem; }
+    .settings-muted { color: #6b7a74; }
+    .security-score { height: 8px; }
+    @media (max-width: 767.98px) { .settings-nav { display:flex; overflow:auto; flex-wrap:nowrap; gap:.35rem; padding-bottom:.5rem; } .settings-nav .nav-link { white-space:nowrap; } .settings-nav .nav-link span { display:none; } }
+</style>
+
+<div class="container-fluid px-3 px-lg-4 py-3" id="accountSettingsPage">
+    <div class="settings-shell">
+        <div class="card settings-hero shadow-sm mb-4">
+            <div class="card-body position-relative p-4 p-lg-5">
+                <div class="position-absolute end-0 bottom-0 hero-pattern"><i class="bi bi-sliders2"></i></div>
+                <div class="position-relative d-flex flex-wrap justify-content-between align-items-center gap-4">
+                    <div class="d-flex align-items-center gap-3">
+                        <div id="settings-avatar" class="rounded-circle bg-white text-success d-flex align-items-center justify-content-center fw-bold" style="width:76px;height:76px;font-size:1.8rem">U</div>
+                        <div><p class="text-white-50 small mb-1">Account centre</p><h1 class="h3 mb-1" id="settings-name">Your account</h1><p class="mb-0 text-white-50" id="settings-email">Loading account details…</p></div>
+                    </div>
+                    <div class="text-lg-end"><span class="badge rounded-pill bg-light text-success px-3 py-2" id="settings-role">Staff account</span><p class="small text-white-50 mt-2 mb-0">Manage your profile, sign-in and privacy</p></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 align-items-start">
+            <aside class="col-lg-3 col-xl-2">
+                <div class="card border-0 shadow-sm sticky-lg-top" style="top:1rem">
+                    <div class="card-body p-2 settings-nav nav flex-lg-column" role="tablist">
+                        <button class="nav-link active" data-settings-target="overview" type="button"><i class="bi bi-grid-1x2"></i><span>Overview</span></button>
+                        <button class="nav-link" data-settings-target="profile" type="button"><i class="bi bi-person"></i><span>My profile</span></button>
+                        <button class="nav-link" data-settings-target="security" type="button"><i class="bi bi-shield-lock"></i><span>Security</span></button>
+                        <button class="nav-link" data-settings-target="privacy" type="button"><i class="bi bi-fingerprint"></i><span>Privacy centre</span></button>
+                        <button class="nav-link" data-settings-target="legal" type="button"><i class="bi bi-file-earmark-text"></i><span>Terms & policies</span></button>
+                        <hr class="my-2 d-none d-lg-block">
+                        <button class="nav-link text-danger" id="settings-signout" type="button"><i class="bi bi-box-arrow-right"></i><span>Sign out</span></button>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="col-lg-9 col-xl-10">
+                <section class="settings-section" data-settings-section="overview">
+                    <div class="d-flex justify-content-between align-items-end mb-3"><div><h2 class="h4 mb-1">Good to see you</h2><p class="settings-muted mb-0">A quick view of your account health and important actions.</p></div></div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-4"><div class="card settings-tile shadow-sm h-100"><div class="card-body"><div class="settings-icon bg-success-subtle text-success mb-3"><i class="bi bi-person-check"></i></div><h3 class="h6">Profile</h3><p class="small settings-muted mb-3">Keep your contact details current for school communication.</p><button class="btn btn-sm btn-outline-success" data-settings-target="profile">View profile</button></div></div></div>
+                        <div class="col-md-4"><div class="card settings-tile shadow-sm h-100"><div class="card-body"><div class="settings-icon bg-primary-subtle text-primary mb-3"><i class="bi bi-shield-check"></i></div><h3 class="h6">Sign-in security</h3><p class="small settings-muted mb-2">Password, MFA, passkeys and recovery options.</p><span class="badge bg-secondary" id="overview-security-badge">Checking…</span><button class="btn btn-sm btn-outline-primary d-block mt-3" data-settings-target="security">Manage security</button></div></div></div>
+                        <div class="col-md-4"><div class="card settings-tile shadow-sm h-100"><div class="card-body"><div class="settings-icon bg-warning-subtle text-warning mb-3"><i class="bi bi-fingerprint"></i></div><h3 class="h6">Privacy centre</h3><p class="small settings-muted mb-3">Understand how account and activity data is protected.</p><button class="btn btn-sm btn-outline-warning" data-settings-target="privacy">Review privacy</button></div></div></div>
+                    </div>
+                    <div class="card border-0 shadow-sm"><div class="card-body p-4"><h3 class="h6 mb-3">Account information</h3><div class="row g-3 small"><div class="col-md-4"><span class="settings-muted d-block">Name</span><strong id="settings-name-2">—</strong></div><div class="col-md-4"><span class="settings-muted d-block">Email</span><strong id="settings-email-2">—</strong></div><div class="col-md-4"><span class="settings-muted d-block">Phone</span><strong id="settings-phone">—</strong></div></div></div></div>
+                </section>
+
+                <section class="settings-section d-none" data-settings-section="profile">
+                    <div class="mb-3"><h2 class="h4 mb-1">My profile</h2><p class="settings-muted mb-0">Your identity and contact information used by the school.</p></div>
+                    <div class="card border-0 shadow-sm"><div class="card-body p-4"><div class="alert alert-info border-0 small"><i class="bi bi-info-circle me-2"></i>Official staff identity details are managed through the school administration workflow. Contact the administrator if a detail needs correction.</div><div class="row g-4"><div class="col-md-6"><label class="form-label small settings-muted">Full name</label><div class="form-control bg-light" id="profile-full-name">—</div></div><div class="col-md-6"><label class="form-label small settings-muted">Username</label><div class="form-control bg-light" id="profile-username">—</div></div><div class="col-md-6"><label class="form-label small settings-muted">Email address</label><div class="form-control bg-light" id="profile-email">—</div></div><div class="col-md-6"><label class="form-label small settings-muted">Phone number</label><div class="form-control bg-light" id="profile-phone">—</div></div><div class="col-md-6"><label class="form-label small settings-muted">Role</label><div class="form-control bg-light" id="profile-role">—</div></div></div></div></div>
+                </section>
+
+                <section class="settings-section d-none" data-settings-section="security">
+                    <div class="mb-3"><h2 class="h4 mb-1">Security</h2><p class="settings-muted mb-0">Protect your account and choose how you verify sign-ins.</p></div>
+                    <div class="card border-0 shadow-sm mb-3"><div class="card-body p-4"><div class="d-flex justify-content-between gap-3"><div><h3 class="h6 mb-1"><i class="bi bi-key text-primary me-2"></i>Password</h3><p class="small settings-muted mb-0">Use a unique password and update it regularly.</p></div><button class="btn btn-outline-primary btn-sm" id="openPasswordModal"><i class="bi bi-pencil me-1"></i>Change password</button></div></div></div>
+                    <div class="card border-0 shadow-sm mb-3" id="mfa-card"><div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between align-items-center"><div><h3 class="h6 mb-1"><i class="bi bi-shield-lock text-success me-2"></i>Multi-factor authentication</h3><p class="small settings-muted mb-0">SMS and email are convenient defaults. Add an authenticator, WhatsApp or passkey as another option.</p></div><span id="tfa-status-badge" class="badge bg-secondary">Loading…</span></div><div class="card-body p-4"><div class="d-flex flex-wrap align-items-center gap-2 mb-3 small"><span class="settings-muted">Enabled methods:</span><strong id="tfa-method">—</strong></div><div id="tfa-setup-section"><div class="row g-2"><div class="col-sm-6 col-xl-3"><button class="btn btn-outline-primary w-100" id="tfa-setup-totp"><i class="bi bi-phone me-1"></i>Authenticator</button></div><div class="col-sm-6 col-xl-3"><button class="btn btn-outline-primary w-100" id="tfa-setup-email"><i class="bi bi-envelope me-1"></i>Email OTP</button></div><div class="col-sm-6 col-xl-3"><button class="btn btn-outline-primary w-100" id="tfa-setup-sms"><i class="bi bi-chat-dots me-1"></i>SMS OTP</button></div><div class="col-sm-6 col-xl-3"><button class="btn btn-outline-success w-100" id="tfa-setup-whatsapp"><i class="bi bi-whatsapp me-1"></i>WhatsApp OTP</button></div></div></div><div id="tfa-manage-section" class="d-none"><div id="tfa-passkeys-list" class="alert alert-light small"></div><button class="btn btn-outline-dark btn-sm me-2" id="tfa-setup-passkey"><i class="bi bi-person-badge me-1"></i>Add passkey</button><button class="btn btn-outline-danger btn-sm" id="tfa-disable-btn"><i class="bi bi-shield-slash me-1"></i>Disable MFA</button></div><div id="tfa-verify-section" class="d-none mt-4 pt-4 border-top"><div id="tfa-qr-container" class="d-none mb-3"><p class="small settings-muted">Scan with Google Authenticator, Microsoft Authenticator or another TOTP app.</p><img id="tfa-qr-img" class="border rounded p-2" src="" alt="Authenticator setup QR" style="width:180px;height:180px"><p class="small mt-2 mb-0">Manual key: <code id="tfa-secret-display" class="user-select-all"></code></p></div><div class="input-group" style="max-width:420px"><input class="form-control" id="tfa-verify-code-input" placeholder="Enter verification code" inputmode="numeric" autocomplete="one-time-code"><button class="btn btn-primary" id="tfa-verify-code-btn">Verify & enable</button></div></div></div></div>
+                    <div id="tfa-backup-section" class="card border-0 shadow-sm d-none"><div class="card-header bg-white border-0 pt-4 px-4 d-flex justify-content-between"><div><h3 class="h6 mb-1"><i class="bi bi-life-preserver text-warning me-2"></i>Recovery codes</h3><p class="small settings-muted mb-0">Single-use codes for when you cannot access your usual verification method.</p></div><button class="btn btn-outline-warning btn-sm" id="tfa-backup-generate-btn">Generate new</button></div><div class="card-body px-4 pb-4"><div id="tfa-backup-codes-display" class="d-none"></div></div></div>
+                </section>
+
+                <section class="settings-section d-none" data-settings-section="privacy">
+                    <div class="mb-3"><h2 class="h4 mb-1">Privacy centre</h2><p class="settings-muted mb-0">Clear information about the data used to operate your account.</p></div>
+                    <div class="row g-3"><div class="col-md-6"><div class="card settings-tile shadow-sm h-100"><div class="card-body p-4"><div class="settings-icon bg-success-subtle text-success mb-3"><i class="bi bi-lock"></i></div><h3 class="h6">Account protection</h3><p class="small settings-muted">Passwords, OTPs, authenticator secrets and passkeys are used only to protect access. Never share verification codes.</p><button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#privacyDetailsModal">How we protect data</button></div></div></div><div class="col-md-6"><div class="card settings-tile shadow-sm h-100"><div class="card-body p-4"><div class="settings-icon bg-info-subtle text-info mb-3"><i class="bi bi-clock-history"></i></div><h3 class="h6">Activity and sessions</h3><p class="small settings-muted">Review account activity and sign out from sessions through the security administration page.</p><a class="btn btn-sm btn-outline-info" href="home.php?route=active_sessions">Review sessions</a></div></div></div></div>
+                </section>
+
+                <section class="settings-section d-none" data-settings-section="legal">
+                    <div class="mb-3"><h2 class="h4 mb-1">Terms & policies</h2><p class="settings-muted mb-0">The rules and notices that govern use of Kingsway Academy systems.</p></div>
+                    <div class="list-group shadow-sm"><button class="list-group-item list-group-item-action p-4" data-bs-toggle="modal" data-bs-target="#termsModal"><i class="bi bi-file-earmark-check text-success fs-4 me-3"></i><strong>Terms of service</strong><span class="d-block small settings-muted ms-5">Acceptable use, responsibilities and account access.</span></button><button class="list-group-item list-group-item-action p-4" data-bs-toggle="modal" data-bs-target="#privacyDetailsModal"><i class="bi bi-shield-check text-primary fs-4 me-3"></i><strong>Privacy notice</strong><span class="d-block small settings-muted ms-5">How personal and operational data is handled.</span></button></div>
+                </section>
+            </main>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="passwordModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form id="passwordChangeForm" autocomplete="off"><div class="modal-header"><h5 class="modal-title"><i class="bi bi-key text-primary me-2"></i>Change password</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="small settings-muted">Enter your current password, then choose a strong new password.</p><div class="mb-3"><label class="form-label" for="settings-current-password">Current password</label><input type="password" class="form-control" id="settings-current-password" required autocomplete="current-password"></div><div class="mb-3"><label class="form-label" for="settings-new-password">New password</label><input type="password" class="form-control" id="settings-new-password" required minlength="8" autocomplete="new-password"><div class="form-text">Use at least 8 characters.</div></div><div><label class="form-label" for="settings-confirm-password">Confirm new password</label><input type="password" class="form-control" id="settings-confirm-password" required autocomplete="new-password"></div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-primary" id="settings-password-btn">Update password</button></div></form></div></div></div>
+<div class="modal fade" id="reauthModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Confirm your identity</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="small settings-muted">Enter your current password before changing security settings.</p><input type="password" class="form-control" id="reauth-password" autocomplete="current-password" placeholder="Current password"></div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="reauth-confirm">Continue</button></div></div></div></div>
+<div class="modal fade" id="tfaDisableModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Disable MFA</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="small settings-muted">For your protection, confirm your password and current verification code.</p><input type="password" class="form-control mb-3" id="tfa-disable-password" placeholder="Password"><input type="text" class="form-control" id="tfa-disable-code" placeholder="Current MFA code" inputmode="numeric"></div><div class="modal-footer"><button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger" id="tfa-confirm-disable-btn">Disable MFA</button></div></div></div></div>
+<div class="modal fade" id="privacyDetailsModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Privacy notice</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body small"><p>We use account identity, contact details, authentication events and audit records to provide secure school services.</p><p>Security credentials such as passwords, recovery codes and authenticator secrets must never be displayed or shared. Delivery and activity records are restricted to authorized school roles.</p><p class="mb-0 text-muted">For correction or access requests, contact the school administrator.</p></div></div></div></div>
+<div class="modal fade" id="termsModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Terms of service</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body small"><p>Use this system only for authorized school work. Keep credentials private, verify recipients before sending information, and report suspected account compromise immediately.</p><p class="mb-0 text-muted">The school may audit activity to protect learners, families and staff.</p></div></div></div></div>
+
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/account_settings.js?v=<?= asset_version('js/pages/account_settings.js') ?>"></script>

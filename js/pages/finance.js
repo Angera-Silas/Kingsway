@@ -16,15 +16,14 @@ const financeController = {
      * Initialize controller
      */
     init: async function() {
+        if (window.AuthContext?.ready) await window.AuthContext.ready();
         try {
-            console.log('Loading finance data...');
             await Promise.all([
                 this.loadPayments(),
                 this.loadPayrolls(),
                 this.loadFeesStructure()
             ]);
             this.checkUserPermissions();
-            console.log('Finance management loaded successfully');
         } catch (error) {
             console.error('Error initializing finance controller:', error);
             showNotification('Failed to load finance management', 'error');
@@ -136,11 +135,11 @@ const financeController = {
     recordPayment: async function() {
         try {
             const data = {
-                student_id: prompt('Student ID:'),
-                amount: parseFloat(prompt('Amount:')),
-                payment_type: prompt('Type (Fees/Transport/Boarding/Other):'),
-                payment_method: prompt('Method (Cash/M-Pesa/Bank):'),
-                reference_no: prompt('Reference Number:')
+                student_id: await window.promptAction('Input', 'Student ID:'),
+                amount: parseFloat(await window.promptAction('Input', 'Amount:')),
+                payment_type: await window.promptAction('Input', 'Type (Fees/Transport/Boarding/Other):'),
+                payment_method: await window.promptAction('Input', 'Method (Cash/M-Pesa/Bank):'),
+                reference_no: await window.promptAction('Input', 'Reference Number:')
             };
 
             await API.finance.recordPayment(data);
@@ -158,7 +157,7 @@ const financeController = {
     viewPayment: async function(paymentId) {
         try {
             const payment = await API.finance.get(paymentId);
-            alert(`Payment Details:\n\nReceipt: ${payment.receipt_no}\nStudent: ${payment.student_name}\nAmount: KES ${payment.amount}\nMethod: ${payment.payment_method}\nDate: ${payment.payment_date}\nStatus: ${payment.status}`);
+            await window.infoDialog('Notice', `Payment Details:\n\nReceipt: ${payment.receipt_no}\nStudent: ${payment.student_name}\nAmount: KES ${payment.amount}\nMethod: ${payment.payment_method}\nDate: ${payment.payment_date}\nStatus: ${payment.status}`);
         } catch (error) {
             console.error('Error loading payment:', error);
             showNotification('Failed to load payment details', 'error');
@@ -221,9 +220,9 @@ const financeController = {
     createDraftPayroll: async function() {
         try {
             const data = {
-                payroll_month: prompt('Month (1-12):'),
-                payroll_year: prompt('Year:'),
-                description: prompt('Description:')
+                payroll_month: await window.promptAction('Input', 'Month (1-12):'),
+                payroll_year: await window.promptAction('Input', 'Year:'),
+                description: await window.promptAction('Input', 'Description:')
             };
 
             const response = await API.finance.createDraftPayroll(data);
@@ -270,7 +269,7 @@ const financeController = {
      * Approve payroll
      */
     approvePayroll: async function(payrollId) {
-        if (!confirm('Approve this payroll for processing?')) return;
+        if (!(await window.confirmAction('Confirm', 'Approve this payroll for processing?'))) return;
 
         try {
             await API.finance.approvePayroll({
@@ -289,7 +288,7 @@ const financeController = {
      * Process payroll
      */
     processPayroll: async function(payrollId) {
-        if (!confirm('Process this payroll? This will initiate payments.')) return;
+        if (!(await window.confirmAction('Confirm', 'Process this payroll? This will initiate payments.'))) return;
 
         try {
             await API.finance.processPayroll({ payroll_id: payrollId });
@@ -315,7 +314,7 @@ const financeController = {
             message += `Net Amount: KES ${this.formatCurrency(summary.net_amount)}\n`;
             message += `Status: ${summary.status}\n`;
             
-            alert(message);
+            await window.infoDialog('Notice', message);
         } catch (error) {
             console.error('Error loading payroll summary:', error);
             showNotification('Failed to load payroll summary', 'error');
@@ -328,8 +327,8 @@ const financeController = {
     generatePayrollReport: async function() {
         try {
             const data = {
-                month: prompt('Month (1-12):'),
-                year: prompt('Year:')
+                month: await window.promptAction('Input', 'Month (1-12):'),
+                year: await window.promptAction('Input', 'Year:')
             };
 
             const response = await API.finance.generatePayrollReport(data);
@@ -367,11 +366,11 @@ const financeController = {
     createFeesStructure: async function() {
         try {
             const data = {
-                academic_year: prompt('Academic Year:'),
-                class_id: prompt('Class ID:'),
-                tuition_fee: parseFloat(prompt('Tuition Fee:')),
-                boarding_fee: parseFloat(prompt('Boarding Fee (optional):')) || 0,
-                transport_fee: parseFloat(prompt('Transport Fee (optional):')) || 0
+                academic_year: await window.promptAction('Input', 'Academic Year:'),
+                class_id: await window.promptAction('Input', 'Class ID:'),
+                tuition_fee: parseFloat(await window.promptAction('Input', 'Tuition Fee:')),
+                boarding_fee: parseFloat(await window.promptAction('Input', 'Boarding Fee (optional):')) || 0,
+                transport_fee: parseFloat(await window.promptAction('Input', 'Transport Fee (optional):')) || 0
             };
 
             await API.finance.createAnnualStructure(data);
@@ -424,10 +423,10 @@ const financeController = {
     proposeBudget: async function() {
         try {
             const data = {
-                department: prompt('Department:'),
-                fiscal_year: prompt('Fiscal Year:'),
-                amount: parseFloat(prompt('Budget Amount:')),
-                description: prompt('Description:')
+                department: await window.promptAction('Input', 'Department:'),
+                fiscal_year: await window.promptAction('Input', 'Fiscal Year:'),
+                amount: parseFloat(await window.promptAction('Input', 'Budget Amount:')),
+                description: await window.promptAction('Input', 'Description:')
             };
 
             await API.finance.proposeBudget(data);
@@ -460,9 +459,9 @@ const financeController = {
     requestFunds: async function() {
         try {
             const data = {
-                department: prompt('Department:'),
-                amount: parseFloat(prompt('Amount:')),
-                purpose: prompt('Purpose:')
+                department: await window.promptAction('Input', 'Department:'),
+                amount: parseFloat(await window.promptAction('Input', 'Amount:')),
+                purpose: await window.promptAction('Input', 'Purpose:')
             };
 
             await API.finance.requestFunds(data);
@@ -488,7 +487,7 @@ const financeController = {
             message += `Total Outstanding: KES ${this.formatCurrency(response.total_outstanding)}\n`;
             message += `Number of Students: ${response.student_count || 0}\n`;
             
-            alert(message);
+            await window.infoDialog('Notice', message);
         } catch (error) {
             console.error('Error loading outstanding fees:', error);
             showNotification('Failed to load outstanding fees', 'error');
@@ -509,7 +508,7 @@ const financeController = {
                 });
             }
             
-            alert(message);
+            await window.infoDialog('Notice', message);
         } catch (error) {
             console.error('Error comparing collections:', error);
             showNotification('Failed to compare yearly collections', 'error');
@@ -542,12 +541,9 @@ const financeController = {
      * Check user permissions
      */
     checkUserPermissions: function() {
-        const currentUser = AuthContext.getUser();
-        if (!currentUser || !currentUser.permissions) return;
-
         document.querySelectorAll('[data-permission]').forEach(btn => {
             const requiredPerm = btn.getAttribute('data-permission');
-            if (!currentUser.permissions.includes(requiredPerm)) {
+            if (!window.AuthContext?.hasPermission?.(requiredPerm)) {
                 btn.style.display = 'none';
             }
         });
@@ -556,8 +552,8 @@ const financeController = {
     /**
      * Show quick actions
      */
-    showQuickActions: function() {
-        alert('Quick Actions:\n1. Record Payment\n2. Create Payroll\n3. View Outstanding Fees\n4. Generate Reports\n5. Propose Budget');
+    showQuickActions: async function() {
+        await window.infoDialog('Notice', 'Quick Actions:\n1. Record Payment\n2. Create Payroll\n3. View Outstanding Fees\n4. Generate Reports\n5. Propose Budget');
     },
 
     /**
@@ -1193,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         rejectExpense: async function (expenseId) {
             if (!expenseId) return;
-            const reason = prompt("Reason for rejection:");
+            const reason = await window.promptAction('Input', "Reason for rejection:");
             if (reason === null) return;
             const response = await this.safeCall(API.finance.rejectExpense(expenseId, reason));
             if (response) {
@@ -1203,7 +1199,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
-        viewTransaction: function (source, id) {
+        viewTransaction: async function (source, id) {
             const record = this.transactions.find(t => t.source === source && t.id === id);
             if (!record) return;
             const message = [
@@ -1213,7 +1209,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `Date: ${this.formatDate(record.date)}`,
                 `Status: ${record.status}`
             ].join("\n");
-            alert(message);
+            await window.infoDialog('Notice', message);
         },
 
         exportReport: function () {
@@ -1478,7 +1474,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return await this.lookupStudentId(admission);
             }
 
-            const promptValue = prompt("Enter student admission number to load fee details:");
+            const promptValue = await window.promptAction('Input', "Enter student admission number to load fee details:");
             if (!promptValue) return null;
             return await this.lookupStudentId(promptValue.trim());
         },
@@ -1604,11 +1600,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }[m]));
         },
 
-        notify: function (message, type = "info") {
+        notify: async function (message, type = "info") {
             if (typeof showNotification === "function") {
                 showNotification(message, type);
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
         },
 

@@ -50,7 +50,7 @@ const generateClassReportCtrl = (() => {
     async function loadYears() {
         try {
             const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
+            state.years = response || [];
             const select = document.getElementById('yearFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Years</option>';
@@ -70,7 +70,7 @@ const generateClassReportCtrl = (() => {
     async function loadTerms() {
         try {
             const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
+            state.terms = response || [];
             const select = document.getElementById('termFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Terms</option>';
@@ -90,17 +90,17 @@ const generateClassReportCtrl = (() => {
     async function loadClasses() {
         try {
             // Load only classes assigned to this teacher
-            const response = await apiCall('academic/classes-list', 'GET', {
+            const response = await apiCall('academic/classes-list', 'GET', null, {
                 class_teacher_only: true
             });
-            state.classes = response.data || [];
+            state.classes = response || [];
             const select = document.getElementById('classFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Classes</option>';
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.class_name;
+                    option.textContent = cls.name || cls.class_name;
                     select.appendChild(option);
                 });
             }
@@ -131,7 +131,7 @@ const generateClassReportCtrl = (() => {
             generateBtn.textContent = 'Generating...';
 
             // Get report data from API
-            const response = await apiCall('academic/reports', 'GET', {
+            const response = await apiCall('academic/reports', 'GET', null, {
                 report_type: reportType,
                 year_id: yearId,
                 term_id: termId,
@@ -139,7 +139,7 @@ const generateClassReportCtrl = (() => {
                 class_teacher_only: true
             });
 
-            const reportData = response.data || {};
+            const reportData = response || {};
 
             // Use PrintManager to generate report
             if (window.PrintManager) {
@@ -211,6 +211,7 @@ const generateClassReportCtrl = (() => {
     }
 
     async function init() {
+        await window.AuthContext?.ready();
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
@@ -219,7 +220,6 @@ const generateClassReportCtrl = (() => {
         // Initialize Academic Context if available
         if (window.AcademicContext) {
             window.AcademicContext.subscribe((context, event, data) => {
-                console.log('AcademicContext changed in generate_class_report:', event, data);
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     loadYears();
                     loadTerms();

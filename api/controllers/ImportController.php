@@ -50,17 +50,17 @@ class ImportController extends BaseController
         $file = $_FILES['file'] ?? null;
 
         if (!$type) {
-            return $this->error('Import type is required', 400);
+            return $this->badRequest('Import type is required');
         }
         if (!$file || $file['error'] !== UPLOAD_ERR_OK) {
-            return $this->error('No file uploaded or upload error', 400);
+            return $this->badRequest('No file uploaded or upload error');
         }
 
         try {
             $result = $this->importer->preview($type, $file);
             return $this->success($result, 'Preview generated');
         } catch (Exception $e) {
-            return $this->error($e->getMessage(), 422);
+            return $this->error($e->getMessage(), null, 422);
         }
     }
 
@@ -83,14 +83,14 @@ class ImportController extends BaseController
         try {
             $result = $this->importer->execute($type, $file, $userId);
             $code   = $result['status'] === 'failed' ? 422 : 200;
-            return $this->formatResponse(
-                $result['status'] === 'completed' ? 'success' : 'partial',
+            return $this->respond(
                 $result,
                 "Import {$result['status']}: {$result['success_rows']} rows imported",
-                $code
+                $code,
+                $result['status'] === 'completed'
             );
         } catch (Exception $e) {
-            return $this->error($e->getMessage(), 500);
+            return $this->error($e->getMessage(), null, 500);
         }
     }
 
@@ -127,7 +127,7 @@ class ImportController extends BaseController
             $logs  = $this->importer->getLogs($limit);
             return $this->success($logs, 'Import logs loaded');
         } catch (Exception $e) {
-            return $this->error($e->getMessage(), 500);
+            return $this->error($e->getMessage(), null, 500);
         }
     }
 
@@ -136,13 +136,13 @@ class ImportController extends BaseController
     {
         $this->requirePermission(['import_data', 'data_import', 'admin', 'system_admin']);
         $logId = (int)($id ?? $segments[0] ?? 0);
-        if (!$logId) return $this->error('Log ID required', 400);
+        if (!$logId) return $this->error('Log ID required', null, 400);
 
         try {
             $log = $this->importer->getLog($logId);
-            return $log ? $this->success($log) : $this->error('Not found', 404);
+            return $log ? $this->success($log) : $this->error('Not found', null, 404);
         } catch (Exception $e) {
-            return $this->error($e->getMessage(), 500);
+            return $this->error($e->getMessage(), null, 500);
         }
     }
 
@@ -168,11 +168,5 @@ class ImportController extends BaseController
         }
         http_response_code(403);
         throw new Exception('Insufficient permissions for data import');
-    }
-
-    private function error(string $msg, int $code = 400): array
-    {
-        http_response_code($code);
-        return $this->formatResponse('error', null, $msg, $code);
     }
 }

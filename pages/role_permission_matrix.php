@@ -11,7 +11,7 @@
             <p class="text-muted mb-0">Review, assign and revoke permissions for each role.</p>
         </div>
         <button type="button" class="btn btn-outline-secondary" id="refreshRolePermissionMatrixBtn">
-            <i class="fas fa-sync-alt me-1"></i> Refresh
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
         </button>
     </div>
 
@@ -66,11 +66,11 @@
                 <thead>
                     <tr>
                         <th style="width: 90px">Assigned</th>
-                        <th>Permission</th>
-                        <th>Module</th>
-                        <th>Entity</th>
-                        <th>Action</th>
-                        <th>Description</th>
+                        <th scope="col">Permission</th>
+                        <th scope="col">Module</th>
+                        <th scope="col">Entity</th>
+                        <th scope="col">Action</th>
+                        <th scope="col">Description</th>
                     </tr>
                 </thead>
                 <tbody id="rolePermissionMatrixBody">

@@ -305,6 +305,42 @@ body {
     vertical-align: top;
 }
 
+/*
+ * Payroll is the deliberately wide report. Keep the reusable header/footer,
+ * but use a compact landscape table so every persisted payroll field remains
+ * readable without forcing words to break in the middle.
+ */
+.payroll-report .print-table {
+    font-size: 5.5pt;
+    line-height: 1.1;
+}
+
+.payroll-report .print-table th,
+.payroll-report .print-table td,
+.payroll-report .print-table-cell {
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+}
+
+.payroll-report .print-table th,
+.payroll-report .print-column-header {
+    padding: 1mm 0.7mm;
+    font-size: 5pt;
+    line-height: 1.05;
+    white-space: normal;
+}
+
+.payroll-report .print-table td,
+.payroll-report .print-table-cell {
+    padding: 0.9mm 0.7mm;
+}
+
+.payroll-report .print-cell-currency {
+    font-size: 5.1pt;
+    white-space: nowrap;
+}
+
 .print-row-even td {
     background: #f1f6f3;
 }

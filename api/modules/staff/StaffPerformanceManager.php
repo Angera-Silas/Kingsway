@@ -48,12 +48,14 @@ class StaffPerformanceManager extends BaseAPI
             // Get staff details
             $stmt = $this->db->prepare("
                 SELECT s.*, st.name as staff_type, sc.category_name, d.name as department_name,
-                       CONCAT(sup.first_name, ' ', sup.last_name) as supervisor_name
+                       CONCAT(sp.first_name, ' ', sp.last_name) as supervisor_name
                 FROM staff s
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff sup ON s.supervisor_id = sup.id
+                LEFT JOIN persons sp ON sp.id = sup.person_id
                 WHERE s.id = ? AND s.status = 'active'
             ");
             $stmt->execute([$data['staff_id']]);
@@ -64,40 +66,44 @@ class StaffPerformanceManager extends BaseAPI
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
-            // Check for existing review
+            // Check for existing review. academic_year_id no longer exists on
+            // performance_reviews; period is UNIQUE per staff (uk_perf_staff_period),
+            // so any existing row for the same period blocks a second one.
             $stmt = $this->db->prepare("
-                SELECT * FROM staff_performance_reviews
-                WHERE staff_id = ? AND academic_year_id = ? AND review_period = ?
-                AND status NOT IN ('completed', 'cancelled')
+                SELECT id FROM performance_reviews
+                WHERE staff_id = ? AND period = ?
+                LIMIT 1
             ");
-            $stmt->execute([$data['staff_id'], $data['academic_year_id'], $data['review_period']]);
+            $stmt->execute([$data['staff_id'], $data['review_period']]);
             if ($stmt->fetch()) {
                 $this->db->rollBack();
-                return formatResponse(false, null, 'Active review already exists for this period');
+                return formatResponse(false, null, 'A review already exists for this period');
             }
 
-            // Create review
-            $sql = "INSERT INTO staff_performance_reviews (
-                staff_id, academic_year_id, review_period, reviewer_id,
-                review_date, status, overall_rating, comments
-            ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)";
+            // Create review. The id is MANUAL on performance_reviews (no
+            // AUTO_INCREMENT); review_period maps to period, reviewer_id to
+            // reviewed_by, overall_rating to rating, comments to notes, and the
+            // legacy 'pending' status maps to the live 'draft' enum.
+            $reviewId = $this->nextReviewId();
+            $sql = "INSERT INTO performance_reviews (
+                id, staff_id, period, rating, reviewed_by,
+                review_date, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $reviewId,
                 $data['staff_id'],
-                $data['academic_year_id'],
                 $data['review_period'],
+                $data['overall_rating'] ?? null,
                 $data['reviewer_id'],
                 $data['review_date'] ?? date('Y-m-d'),
-                $data['overall_rating'] ?? null,
                 $data['comments'] ?? null
             ]);
 
-            $reviewId = $this->db->lastInsertId();
-
             // Auto-populate KPIs from templates based on staff category
-            if ($staff['staff_category_id'] && $staff['kpi_applicable']) {
-                $this->populateKPIsFromTemplates($reviewId, $staff['staff_category_id']);
+            if (!empty($staff['staff_category_id'])) {
+                $this->populateKPIsFromTemplates($reviewId, (int)$staff['staff_category_id']);
             }
 
             $this->db->commit();
@@ -129,11 +135,13 @@ class StaffPerformanceManager extends BaseAPI
      */
     private function populateKPIsFromTemplates($reviewId, $categoryId)
     {
-        // Get KPI templates for the category
+        // Get KPI templates for the category. staff_kpi_templates has no
+        // kpi_category column (weight is weight_percentage).
         $stmt = $this->db->prepare("
-            SELECT * FROM staff_kpi_templates
+            SELECT id, kpi_name, target_value, weight_percentage
+            FROM staff_kpi_templates
             WHERE staff_category_id = ? AND is_active = 1
-            ORDER BY kpi_category, kpi_name
+            ORDER BY kpi_name
         ");
         $stmt->execute([$categoryId]);
         $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -142,21 +150,19 @@ class StaffPerformanceManager extends BaseAPI
             return;
         }
 
-        // Insert KPIs for the review
+        // performance_review_kpis stores kpi_name/kpi_category via the template
+        // link (kpi_template_id), not as columns.
         $sql = "INSERT INTO performance_review_kpis (
-            review_id, kpi_template_id, kpi_name, kpi_category,
-            target_value, weight, status
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')";
+            review_id, kpi_template_id, target_value, weight, status
+        ) VALUES (?, ?, ?, ?, 'pending')";
 
         $stmt = $this->db->prepare($sql);
         foreach ($templates as $template) {
             $stmt->execute([
                 $reviewId,
                 $template['id'],
-                $template['kpi_name'],
-                $template['kpi_category'],
                 $template['target_value'] ?? null,
-                $template['weight'] ?? 1.0
+                $template['weight_percentage'] ?? 0.0
             ]);
         }
     }
@@ -185,15 +191,9 @@ class StaffPerformanceManager extends BaseAPI
                 $params[] = $data['score'];
             }
 
-            if (isset($data['rating'])) {
-                $validRatings = ['exceeds', 'meets', 'partially_meets', 'does_not_meet'];
-                if (!in_array($data['rating'], $validRatings)) {
-                    $this->db->rollBack();
-                    return formatResponse(false, null, 'Invalid rating. Must be: ' . implode(', ', $validRatings));
-                }
-                $updates[] = "rating = ?";
-                $params[] = $data['rating'];
-            }
+            // NOTE: performance_review_kpis has no rating column (per-KPI rating is
+            // derived from score — see ratingFromScore()). A legacy 'rating' payload
+            // is accepted but ignored so callers do not break.
 
             if (isset($data['comments'])) {
                 $updates[] = "comments = ?";
@@ -239,21 +239,23 @@ class StaffPerformanceManager extends BaseAPI
     public function getKPISummary($reviewId)
     {
         try {
-            // Get review details
+            // Get review details. academic_year_id is gone from performance_reviews,
+            // so the academic_years join is dropped (period carries the context).
             $stmt = $this->db->prepare("
-                SELECT spr.*, 
-                       s.staff_no, s.first_name, s.last_name, s.position,
+                SELECT pr.*,
+                       s.staff_no, p.first_name, p.last_name, s.position,
                        st.name as staff_type, sc.category_name, d.name as department_name,
-                       ay.year_name,
-                       CONCAT(reviewer.first_name, ' ', reviewer.last_name) as reviewer_name
-                FROM staff_performance_reviews spr
-                JOIN staff s ON spr.staff_id = s.id
+                       CONCAT(rp.first_name, ' ', rp.last_name) as reviewer_name
+                FROM performance_reviews pr
+                JOIN staff s ON pr.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
-                JOIN academic_years ay ON spr.academic_year_id = ay.id
-                LEFT JOIN users reviewer ON spr.reviewer_id = reviewer.id
-                WHERE spr.id = ?
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
+                LEFT JOIN users reviewer ON pr.reviewed_by = reviewer.id
+                LEFT JOIN persons rp ON rp.id = reviewer.person_id
+                WHERE pr.id = ?
             ");
             $stmt->execute([$reviewId]);
             $review = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -262,15 +264,19 @@ class StaffPerformanceManager extends BaseAPI
                 return formatResponse(false, null, 'Performance review not found');
             }
 
-            // Get all KPIs
+            // Get all KPIs. kpi_name/kpi_category no longer live on
+            // performance_review_kpis — they come from the linked template. There is
+            // no category column anywhere, so KPIs are grouped under 'general'.
             $stmt = $this->db->prepare("
                 SELECT prk.*,
+                       skt.kpi_name,
+                       'general' AS kpi_category,
                        skt.description as kpi_description,
                        skt.measurement_criteria
                 FROM performance_review_kpis prk
                 LEFT JOIN staff_kpi_templates skt ON prk.kpi_template_id = skt.id
                 WHERE prk.review_id = ?
-                ORDER BY prk.kpi_category, prk.kpi_name
+                ORDER BY skt.kpi_name, prk.id
             ");
             $stmt->execute([$reviewId]);
             $kpis = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -415,15 +421,17 @@ class StaffPerformanceManager extends BaseAPI
             $overallScore = $result['overall_score'] ?? 0;
             $performanceGrade = $this->formatPerformanceGrade($result['performance_grade'] ?? 'E');
 
-            // Get strengths and areas for improvement
+            // Get strengths and areas for improvement. performance_review_kpis has
+            // no rating column — the bucket is derived from the numeric score.
             $strengths = [];
             $improvements = [];
 
             foreach ($data['kpis'] as $kpi) {
-                if (!empty($kpi['rating'])) {
-                    if ($kpi['rating'] === 'exceeds') {
+                if (!empty($kpi['score'])) {
+                    $rating = $this->ratingFromScore($kpi['score']);
+                    if ($rating === 'exceeds') {
                         $strengths[] = $kpi['kpi_name'];
-                    } elseif (in_array($kpi['rating'], ['partially_meets', 'does_not_meet'])) {
+                    } elseif (in_array($rating, ['partially_meets', 'does_not_meet'])) {
                         $improvements[] = $kpi['kpi_name'];
                     }
                 }
@@ -467,6 +475,34 @@ class StaffPerformanceManager extends BaseAPI
     }
 
     /**
+     * performance_reviews.id is a MANUAL primary key (no AUTO_INCREMENT in the
+     * 4NF schema), so the next id is derived like the other manual-id tables.
+     */
+    private function nextReviewId(): int
+    {
+        return (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM performance_reviews')->fetchColumn();
+    }
+
+    /**
+     * Derive the legacy per-KPI rating bucket from the numeric score, since
+     * performance_review_kpis has no rating column.
+     */
+    private function ratingFromScore($score): string
+    {
+        $score = (float)$score;
+        if ($score >= 90) {
+            return 'exceeds';
+        }
+        if ($score >= 70) {
+            return 'meets';
+        }
+        if ($score >= 50) {
+            return 'partially_meets';
+        }
+        return 'does_not_meet';
+    }
+
+    /**
      * Complete performance review
      * @param int $reviewId Review ID
      * @param array $data Completion data
@@ -494,11 +530,14 @@ class StaffPerformanceManager extends BaseAPI
                 );
             }
 
-            // Update review status
-            $sql = "UPDATE staff_performance_reviews 
-                   SET status = 'completed', 
-                       completion_date = NOW(),
-                       final_comments = ?
+            // Update review status. performance_reviews.status is enum('draft',
+            // 'submitted', 'acknowledged') — completion maps to 'submitted'; the
+            // legacy completion_date/final_comments columns are folded into
+            // review_date/notes.
+            $sql = "UPDATE performance_reviews 
+                   SET status = 'submitted', 
+                       review_date = COALESCE(review_date, NOW()),
+                       notes = CONCAT(COALESCE(notes, ''), ' | Final comments: ', ?)
                    WHERE id = ?";
 
             $stmt = $this->db->prepare($sql);

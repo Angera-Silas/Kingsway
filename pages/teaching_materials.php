@@ -66,5 +66,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>/js/pages/teaching_materials.js"></script>
+<?php asset_script($appBase, 'js/pages/teaching_materials.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => teachingMaterialsController.init());</script>

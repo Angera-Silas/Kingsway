@@ -167,6 +167,7 @@
     }
 </style>
 
+<?php asset_script($appBase, 'js/pages/finance.js'); ?>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof FinanceController !== 'undefined') {

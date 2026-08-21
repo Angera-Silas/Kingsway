@@ -2,6 +2,7 @@
 namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\NotificationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -38,15 +39,18 @@ class LeaveWorkflow extends WorkflowHandler
 
             // Get leave request details
             $stmt = $this->db->prepare("
-                SELECT sl.*, 
-                       s.id as staff_id, s.staff_no, s.first_name, s.last_name, 
+                SELECT sl.*,
+                       s.id as staff_id, s.staff_no, p.first_name, p.last_name,
                        s.position, s.supervisor_id,
-                       lt.name as leave_type_name, lt.requires_balance_check,
+                       lt.name as leave_type_name,
+                       (lt.days_allowed IS NOT NULL) AS requires_balance_check,
                        d.name as department_name
                 FROM staff_leaves sl
                 JOIN staff s ON sl.staff_id = s.id
+                JOIN persons p ON p.id = s.person_id
                 JOIN leave_types lt ON sl.leave_type = lt.code
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                LEFT JOIN departments d ON d.id = sda.department_id
                 WHERE sl.id = ?
             ");
             $stmt->execute([$leaveId]);
@@ -112,10 +116,10 @@ class LeaveWorkflow extends WorkflowHandler
             // Update leave status
             $stmt = $this->db->prepare("
                 UPDATE staff_leaves 
-                SET status = 'pending', workflow_instance_id = ?
+                SET status = 'pending'
                 WHERE id = ?
             ");
-            $stmt->execute([$instanceId, $leaveId]);
+            $stmt->execute([$leaveId]);
 
             $this->db->commit();
             $this->logAction(
@@ -186,12 +190,14 @@ class LeaveWorkflow extends WorkflowHandler
                 // Update leave status
                 $stmt = $this->db->prepare("
                     UPDATE staff_leaves 
-                    SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ?
+                    SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ?
                     WHERE id = ?
                 ");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
 
                 $this->db->commit();
+
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
 
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
@@ -253,19 +259,17 @@ class LeaveWorkflow extends WorkflowHandler
             }
 
             // Validate HR role
-            $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
-            $stmt->execute([$userId]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($user['role'] !== 'hr_manager') {
+            if (!$this->userHasRole($userId, 'School Administrator')) {
                 return formatResponse(false, null, 'Only HR managers can perform HR approval');
             }
             $workflowData = json_decode($workflow['data_json'], true);
             $this->db->beginTransaction();
             if ($action === 'reject') {
                 $this->advanceStage($instanceId, 'rejected', 'hr_rejected', $workflowData);
-                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
+                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
                 $this->db->commit();
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -285,9 +289,10 @@ class LeaveWorkflow extends WorkflowHandler
                 ], 'Leave approved by HR, forwarded to Director for final approval');
             }
             $this->advanceStage($instanceId, 'approved', 'hr_approved', $workflowData);
-            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
-            $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
+            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
+            $stmt->execute([$userId, $workflowData['leave_id']]);
             $this->db->commit();
+            $this->notifyLeaveStatus($workflowData, true, $userId);
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
@@ -326,19 +331,17 @@ class LeaveWorkflow extends WorkflowHandler
             }
 
             // Validate Director role
-            $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
-            $stmt->execute([$userId]);
-            $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($user['role'] !== 'director') {
+            if (!$this->userHasRole($userId, 'Director')) {
                 return formatResponse(false, null, 'Only the Director can perform final approval');
             }
             $workflowData = json_decode($workflow['data_json'], true);
             $this->db->beginTransaction();
             if ($action === 'reject') {
                 $this->advanceStage($instanceId, 'rejected', 'director_rejected', $workflowData);
-                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
+                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
                 $this->db->commit();
+                $this->notifyLeaveStatus($workflowData, false, $userId, $data['remarks'] ?? '');
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -349,9 +352,10 @@ class LeaveWorkflow extends WorkflowHandler
             $workflowData['director_approved_at'] = date('Y-m-d H:i:s');
             $workflowData['director_remarks'] = $data['remarks'] ?? null;
             $this->advanceStage($instanceId, 'approved', 'director_approved', $workflowData);
-            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
-            $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
+            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?");
+            $stmt->execute([$userId, $workflowData['leave_id']]);
             $this->db->commit();
+            $this->notifyLeaveStatus($workflowData, true, $userId);
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
@@ -460,6 +464,47 @@ class LeaveWorkflow extends WorkflowHandler
             default:
                 return false;
         }
+    }
+
+    /**
+     * Push a user-facing notification to the leave requester.
+     * Only final outcomes (rejected at any stage, final approval) notify.
+     */
+    private function notifyLeaveStatus(array $workflowData, bool $approved, int $approverUserId, string $reason = ''): void
+    {
+        try {
+            $staffId = (int) ($workflowData['staff_id'] ?? 0);
+            if ($staffId <= 0) {
+                return;
+            }
+            $service = new NotificationService($this->db);
+            $recipients = $service->userIdsForStaff([$staffId]);
+            if (empty($recipients)) {
+                return;
+            }
+            $approver = $service->userName($approverUserId) ?: 'the approver';
+            $leaveType = trim((string) ($workflowData['leave_type'] ?? ''));
+            $label = $leaveType !== '' ? $leaveType . ' leave request' : 'leave request';
+            $title = $approved ? 'Leave request approved' : 'Leave request declined';
+            $message = $approved
+                ? NotificationService::approvedText($label, $approver)
+                : NotificationService::deniedText($label, $approver, $reason);
+            $service->push($recipients, 'leave_request', $title, $message, 'medium');
+        } catch (Exception $e) {
+            error_log('[LeaveWorkflow] Notification push failed: ' . $e->getMessage());
+        }
+    }
+
+    /** Resolve whether a user holds a named role via the user_roles → roles junction (RBAC). */
+    private function userHasRole($userId, string $roleName): bool
+    {
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = ? AND r.name = ?
+        ");
+        $stmt->execute([$userId, $roleName]);
+        return (bool) $stmt->fetchColumn();
     }
 
     /**

@@ -84,21 +84,22 @@ class StockAuditWorkflow extends WorkflowHandler
             }
 
             // Generate audit number
-            $auditNumber = 'AUD-' . date('Y') . '-' . str_pad($this->db->query("SELECT COUNT(*) + 1 FROM stock_audits")->fetchColumn(), 6, '0', STR_PAD_LEFT);
+            $auditNumber = 'AUD-' . date('Y') . '-' . str_pad($this->db->query("SELECT COUNT(*) + 1 FROM inventory_counts")->fetchColumn(), 6, '0', STR_PAD_LEFT);
 
-            // Create audit record
+            // Create audit record (inventory_counts) — audit metadata kept in notes + workflow data
             $stmt = $this->db->prepare("
-                INSERT INTO stock_audits (
-                    audit_number, audit_type, audit_scope, planned_by,
-                    planned_date, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'planning', NOW())
+                INSERT INTO inventory_counts (
+                    count_date, status, counted_by, notes
+                ) VALUES (?, 'draft', ?, ?)
             ");
             $stmt->execute([
-                $auditNumber,
-                $data['audit_type'],
-                json_encode($data['audit_scope']),
+                $data['planned_date'],
                 $userId,
-                $data['planned_date']
+                json_encode([
+                    'audit_number' => $auditNumber,
+                    'audit_type' => $data['audit_type'],
+                    'audit_scope' => $data['audit_scope']
+                ])
             ]);
 
             $auditId = $this->db->lastInsertId();
@@ -122,14 +123,6 @@ class StockAuditWorkflow extends WorkflowHandler
                 $this->db->rollBack();
                 return $result;
             }
-
-            // Update audit with workflow ID
-            $stmt = $this->db->prepare("
-                UPDATE stock_audits 
-                SET workflow_instance_id = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$result['data']['workflow_id'], $auditId]);
 
             $this->db->commit();
             $this->logAction('create', $result['data']['workflow_id'], "Initiated audit workflow {$auditNumber}");
@@ -171,20 +164,6 @@ class StockAuditWorkflow extends WorkflowHandler
             }
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
-
-            // Update audit record
-            $stmt = $this->db->prepare("
-                UPDATE stock_audits 
-                SET scheduled_date = ?, scheduled_by = ?, 
-                    team_lead = ?, status = 'scheduled'
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $data['scheduled_date'],
-                $userId,
-                $data['team_lead'] ?? $userId,
-                $workflowData['audit_id']
-            ]);
 
             // Update workflow data
             $workflowData['audit_scheduling'] = [
@@ -244,23 +223,21 @@ class StockAuditWorkflow extends WorkflowHandler
             // Create count records
             foreach ($items as $item) {
                 $stmt = $this->db->prepare("
-                    INSERT INTO audit_count_sheets (
-                        audit_id, item_id, location_id, system_quantity,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, NOW())
+                    INSERT INTO inventory_count_items (
+                        count_id, item_id, expected_quantity
+                    ) VALUES (?, ?, ?)
                 ");
                 $stmt->execute([
                     $auditId,
                     $item['id'],
-                    $item['location_id'],
                     $item['quantity_on_hand']
                 ]);
             }
 
             // Update audit status
             $stmt = $this->db->prepare("
-                UPDATE stock_audits 
-                SET status = 'ready', preparation_date = NOW()
+                UPDATE inventory_counts 
+                SET status = 'in_progress'
                 WHERE id = ?
             ");
             $stmt->execute([$auditId]);
@@ -324,13 +301,12 @@ class StockAuditWorkflow extends WorkflowHandler
             // Update count records with physical counts
             foreach ($data['counts'] as $itemId => $physicalQty) {
                 $stmt = $this->db->prepare("
-                    UPDATE audit_count_sheets 
-                    SET physical_quantity = ?, counted_by = ?, count_date = NOW()
-                    WHERE audit_id = ? AND item_id = ?
+                    UPDATE inventory_count_items 
+                    SET actual_quantity = ?
+                    WHERE count_id = ? AND item_id = ?
                 ");
                 $stmt->execute([
                     $physicalQty,
-                    $userId,
                     $auditId,
                     $itemId
                 ]);
@@ -338,8 +314,8 @@ class StockAuditWorkflow extends WorkflowHandler
 
             // Update audit status
             $stmt = $this->db->prepare("
-                UPDATE stock_audits 
-                SET status = 'counting', count_start_date = NOW()
+                UPDATE inventory_counts 
+                SET status = 'in_progress'
                 WHERE id = ?
             ");
             $stmt->execute([$auditId]);
@@ -444,13 +420,13 @@ class StockAuditWorkflow extends WorkflowHandler
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $auditId = $workflowData['audit_id'];
 
-            // Get variances from count sheets
+            // Get variances from count items
             $stmt = $this->db->prepare("
-                SELECT item_id, system_quantity, physical_quantity,
-                       (physical_quantity - system_quantity) as variance,
-                       ((physical_quantity - system_quantity) / NULLIF(system_quantity, 0) * 100) as variance_percentage
-                FROM audit_count_sheets
-                WHERE audit_id = ? AND physical_quantity != system_quantity
+                SELECT item_id, expected_quantity AS system_quantity, actual_quantity AS physical_quantity,
+                       (actual_quantity - expected_quantity) as variance,
+                       ((actual_quantity - expected_quantity) / NULLIF(expected_quantity, 0) * 100) as variance_percentage
+                FROM inventory_count_items
+                WHERE count_id = ? AND actual_quantity != expected_quantity
             ");
             $stmt->execute([$auditId]);
             $variances = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -572,10 +548,10 @@ class StockAuditWorkflow extends WorkflowHandler
 
             // Get approved variances
             $stmt = $this->db->prepare("
-                SELECT item_id, system_quantity, physical_quantity,
-                       (physical_quantity - system_quantity) as variance
-                FROM audit_count_sheets
-                WHERE audit_id = ? AND physical_quantity != system_quantity
+                SELECT item_id, expected_quantity AS system_quantity, actual_quantity AS physical_quantity,
+                       (actual_quantity - expected_quantity) as variance
+                FROM inventory_count_items
+                WHERE count_id = ? AND actual_quantity != expected_quantity
             ");
             $stmt->execute([$auditId]);
             $adjustments = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -583,17 +559,30 @@ class StockAuditWorkflow extends WorkflowHandler
             $adjustmentCount = 0;
 
             // Post adjustments to inventory
+            $adjStmt = $this->db->prepare("
+                UPDATE inventory_items 
+                SET current_quantity = current_quantity + ?,
+                    last_audit_date = NOW()
+                WHERE id = ?
+            ");
+            $txStmt = $this->db->prepare("
+                INSERT INTO inventory_transactions (
+                    item_id, transaction_type, quantity, transaction_date,
+                    reference_type, reference_id, notes
+                ) VALUES (?, ?, ?, CURDATE(), 'adjustment', ?, ?)
+            ");
             foreach ($adjustments as $adjustment) {
                 if ($adjustment['variance'] != 0) {
-                    $stmt = $this->db->prepare("
-                        UPDATE inventory_items 
-                        SET quantity_on_hand = quantity_on_hand + ?,
-                            last_audit_date = NOW()
-                        WHERE id = ?
-                    ");
-                    $stmt->execute([
+                    $adjStmt->execute([
                         $adjustment['variance'],
                         $adjustment['item_id']
+                    ]);
+                    $txStmt->execute([
+                        $adjustment['item_id'],
+                        $adjustment['variance'] > 0 ? 'in' : 'out',
+                        abs($adjustment['variance']),
+                        $auditId,
+                        'Stock count adjustment (audit ' . $workflowData['audit_number'] . ')'
                     ]);
                     $adjustmentCount++;
                 }
@@ -601,8 +590,8 @@ class StockAuditWorkflow extends WorkflowHandler
 
             // Update audit status
             $stmt = $this->db->prepare("
-                UPDATE stock_audits 
-                SET status = 'completed', completion_date = NOW()
+                UPDATE inventory_counts 
+                SET status = 'completed', completed_at = NOW()
                 WHERE id = ?
             ");
             $stmt->execute([$auditId]);
@@ -781,7 +770,8 @@ class StockAuditWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            error_log('[StockAuditWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 }

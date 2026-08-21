@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-chart-line me-2"></i>Enrollment Trends</h4>
+                    <h4 class="mb-1"><i class="bi bi-graph-up me-2"></i>Enrollment Trends</h4>
                     <p class="text-muted mb-0">Analyze student enrollment patterns and projections</p>
                 </div>
                 <button class="btn btn-outline-primary" id="exportReport">
-                    <i class="fas fa-download me-1"></i> Export Report
+                    <i class="bi bi-download me-1"></i> Export Report
                 </button>
             </div>
         </div>
@@ -47,7 +47,7 @@
                 </div>
                 <div class="col-md-4">
                     <button class="btn btn-primary w-100" id="analyzeBtn">
-                        <i class="fas fa-chart-bar me-1"></i> Analyze
+                        <i class="bi bi-bar-chart me-1"></i> Analyze
                     </button>
                 </div>
             </div>
@@ -88,11 +88,11 @@
                 <table class="table" id="enrollmentTable">
                     <thead>
                         <tr>
-                            <th>Class</th>
-                            <th>Current Year</th>
-                            <th>Previous Year</th>
-                            <th>Change</th>
-                            <th>% Change</th>
+                            <th scope="col">Class</th>
+                            <th scope="col">Current Year</th>
+                            <th scope="col">Previous Year</th>
+                            <th scope="col">Change</th>
+                            <th scope="col">% Change</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/enrollment_trends.js"></script>
+<?php asset_script($appBase, 'js/pages/enrollment_trends.js'); ?>

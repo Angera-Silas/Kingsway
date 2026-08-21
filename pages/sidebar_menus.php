@@ -13,10 +13,10 @@
         </div>
         <div class="d-flex gap-2">
             <button type="button" class="btn btn-outline-secondary" data-system-refresh>
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
             <button type="button" class="btn btn-primary" data-system-create>
-                <i class="fas fa-plus me-1"></i> Add record
+                <i class="bi bi-plus-lg me-1"></i> Add record
             </button>
         </div>
     </div>
@@ -31,14 +31,14 @@
         <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
             <strong>Sidebar Menus</strong>
             <div class="input-group" style="max-width: 360px">
-                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
                 <input class="form-control" data-system-search placeholder="Search records">
             </div>
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
                 <thead data-system-head>
-                    <tr><th>Loading</th></tr>
+                    <tr><th scope="col">Loading</th></tr>
                 </thead>
                 <tbody data-system-body>
                     <tr><td class="text-center py-5 text-muted">Loading...</td></tr>

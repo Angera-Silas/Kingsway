@@ -71,7 +71,7 @@ class StudentIDCardGenerator extends BaseAPI
             }
 
             $statement = $this->db->prepare(
-                "UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?"
+                "UPDATE persons SET photo_url = ? WHERE id = (SELECT person_id FROM students WHERE id = ?)"
             );
             $statement->execute([$photoUrl, $studentId]);
 
@@ -87,11 +87,8 @@ class StudentIDCardGenerator extends BaseAPI
             ], 'Photo uploaded successfully');
         } catch (Exception $exception) {
             $this->logError('uploadStudentPhoto', $exception->getMessage());
-            return formatResponse(
-                false,
-                null,
-                'Failed to upload photo: ' . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -104,7 +101,14 @@ class StudentIDCardGenerator extends BaseAPI
     {
         try {
             // Get student details first to get admission number
-            $stmt = $this->db->prepare("SELECT id, admission_no FROM students WHERE id = ?");
+            $stmt = $this->db->prepare(
+                "SELECT s.id, s.admission_no, sic.qr_token
+                 FROM students s
+                 LEFT JOIN student_id_cards sic ON sic.student_id = s.id
+                    AND sic.status NOT IN ('lost', 'replaced')
+                 WHERE s.id = ?
+                 ORDER BY sic.id DESC LIMIT 1"
+            );
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -112,20 +116,19 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'Student not found');
             }
 
+            if (empty($student['qr_token'])) {
+                return formatResponse(false, null, 'Generate or issue the learner ID card before generating its QR code');
+            }
+
             // Check if QR library exists
             if (!class_exists('\Endroid\QrCode\QrCode')) {
                 return formatResponse(false, null, 'QR code library not installed. Run: composer require endroid/qr-code');
             }
 
-            // Create QR data pointing to student portal
+            // The printed QR contains only the opaque server-resolved card
+            // credential. Never embed learner identity or portal URLs.
             $baseUrl = BASE_URL;
-            $qrData = json_encode([
-                'type' => 'student_verification',
-                'student_id' => (int) $student['id'],
-                'admission_no' => $student['admission_no'],
-                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details',
-                'generated' => date('Y-m-d H:i:s')
-            ]);
+            $qrData = (string) $student['qr_token'];
 
             // Generate QR code
             $qrCode = new \Endroid\QrCode\QrCode($qrData);
@@ -151,21 +154,18 @@ class StudentIDCardGenerator extends BaseAPI
                 $filename
             );
 
-            // Update student record with QR code path
-            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$webPath, $studentId]);
-
             $this->logAction('create', $studentId, "Generated enhanced QR code: {$webPath}");
             
             return formatResponse(true, [
                 'qr_code_path' => $webPath,
-                'qr_data' => json_decode($qrData, true),
-                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details'
+                'qr_data' => $qrData,
+                'portal_url' => null
             ], 'QR code generated successfully');
 
         } catch (Exception $e) {
             $this->logError('generateEnhancedQRCode', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate QR code: ' . $e->getMessage());
+            error_log('[StudentIDCardGenerator] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -248,37 +248,58 @@ class StudentIDCardGenerator extends BaseAPI
 
             $statement = $this->db->prepare(
                 "SELECT
-                    s.*,
-                    ce.academic_year_id,
-                    ce.class_id AS enrollment_class_id,
-                    ce.stream_id AS enrollment_stream_id,
+                    s.id,
+                    s.admission_no,
+                    per.photo_url,
+                    s.status,
+                    s.student_type_id,
+                    s.assessment_number,
+                    s.assessment_status,
+                    s.nemis_number,
+                    s.nemis_status,
+                    s.blood_group,
+                    s.created_at,
+                    s.updated_at,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    per.gender,
+                    per.dob AS date_of_birth,
+                    sae.academic_year_id,
+                    ayc.class_id AS enrollment_class_id,
+                    aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
-                    cs.stream_name,
+                    sm.name AS stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_enrollments ce
-                    ON ce.id = (
-                        SELECT ce_current.id
-                        FROM class_enrollments ce_current
+                 JOIN persons per ON per.id = s.person_id
+                 LEFT JOIN student_academic_enrollments sae
+                    ON sae.id = (
+                        SELECT sae_current.id
+                        FROM student_academic_enrollments sae_current
                         INNER JOIN academic_years ay_current
-                            ON ay_current.id = ce_current.academic_year_id
-                        WHERE ce_current.student_id = s.id
-                          AND ce_current.enrollment_status = 'active'
+                            ON ay_current.id = sae_current.academic_year_id
+                        WHERE sae_current.student_id = s.id
+                          AND sae_current.enrollment_status = 'active'
                         ORDER BY ay_current.is_current DESC,
                                  ay_current.start_date DESC,
-                                 ce_current.id DESC
+                                 sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN class_streams cs
-                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                 LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c
-                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                    ON c.id = ayc.class_id
                  LEFT JOIN academic_years ay
-                    ON ay.id = ce.academic_year_id
+                    ON ay.id = sae.academic_year_id
                  WHERE s.id IN ({$placeholders})
                    AND s.status = 'active'
-                 ORDER BY c.level_id, c.name, cs.stream_name,
-                          s.first_name, s.last_name"
+                 ORDER BY c.name, sm.name,
+                          per.first_name, per.last_name"
             );
             $statement->execute($studentIds);
             $students = $statement->fetchAll(PDO::FETCH_ASSOC);
@@ -380,12 +401,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate student ID cards: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -420,33 +437,54 @@ class StudentIDCardGenerator extends BaseAPI
 
             $statement = $this->db->prepare(
                 "SELECT
-                    s.*,
-                    ce.academic_year_id,
-                    ce.class_id AS enrollment_class_id,
-                    ce.stream_id AS enrollment_stream_id,
+                    s.id,
+                    s.admission_no,
+                    per.photo_url,
+                    s.status,
+                    s.student_type_id,
+                    s.assessment_number,
+                    s.assessment_status,
+                    s.nemis_number,
+                    s.nemis_status,
+                    s.blood_group,
+                    s.created_at,
+                    s.updated_at,
+                    per.first_name,
+                    per.middle_name,
+                    per.last_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    per.gender,
+                    per.dob AS date_of_birth,
+                    sae.academic_year_id,
+                    ayc.class_id AS enrollment_class_id,
+                    aycs.id AS enrollment_stream_id,
                     c.name AS class_name,
-                    cs.stream_name,
+                    sm.name AS stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_enrollments ce
-                    ON ce.id = (
-                        SELECT ce_current.id
-                        FROM class_enrollments ce_current
+                 JOIN persons per ON per.id = s.person_id
+                 LEFT JOIN student_academic_enrollments sae
+                    ON sae.id = (
+                        SELECT sae_current.id
+                        FROM student_academic_enrollments sae_current
                         INNER JOIN academic_years ay_current
-                            ON ay_current.id = ce_current.academic_year_id
-                        WHERE ce_current.student_id = s.id
-                          AND ce_current.enrollment_status = 'active'
+                            ON ay_current.id = sae_current.academic_year_id
+                        WHERE sae_current.student_id = s.id
+                          AND sae_current.enrollment_status = 'active'
                         ORDER BY ay_current.is_current DESC,
                                  ay_current.start_date DESC,
-                                 ce_current.id DESC
+                                 sae_current.id DESC
                         LIMIT 1
                     )
-                 LEFT JOIN class_streams cs
-                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN academic_year_class_streams aycs
+                    ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN streams sm ON sm.id = aycs.stream_id
+                 LEFT JOIN academic_year_classes ayc
+                    ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c
-                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                    ON c.id = ayc.class_id
                  LEFT JOIN academic_years ay
-                    ON ay.id = ce.academic_year_id
+                    ON ay.id = sae.academic_year_id
                  WHERE s.id = ?
                  LIMIT 1"
             );
@@ -563,12 +601,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate student ID card: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -585,18 +619,23 @@ class StudentIDCardGenerator extends BaseAPI
         try {
             $sql = "SELECT s.id
                     FROM students s
-                    INNER JOIN class_streams cs
-                        ON cs.id = s.stream_id
-                    WHERE cs.class_id = ?
+                    JOIN persons per ON per.id = s.person_id
+                    INNER JOIN student_academic_enrollments sae
+                        ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+                    INNER JOIN academic_year_class_streams aycs
+                        ON aycs.id = sae.academic_year_class_stream_id
+                    INNER JOIN academic_year_classes ayc
+                        ON ayc.id = aycs.academic_year_class_id
+                    WHERE ayc.class_id = ?
                       AND s.status = 'active'";
             $params = [(int) $classId];
 
             if ($streamId !== null) {
-                $sql .= " AND s.stream_id = ?";
+                $sql .= " AND aycs.stream_id = ?";
                 $params[] = (int) $streamId;
             }
 
-            $sql .= " ORDER BY s.first_name, s.last_name";
+            $sql .= " ORDER BY per.first_name, per.last_name";
 
             $statement = $this->db->prepare($sql);
             $statement->execute($params);
@@ -618,12 +657,8 @@ class StudentIDCardGenerator extends BaseAPI
                 $exception->getMessage()
             );
 
-            return formatResponse(
-                false,
-                null,
-                'Failed to generate class ID cards: '
-                    . $exception->getMessage()
-            );
+            error_log('[StudentIDCardGenerator] ' . $exception->getMessage() . ' in ' . $exception->getFile() . ':' . $exception->getLine());
+return formatResponse(false, null, 'An internal error occurred.');
         }
     }
 
@@ -693,7 +728,7 @@ class StudentIDCardGenerator extends BaseAPI
     /**
      * Resolve school profile for card rendering.
      *
-     * Uses the SAME source as the browser preview (school_settings + school_assets),
+     * Uses the SAME source as the browser preview (school_profile + school_assets),
      * so the printed card's logo, name, address, phone, email and signature exactly
      * match what renderCardPreview displays. Maps to the keys the renderer expects.
      */
@@ -707,9 +742,9 @@ class StudentIDCardGenerator extends BaseAPI
         try {
             $stmt = $this->db->prepare("
                 SELECT ay.year_code AS academic_year
-                FROM class_enrollments ce
-                LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
-                WHERE ce.student_id = ? AND ce.enrollment_status = 'active'
+                FROM student_academic_enrollments sae
+                LEFT JOIN academic_years ay ON sae.academic_year_id = ay.id
+                WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
                 ORDER BY ay.year_code DESC
                 LIMIT 1
             ");
@@ -724,13 +759,15 @@ class StudentIDCardGenerator extends BaseAPI
     private function getSchoolConfig()
     {
         try {
-            $stmt = $this->db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature')");
-            $stmt->execute();
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $settings = [];
-            foreach ($rows as $row) {
-                $settings[$row['setting_key']] = $row['setting_value'];
-            }
+            $stmt = $this->db->query("SELECT school_name, address AS school_address, phone AS school_phone, email AS school_email, website AS school_website, motto AS school_motto FROM school_profile LIMIT 1");
+            $settings = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            // Get headteacher from staff table
+            $headteacher = '';
+            try {
+                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $headteacher = $hStmt->fetchColumn() ?: '';
+            } catch (\Exception $e) { /* fallback below */ }
 
             return [
                 'school_name' => $settings['school_name'] ?? 'Kingsway Preparatory School',
@@ -739,8 +776,8 @@ class StudentIDCardGenerator extends BaseAPI
                 'school_email' => $settings['school_email'] ?? '',
                 'school_website' => $settings['school_website'] ?? '',
                 'school_motto' => $settings['school_motto'] ?? 'In God We Soar',
-                'headteacher_name' => $settings['headteacher_name'] ?? '',
-                'authorized_signature' => $settings['authorized_signature'] ?? '',
+                'headteacher_name' => $headteacher,
+                'authorized_signature' => '',
                 // Logo resolution mirrors the browser preview (resolveAssetUrl
                 // fallback to the on-disk official logo).
                 'school_logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png')

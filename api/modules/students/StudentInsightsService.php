@@ -31,29 +31,34 @@ class StudentInsightsService
 
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $where[] = "(s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_no LIKE ?)";
+            $where[] = "(per.first_name LIKE ? OR per.last_name LIKE ? OR s.admission_no LIKE ?)";
             array_push($params, $like, $like, $like);
         }
 
         $whereClause = implode(' AND ', $where);
         $sql = "SELECT
                     s.id, s.admission_no,
-                    CONCAT(s.first_name, ' ', COALESCE(s.middle_name,''), ' ', s.last_name) AS full_name,
-                    s.first_name, s.last_name, s.gender, s.date_of_birth, s.status,
-                    st.name AS stream_name,
+                    CONCAT(per.first_name, ' ', COALESCE(per.middle_name,''), ' ', per.last_name) AS full_name,
+                    per.first_name, per.last_name, per.gender, per.dob AS date_of_birth, s.status,
+                    st2.name AS stream_name,
                     hr.disability_notes, hr.chronic_conditions, hr.allergies,
                     hr.special_diet, hr.blood_group, hr.notes AS health_notes
                 FROM students s
-                LEFT JOIN streams st ON st.id = s.stream_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
                 LEFT JOIN student_health_records hr ON hr.student_id = s.id
                 WHERE s.status = 'active' AND {$whereClause}
-                ORDER BY s.first_name, s.last_name
+                ORDER BY per.first_name, per.last_name
                 LIMIT ? OFFSET ?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(array_merge($params, [$limit, $offset]));
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-        $countSql = "SELECT COUNT(*) FROM students s
+        $countSql = "SELECT COUNT(*)
+                     FROM students s
+                     JOIN persons per ON per.id = s.person_id
                      LEFT JOIN student_health_records hr ON hr.student_id = s.id
                      WHERE s.status = 'active' AND {$whereClause}";
         $stmt = $this->db->prepare($countSql);
@@ -73,9 +78,17 @@ class StudentInsightsService
     {
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC"),
+            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
+                                          FROM academic_year_class_streams aycs
+                                          JOIN streams sm ON sm.id = aycs.stream_id
+                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                          WHERE aycs.status = 'active'
+                                          ORDER BY sm.name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
-            'terms' => $this->fetchAll("SELECT id, academic_year_id, name, term_number, status FROM academic_terms ORDER BY term_number ASC"),
+            'terms' => $this->fetchAll("SELECT ayt.id, ayt.academic_year_id, t.name, t.code AS term_number, ayt.status
+                                        FROM academic_year_terms ayt
+                                        JOIN terms t ON t.id = ayt.term_id
+                                        ORDER BY t.code ASC"),
             'assessments' => $this->fetchAll("SELECT DISTINCT title AS name, id FROM assessments ORDER BY title ASC"),
         ];
     }
@@ -98,19 +111,19 @@ class StudentInsightsService
         $bindings = [];
 
         if ($classId !== null) {
-            $conditions[] = "cs.class_id = ?";
+            $conditions[] = "ayc.class_id = ?";
             $bindings[] = $classId;
         }
         if ($streamId !== null) {
-            $conditions[] = "s.stream_id = ?";
+            $conditions[] = "aycs.stream_id = ?";
             $bindings[] = $streamId;
         }
         if ($gender !== null) {
-            $conditions[] = "s.gender = ?";
+            $conditions[] = "per.gender = ?";
             $bindings[] = $gender;
         }
         if ($search !== '') {
-            $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?)";
+            $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ? OR CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) LIKE ?)";
             $term = '%' . $search . '%';
             array_push($bindings, $term, $term, $term, $term);
         }
@@ -123,36 +136,48 @@ class StudentInsightsService
             SELECT
                 s.id AS student_id,
                 s.admission_no,
-                CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
                 c.name AS class_name,
-                cs.stream_name,
-                s.gender,
+                sm.name AS stream_name,
+                per.gender,
                 COALESCE((
                     SELECT ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2)
                     FROM assessment_results ar
                     JOIN assessments a ON a.id = ar.assessment_id
-                    WHERE ar.student_id = s.id AND (? IS NULL OR a.term_id = ?)
+                    JOIN student_academic_enrollments ae ON ae.id = ar.student_academic_enrollment_id
+                    WHERE ae.student_id = s.id AND (? IS NULL OR a.academic_year_term_id = ?)
                 ), 0.00) AS average_score,
                 COALESCE((
-                    SELECT ROUND(COUNT(CASE WHEN status IN ('present', 'late') THEN 1 END) / COUNT(*) * 100, 2)
-                    FROM student_attendance
-                    WHERE student_id = s.id AND (? IS NULL OR academic_year_id = ?)
+                    SELECT ROUND(COUNT(CASE WHEN sa.status IN ('present', 'late') THEN 1 END) / COUNT(*) * 100, 2)
+                    FROM student_attendance sa
+                    JOIN student_academic_enrollments ae ON ae.id = sa.student_academic_enrollment_id
+                    WHERE ae.student_id = s.id AND (? IS NULL OR ae.academic_year_id = ?)
                 ), 100.00) AS attendance_rate,
                 COALESCE((
-                    SELECT SUM(balance)
-                    FROM student_fee_obligations
-                    WHERE student_id = s.id AND (? IS NULL OR academic_year = ?)
+                    SELECT SUM(sfo.amount_due)
+                    FROM student_fee_obligations sfo
+                    JOIN student_academic_enrollments ae ON ae.id = sfo.student_academic_enrollment_id
+                    WHERE ae.student_id = s.id AND (? IS NULL OR sfo.academic_year_id = ?)
                 ), 0.00) AS fee_balance,
-                (SELECT COUNT(*) FROM student_discipline WHERE student_id = s.id) AS discipline_cases,
-                (SELECT COUNT(*) FROM activity_participants WHERE student_id = s.id) AS activities_count,
+                (SELECT COUNT(*) FROM discipline_incidents di
+                 JOIN student_academic_enrollments ae ON ae.id = di.student_academic_enrollment_id
+                 WHERE ae.student_id = s.id) AS discipline_cases,
+                (SELECT COUNT(*) FROM activity_participants ap
+                 JOIN student_academic_enrollments ae ON ae.id = ap.student_academic_enrollment_id
+                 WHERE ae.student_id = s.id) AS activities_count,
                 '-' AS position
             FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
-            LEFT JOIN classes c ON c.id = cs.class_id
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae 
+                ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN streams sm ON sm.id = aycs.stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
             WHERE " . implode(' AND ', $conditions);
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_merge([$termId, $termId, $yearId, $yearId, $yearCode, $yearCode], $bindings));
+        $stmt->execute(array_merge([$termId, $termId, $yearId, $yearId, $yearId, $yearId], $bindings));
         $studentRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         foreach ($studentRows as &$row) {
@@ -171,12 +196,16 @@ class StudentInsightsService
         }
 
         $student = $this->fetchOne("
-            SELECT s.id, s.admission_no, s.first_name, s.middle_name, s.last_name,
-                   CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                   s.gender, s.photo_url, c.name AS class_name, cs.stream_name
+            SELECT s.id, s.admission_no, per.first_name, per.middle_name, per.last_name,
+                   CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                   per.gender, per.photo_url, c.name AS class_name, st2.name AS stream_name
             FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
-            LEFT JOIN classes c ON c.id = cs.class_id
+            JOIN persons per ON per.id = s.person_id
+            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id AND sae.enrollment_status = 'active'
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            LEFT JOIN classes c ON c.id = ayc.class_id
+            LEFT JOIN streams st2 ON st2.id = aycs.stream_id
             WHERE s.id = ?
             LIMIT 1
         ", [$studentId]);
@@ -191,15 +220,18 @@ class StudentInsightsService
         $subjects = $this->fetchSubjectPerformance($studentId, $termId, $yearId);
         $attendance = $this->fetchAttendanceSummary($studentId, $termId, $yearId);
         $disciplineRecords = $this->fetchAll(
-            "SELECT id, incident_date AS date, description AS case_title, severity, status, action_taken
-             FROM student_discipline WHERE student_id = ? ORDER BY incident_date DESC",
+            "SELECT di.id, di.incident_date AS date, di.description AS case_title, di.severity, di.status, di.action_taken
+             FROM discipline_incidents di
+             JOIN student_academic_enrollments ae ON ae.id = di.student_academic_enrollment_id
+             WHERE ae.student_id = ? ORDER BY di.incident_date DESC",
             [$studentId]
         );
         $activities = $this->fetchAll(
             "SELECT ap.activity_id as id, ac.name as title, ap.joined_at
              FROM activity_participants ap
              LEFT JOIN activity_categories ac ON ac.id = ap.activity_id
-             WHERE ap.student_id = ?
+             JOIN student_academic_enrollments ae ON ae.id = ap.student_academic_enrollment_id
+             WHERE ae.student_id = ?
              ORDER BY ap.joined_at DESC",
             [$studentId]
         );
@@ -208,26 +240,12 @@ class StudentInsightsService
                     COALESCE(SUM(amount_paid), 0) as total_paid,
                     COALESCE(SUM(amount_waived), 0) as total_waived,
                     COALESCE(SUM(balance), 0) as balance
-             FROM student_fee_obligations
+             FROM vw_student_fee_balances
              WHERE student_id = ?",
             [$studentId]
         ) ?: ['total_due' => 0, 'total_paid' => 0, 'total_waived' => 0, 'balance' => 0];
-        $enrollment = $this->fetchOne(
-            "SELECT teacher_comments, head_teacher_comments, special_notes
-             FROM class_enrollments
-             WHERE student_id = ?
-             ORDER BY id DESC
-             LIMIT 1",
-            [$studentId]
-        ) ?: [];
 
         $comments = [];
-        if (!empty($enrollment['teacher_comments'])) {
-            $comments[] = ['teacher' => 'Class Teacher', 'comment' => $enrollment['teacher_comments']];
-        }
-        if (!empty($enrollment['head_teacher_comments'])) {
-            $comments[] = ['teacher' => 'Head Teacher', 'comment' => $enrollment['head_teacher_comments']];
-        }
 
         return [
             'student' => $student,
@@ -237,7 +255,7 @@ class StudentInsightsService
             'activities' => $activities,
             'finance_summary' => $finance,
             'teacher_comments' => $comments,
-            'recommendations' => !empty($enrollment['special_notes']) ? [$enrollment['special_notes']] : [],
+            'recommendations' => [],
         ];
     }
 
@@ -245,9 +263,17 @@ class StudentInsightsService
     {
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC"),
+            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
+                                          FROM academic_year_class_streams aycs
+                                          JOIN streams sm ON sm.id = aycs.stream_id
+                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                          WHERE aycs.status = 'active'
+                                          ORDER BY sm.name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
-            'terms' => $this->fetchAll("SELECT id, academic_year_id, name, term_number, status FROM academic_terms ORDER BY term_number ASC"),
+            'terms' => $this->fetchAll("SELECT ayt.id, ayt.academic_year_id, t.name, t.code AS term_number, ayt.status
+                                        FROM academic_year_terms ayt
+                                        JOIN terms t ON t.id = ayt.term_id
+                                        ORDER BY t.code ASC"),
             'statuses' => ['pending', 'resolved', 'escalated'],
             'severities' => ['low', 'medium', 'high'],
         ];
@@ -258,10 +284,10 @@ class StudentInsightsService
         $conditions = ["s.status = 'active'"];
         $bindings = [];
         $map = [
-            'status' => 'sd.status = ?',
-            'severity' => 'sd.severity = ?',
-            'class_id' => 'cs.class_id = ?',
-            'stream_id' => 's.stream_id = ?',
+            'status' => 'di.status = ?',
+            'severity' => 'di.severity = ?',
+            'class_id' => 'ayc.class_id = ?',
+            'stream_id' => 'aycs.stream_id = ?',
         ];
 
         foreach ($map as $field => $condition) {
@@ -271,22 +297,26 @@ class StudentInsightsService
             }
         }
         if (!empty($filters['search'])) {
-            $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR sd.description LIKE ?)";
+            $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ? OR di.description LIKE ?)";
             $term = '%' . trim((string)$filters['search']) . '%';
             array_push($bindings, $term, $term, $term, $term);
         }
 
-        $sql = "SELECT sd.id, sd.student_id, sd.incident_date, sd.description, sd.severity,
-                       sd.status, sd.action_taken, sd.resolution_date, sd.created_at,
+        $sql = "SELECT di.id, s.id AS student_id, di.incident_date, di.description, di.severity,
+                       di.status, di.action_taken, di.created_at,
                        s.admission_no,
-                       CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                       c.name AS class_name, cs.stream_name, s.photo_url
-                FROM student_discipline sd
-                JOIN students s ON s.id = sd.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
+                       CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                       c.name AS class_name, st2.name AS stream_name, per.photo_url
+                FROM discipline_incidents di
+                JOIN student_academic_enrollments sae ON sae.id = di.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                JOIN persons per ON per.id = s.person_id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                LEFT JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams st2 ON st2.id = aycs.stream_id
                 WHERE " . implode(' AND ', $conditions) . "
-                ORDER BY sd.incident_date DESC, sd.created_at DESC";
+                ORDER BY di.incident_date DESC, di.created_at DESC";
 
         return $this->fetchAll($sql, $bindings);
     }
@@ -294,16 +324,18 @@ class StudentInsightsService
     public function getDisciplineCase(int $caseId): ?array
     {
         $case = $this->fetchOne(
-            "SELECT sd.*,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    s.admission_no, s.photo_url, c.name AS class_name, cs.stream_name,
-                    CONCAT_WS(' ', res.first_name, res.last_name) AS resolved_by_name
-             FROM student_discipline sd
-             JOIN students s ON s.id = sd.student_id
-             LEFT JOIN class_streams cs ON cs.id = s.stream_id
-             LEFT JOIN classes c ON c.id = cs.class_id
-             LEFT JOIN users res ON res.id = sd.resolved_by
-             WHERE sd.id = ?
+            "SELECT di.*,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS student_name,
+                    s.admission_no, per.photo_url, c.name AS class_name, st2.name AS stream_name
+             FROM discipline_incidents di
+             JOIN student_academic_enrollments sae ON sae.id = di.student_academic_enrollment_id
+             JOIN students s ON s.id = sae.student_id
+             JOIN persons per ON per.id = s.person_id
+             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN streams st2 ON st2.id = aycs.stream_id
+             WHERE di.id = ?
              LIMIT 1",
             [$caseId]
         );
@@ -321,8 +353,8 @@ class StudentInsightsService
             ],
             'class_name' => $case['class_name'] ?? '',
             'stream_name' => $case['stream_name'] ?? '',
-            'reported_by_name' => $case['reported_by_name'] ?? 'System',
-            'resolved_by_name' => $case['resolved_by_name'] ?? '',
+            'reported_by_name' => 'System',
+            'resolved_by_name' => '',
         ];
     }
 
@@ -339,17 +371,12 @@ class StudentInsightsService
             $updates[] = "action_taken = ?";
             $bindings[] = $data['action_taken'];
         }
-        if (($data['status'] ?? null) === 'resolved') {
-            $updates[] = "resolution_date = CURDATE()";
-            $updates[] = "resolved_by = ?";
-            $bindings[] = $userId;
-        }
         if (empty($updates)) {
             throw new RuntimeException('bad_request:No valid fields to update');
         }
 
         $bindings[] = $caseId;
-        $stmt = $this->db->prepare("UPDATE student_discipline SET " . implode(', ', $updates) . " WHERE id = ?");
+        $stmt = $this->db->prepare("UPDATE discipline_incidents SET " . implode(', ', $updates) . " WHERE id = ?");
         $stmt->execute($bindings);
     }
 
@@ -357,7 +384,11 @@ class StudentInsightsService
     {
         return [
             'classes' => $this->fetchAll("SELECT id, name FROM classes ORDER BY name ASC"),
-            'streams' => $this->fetchAll("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC"),
+            'streams' => $this->fetchAll("SELECT aycs.id, ayc.class_id, sm.name AS stream_name
+                                          FROM academic_year_class_streams aycs
+                                          JOIN streams sm ON sm.id = aycs.stream_id
+                                          JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                                          ORDER BY sm.name ASC"),
             'academic_years' => $this->fetchAll("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC"),
             'dormitories' => $this->fetchAll("SELECT id, name AS dormitory_name, gender FROM dormitories WHERE status = 'active' ORDER BY name ASC"),
             'statuses' => ['draft', 'active', 'completed', 'archived'],
@@ -371,8 +402,8 @@ class StudentInsightsService
         $bindings = [];
         $map = [
             'status' => 'i.status = ?',
-            'class_id' => 'cs.class_id = ?',
-            'stream_id' => 's.stream_id = ?',
+            'class_id' => 'ayc.class_id = ?',
+            'stream_id' => 'aycs.stream_id = ?',
             'dormitory_id' => 'd.id = ?',
             'academic_year' => 'i.academic_year = ?',
         ];
@@ -383,7 +414,7 @@ class StudentInsightsService
             }
         }
         if (!empty($filters['search'])) {
-            $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR i.iep_type LIKE ? OR i.special_needs_category LIKE ?)";
+            $conditions[] = "(s.admission_no LIKE ? OR per.first_name LIKE ? OR per.last_name LIKE ? OR i.iep_type LIKE ? OR i.special_needs_category LIKE ?)";
             $term = '%' . trim((string)$filters['search']) . '%';
             array_push($bindings, $term, $term, $term, $term, $term);
         }
@@ -393,13 +424,17 @@ class StudentInsightsService
                     i.goals_summary, i.strategies, i.accommodations, i.progress_monitoring_plan,
                     i.status, i.approved_date, i.created_at,
                     s.admission_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                    c.name AS class_name, cs.stream_name, d.name AS dormitory_name, s.photo_url
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS full_name,
+                    c.name AS class_name, sm.name AS stream_name, d.name AS dormitory_name, per.photo_url
              FROM ieps i
              JOIN students s ON s.id = i.student_id
-             LEFT JOIN class_streams cs ON cs.id = s.stream_id
-             LEFT JOIN classes c ON c.id = cs.class_id
-             LEFT JOIN dormitory_assignments da ON da.student_id = s.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
+             JOIN persons per ON per.id = s.person_id
+             LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN streams sm ON sm.id = aycs.stream_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = sae.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
              LEFT JOIN dormitories d ON d.id = da.dormitory_id
              WHERE " . implode(' AND ', $conditions) . "
              ORDER BY i.created_at DESC",
@@ -411,18 +446,24 @@ class StudentInsightsService
     {
         $iep = $this->fetchOne(
             "SELECT i.*,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    s.admission_no, s.photo_url, c.name AS class_name, cs.stream_name, d.name AS dormitory_name,
+                    CONCAT_WS(' ', per.first_name, per.middle_name, per.last_name) AS student_name,
+                    s.admission_no, per.photo_url, c.name AS class_name, sm.name AS stream_name, d.name AS dormitory_name,
                     CONCAT_WS(' ', cb.first_name, cb.last_name) AS created_by_name,
                     CONCAT_WS(' ', ab.first_name, ab.last_name) AS approved_by_name
              FROM ieps i
              JOIN students s ON s.id = i.student_id
-             LEFT JOIN class_streams cs ON cs.id = s.stream_id
-             LEFT JOIN classes c ON c.id = cs.class_id
-             LEFT JOIN dormitory_assignments da ON da.student_id = s.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
+             JOIN persons per ON per.id = s.person_id
+             LEFT JOIN student_academic_enrollments sae ON sae.student_id = s.id AND sae.enrollment_status = 'active'
+             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN streams sm ON sm.id = aycs.stream_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN dormitory_assignments da ON da.student_academic_enrollment_id = sae.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
              LEFT JOIN dormitories d ON d.id = da.dormitory_id
-             LEFT JOIN users cb ON cb.id = i.created_by
-             LEFT JOIN users ab ON ab.id = i.approved_by
+             LEFT JOIN users cbu ON cbu.id = i.created_by
+             LEFT JOIN persons cb ON cb.id = cbu.person_id
+             LEFT JOIN users abu ON abu.id = i.approved_by
+             LEFT JOIN persons ab ON ab.id = abu.person_id
              WHERE i.id = ?
              LIMIT 1",
             [$iepId]
@@ -476,13 +517,12 @@ class StudentInsightsService
         if ($termId !== null) {
             $subjects = $this->fetchAll(
                 "SELECT tss.subject_id,
-                        COALESCE(la.name, cu.name, CONCAT('Subject ', tss.subject_id)) AS subject,
+                        COALESCE(la.name, CONCAT('Subject ', tss.subject_id)) AS subject,
                         tss.overall_percentage AS score, tss.overall_grade AS grade,
                         class_subject_avg.class_average AS classAverage,
                         NULL AS position, NULL AS teacher, NULL AS remarks
                  FROM term_subject_scores tss
                  LEFT JOIN learning_areas la ON la.id = tss.subject_id
-                 LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
                  LEFT JOIN (
                     SELECT subject_id, ROUND(AVG(overall_percentage), 2) AS class_average
                     FROM term_subject_scores
@@ -496,26 +536,26 @@ class StudentInsightsService
         }
 
         if (empty($subjects)) {
-            $sql = "SELECT a.subject_id,
-                           COALESCE(la.name, cu.name, CONCAT('Subject ', a.subject_id)) AS subject,
+            $sql = "SELECT a.learning_area_id AS subject_id,
+                           COALESCE(la.name, CONCAT('Subject ', a.learning_area_id)) AS subject,
                            ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2) AS score,
                            NULL AS grade, NULL AS classAverage, NULL AS position, NULL AS teacher,
                            MIN(ar.remarks) AS remarks
                     FROM assessment_results ar
                     JOIN assessments a ON a.id = ar.assessment_id
-                    LEFT JOIN learning_areas la ON la.id = a.subject_id
-                    LEFT JOIN curriculum_units cu ON cu.id = a.subject_id
-                    WHERE ar.student_id = ?";
+                    JOIN student_academic_enrollments ae ON ae.id = ar.student_academic_enrollment_id
+                    LEFT JOIN learning_areas la ON la.id = a.learning_area_id
+                    WHERE ae.student_id = ?";
             $bindings = [$studentId];
             if ($termId !== null) {
-                $sql .= " AND a.term_id = ?";
+                $sql .= " AND a.academic_year_term_id = ?";
                 $bindings[] = $termId;
             }
             if ($yearId !== null) {
-                $sql .= " AND a.academic_year_id = ?";
+                $sql .= " AND ae.academic_year_id = ?";
                 $bindings[] = $yearId;
             }
-            $sql .= " GROUP BY a.subject_id ORDER BY subject ASC";
+            $sql .= " GROUP BY a.learning_area_id ORDER BY subject ASC";
             $subjects = $this->fetchAll($sql, $bindings);
         }
 
@@ -531,23 +571,24 @@ class StudentInsightsService
 
     private function fetchAttendanceSummary(int $studentId, ?int $termId, ?int $yearId): array
     {
-        $conditions = ["student_id = ?"];
+        $conditions = ["ae.student_id = ?"];
         $bindings = [$studentId];
         if ($termId !== null) {
-            $conditions[] = "term_id = ?";
-            $bindings[] = $termId;
+            $conditions[] = "sa.date BETWEEN (SELECT opening_date FROM academic_year_terms WHERE id = ?) AND (SELECT closing_date FROM academic_year_terms WHERE id = ?)";
+            array_push($bindings, $termId, $termId);
         }
         if ($yearId !== null) {
-            $conditions[] = "academic_year_id = ?";
+            $conditions[] = "ae.academic_year_id = ?";
             $bindings[] = $yearId;
         }
 
         return $this->fetchOne(
-            "SELECT COUNT(CASE WHEN status = 'present' THEN 1 END) as days_present,
-                    COUNT(CASE WHEN status = 'absent' THEN 1 END) as days_absent,
-                    COUNT(CASE WHEN status = 'late' THEN 1 END) as days_late,
-                    ROUND((COUNT(CASE WHEN status = 'present' OR status = 'late' THEN 1 END) / COUNT(*)) * 100, 2) as attendance_rate
-             FROM student_attendance
+            "SELECT COUNT(CASE WHEN sa.status = 'present' THEN 1 END) as days_present,
+                    COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) as days_absent,
+                    COUNT(CASE WHEN sa.status = 'late' THEN 1 END) as days_late,
+                    ROUND((COUNT(CASE WHEN sa.status = 'present' OR sa.status = 'late' THEN 1 END) / COUNT(*)) * 100, 2) as attendance_rate
+             FROM student_attendance sa
+             JOIN student_academic_enrollments ae ON ae.id = sa.student_academic_enrollment_id
              WHERE " . implode(' AND ', $conditions),
             $bindings
         ) ?: ['days_present' => 0, 'days_absent' => 0, 'days_late' => 0, 'attendance_rate' => 100.00];

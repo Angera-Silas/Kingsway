@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-success text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-utensils"></i> Menu Planning</h4>
+            <h4 class="mb-0"><i class="bi bi-cup-hot"></i> Menu Planning</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="addMenuBtn" data-permission="menu_manage">
                     <i class="bi bi-plus-circle"></i> Add Menu
@@ -266,5 +266,5 @@
     }
 </style>
 
-<script src="<?= $appBase ?>/js/pages/menu_planning.js"></script>
+<?php asset_script($appBase, 'js/pages/menu_planning.js'); ?>
 </script>

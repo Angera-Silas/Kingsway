@@ -48,7 +48,6 @@ const academicsController = {
             return this;
         }
 
-        console.log('[AcademicsController] Initializing...');
 
         try {
             if (window.AuthContext?.ready) {
@@ -93,7 +92,6 @@ const academicsController = {
             }
 
             this.initialized = true;
-            console.log('[AcademicsController] Initialized successfully');
 
             return this;
         } catch (error) {
@@ -157,7 +155,7 @@ const academicsController = {
         const alertDiv = document.createElement('div');
         alertDiv.className = `alert alert-${type === 'success' ? 'success' : type === 'error' ? 'danger' : type} alert-dismissible fade show`;
         alertDiv.innerHTML = `
-            <strong>${title}</strong> ${message}
+            <strong>${this._escH(title)}</strong> ${this._escH(message)}
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         `;
         document.body.insertBefore(alertDiv, document.body.firstChild);
@@ -188,8 +186,7 @@ const academicsController = {
         this.state.currentPage = page;
 
         const params = {
-            page,
-            limit: this.state.pageSize,
+            limit: 500,
             search: this.state.searchTerm,
             ...this.state.filters
         };
@@ -337,20 +334,15 @@ const academicsController = {
 
     async _loadTeachers() {
         try {
-            console.log('Loading teachers...');
-            console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
-            console.log('Is authenticated:', AuthContext.isAuthenticated());
             
             // Get teaching staff from the academic API. /users/index is only the
             // Users API health endpoint in this app and does not return user rows.
             const response = await window.API.academic.listTeachers({ limit: 200 });
-            console.log('Teachers API response:', response);
             
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
             this.state.teachers = data;
             
-            console.log('Processed teachers data:', this.state.teachers);
         } catch (error) {
             console.error('Error loading teachers:', error);
             console.error('Error message:', error.message);
@@ -389,15 +381,15 @@ const academicsController = {
         tbody.innerHTML = this.state.classes.map((cls, index) => `
             <tr>
                 <td>${(this.state.currentPage - 1) * this.state.pageSize + index + 1}</td>
-                <td><strong>${cls.name || cls.class_name || '-'}</strong></td>
-                <td>${cls.level_name || cls.grade_level || '-'}</td>
+                <td><strong>${this._escH(cls.name || cls.class_name || '-')}</strong></td>
+                <td>${this._escH(cls.level_name || cls.grade_level || '-')}</td>
                 <td><span class="badge bg-info">${cls.stream_count || 0}</span></td>
                 <td><span class="badge bg-primary">${cls.student_count || cls.students_count || 0}</span></td>
-                <td>${cls.class_teacher_name || cls.teacher_name || 'Not assigned'}</td>
-                <td>${cls.capacity || '-'}</td>
+                <td>${this._escH(cls.class_teacher_name || cls.teacher_name || 'Not assigned')}</td>
+                <td>${this._escH(cls.capacity || '-')}</td>
                 <td>
                     <span class="badge ${cls.status === 'active' ? 'bg-success' : 'bg-secondary'}">
-                        ${cls.status || 'active'}
+                        ${this._escH(cls.status || 'active')}
                     </span>
                 </td>
                 <td>
@@ -547,7 +539,7 @@ const academicsController = {
     },
 
     async deleteClass(classId) {
-        if (!confirm('Are you sure you want to delete this class?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this class?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await window.API.academic.deleteClass(classId);
@@ -650,14 +642,14 @@ const academicsController = {
         tbody.innerHTML = this.state.streams.map((stream, index) => `
             <tr>
                 <td>${index + 1}</td>
-                <td><strong>${stream.name || stream.stream_name || '-'}</strong></td>
-                <td>${stream.class_name || '-'}</td>
+                <td><strong>${this._escH(stream.name || stream.stream_name || '-')}</strong></td>
+                <td>${this._escH(stream.class_name || '-')}</td>
                 <td><span class="badge bg-primary">${stream.student_count || stream.current_students || 0}</span></td>
-                <td>${stream.teacher_name || 'Not assigned'}</td>
-                <td>${stream.capacity || '-'}</td>
+                <td>${this._escH(stream.teacher_name || 'Not assigned')}</td>
+                <td>${this._escH(stream.capacity || '-')}</td>
                 <td>
                     <span class="badge ${stream.status === 'active' ? 'bg-success' : 'bg-secondary'}">
-                        ${stream.status || 'active'}
+                        ${this._escH(stream.status || 'active')}
                     </span>
                 </td>
             </tr>
@@ -733,7 +725,7 @@ const academicsController = {
     },
 
     async deleteStream(streamId) {
-        if (!confirm('Are you sure you want to delete this stream?')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this stream?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await window.API.academic.deleteStream(streamId);
@@ -787,12 +779,12 @@ const academicsController = {
         tbody.innerHTML = teachers.map((item, index) => `
             <tr>
                 <td>${index + 1}</td>
-                <td><strong>${item.teacher_name || item.class_teacher_name || '-'}</strong></td>
-                <td>${item.class_name || item.name || '-'}</td>
-                <td>${item.stream_name || '-'}</td>
+                <td><strong>${this._escH(item.teacher_name || item.class_teacher_name || '-')}</strong></td>
+                <td>${this._escH(item.class_name || item.name || '-')}</td>
+                <td>${this._escH(item.stream_name || '-')}</td>
                 <td><span class="badge bg-primary">${item.student_count || item.current_students || 0}</span></td>
-                <td>${item.subject_name || '-'}</td>
-                <td>${item.teacher_contact || '-'}</td>
+                <td>${this._escH(item.subject_name || '-')}</td>
+                <td>${this._escH(item.teacher_contact || '-')}</td>
                 <td>
                     <div class="btn-group btn-group-sm" role="group">
                         <button type="button" class="btn btn-outline-warning"
@@ -1135,7 +1127,7 @@ const academicsController = {
     },
 
     async _deleteSubject(id, name) {
-        if (!confirm('Delete subject "' + name + '"? This cannot be undone.')) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete subject "' + name + '"? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
         try {
             await callAPI('/academic/learning-areas/delete/' + id, 'DELETE');
             this.showToast('Subject deleted', 'success', 'Deleted');
@@ -1177,7 +1169,7 @@ const academicsController = {
     },
 
     // ── Curriculum Unit Modal ───────────────────────────────────────
-    showCurriculumUnitModal(id) {
+    async showCurriculumUnitModal(id) {
         const form = document.getElementById('curriculumUnitForm');
         if (!form) return;
         form.reset();
@@ -1191,8 +1183,26 @@ const academicsController = {
                 this._subjects.map(s => `<option value="${s.id}">${this._escH(s.name || s.subject_name)}</option>`).join('');
         }
         if (id) {
-            // TODO: load unit data when curriculum_units endpoint is available
             document.getElementById('unitModalAction').textContent = 'Edit';
+            try {
+                const r = await callAPI(`/academic/curriculum-units/${id}`, 'GET');
+                const d = r?.data || r;
+                if (d && d.id) {
+                    document.getElementById('unitId').value = d.id;
+                    if (document.getElementById('unitName')) document.getElementById('unitName').value = d.name || '';
+                    if (document.getElementById('unitCode')) document.getElementById('unitCode').value = d.code || '';
+                    if (document.getElementById('unitSequence')) document.getElementById('unitSequence').value = d.sort_order || d.order_sequence || '';
+                    if (document.getElementById('unitSubject')) document.getElementById('unitSubject').value = d.learning_area_id || '';
+                    if (document.getElementById('unitTerm')) document.getElementById('unitTerm').value = d.term_number || '';
+                    if (document.getElementById('unitDuration')) document.getElementById('unitDuration').value = d.duration || '';
+                    if (document.getElementById('unitObjectives')) document.getElementById('unitObjectives').value = d.description || d.objectives || '';
+                    if (document.getElementById('unitTopics')) document.getElementById('unitTopics').value = (d.topics || []).map(t => t.name || t.topic_name).filter(Boolean).join(', ');
+                    if (document.getElementById('unitResources')) document.getElementById('unitResources').value = d.suggested_resources || d.resources_needed || '';
+                    if (document.getElementById('unitStatus')) document.getElementById('unitStatus').value = d.status || 'active';
+                }
+            } catch (e) {
+                console.warn('Failed to load curriculum unit:', e);
+            }
         }
         bootstrap.Modal.getOrCreateInstance(document.getElementById('curriculumUnitModal')).show();
     },
@@ -1200,18 +1210,13 @@ const academicsController = {
     async saveCurriculumUnit(e) {
         e.preventDefault();
         const id = document.getElementById('unitId').value;
-        const methods = Array.from(document.getElementById('unitAssessmentMethods').selectedOptions).map(o => o.value);
         const payload = {
             name:              document.getElementById('unitName').value.trim(),
             code:              document.getElementById('unitCode').value.trim(),
-            sequence_order:    parseInt(document.getElementById('unitSequence').value) || 1,
-            subject_id:        document.getElementById('unitSubject').value,
-            term_number:       document.getElementById('unitTerm').value,
-            duration_hours:    document.getElementById('unitDuration').value,
-            objectives:        document.getElementById('unitObjectives').value.trim(),
-            topics:            document.getElementById('unitTopics').value.trim(),
-            assessment_methods: methods,
-            resources_needed:  document.getElementById('unitResources').value.trim(),
+            sort_order:        parseInt(document.getElementById('unitSequence').value) || 1,
+            learning_area_id:  document.getElementById('unitSubject').value,
+            description:       document.getElementById('unitObjectives').value.trim(),
+            topics:            document.getElementById('unitTopics').value.split(',').map(s => ({ name: s.trim() })).filter(t => t.name),
             status:            document.getElementById('unitStatus').value,
         };
         try {

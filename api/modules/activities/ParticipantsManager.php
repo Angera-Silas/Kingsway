@@ -18,6 +18,54 @@ class ParticipantsManager extends BaseAPI
     }
 
     /**
+     * Next manual id for a table without AUTO_INCREMENT (e.g. activity_participants).
+     *
+     * @param string $table Table name
+     * @return int
+     */
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve a student's current active academic enrollment id.
+     *
+     * @param int $studentId Student ID
+     * @return int|null Enrollment ID or null when none found
+     */
+    private function resolveEnrollmentId($studentId)
+    {
+        $stmt = $this->db->prepare("
+            SELECT id
+            FROM student_academic_enrollments
+            WHERE student_id = ? AND enrollment_status = 'active'
+            ORDER BY enrolled_on DESC, id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([(int) $studentId]);
+        $enrollmentId = $stmt->fetchColumn();
+
+        if ($enrollmentId) {
+            return (int) $enrollmentId;
+        }
+
+        $fallbackStmt = $this->db->prepare("
+            SELECT id
+            FROM student_academic_enrollments
+            WHERE student_id = ?
+            ORDER BY enrolled_on DESC, id DESC
+            LIMIT 1
+        ");
+        $fallbackStmt->execute([(int) $studentId]);
+        $enrollmentId = $fallbackStmt->fetchColumn();
+
+        return $enrollmentId ? (int) $enrollmentId : null;
+    }
+
+    /**
      * List participants with filtering
      * 
      * @param array $params Filter parameters
@@ -41,7 +89,7 @@ class ParticipantsManager extends BaseAPI
 
             // Filter by student
             if (!empty($params['student_id'])) {
-                $where[] = 'ap.student_id = ?';
+                $where[] = 'sae.student_id = ?';
                 $bindings[] = $params['student_id'];
             }
 
@@ -59,7 +107,7 @@ class ParticipantsManager extends BaseAPI
 
             // Filter by class
             if (!empty($params['class_id'])) {
-                $where[] = 'cs.class_id = ?';
+                $where[] = 'ayc.class_id = ?';
                 $bindings[] = $params['class_id'];
             }
 
@@ -69,8 +117,9 @@ class ParticipantsManager extends BaseAPI
             $sql = "
                 SELECT COUNT(DISTINCT ap.id)
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
-                JOIN class_streams cs ON s.stream_id = cs.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
                 WHERE $whereClause
             ";
             $stmt = $this->db->prepare($sql);
@@ -82,16 +131,20 @@ class ParticipantsManager extends BaseAPI
                 SELECT 
                     ap.*,
                     s.admission_no,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     c.name as class_name,
-                    cs.stream_name,
+                    stm.name AS stream_name,
                     a.title as activity_title,
                     ac.name as category_name
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                LEFT JOIN persons p ON p.id = s.person_id
+                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN streams stm ON stm.id = aycs.stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
                 JOIN activities a ON ap.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
                 WHERE $whereClause
@@ -132,19 +185,23 @@ class ParticipantsManager extends BaseAPI
                 SELECT 
                     ap.*,
                     s.admission_no,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     c.name as class_name,
-                    cs.stream_name,
+                    stm.name AS stream_name,
                     a.title as activity_title,
                     a.description as activity_description,
                     a.start_date,
                     a.end_date,
                     ac.name as category_name
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                LEFT JOIN persons p ON p.id = s.person_id
+                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN streams stm ON stm.id = aycs.stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
                 JOIN activities a ON ap.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
                 WHERE ap.id = ?
@@ -188,7 +245,7 @@ class ParticipantsManager extends BaseAPI
             $required = ['activity_id', 'student_id'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    throw new Exception("Field '$field' is required");
+                    throw new \InvalidArgumentException("Field '$field' is required");
                 }
             }
 
@@ -207,17 +264,23 @@ class ParticipantsManager extends BaseAPI
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$activity) {
-                throw new Exception('Activity not found');
+                throw new \RuntimeException('Activity not found', 404);
             }
 
             // ... (other validation logic for status, dates, student, etc. can go here) ...
 
             // Check student exists
-            $stmt = $this->db->prepare("SELECT id, first_name, last_name FROM students WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT s.id, p.first_name, p.last_name FROM students s LEFT JOIN persons p ON p.id = s.person_id WHERE s.id = ?");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$student) {
-                throw new Exception('Student not found');
+                throw new \RuntimeException('Student not found', 404);
+            }
+
+            // Resolve the student's current active enrollment
+            $enrollmentId = $this->resolveEnrollmentId($data['student_id']);
+            if ($enrollmentId === null) {
+                throw new Exception('Student has no active enrollment');
             }
 
             if (!$this->db->inTransaction()) {
@@ -225,23 +288,25 @@ class ParticipantsManager extends BaseAPI
                 $transactionStarted = true;
             }
 
+            $participantId = $this->nextId('activity_participants');
+
             $sql = "
                 INSERT INTO activity_participants (
+                    id,
                     activity_id,
-                    student_id,
+                    student_academic_enrollment_id,
                     status,
                     joined_at
-                ) VALUES (?, ?, ?, NOW())
+                ) VALUES (?, ?, ?, ?, NOW())
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $participantId,
                 $data['activity_id'],
-                $data['student_id'],
+                $enrollmentId,
                 $data['status'] ?? 'active'
             ]);
-
-            $participantId = $this->db->lastInsertId();
 
             if ($transactionStarted) {
                 $this->db->commit();
@@ -282,11 +347,13 @@ class ParticipantsManager extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT 
                     ap.*,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     a.title as activity_title
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                LEFT JOIN persons p ON p.id = s.person_id
                 JOIN activities a ON ap.activity_id = a.id
                 WHERE ap.id = ?
             ");
@@ -294,7 +361,7 @@ class ParticipantsManager extends BaseAPI
             $participant = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$participant) {
-                throw new Exception('Participant record not found');
+                throw new \RuntimeException('Participant record not found', 404);
             }
 
             $transactionStarted = false;
@@ -364,11 +431,13 @@ class ParticipantsManager extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT 
                     ap.*,
-                    s.first_name,
-                    s.last_name,
+                    p.first_name,
+                    p.last_name,
                     a.title as activity_title
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                LEFT JOIN persons p ON p.id = s.person_id
                 JOIN activities a ON ap.activity_id = a.id
                 WHERE ap.id = ?
             ");
@@ -376,7 +445,7 @@ class ParticipantsManager extends BaseAPI
             $participant = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$participant) {
-                throw new Exception('Participant record not found');
+                throw new \RuntimeException('Participant record not found', 404);
             }
 
             if ($participant['status'] === 'withdrawn') {
@@ -440,9 +509,10 @@ class ParticipantsManager extends BaseAPI
                     a.status as activity_status,
                     ac.name as category_name
                 FROM activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
                 JOIN activities a ON ap.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
-                WHERE ap.student_id = ?
+                WHERE sae.student_id = ?
                 ORDER BY a.start_date DESC
             ";
 
@@ -493,9 +563,11 @@ class ParticipantsManager extends BaseAPI
                     c.name as class_name,
                     COUNT(*) as student_count
                 FROM activity_participants ap
-                JOIN students s ON ap.student_id = s.id
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                JOIN students s ON s.id = sae.student_id
+                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
                 WHERE ap.activity_id = ? AND ap.status = 'active'
                 GROUP BY c.id
                 ORDER BY c.name
@@ -544,9 +616,14 @@ class ParticipantsManager extends BaseAPI
 
                     $successful[] = $studentId;
                 } catch (Exception $e) {
+                    $errorMsg = 'An internal error occurred.';
+
+                    error_log('[ParticipantsManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+
+                    
                     $failed[] = [
                         'student_id' => $studentId,
-                        'error' => $e->getMessage()
+                        'error' => $errorMsg
                     ];
                 }
             }

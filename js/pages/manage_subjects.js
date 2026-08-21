@@ -18,6 +18,7 @@ const ManageSubjectsController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -27,7 +28,6 @@ const ManageSubjectsController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in manage_subjects:', event, data);
         if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
           this.loadSubjects();
         }
@@ -98,15 +98,9 @@ const ManageSubjectsController = {
 
   async loadSubjects() {
     try {
-      const res = await window.API.academic.listLearningAreas();
-      
-      if (res?.success) {
-        this.state.subjects = res.data || [];
-        this.renderSubjectsTable();
-        this.updateStats();
-      } else {
-        this.showNotification('Failed to load subjects', 'error');
-      }
+      this.state.subjects = await window.API.academic.listLearningAreas() || [];
+      this.renderSubjectsTable();
+      this.updateStats();
     } catch (error) {
       console.error('Error loading subjects:', error);
       this.showNotification('Failed to load subjects', 'error');
@@ -115,15 +109,9 @@ const ManageSubjectsController = {
 
   async loadCurriculumUnits() {
     try {
-      const res = await window.API.academic.listCurriculumUnits();
-      
-      if (res?.success) {
-        const payload = res.data?.data || res.data || {};
-        this.state.curriculumUnits = payload.units || payload.curriculum_units || (Array.isArray(payload) ? payload : []);
-        this.renderCurriculumUnitsTable();
-      } else {
-        this.showNotification('Failed to load curriculum units', 'error');
-      }
+      const payload = await window.API.academic.listCurriculumUnits() || {};
+      this.state.curriculumUnits = payload.units || payload.curriculum_units || (Array.isArray(payload) ? payload : []);
+      this.renderCurriculumUnitsTable();
     } catch (error) {
       console.error('Error loading curriculum units:', error);
       this.showNotification('Failed to load curriculum units', 'error');
@@ -250,10 +238,10 @@ const ManageSubjectsController = {
     if (!select) return;
     
     try {
-      const res = await window.API.academic.listLearningAreas();
-      if (res?.success) {
+      const subjects = await window.API.academic.listLearningAreas() || [];
+      if (subjects.length) {
         select.innerHTML = '<option value="">Select Learning Area</option>' + 
-          res.data.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
+          subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
       }
     } catch (error) {
       console.error('Error loading learning areas for dropdown:', error);
@@ -279,23 +267,18 @@ const ManageSubjectsController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.academic.updateLearningArea(editId, data);
+        await window.API.academic.updateLearningArea(editId, data);
       } else {
-        res = await window.API.academic.createLearningArea(data);
+        await window.API.academic.createLearningArea(data);
       }
 
-      if (res?.success) {
-        this.showNotification(editId ? 'Subject updated' : 'Subject created', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('subjectModal'));
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadSubjects();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification(editId ? 'Subject updated' : 'Subject created', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('subjectModal'));
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadSubjects();
     } catch (error) {
       console.error('Error saving subject:', error);
       this.showNotification('Failed to save subject', 'error');
@@ -313,7 +296,7 @@ const ManageSubjectsController = {
       learning_outcomes: document.getElementById('unitObjectives')?.value?.trim() || '',
       suggested_resources: document.getElementById('unitResources')?.value?.trim() || '',
       duration: document.getElementById('unitDuration')?.value || null,
-      order_sequence: document.getElementById('unitSequence')?.value || 1,
+      sort_order: document.getElementById('unitSequence')?.value || 1,
       status: document.getElementById('unitStatus')?.value || 'active'
     };
 
@@ -324,23 +307,18 @@ const ManageSubjectsController = {
 
     try {
       const editId = form.dataset.editId;
-      let res;
       if (editId) {
-        res = await window.API.academic.updateCurriculumUnit(editId, data);
+        await window.API.academic.updateCurriculumUnit(editId, data);
       } else {
-        res = await window.API.academic.createCurriculumUnit(data);
+        await window.API.academic.createCurriculumUnit(data);
       }
 
-      if (res?.success) {
-        this.showNotification(editId ? 'Curriculum unit updated' : 'Curriculum unit created', 'success');
-        const modal = bootstrap.Modal.getInstance(document.getElementById('curriculumUnitModal'));
-        if (modal) modal.hide();
-        form.reset();
-        delete form.dataset.editId;
-        await this.loadCurriculumUnits();
-      } else {
-        this.showNotification(res?.message || 'Operation failed', 'error');
-      }
+      this.showNotification(editId ? 'Curriculum unit updated' : 'Curriculum unit created', 'success');
+      const modal = bootstrap.Modal.getInstance(document.getElementById('curriculumUnitModal'));
+      if (modal) modal.hide();
+      form.reset();
+      delete form.dataset.editId;
+      await this.loadCurriculumUnits();
     } catch (error) {
       console.error('Error saving curriculum unit:', error);
       this.showNotification('Failed to save curriculum unit', 'error');
@@ -349,9 +327,8 @@ const ManageSubjectsController = {
 
   async editSubject(subjectId) {
     try {
-      const res = await window.API.academic.getLearningArea(subjectId);
-      if (res?.success && res.data) {
-        const subject = res.data;
+      const subject = await window.API.academic.getLearningArea(subjectId);
+      if (subject) {
         const form = document.getElementById('subjectForm');
         if (form) {
           form.dataset.editId = subjectId;
@@ -370,9 +347,8 @@ const ManageSubjectsController = {
 
   async editCurriculumUnit(unitId) {
     try {
-      const res = await window.API.academic.getCurriculumUnit(unitId);
-      if (res?.success && res.data) {
-        const unit = res.data;
+      const unit = await window.API.academic.getCurriculumUnit(unitId);
+      if (unit) {
         const form = document.getElementById('curriculumUnitForm');
         if (form) {
           form.dataset.editId = unitId;
@@ -380,7 +356,7 @@ const ManageSubjectsController = {
           document.getElementById('unitName').value = unit.name || '';
           document.getElementById('unitSubject').value = unit.learning_area_id || '';
           document.getElementById('unitDuration').value = unit.duration || '';
-          document.getElementById('unitSequence').value = unit.order_sequence || 1;
+          document.getElementById('unitSequence').value = unit.sort_order || 1;
           document.getElementById('unitObjectives').value = unit.learning_outcomes || '';
           document.getElementById('unitTopics').value = unit.description || '';
           document.getElementById('unitResources').value = unit.suggested_resources || '';
@@ -396,15 +372,11 @@ const ManageSubjectsController = {
   },
 
   async deleteSubject(subjectId) {
-    if (!confirm('Are you sure you want to delete this subject? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this subject? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
-      const res = await window.API.academic.deleteLearningArea(subjectId);
-      if (res?.success) {
-        this.showNotification('Subject deleted', 'success');
-        await this.loadSubjects();
-      } else {
-        this.showNotification(res?.message || 'Failed to delete', 'error');
-      }
+      await window.API.academic.deleteLearningArea(subjectId);
+      this.showNotification('Subject deleted', 'success');
+      await this.loadSubjects();
     } catch (error) {
       console.error('Error deleting subject:', error);
       this.showNotification('Failed to delete subject', 'error');
@@ -412,15 +384,11 @@ const ManageSubjectsController = {
   },
 
   async deleteCurriculumUnit(unitId) {
-    if (!confirm('Are you sure you want to delete this curriculum unit? This cannot be undone.')) return;
+    if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this curriculum unit? This cannot be undone.', { confirmText: 'Delete', danger: true }))) return;
     try {
-      const res = await window.API.academic.deleteCurriculumUnit(unitId);
-      if (res?.success) {
-        this.showNotification('Curriculum unit deleted', 'success');
-        await this.loadCurriculumUnits();
-      } else {
-        this.showNotification(res?.message || 'Failed to delete', 'error');
-      }
+      await window.API.academic.deleteCurriculumUnit(unitId);
+      this.showNotification('Curriculum unit deleted', 'success');
+      await this.loadCurriculumUnits();
     } catch (error) {
       console.error('Error deleting curriculum unit:', error);
       this.showNotification('Failed to delete curriculum unit', 'error');

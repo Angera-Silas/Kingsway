@@ -12,11 +12,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-chalkboard-teacher me-2"></i>All Teachers</h4>
-                    <p class="text-muted mb-0">View and manage teaching staff</p>
+                    <h4 class="mb-1"><i class="bi bi-person-workspace me-2"></i>All Teachers</h4>
+                    <p class="text-muted mb-0">Teaching staff by learning areas, class assignments, school level, and teaching role</p>
                 </div>
                 <a href="home.php?route=manage_staff" class="btn btn-primary" data-permission-module="staff" data-permission-action="create">
-                    <i class="fas fa-plus me-1"></i> Add Teacher
+                    <i class="bi bi-plus-lg me-1"></i> Add Teacher
                 </a>
             </div>
         </div>
@@ -44,7 +44,7 @@
             <div class="card bg-info text-white">
                 <div class="card-body text-center">
                     <h2 id="hods">--</h2>
-                    <p class="mb-0">HODs</p>
+                    <p class="mb-0">Subject Teachers</p>
                 </div>
             </div>
         </div>
@@ -54,22 +54,32 @@
     <div class="card">
         <div class="card-header">
             <div class="row g-2">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <input type="text" class="form-control" id="searchTeacher" placeholder="Search teacher...">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <select class="form-select" id="filterDepartment">
-                        <option value="">All Departments</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <select class="form-select" id="filterSubject">
-                        <option value="">All Subjects</option>
+                        <option value="">Teaching Departments</option>
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <select class="form-select" id="filterSubject">
+                        <option value="">Learning Areas</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="filterLevel">
+                        <option value="">School Levels</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="filterTeachingRole">
+                        <option value="">Teaching Roles</option>
+                    </select>
+                </div>
+                <div class="col-md-1">
                     <button class="btn btn-outline-secondary w-100" id="exportTeachers" data-permission-module="staff" data-permission-action="export">
-                        <i class="fas fa-download"></i> Export
+                        <i class="bi bi-download"></i>
                     </button>
                 </div>
             </div>
@@ -79,14 +89,14 @@
                 <table class="table table-hover" id="teachersTable">
                     <thead>
                         <tr>
-                            <th>Photo</th>
-                            <th>Name</th>
-                            <th>Employee ID</th>
-                            <th>Department</th>
-                            <th>Subjects</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Photo</th>
+                            <th scope="col">Teacher</th>
+                            <th scope="col">Staff No</th>
+                            <th scope="col">Teaching Role</th>
+                            <th scope="col">Learning Areas</th>
+                            <th scope="col">Classes / Levels</th>
+                            <th scope="col">Department</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -96,4 +106,26 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/all_teachers.js"></script>
+<div class="modal fade" id="teacherInsightModal" tabindex="-1" aria-labelledby="teacherInsightModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="teacherInsightModalLabel">Teacher</h5>
+                    <small class="text-muted" id="teacherInsightModalSubtitle"></small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="teacherInsightModalBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="teacherInsightPrintBtn">
+                    <i class="bi bi-printer me-1"></i> Print Summary
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<?php $allTeachersJs = __DIR__ . '/../js/pages/all_teachers.js'; ?>
+<?php asset_script($appBase, 'js/pages/all_teachers.js'); ?>

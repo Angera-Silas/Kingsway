@@ -8,6 +8,7 @@ let rolesTable = null;
 let permissionsTable = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
         window.location.href = (window.APP_BASE || '') + '/index.php';
         return;
@@ -91,13 +92,30 @@ function initializeSettingsTables() {
 
 async function loadSettingsStatistics() {
     try {
-        const stats = await window.API.apiCall('/reports/settings-stats', 'GET');
-        if (stats) {
-            document.getElementById('totalUsers').textContent = stats.total_users || 0;
-            document.getElementById('activeUsers').textContent = stats.active_users || 0;
-            document.getElementById('totalRoles').textContent = stats.total_roles || 0;
-            document.getElementById('totalPermissions').textContent = stats.total_permissions || 0;
-        }
+        const [usersRes, rolesRes, permsRes] = await Promise.all([
+            window.API.users.index().catch(() => null),
+            window.API.system.getRoles().catch(() => null),
+            window.API.system.getPermissions().catch(() => null),
+        ]);
+        const unwrap = (res) =>
+            Array.isArray(res?.data)
+                ? res.data
+                : Array.isArray(res?.data?.users)
+                  ? res.data.users
+                  : Array.isArray(res?.data?.roles)
+                    ? res.data.roles
+                    : Array.isArray(res?.data?.permissions)
+                      ? res.data.permissions
+                      : Array.isArray(res) ? res : [];
+        const users = unwrap(usersRes);
+        const roles = unwrap(rolesRes);
+        const permissions = unwrap(permsRes);
+        document.getElementById('totalUsers').textContent = users.length;
+        document.getElementById('activeUsers').textContent = users.filter(
+            (u) => String(u.status || '').toLowerCase() === 'active'
+        ).length;
+        document.getElementById('totalRoles').textContent = roles.length;
+        document.getElementById('totalPermissions').textContent = permissions.length;
     } catch (error) {
         console.error('Failed to load statistics:', error);
     }
@@ -114,9 +132,9 @@ function attachSettingsEventListeners() {
         modal.show();
     });
 
-    document.getElementById('backupBtn')?.addEventListener('click', () => {
-        if (confirm('Create database backup? This may take a few minutes.')) {
-            performBackup();
+    document.getElementById('backupBtn')?.addEventListener('click', async () => {
+        if (await window.confirmAction('Confirm', 'Create database backup? This may take a few minutes.')) {
+            await performBackup();
         }
     });
 
@@ -135,12 +153,10 @@ function attachSettingsEventListeners() {
 
 async function performBackup() {
     try {
-        const result = await window.API.apiCall('/settings/backup', 'POST', {});
-        if (result.success) {
-            alert('Backup created successfully: ' + result.backup_file);
-        }
+        await window.API.system.createBackup();
+        await window.infoDialog('Notice', 'Backup created successfully');
     } catch (error) {
         console.error('Backup failed:', error);
-        alert('Backup failed. Check console for details.');
+        await window.infoDialog('Notice', 'Backup failed. Check console for details.');
     }
 }

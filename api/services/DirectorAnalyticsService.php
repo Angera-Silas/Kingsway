@@ -13,9 +13,11 @@ class DirectorAnalyticsService
     public function getEnrollmentStats()
     {
         $query = "SELECT COUNT(*) as total, 
-                         SUM(CASE WHEN gender = 'male' THEN 1 ELSE 0 END) as male,
-                         SUM(CASE WHEN gender = 'female' THEN 1 ELSE 0 END) as female
-                  FROM students WHERE status = 'active'";
+                         SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
+                         SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female
+                  FROM students s
+                  LEFT JOIN persons p ON s.person_id = p.id
+                  WHERE s.status = 'active'";
         $stmt = $this->db->query($query);
         $row = $stmt->fetch();
         return [
@@ -51,19 +53,27 @@ class DirectorAnalyticsService
     public function getFinanceStats()
     {
         $result = [];
-        // Total fees collected
-        $query = "SELECT SUM(amount_paid) as collected FROM payment_transactions WHERE status = 'confirmed'";
+        // Total fees collected (normalized: payments table)
+        $query = "SELECT SUM(amount) as collected FROM payments WHERE status = 'confirmed'";
         $stmt = $this->db->query($query);
         $result['collected'] = $stmt->fetch()['collected'] ?? 0;
 
-        // Total outstanding fees
-        $query = "SELECT SUM(term_allocation - amount_paid) as outstanding FROM payment_transactions WHERE status = 'confirmed' AND term_allocation > amount_paid";
+        // Total outstanding fees (normalized: vw_student_fee_balances)
+        $query = "SELECT COALESCE(SUM(balance), 0) as outstanding FROM vw_student_fee_balances";
         $stmt = $this->db->query($query);
         $result['outstanding'] = $stmt->fetch()['outstanding'] ?? 0;
 
-        // Fee collection rate
-        $total = $result['collected'] + $result['outstanding'];
-        $result['collection_rate'] = $total > 0 ? round(($result['collected'] / $total) * 100, 1) : 0;
+        // Fee collection rate from vw_collection_rate_by_class
+        try {
+            $stmt = $this->db->query(
+                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
+                 FROM vw_collection_rate_by_class"
+            );
+            $result['collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+        } catch (\Exception $e) {
+            $total = $result['collected'] + $result['outstanding'];
+            $result['collection_rate'] = $total > 0 ? round(($result['collected'] / $total) * 100, 1) : 0;
+        }
 
         return $result;
     }
@@ -158,9 +168,10 @@ class DirectorAnalyticsService
     public function getMonthlyPayrollSummary()
     {
         $query = "SELECT COALESCE(SUM(net_salary), 0) as total_payroll
-                  FROM staff_payroll
+                  FROM vw_staff_payroll_summary
                   WHERE payroll_month = MONTH(CURRENT_DATE())
-                    AND payroll_year = YEAR(CURRENT_DATE())";
+                    AND payroll_year = YEAR(CURRENT_DATE())
+                    AND payslip_status IN ('approved', 'paid')";
         $stmt = $this->db->query($query);
         $result = $stmt->fetch();
         return $result['total_payroll'] ?? 0;
@@ -190,7 +201,7 @@ class DirectorAnalyticsService
         $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE status = 'active' OR is_current = 1 ORDER BY id DESC LIMIT 1");
         $result['academic_year'] = $yearStmt->fetch()['year_name'] ?? date('Y');
 
-        $termStmt = $this->db->query("SELECT name FROM academic_terms WHERE status IN ('current', 'active') ORDER BY status = 'current' DESC, id DESC LIMIT 1");
+        $termStmt = $this->db->query("SELECT t.name FROM academic_year_terms ayt JOIN terms t ON ayt.term_id = t.id WHERE ayt.academic_year_id = (SELECT id FROM academic_years WHERE status IN ('active', 'current') LIMIT 1) ORDER BY ayt.id DESC LIMIT 1");
         $result['current_term'] = $termStmt->fetch()['name'] ?? 'Term 1';
 
         // Total Students
@@ -210,12 +221,12 @@ class DirectorAnalyticsService
         $result['student_growth'] = $last_year > 0 ? round((($current_year - $last_year) / $last_year) * 100, 1) : 0;
 
         // Total Staff
-        $query = "SELECT COUNT(*) as total FROM users WHERE role_id IN (2,3,4,5,6,7,8,9,10,14,16,18,21,24,32,33,34,63)";
+        $query = "SELECT COUNT(DISTINCT u.id) as total FROM users u JOIN user_roles ur ON ur.user_id=u.id WHERE ur.role_id IN (2,3,4,5,6,7,8,9,10,14,16,18,21,24,32,33,34,63)";
         $stmt = $this->db->query($query);
         $result['total_staff'] = $stmt->fetch()['total'] ?? 0;
 
         // Teacher-Student Ratio
-        $teacher_stmt = $this->db->query("SELECT COUNT(*) as count FROM users WHERE role_id IN (7,8,9)");
+        $teacher_stmt = $this->db->query("SELECT COUNT(DISTINCT u.id) as count FROM users u JOIN user_roles ur ON ur.user_id=u.id WHERE ur.role_id IN (7,8,9)");
         $teacher_count = $teacher_stmt->fetch()['count'] ?? 1;
         $result['teacher_student_ratio'] = $teacher_count > 0 ? round($result['total_students'] / $teacher_count, 1) : 0;
 
@@ -223,7 +234,7 @@ class DirectorAnalyticsService
         $academicYearQuery = "
             SELECT start_date, end_date 
             FROM academic_years 
-            WHERE status IN ('active', 'registration', 'current') OR is_current = 1 
+            WHERE status IN ('active', 'registration', 'current') 
             ORDER BY start_date DESC LIMIT 1
         ";
         $ayStmt = $this->db->query($academicYearQuery);
@@ -234,12 +245,12 @@ class DirectorAnalyticsService
             $startDate = $academicYear['start_date'];
             // If academic year hasn't started yet, look at previous year's data
             if (strtotime($startDate) > time()) {
-                $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
+                $query = "SELECT SUM(amount) as total FROM payments WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
             } else {
-                $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= ? AND status = 'confirmed'";
+                $query = "SELECT SUM(amount) as total FROM payments WHERE payment_date >= ? AND status = 'confirmed'";
             }
         } else {
-            $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
+            $query = "SELECT SUM(amount) as total FROM payments WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
         }
 
         // Execute with or without parameter
@@ -251,26 +262,25 @@ class DirectorAnalyticsService
         $result['fees_collected_ytd'] = $stmt->fetch()['total'] ?? 0;
 
         // Fees Outstanding - Calculate from expected fees minus collected
-        // First try student_fee_obligations, fall back to fee_structures estimate
+        // First try vw_student_fee_balances, fall back to fee_catalog estimate
         $outstandingQuery = "
-            SELECT COALESCE(SUM(sfo.balance), 0) as outstanding
-            FROM student_fee_obligations sfo
-            WHERE sfo.status IN ('pending', 'partial', 'arrears')
+            SELECT COALESCE(SUM(balance), 0) as outstanding
+            FROM vw_student_fee_balances
         ";
         $stmt = $this->db->query($outstandingQuery);
         $outstanding = $stmt->fetch()['outstanding'] ?? 0;
 
-        // If no obligations data, estimate from active students × average fee structure
+        // If no obligations data, estimate from active students × average fee schedule
         if ($outstanding == 0 && $result['total_students'] > 0) {
-            // Try fee_structures_detailed first, fall back to fee_structures
-            $feeQuery = "SELECT AVG(amount) as avg_fee FROM fee_structures_detailed WHERE status = 'active'";
+            // Use fee_catalog + academic_year_fee_schedules
+            $feeQuery = "SELECT AVG(amount) as avg_fee FROM academic_year_fee_schedules WHERE status = 'active'";
             try {
                 $stmt = $this->db->query($feeQuery);
                 $avgFee = $stmt->fetch()['avg_fee'] ?? 0;
 
-                // If no active detailed structures, use base fee_structures table
+                // If no active schedules, use base fee_catalog
                 if (!$avgFee || $avgFee == 0) {
-                    $feeQuery = "SELECT AVG(amount) as avg_fee FROM fee_structures";
+                    $feeQuery = "SELECT AVG(COALESCE(default_amount, 0)) as avg_fee FROM fee_catalog";
                     $stmt = $this->db->query($feeQuery);
                     $avgFee = $stmt->fetch()['avg_fee'] ?? 0;
                 }
@@ -286,9 +296,17 @@ class DirectorAnalyticsService
         }
         $result['fees_outstanding'] = $outstanding;
 
-        // Fee Collection Rate
-        $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
-        $result['fee_collection_rate'] = $total_fees > 0 ? round(($result['fees_collected_ytd'] / $total_fees) * 100, 1) : 0;
+        // Fee Collection Rate from vw_collection_rate_by_class
+        try {
+            $stmt = $this->db->query(
+                "SELECT ROUND(SUM(total_fees_paid) / NULLIF(SUM(total_fees_due), 0) * 100, 1) AS rate
+                 FROM vw_collection_rate_by_class"
+            );
+            $result['fee_collection_rate'] = (float) ($stmt->fetch()['rate'] ?? 0);
+        } catch (\Exception $e) {
+            $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
+            $result['fee_collection_rate'] = $total_fees > 0 ? round(($result['fees_collected_ytd'] / $total_fees) * 100, 1) : 0;
+        }
 
         // Attendance Today
         $query = "SELECT AVG(CASE WHEN status = 'present' THEN 100 ELSE 0 END) as rate FROM student_attendance WHERE date = CURDATE()";
@@ -340,7 +358,7 @@ class DirectorAnalyticsService
 
         // Students by gender (for pie chart)
         try {
-            $stmt = $this->db->query("SELECT gender, COUNT(*) as cnt FROM students WHERE status = 'active' GROUP BY gender");
+            $stmt = $this->db->query("SELECT p.gender, COUNT(*) as cnt FROM students s LEFT JOIN persons p ON s.person_id = p.id WHERE s.status = 'active' GROUP BY p.gender");
             $genderRows = $stmt->fetchAll();
             $result['students_by_gender'] = array_map(function ($r) {
                 return ['source' => ucfirst($r['gender'] ?? 'Unknown'), 'amount' => (int) $r['cnt']];
@@ -351,7 +369,7 @@ class DirectorAnalyticsService
 
         // Staff by role
         try {
-            $stmt = $this->db->query("SELECT r.name as role, COUNT(*) as cnt FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.status = 'active' GROUP BY r.name ORDER BY cnt DESC LIMIT 10");
+            $stmt = $this->db->query("SELECT r.name as role, COUNT(DISTINCT u.id) as cnt FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id WHERE u.status = 'active' GROUP BY r.name ORDER BY cnt DESC LIMIT 10");
             $rows = $stmt->fetchAll();
             $result['staff_by_role'] = array_map(function ($r) {
                 return ['source' => $r['role'] ?? 'Unknown', 'amount' => (int) $r['cnt']];
@@ -363,13 +381,13 @@ class DirectorAnalyticsService
         // Staff by department (use staff.department_id -> departments mapping)
         try {
             $deptQuery = "
-                SELECT d.name as department,
-                       COUNT(s.id) as cnt,
-                       SUM(CASE WHEN LOWER(COALESCE(st.name, '')) = 'teaching' THEN 1 ELSE 0 END) as teachers,
-                       SUM(CASE WHEN LOWER(COALESCE(st.name, '')) != 'teaching' THEN 1 ELSE 0 END) as support_staff
+                SELECT COALESCE(d.name, 'Unassigned') as department,
+                       COUNT(DISTINCT s.id) as cnt,
+                       SUM(CASE WHEN s.staff_type_id = 1 THEN 1 ELSE 0 END) as teachers,
+                       SUM(CASE WHEN s.staff_type_id <> 1 THEN 1 ELSE 0 END) as support_staff
                 FROM staff s
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+                LEFT JOIN departments d ON d.id = sep.department_id
                 WHERE s.status = 'active'
                 GROUP BY d.name
                 ORDER BY cnt DESC
@@ -394,14 +412,15 @@ class DirectorAnalyticsService
             // Student age distribution (school-age buckets)
             $studentAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 10 THEN '0-9'
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) < 10 THEN '0-9'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
                     ELSE '18+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM students
-                WHERE date_of_birth IS NOT NULL AND status = 'active'
+                FROM students s
+                JOIN persons p ON s.person_id = p.id
+                WHERE p.dob IS NOT NULL AND s.status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '0-9', '10-13', '14-17', '18+')";
             $stmt = $this->db->query($studentAgeQuery);
@@ -410,15 +429,16 @@ class DirectorAnalyticsService
             // Staff age distribution (adult buckets)
             $staffAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 25 THEN '18-24'
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) < 25 THEN '18-24'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
+                    WHEN TIMESTAMPDIFF(YEAR, p.dob, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
                     ELSE '55+'
                 END as age_range,
                 COUNT(*) as cnt
-                FROM staff
-                WHERE date_of_birth IS NOT NULL AND status = 'active'
+                FROM staff s
+                JOIN persons p ON s.person_id = p.id
+                WHERE p.dob IS NOT NULL AND s.status = 'active'
                 GROUP BY age_range
                 ORDER BY FIELD(age_range, '18-24', '25-34', '35-44', '45-54', '55+')";
             $stmt2 = $this->db->query($staffAgeQuery);
@@ -462,10 +482,10 @@ class DirectorAnalyticsService
         $query = "
             SELECT
                 DATE_FORMAT(payment_date, '%Y-%m') as month,
-                SUM(amount_paid) as collected,
-                SUM(CASE WHEN term_allocation > amount_paid THEN (term_allocation - amount_paid) ELSE 0 END) as outstanding,
+                SUM(amount) as collected,
+                SUM(CASE WHEN amount > 0 THEN 0 ELSE 0 END) as outstanding,
                 YEAR(payment_date) as year
-            FROM payment_transactions
+            FROM payments
             WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
               AND status = 'confirmed'
             GROUP BY DATE_FORMAT(payment_date, '%Y-%m'), YEAR(payment_date)
@@ -495,12 +515,12 @@ class DirectorAnalyticsService
         try {
             $stmt = $this->db->query("
                 SELECT
-                    COALESCE(pt.payment_method, 'Other') as source,
-                    SUM(pt.amount_paid) as amount
-                FROM payment_transactions pt
-                WHERE pt.payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01')
-                  AND pt.status = 'confirmed'
-                GROUP BY pt.payment_method
+                    COALESCE(p.method, 'Other') as source,
+                    SUM(p.amount) as amount
+                FROM payments p
+                WHERE p.payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+                  AND p.status = 'confirmed'
+                GROUP BY p.method
                 ORDER BY amount DESC
             ");
             $rows  = $stmt->fetchAll();
@@ -536,7 +556,7 @@ class DirectorAnalyticsService
         ];
 
         try {
-            $row = $this->db->query("SELECT COUNT(*) as cnt FROM classes WHERE status = 'active'")->fetch();
+            $row = $this->db->query("SELECT COUNT(*) as cnt FROM academic_year_classes WHERE status = 'active'")->fetch();
             $result['active_classes'] = (int) ($row['cnt'] ?? 0);
         } catch (\Exception $e) {}
 
@@ -589,7 +609,7 @@ class DirectorAnalyticsService
         $query = "
             SELECT
                 c.name as class_name,
-                COUNT(DISTINCT ar.student_id) as student_count,
+                COUNT(DISTINCT ar.student_academic_enrollment_id) as student_count,
                 ROUND(AVG(
                     CASE WHEN a.max_marks > 0
                          THEN (ar.marks_obtained / a.max_marks) * 100
@@ -602,8 +622,10 @@ class DirectorAnalyticsService
                 , 1) as pass_rate
             FROM assessment_results ar
             JOIN assessments a ON ar.assessment_id = a.id
-            JOIN classes c ON a.class_id = c.id
-            WHERE c.status = 'active'
+            JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
+            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            JOIN classes c ON ayc.class_id = c.id
+            WHERE ayc.status = 'active'
             GROUP BY c.id, c.name
             ORDER BY c.name
         ";
@@ -621,13 +643,14 @@ class DirectorAnalyticsService
         $fallbackQuery = "
             SELECT
                 c.name as class_name,
-                (SELECT COUNT(*) FROM students s
-                 JOIN class_streams cs ON s.stream_id = cs.id
-                 WHERE cs.class_id = c.id AND s.status = 'active') as student_count,
+                (SELECT COUNT(DISTINCT sae.student_id) FROM student_academic_enrollments sae
+                 JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+                 JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+                 WHERE ayc.class_id = c.id AND sae.enrollment_status = 'active') as student_count,
                 0.0 as avg_score,
                 0.0 as pass_rate
             FROM classes c
-            WHERE c.status = 'active'
+            JOIN academic_year_classes ayc ON ayc.class_id = c.id AND ayc.status = 'active'
             ORDER BY c.name
         ";
         try {
@@ -646,13 +669,16 @@ class DirectorAnalyticsService
         $query = "
             SELECT
                 c.name as class_name,
-                SUM(CASE WHEN s.gender = 'male' THEN 1 ELSE 0 END) as male,
-                SUM(CASE WHEN s.gender = 'female' THEN 1 ELSE 0 END) as female,
+                SUM(CASE WHEN p.gender = 'male' THEN 1 ELSE 0 END) as male,
+                SUM(CASE WHEN p.gender = 'female' THEN 1 ELSE 0 END) as female,
                 COUNT(*) as total
             FROM students s
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
-            LEFT JOIN classes c ON cs.class_id = c.id
-            WHERE s.status = 'active'
+            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id
+            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN classes c ON ayc.class_id = c.id
+            LEFT JOIN persons p ON s.person_id = p.id
+            WHERE s.status = 'active' AND sae.enrollment_status = 'active'
             GROUP BY c.name
             ORDER BY c.name
         ";
@@ -666,13 +692,13 @@ class DirectorAnalyticsService
     public function getStaffDeployment()
     {
         $query = "
-            SELECT d.name as department,
-                   COUNT(s.id) as total,
-                   SUM(CASE WHEN LOWER(COALESCE(st.name, '')) = 'teaching' THEN 1 ELSE 0 END) as teachers,
-                   SUM(CASE WHEN LOWER(COALESCE(st.name, '')) != 'teaching' THEN 1 ELSE 0 END) as support_staff
+            SELECT COALESCE(d.name, 'Unassigned') as department,
+                   COUNT(DISTINCT s.id) as total,
+                   SUM(CASE WHEN s.staff_type_id = 1 THEN 1 ELSE 0 END) as teachers,
+                   SUM(CASE WHEN s.staff_type_id <> 1 THEN 1 ELSE 0 END) as support_staff
             FROM staff s
-            LEFT JOIN staff_types st ON s.staff_type_id = st.id
-            LEFT JOIN departments d ON s.department_id = d.id
+            LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
+            LEFT JOIN departments d ON d.id = sep.department_id
             WHERE s.status = 'active'
             GROUP BY d.name
             ORDER BY total DESC
@@ -728,20 +754,24 @@ class DirectorAnalyticsService
             SELECT 
                 s.id,
                 s.admission_no,
-                CONCAT(s.first_name, ' ', s.last_name) as name,
+                CONCAT(p.first_name, ' ', p.last_name) as name,
                 CASE 
-                    WHEN c.name = cs.stream_name THEN c.name
-                    WHEN cs.stream_name IS NULL THEN COALESCE(c.name, 'Unknown')
-                    ELSE CONCAT(c.name, ' - ', cs.stream_name)
+                    WHEN c.name = st.name THEN c.name
+                    WHEN st.name IS NULL THEN COALESCE(c.name, 'Unknown')
+                    ELSE CONCAT(c.name, ' - ', st.name)
                 END as class,
                 'Not provided' as reason
             FROM student_attendance sa
-            JOIN students s ON sa.student_id = s.id
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
-            LEFT JOIN classes c ON cs.class_id = c.id
+            JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
+            JOIN students s ON s.id = sae.student_id
+            JOIN persons p ON s.person_id = p.id
+            LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN classes c ON ayc.class_id = c.id
+            LEFT JOIN streams st ON aycs.stream_id = st.id
             WHERE sa.date = CURDATE()
               AND sa.status = 'absent'
-            ORDER BY c.name, s.first_name
+            ORDER BY c.name, p.first_name
         ";
         $stmt = $this->db->query($query);
         $result['absent_students'] = $stmt->fetchAll();
@@ -751,15 +781,17 @@ class DirectorAnalyticsService
             SELECT 
                 st.id,
                 st.staff_no,
-                CONCAT(st.first_name, ' ', st.last_name) as name,
+                CONCAT(p.first_name, ' ', p.last_name) as name,
                 d.name as department,
                 'Not provided' as reason
             FROM staff_attendance sta
             JOIN staff st ON sta.staff_id = st.id
-            LEFT JOIN departments d ON st.department_id = d.id
+            LEFT JOIN persons p ON p.id = st.person_id
+            LEFT JOIN staff_employment_profiles sep ON sep.staff_id = st.id
+            LEFT JOIN departments d ON d.id = sep.department_id
             WHERE sta.date = CURDATE()
               AND sta.status = 'absent'
-            ORDER BY d.name, st.first_name
+            ORDER BY d.name, p.first_name
         ";
         $stmt = $this->db->query($query);
         $result['absent_staff'] = $stmt->fetchAll();
@@ -818,19 +850,57 @@ class DirectorAnalyticsService
         $query = "
             SELECT
                 c.name as class_name,
-                DATE_FORMAT(pt.payment_date, '%Y-%m') as term,
-                SUM(pt.amount_paid) as collected,
-                SUM(CASE WHEN pt.term_allocation > pt.amount_paid THEN (pt.term_allocation - pt.amount_paid) ELSE 0 END) as outstanding
-            FROM payment_transactions pt
-            LEFT JOIN students s ON pt.student_id = s.id
-            LEFT JOIN class_streams cs ON s.stream_id = cs.id
-            LEFT JOIN classes c ON cs.class_id = c.id
-            WHERE pt.status = 'confirmed'
-            GROUP BY c.name, DATE_FORMAT(pt.payment_date, '%Y-%m')
+                DATE_FORMAT(p.payment_date, '%Y-%m') as term,
+                SUM(p.amount) as collected,
+                (SELECT COALESCE(SUM(fb.balance), 0)
+                 FROM vw_student_fee_balances fb
+                 JOIN student_academic_enrollments sae2 ON sae2.id = fb.student_academic_enrollment_id
+                 JOIN academic_year_class_streams aycs2 ON sae2.academic_year_class_stream_id = aycs2.id
+                 JOIN academic_year_classes ayc2 ON aycs2.academic_year_class_id = ayc2.id
+                 WHERE ayc2.class_id = c.id) as outstanding
+            FROM payments p
+            LEFT JOIN students s ON p.student_id = s.id
+            LEFT JOIN student_academic_enrollments sae ON s.id = sae.student_id
+            LEFT JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
+            LEFT JOIN academic_year_classes ayc ON aycs.academic_year_class_id = ayc.id
+            LEFT JOIN classes c ON ayc.class_id = c.id
+            WHERE p.status = 'confirmed'
+            GROUP BY c.name, DATE_FORMAT(p.payment_date, '%Y-%m')
             ORDER BY c.name, term DESC
         ";
         $stmt = $this->db->query($query);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Get collection rates by class level and term from vw_collection_rate_by_class
+     * Returns per-level, per-term breakdown with fee totals, payment statuses, and collection rate.
+     */
+    public function getCollectionRatesByClass()
+    {
+        try {
+            $query = "
+                SELECT
+                    level_name,
+                    level_code,
+                    academic_term,
+                    total_students,
+                    total_fees_due,
+                    total_fees_paid,
+                    total_fees_waived,
+                    collection_rate_percent,
+                    students_paid_in_full,
+                    students_partial_payment,
+                    students_no_payment,
+                    average_payment_per_student
+                FROM vw_collection_rate_by_class
+                ORDER BY level_name, academic_term
+            ";
+            $stmt = $this->db->query($query);
+            return $stmt->fetchAll();
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     /**
@@ -905,23 +975,19 @@ class DirectorAnalyticsService
             $result['pending_approvals'] = $stmt->fetchAll();
         } catch (\Exception $e) {}
 
-        // Audit logs (recent)
+        // Audit logs (recent) — now served from the file-based audit log.
         try {
-            $stmt = $this->db->query("
-                SELECT
-                    al.action,
-                    al.entity,
-                    al.entity_id,
-                    al.user_id,
-                    al.ip_address,
-                    al.created_at,
-                    CONCAT(u.first_name, ' ', u.last_name) as user_name
-                FROM audit_logs al
-                LEFT JOIN users u ON al.user_id = u.id
-                ORDER BY al.created_at DESC
-                LIMIT 20
-            ");
-            $result['audit_logs'] = $stmt->fetchAll();
+            $result['audit_logs'] = array_map(function (array $entry) {
+                return [
+                    'action' => $entry['action'] ?? null,
+                    'entity' => $entry['entity'] ?? null,
+                    'entity_id' => $entry['entity_id'] ?? null,
+                    'user_id' => $entry['user_id'] ?? null,
+                    'ip_address' => $entry['ip'] ?? null,
+                    'created_at' => $entry['timestamp'] ?? null,
+                    'user_name' => null,
+                ];
+            }, \App\API\Includes\FileLogger::recent('audit', 20));
         } catch (\Exception $e) {}
 
         // Pending admissions and discipline cases

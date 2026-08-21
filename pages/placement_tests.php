@@ -208,6 +208,12 @@ if ($appBase === '.')
             <form id="createTestForm">
                 <div class="modal-body">
                     <div class="mb-3">
+                        <label class="form-label fw-semibold">Applicant <span class="text-danger">*</span></label>
+                        <select id="applicantId" name="applicantId" class="form-select" required>
+                            <option value="">Loading applicants...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label fw-semibold">Test Code <span class="text-danger">*</span></label>
                         <input type="text" id="testCode" class="form-control" placeholder="e.g., PT-2024-001" required>
                     </div>
@@ -319,7 +325,7 @@ if ($appBase === '.')
 </script>
 
 <script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/placement_tests.js?v=<?= time() ?>"
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/placement_tests.js"
     onload="console.log('placement_tests.js script tag loaded successfully')",
     onerror="console.error('FAILED to load placement_tests.js. Check path:', this.src)">
 </script>

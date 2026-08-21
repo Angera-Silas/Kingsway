@@ -9,19 +9,25 @@ class StaffReportManager extends BaseAPI
         // Count staff by type (teaching/non-teaching) with department breakdown
         try {
             $sql = "SELECT
-                        staff_type,
+                        st.name AS staff_type,
                         d.name AS department,
                         COUNT(*) AS total
                     FROM staff s
-                    LEFT JOIN departments d ON d.id = s.department_id
+                    LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                    LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND sda.effective_to IS NULL
+                    LEFT JOIN departments d ON d.id = sda.department_id
                     WHERE s.status = 'active'
-                    GROUP BY s.staff_type, d.id, d.name
-                    ORDER BY s.staff_type, d.name";
+                    GROUP BY st.name, d.id, d.name
+                    ORDER BY st.name, d.name";
             return $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
             // Fallback without departments
             try {
-                $sql2 = "SELECT staff_type, COUNT(*) as total FROM staff WHERE status = 'active' GROUP BY staff_type";
+                $sql2 = "SELECT st.name AS staff_type, COUNT(*) as total
+                         FROM staff s
+                         LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                         WHERE s.status = 'active'
+                         GROUP BY st.name";
                 $stmt2 = $this->db->query($sql2);
                 return $stmt2->fetchAll(\PDO::FETCH_ASSOC);
             } catch (\Exception $e2) {
@@ -60,10 +66,10 @@ class StaffReportManager extends BaseAPI
         try {
             $sql = "SELECT
                         COUNT(*) AS active_staff,
-                        SUM(CASE WHEN staff_type = 'teaching' THEN 1 ELSE 0 END) AS teaching_staff,
-                        SUM(CASE WHEN staff_type != 'teaching' THEN 1 ELSE 0 END) AS non_teaching_staff
-                    FROM staff
-                    WHERE status = 'active'";
+                        SUM(CASE WHEN s.staff_type_id = 1 THEN 1 ELSE 0 END) AS teaching_staff,
+                        SUM(CASE WHEN s.staff_type_id IS NULL OR s.staff_type_id != 1 THEN 1 ELSE 0 END) AS non_teaching_staff
+                    FROM staff s
+                    WHERE s.status = 'active'";
             $stmt = $this->db->query($sql);
             return $stmt->fetch(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
@@ -97,7 +103,8 @@ class StaffReportManager extends BaseAPI
                         COALESCE(SUM(gross_salary), 0) AS total_gross,
                         COALESCE(SUM(total_deductions), 0) AS total_deductions,
                         COALESCE(SUM(net_salary), 0) AS total_net
-                    FROM staff_payroll
+                    FROM vw_staff_payroll_summary
+                    WHERE payslip_status IN ('approved','paid')
                     GROUP BY payroll_year, payroll_month
                     ORDER BY payroll_year DESC, payroll_month DESC";
             return $this->db->query($sql)->fetchAll(\PDO::FETCH_ASSOC);

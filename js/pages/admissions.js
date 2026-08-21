@@ -35,6 +35,7 @@ const AdmissionsController = {
     referenceData: {
       parents: [],
       academicYears: [],
+      openTerms: [],
     },
   },
 
@@ -110,16 +111,18 @@ const AdmissionsController = {
   ],
 
   transferDocumentGrades: [
-    "Grade2",
-    "Grade 2",
-    "Grade3",
-    "Grade 3",
     "Grade4",
     "Grade 4",
     "Grade5",
     "Grade 5",
     "Grade6",
     "Grade 6",
+    "Grade7",
+    "Grade 7",
+    "Grade8",
+    "Grade 8",
+    "Grade9",
+    "Grade 9",
   ],
 
   actionPermissions: {
@@ -172,6 +175,7 @@ const AdmissionsController = {
    * Initialize the controller
    */
   async init() {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
     if (this.state.isInitializing) {
       return;
     }
@@ -187,7 +191,6 @@ const AdmissionsController = {
     }
 
     this.state.isInitializing = true;
-    console.log("[AdmissionsController] Initializing...");
 
     try {
       // Get user role from session
@@ -212,8 +215,6 @@ const AdmissionsController = {
       this.switchTab(this.getDefaultTab());
 
       this.state.isInitialized = true;
-
-      console.log("[AdmissionsController] Initialized");
     } finally {
       this.state.isInitializing = false;
     }
@@ -532,7 +533,34 @@ const AdmissionsController = {
    * Load reference data for forms (parents, academic years)
    */
   async loadReferenceData() {
-    await Promise.all([this.loadParents(), this.loadAcademicYears()]);
+    await Promise.all([this.loadParents(), this.loadAcademicYears(), this.loadOpenTerms(), this.loadClassOptions()]);
+  },
+
+  async loadClassOptions() {
+    try {
+      let classes = [];
+      if (API?.admission?.getPlacementClasses) {
+        const response = await API.admission.getPlacementClasses();
+        classes = this.unwrapList(response, 'classes');
+      }
+      if (!classes.length && API?.academic?.listClasses) {
+        const response = await API.academic.listClasses({ limit: 200 });
+        classes = this.unwrapList(response);
+      }
+      const data = Array.isArray(classes) ? classes : [];
+      document.querySelectorAll('.grade-select-dynamic').forEach(sel => {
+        const currentVal = sel.value;
+        const firstOption = sel.querySelector('option:first-child');
+        const firstLabel = firstOption ? firstOption.textContent : 'Select Class';
+        const firstValue = firstOption ? firstOption.value : '';
+        let html = `<option value="${firstValue}">${firstLabel}</option>`;
+        html += data.map(c => `<option value="${c.name || c.class_name || c.id}">${c.name || c.class_name || c.id}</option>`).join('');
+        sel.innerHTML = html;
+        if (currentVal) sel.value = currentVal;
+      });
+    } catch (e) {
+      console.error('[AdmissionsController] Failed to load class options:', e);
+    }
   },
 
   async loadParents() {
@@ -559,6 +587,33 @@ const AdmissionsController = {
         "[AdmissionsController] Failed to load academic years:",
         error,
       );
+    }
+  },
+
+  async loadOpenTerms() {
+    try {
+      const response = await API.admission.getOpenAdmissionTerms();
+      const terms = this.unwrapList(response, 'terms');
+      this.state.referenceData.openTerms = terms;
+      const termSelect = document.getElementById('targetTermSelect');
+      const yearSelect = document.getElementById('academicYearSelect');
+      const termInput = document.getElementById('targetTermInput');
+      const yearInput = document.getElementById('academicYearInput');
+      if (!termSelect || !yearSelect || !terms.length) return;
+      termSelect.innerHTML = terms.map((term) => `<option value="${term.target_term_id}">${term.term_name || term.term_number} ${term.year_code || term.year_name}</option>`).join('');
+      termSelect.disabled = false;
+      termSelect.value = String(terms[0].target_term_id);
+      const term = terms[0];
+      const yearCode = term.year_code || term.year_name || '';
+      const parts = yearCode.match(/\d{4}/g) || [];
+      const year = parts.length > 1 ? parts[parts.length - 1] : parts[0];
+      yearSelect.innerHTML = `<option value="${year}">${yearCode}</option>`;
+      yearSelect.value = year;
+      yearSelect.disabled = true;
+      if (termInput) termInput.value = term.target_term_id;
+      if (yearInput) yearInput.value = year;
+    } catch (error) {
+      console.warn('[AdmissionsController] No open admission intake:', error);
     }
   },
 
@@ -1453,57 +1508,170 @@ const AdmissionsController = {
       }
       const checkbox = modal.querySelector("#hasSpecialNeeds");
       this.toggleSpecialNeeds(checkbox?.checked);
+      this.syncNewApplicationModal(modal);
       const bsModal = new bootstrap.Modal(modal);
       bsModal.show();
     }
   },
 
+  syncNewApplicationModal(modal) {
+    const gradeSelect = modal?.querySelector("#gradeSelect");
+    if (gradeSelect) {
+      gradeSelect.addEventListener("change", () => {
+        this.togglePreviousSchoolReportField(gradeSelect.value);
+      });
+      this.togglePreviousSchoolReportField(gradeSelect.value);
+    }
+
+    modal?.querySelectorAll('input[name="parent_type"]').forEach((radio) => {
+      radio.addEventListener("change", () => {
+        const isNew = radio.value === "new" && radio.checked;
+        ["existingParentFields", "newParentFields", "newParentIdField",
+         "newParentPhoneField", "newParentEmailField", "newParentAddressField"]
+          .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = id === "existingParentFields" ? (isNew ? "none" : "") : (isNew ? "" : "none");
+          });
+        const parentSelect = document.getElementById("parentSelect");
+        if (parentSelect) parentSelect.required = !isNew;
+        const idWrap = document.getElementById("newParentIdDocWrap");
+        if (idWrap) {
+          const input = idWrap.querySelector("input");
+          if (input) {
+            if (isNew) input.setAttribute("required", "required");
+            else input.removeAttribute("required");
+          }
+        }
+      });
+    });
+  },
+
+  togglePreviousSchoolReportField(grade) {
+    const reportWrap = document.getElementById("docPreviousSchoolReport");
+    const medicalWrap = document.getElementById("docMedicalRecords");
+    const immunizationWrap = document.getElementById("immunizationDocWrap");
+    const isUpper = this.requiresTransferDocuments(grade);
+
+    const setWrap = (wrap, show) => {
+      if (!wrap) return;
+      wrap.classList.toggle("d-none", !show);
+      const input = wrap.querySelector("input");
+      if (input) {
+        if (show) input.setAttribute("required", "required");
+        else { input.removeAttribute("required"); input.value = ""; }
+      }
+    };
+
+    setWrap(reportWrap, isUpper);
+    setWrap(medicalWrap, isUpper);
+    // Playgroup–Grade 3 require the immunization card; Grade 4–9 do not.
+    setWrap(immunizationWrap, !isUpper);
+  },
+
   /**
-   * Submit new application (fields first, then optional document uploads)
+   * Submit new application — documents are uploaded as part of the submission.
    */
   async submitNewApplication(form) {
     const submitBtn = form.querySelector('[type="submit"]');
     const formData = new FormData(form);
 
     // Separate file fields from regular fields
-    const fileFields = ["doc_birth_certificate", "doc_immunization_card",
-                        "doc_passport_photo", "doc_progress_report", "doc_leaving_certificate"];
+    const fileFields = [
+      "doc_birth_certificate", "doc_immunization_card",
+      "doc_passport_photo", "doc_parent_id",
+      "doc_previous_school_report", "doc_progress_report",
+      "doc_leaving_certificate", "doc_transfer_letter",
+      "doc_medical_records", "doc_other",
+    ];
     const data = {};
+    const files = [];
     for (const [key, value] of formData.entries()) {
-      if (!fileFields.includes(key)) {
+      if (fileFields.includes(key)) {
+        if (value && value.size > 0) files.push({ fieldName: key, file: value });
+      } else {
         data[key] = value;
       }
     }
 
+    const isNewParent = data.parent_type === "new";
+
+    // Documents are part of the application — never allow a submission with no
+    // documents (there is no "upload documents later" workflow).
+    const uploadedTypes = new Set(files.map((f) => f.fieldName));
+    const missing = [];
+    if (!uploadedTypes.has("doc_birth_certificate")) missing.push("Birth Certificate");
+    if (!uploadedTypes.has("doc_passport_photo")) missing.push("Passport Photo");
+    if (isNewParent && !uploadedTypes.has("doc_parent_id")) missing.push("Parent/Guardian ID");
+    if (this.requiresTransferDocuments(data.grade_applying_for)) {
+      if (!uploadedTypes.has("doc_previous_school_report")) missing.push("Previous School Report");
+      if (!uploadedTypes.has("doc_medical_records")) missing.push("Medical Test Results");
+    } else {
+      if (!uploadedTypes.has("doc_immunization_card")) missing.push("Immunization Card");
+    }
+    if (missing.length) {
+      showNotification("Missing required documents: " + missing.join(", "), "error");
+      return;
+    }
+
     try {
       this.showButtonLoading(submitBtn);
+
+      // 0. Register a new parent/guardian when one was entered manually.
+      if (isNewParent) {
+        const nameParts = String(data.new_parent_name || "").trim().split(/\s+/);
+        const createResp = await API.callAPI("/students/parents/create", "POST", {
+          first_name: nameParts[0] || "",
+          last_name: nameParts.slice(1).join(" ") || nameParts[0] || "",
+          id_number: data.new_parent_id_number || null,
+          phone_1: data.new_parent_phone || "",
+          email: data.new_parent_email || null,
+          address: data.new_parent_address || null,
+        });
+        const createPayload = this.unwrapPayload(createResp);
+        data.parent_id = createPayload?.id ?? createPayload?.parent_id ?? createPayload?.parentId;
+        if (!data.parent_id) {
+          throw new Error("New parent record was created but its ID was not returned.");
+        }
+      }
+
+      delete data.parent_type;
+      delete data.new_parent_name;
+      delete data.new_parent_id_number;
+      delete data.new_parent_phone;
+      delete data.new_parent_email;
+      delete data.new_parent_address;
 
       // 1. Submit application (JSON)
       const response = await API.admission.submitApplication(data);
       const payload = this.unwrapPayload(response);
       const applicationId = payload?.application_id;
 
-      // 2. Upload any provided documents
+      // 2. Upload all provided documents through the upload API — before the
+      //    application is considered complete.
+      const docTypeMap = {
+        doc_birth_certificate: "birth_certificate",
+        doc_immunization_card: "immunization_card",
+        doc_passport_photo: "passport_photo",
+        doc_parent_id: "parent_id",
+        doc_previous_school_report: "previous_school_report",
+        doc_progress_report: "progress_report",
+        doc_leaving_certificate: "leaving_certificate",
+        doc_transfer_letter: "transfer_letter",
+        doc_medical_records: "medical_records",
+        doc_other: "other",
+      };
       if (applicationId) {
-        const docTypeMap = {
-          doc_birth_certificate: "birth_certificate",
-          doc_immunization_card: "immunization_card",
-          doc_passport_photo: "passport_photo",
-          doc_progress_report: "progress_report",
-          doc_leaving_certificate: "leaving_certificate",
-        };
-        for (const [fieldName, docType] of Object.entries(docTypeMap)) {
-          const file = formData.get(fieldName);
-          if (file && file.size > 0) {
-            const fd = new FormData();
-            fd.append("application_id", applicationId);
-            fd.append("document_type", docType);
-            fd.append("document", file);
-            try {
-              await API.admission.uploadDocument(fd);
-            } catch (uploadErr) {
-              console.warn(`[AdmissionsController] Upload failed for ${docType}:`, uploadErr);
-            }
+        for (const { fieldName, file } of files) {
+          const fd = new FormData();
+          fd.append("application_id", applicationId);
+          fd.append("document_type", docTypeMap[fieldName] || "other");
+          fd.append("document", file);
+          try {
+            await API.admission.uploadDocument(fd);
+          } catch (uploadErr) {
+            throw new Error(
+              `Application submitted, but document "${docTypeMap[fieldName] || fieldName}" failed to upload: ${uploadErr?.message || "unknown error"}`,
+            );
           }
         }
       }
@@ -1588,7 +1756,7 @@ const AdmissionsController = {
           inputName: "doc_immunization_card",
           documentType: "immunization_card",
           label: "Immunization Card",
-          mandatory: true,
+          mandatory: !includeTransferDocs,
           accept: ".pdf,.jpg,.jpeg,.png",
         },
         {
@@ -1603,17 +1771,38 @@ const AdmissionsController = {
       if (includeTransferDocs) {
         uploadFields.push(
           {
+            inputName: "doc_previous_school_report",
+            documentType: "previous_school_report",
+            label: "Previous School Report",
+            mandatory: true,
+            accept: ".pdf,.jpg,.jpeg,.png",
+          },
+          {
             inputName: "doc_progress_report",
             documentType: "progress_report",
             label: "Latest Progress Report",
-            mandatory: true,
+            mandatory: false,
             accept: ".pdf,.jpg,.jpeg,.png",
           },
           {
             inputName: "doc_leaving_certificate",
             documentType: "leaving_certificate",
             label: "Leaving Certificate",
-            mandatory: true,
+            mandatory: false,
+            accept: ".pdf,.jpg,.jpeg,.png",
+          },
+          {
+            inputName: "doc_transfer_letter",
+            documentType: "transfer_letter",
+            label: "Transfer Letter",
+            mandatory: false,
+            accept: ".pdf,.jpg,.jpeg,.png",
+          },
+          {
+            inputName: "doc_medical_records",
+            documentType: "medical_records",
+            label: "Health / Medical Records",
+            mandatory: false,
             accept: ".pdf,.jpg,.jpeg,.png",
           },
         );
@@ -1710,8 +1899,13 @@ const AdmissionsController = {
       doc_birth_certificate: "birth_certificate",
       doc_immunization_card: "immunization_card",
       doc_passport_photo: "passport_photo",
+      doc_parent_id: "parent_id",
+      doc_previous_school_report: "previous_school_report",
       doc_progress_report: "progress_report",
       doc_leaving_certificate: "leaving_certificate",
+      doc_transfer_letter: "transfer_letter",
+      doc_medical_records: "medical_records",
+      doc_other: "other",
     };
 
     const uploadJobs = [];
@@ -2592,14 +2786,14 @@ const AdmissionsController = {
   /**
    * Show Bootstrap confirmation modal (replaces browser confirm())
    */
-  showConfirmModal(title, message, onConfirm) {
+  async showConfirmModal(title, message, onConfirm) {
     const modal = document.getElementById("admissionsConfirmModal");
     const titleEl = document.getElementById("admissionsConfirmTitle");
     const messageEl = document.getElementById("admissionsConfirmMessage");
     const okBtn = document.getElementById("admissionsConfirmOk");
 
     if (!modal) {
-      if (confirm(message)) {
+      if (await window.confirmAction('Confirm', message)) {
         if (typeof onConfirm === "function") onConfirm();
       }
       return;

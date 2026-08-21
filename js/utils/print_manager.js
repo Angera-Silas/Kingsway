@@ -79,9 +79,21 @@ const PrintManager = (() => {
     endpoints: {
       tableReport: "/api/print/table",
       recordReport: "/api/print/record",
+      htmlReport: "/api/print/html",
+      portfolioReport: "/api/print/portfolio",
+      reportCard: "/api/print/report-card",
       certificate: "/api/print/certificate",
       studentIdCards: "/api/students/id-cards/print",
       receipt: "/api/print/receipt",
+      receiptTemplate: "/api/print/receipt-template",
+      academicCalendar: "/api/print/academic-calendar",
+      feeStructure: "/api/print/fee-structure",
+      feeStructureSimple: "/api/print/fee-structure-simple",
+      p9Form: "/api/print/p9-form",
+      payslip: "/api/print/payslip",
+      feeStatement: "/api/print/fee-statement",
+      invoice: "/api/print/invoice",
+      timetable: "/api/print/timetable",
       fileDownload: "/api/print/download",
     },
 
@@ -185,7 +197,7 @@ const PrintManager = (() => {
 
     if (type === "error") {
       console.error(message);
-      window.alert(message);
+      window.infoDialog && window.infoDialog("Notice", message);
       return;
     }
 
@@ -632,6 +644,7 @@ const PrintManager = (() => {
         ? config.signatureSection
         : [],
       showPageNumbers: config.showPageNumbers !== false,
+      documentClass: config.documentClass || "",
       paperSize: config.paperSize || config.defaultPaperSize || "A4",
       orientation:
         config.orientation ||
@@ -773,6 +786,107 @@ const PrintManager = (() => {
       return handleGeneratedFiles(response, config);
     } catch (error) {
       notify("error", error.message || "Unable to generate the record PDF.");
+      throw error;
+    }
+  }
+
+  async function printHtml(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.html) {
+      notify("warning", "No HTML content provided.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      html: config.html,
+      isFullDocument: Boolean(config.isFullDocument),
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.htmlReport,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the PDF.");
+      throw error;
+    }
+  }
+
+  async function printPortfolio(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.student_id) {
+      notify("warning", "No student ID provided.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      student_id: config.student_id,
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.portfolioReport,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the portfolio PDF.");
+      throw error;
+    }
+  }
+
+  async function printReportCard(options = {}) {
+    const config = normalizeConfig(options);
+
+    if (!config.level) {
+      notify("warning", "No CBC level provided. Use: PP, LowerPrimary, UpperPrimary, or JuniorSecondary.");
+      return null;
+    }
+
+    if (!config.student) {
+      notify("warning", "No student data provided.");
+      return null;
+    }
+
+    const validLevels = new Set(["PP", "LowerPrimary", "UpperPrimary", "JuniorSecondary"]);
+    if (!validLevels.has(config.level)) {
+      notify("warning", "Invalid level. Use: PP, LowerPrimary, UpperPrimary, or JuniorSecondary.");
+      return null;
+    }
+
+    const payload = {
+      ...normalizeReportCommon(config),
+      level: config.level,
+      student: config.student,
+      term: config.term || {},
+      scores: Array.isArray(config.scores) ? config.scores : [],
+      competencies: Array.isArray(config.competencies) ? config.competencies : [],
+      values: Array.isArray(config.values) ? config.values : [],
+      attendance: config.attendance || {},
+      comments: config.comments || {},
+      kjseaSummary: config.kjseaSummary || undefined,
+    };
+
+    try {
+      const response = await request(
+        config.endpoints.reportCard,
+        payload,
+        config,
+      );
+
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the report card PDF.");
       throw error;
     }
   }
@@ -1336,6 +1450,131 @@ const PrintManager = (() => {
   }
 
   /* ==========================================================================
+     Dedicated template printing methods
+     ========================================================================== */
+
+  async function printAcademicCalendar(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.academicCalendar, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the academic calendar.");
+      throw error;
+    }
+  }
+
+  async function printFeeStructure(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructure, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee structure.");
+      throw error;
+    }
+  }
+
+  async function printFeeStructureComparison(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructure, { ...options, comparison: true }, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee structure comparison.");
+      throw error;
+    }
+  }
+
+  async function printSimpleFeeStructure(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStructureSimple, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the simple fee structure.");
+      throw error;
+    }
+  }
+
+  async function printP9Form(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.p9Form, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the P9 form.");
+      throw error;
+    }
+  }
+
+  async function printDedicatedPayslip(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.payslip, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the payslip.");
+      throw error;
+    }
+  }
+
+  async function printFeeStatement(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.feeStatement, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the fee statement.");
+      throw error;
+    }
+  }
+
+  async function printDedicatedReceipt(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.receiptTemplate, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the receipt.");
+      throw error;
+    }
+  }
+
+  async function printInvoice(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.invoice, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the invoice.");
+      throw error;
+    }
+  }
+
+  async function printTimetable(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.timetable, options, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the timetable.");
+      throw error;
+    }
+  }
+
+  async function printMasterTimetable(options = {}) {
+    const config = normalizeConfig(options);
+    try {
+      const response = await request(config.endpoints.timetable, { ...options, master: true }, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to generate the master timetable.");
+      throw error;
+    }
+  }
+
+  /* ==========================================================================
      Backward-compatible helper names
      ========================================================================== */
 
@@ -1378,6 +1617,9 @@ const PrintManager = (() => {
   return {
     printTable,
     printRecord,
+    printHtml,
+    printPortfolio,
+    printReportCard,
     printModal,
     printElement,
     printReportHtml,
@@ -1398,6 +1640,17 @@ const PrintManager = (() => {
     setStoredIdChunkSize,
 
     printReceipt,
+    printDedicatedReceipt,
+    printAcademicCalendar,
+    printFeeStructure,
+    printFeeStructureComparison,
+    printSimpleFeeStructure,
+    printP9Form,
+    printDedicatedPayslip,
+    printFeeStatement,
+    printInvoice,
+    printTimetable,
+    printMasterTimetable,
     exportToCSV,
 
     handleGeneratedFiles,

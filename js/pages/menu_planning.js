@@ -22,6 +22,7 @@ const MenuPlanningController = {
   meals: ["breakfast", "lunch", "supper", "snack"],
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
@@ -92,7 +93,7 @@ const MenuPlanningController = {
           .getCustom({ action: "menus", week_start: weekStart, term })
           .catch(() => null));
 
-      this.state.menus = res?.success ? res.data || [] : [];
+      this.state.menus = res || [];
 
       const weekRange = document.getElementById("weekRange");
       if (weekRange && weekStart) {

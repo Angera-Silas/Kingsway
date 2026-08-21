@@ -268,4 +268,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/academicsManager.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/academicsManager.js'); ?>

@@ -65,7 +65,7 @@ class RBACMiddleware
             }
 
             return array_values(array_unique(array_filter(array_map(
-                static fn(array $row): ?string => $row['permission_code'] ?? null,
+                static fn(array $row): ?string => $row['permission_code'] ?? $row['code'] ?? null,
                 $rows
             ))));
         } catch (\Exception $e) {

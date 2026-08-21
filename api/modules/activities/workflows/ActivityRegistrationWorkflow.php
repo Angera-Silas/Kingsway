@@ -64,9 +64,10 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Check student exists
             $stmt = $this->db->prepare("
-                SELECT id, first_name, last_name, admission_no 
-                FROM students 
-                WHERE id = ?
+                SELECT s.id, s.admission_no, p.first_name, p.last_name
+                FROM students s
+                LEFT JOIN persons p ON p.id = s.person_id
+                WHERE s.id = ?
             ");
             $stmt->execute([$data['student_id']]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -75,12 +76,19 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Student not found');
             }
 
+            // Resolve the student's current active enrollment
+            $enrollmentId = $this->resolveEnrollmentId($data['student_id']);
+            if ($enrollmentId === null) {
+                throw new Exception('Student has no active enrollment');
+            }
+
             // Check if student already has an active/pending registration
             $stmt = $this->db->prepare("
-                SELECT id, status 
-                FROM activity_participants 
-                WHERE activity_id = ? AND student_id = ? 
-                AND status IN ('active', 'pending')
+                SELECT ap.id, ap.status
+                FROM activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                WHERE ap.activity_id = ? AND sae.student_id = ?
+                AND ap.status IN ('active', 'pending')
             ");
             $stmt->execute([$data['activity_id'], $data['student_id']]);
             if ($stmt->fetch()) {
@@ -127,28 +135,28 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             $workflowId = $this->db->lastInsertId();
 
             // Create participant record with pending status
+            $participantId = $this->nextId('activity_participants');
+
             $stmt = $this->db->prepare("
                 INSERT INTO activity_participants (
+                    id,
                     activity_id,
-                    student_id,
+                    student_academic_enrollment_id,
                     role,
                     status,
                     notes,
-                    registered_by,
-                    registered_at
+                    joined_at
                 ) VALUES (?, ?, ?, ?, ?, ?, NOW())
             ");
 
             $stmt->execute([
+                $participantId,
                 $data['activity_id'],
-                $data['student_id'],
+                $enrollmentId,
                 $data['role'] ?? 'participant',
                 'pending',
-                $data['notes'] ?? null,
-                $userId
+                $data['notes'] ?? null
             ]);
-
-            $participantId = $this->db->lastInsertId();
 
             // Record workflow history
             $this->recordHistory($workflowId, 'apply', 'Application submitted', $userId);
@@ -266,9 +274,10 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Update participant status to confirmed (waiting for student confirmation)
             $stmt = $this->db->prepare("
-                UPDATE activity_participants 
-                SET status = 'confirmed'
-                WHERE activity_id = ? AND student_id = ?
+                UPDATE activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                SET ap.status = 'confirmed'
+                WHERE ap.activity_id = ? AND sae.student_id = ?
             ");
             $stmt->execute([$metadata['activity_id'], $metadata['student_id']]);
 
@@ -332,10 +341,11 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Update participant status
             $stmt = $this->db->prepare("
-                UPDATE activity_participants 
-                SET status = 'rejected',
-                    notes = CONCAT(COALESCE(notes, ''), ' | Rejected: ', ?)
-                WHERE activity_id = ? AND student_id = ?
+                UPDATE activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                SET ap.status = 'rejected',
+                    ap.notes = CONCAT(COALESCE(ap.notes, ''), ' | Rejected: ', ?)
+                WHERE ap.activity_id = ? AND sae.student_id = ?
             ");
             $stmt->execute([$reason, $metadata['activity_id'], $metadata['student_id']]);
 
@@ -438,9 +448,10 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Update participant status
             $stmt = $this->db->prepare("
-                UPDATE activity_participants 
-                SET status = 'active'
-                WHERE activity_id = ? AND student_id = ?
+                UPDATE activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                SET ap.status = 'active'
+                WHERE ap.activity_id = ? AND sae.student_id = ?
             ");
             $stmt->execute([$metadata['activity_id'], $metadata['student_id']]);
 
@@ -494,9 +505,10 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
 
             // Update participant status
             $stmt = $this->db->prepare("
-                UPDATE activity_participants 
-                SET status = 'completed'
-                WHERE activity_id = ? AND student_id = ?
+                UPDATE activity_participants ap
+                JOIN student_academic_enrollments sae ON sae.id = ap.student_academic_enrollment_id
+                SET ap.status = 'completed'
+                WHERE ap.activity_id = ? AND sae.student_id = ?
             ");
             $stmt->execute([$metadata['activity_id'], $metadata['student_id']]);
 
@@ -519,6 +531,54 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             throw $e;
         }
     }
+    /**
+     * Next manual id for a table without AUTO_INCREMENT (e.g. activity_participants).
+     *
+     * @param string $table Table name
+     * @return int
+     */
+    private function nextId(string $table): int
+    {
+        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Resolve a student's current active academic enrollment id.
+     *
+     * @param int $studentId Student ID
+     * @return int|null Enrollment ID or null when none found
+     */
+    private function resolveEnrollmentId($studentId)
+    {
+        $stmt = $this->db->prepare("
+            SELECT id
+            FROM student_academic_enrollments
+            WHERE student_id = ? AND enrollment_status = 'active'
+            ORDER BY enrolled_on DESC, id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([(int) $studentId]);
+        $enrollmentId = $stmt->fetchColumn();
+
+        if ($enrollmentId) {
+            return (int) $enrollmentId;
+        }
+
+        $fallbackStmt = $this->db->prepare("
+            SELECT id
+            FROM student_academic_enrollments
+            WHERE student_id = ?
+            ORDER BY enrolled_on DESC, id DESC
+            LIMIT 1
+        ");
+        $fallbackStmt->execute([(int) $studentId]);
+        $enrollmentId = $fallbackStmt->fetchColumn();
+
+        return $enrollmentId ? (int) $enrollmentId : null;
+    }
+
     /**
      * Record workflow history
      */

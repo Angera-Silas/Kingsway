@@ -14,9 +14,18 @@ const staffOnboardingController = {
   _offcanvas: null,
 
   init: async function () {
+    if (window.AuthContext?.ready) {
+      await window.AuthContext.ready();
+    }
     if (!AuthContext.isAuthenticated()) return;
-    this._canCreate  = AuthContext.hasPermission('staff.create') || AuthContext.hasPermission('hr.manage');
-    this._canApprove = AuthContext.hasPermission('staff.approve') || AuthContext.hasPermission('hr.manage');
+    if (window.StaffAccess?.init) {
+      await StaffAccess.init();
+    }
+
+    this._canCreate = window.StaffAccess
+      ? StaffAccess.can('staff.onboarding.manage')
+      : AuthContext.hasPermission('staff_onboarding_manage') || AuthContext.hasPermission('staff_create') || AuthContext.hasPermission('staff_update');
+    this._canApprove = this._canCreate || AuthContext.hasPermission('staff_appointments_approve') || AuthContext.hasPermission('hr.manage');
 
     const addBtn = document.getElementById('newOnboardingBtn');
     if (addBtn) addBtn.style.display = this._canCreate ? '' : 'none';
@@ -52,13 +61,13 @@ const staffOnboardingController = {
       this._setStats(resp?.stats || {});
       this._renderCards();
     } catch (e) {
-      if (grid) grid.innerHTML = `<div class="col-12 text-danger text-center py-4">${e.message||'Load failed'}</div>`;
+      if (grid) grid.innerHTML = `<div class="col-12 text-danger text-center py-4">${this._esc(e.message||'Load failed')}</div>`;
     }
   },
 
   _loadDepartments: async function () {
     try {
-      // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+      // Reference data: network-first with a 1 h offline fallback (freshness wins).
       const r = await DataStore.fetchPage('departments', {
         endpoint: '/staff/departments-get', storeName: 'reference_departments',
         ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'

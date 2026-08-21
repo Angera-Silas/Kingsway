@@ -16,11 +16,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-bed me-2"></i>Dormitory Management</h4>
+                    <h4 class="mb-1"><i class="bi bi-hospital me-2"></i>Dormitory Management</h4>
                     <p class="text-muted mb-0">Manage dormitories, bed allocation, and boarding students</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDormModal">
-                    <i class="fas fa-plus me-1"></i> Add Dormitory
+                    <i class="bi bi-plus-lg me-1"></i> Add Dormitory
                 </button>
             </div>
         </div>
@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/dormitory_management.js"></script>
+<?php asset_script($appBase, 'js/pages/dormitory_management.js'); ?>

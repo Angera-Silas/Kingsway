@@ -125,8 +125,11 @@
         <button class="btn btn-light btn-sm" id="downloadAllBtn">
             <i class="bi bi-download me-1"></i>Download All
         </button>
+        <button class="btn btn-light btn-sm" id="printCardsBtn">
+            <i class="bi bi-files me-1"></i>Print Cards
+        </button>
         <button class="btn btn-light btn-sm" id="printAllBtn">
-            <i class="bi bi-printer me-1"></i>Print All
+            <i class="bi bi-printer me-1"></i>Print Summary
         </button>
         <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#startReportWorkflowModal">
             <i class="bi bi-diagram-3 me-1"></i>Start Workflow
@@ -188,6 +191,13 @@
             <!-- Loaded dynamically from /academic/classes-list -->
         </select>
     </div>
+    <div>
+        <label class="form-label small fw-semibold mb-1">Stream</label>
+        <select class="form-select form-select-sm" id="streamFilter" style="width:175px">
+            <option value="">All Streams</option>
+            <!-- Loaded dynamically when class changes -->
+        </select>
+    </div>
     <div class="flex-grow-1" style="min-width:200px;max-width:340px">
         <label class="form-label small fw-semibold mb-1">Search Student</label>
         <input type="text" class="form-control form-control-sm" id="searchBox"
@@ -207,9 +217,12 @@
      DATA TABLE
 ══════════════════════════════════════════════════ -->
 <div class="rc-card">
-    <div class="card-header d-flex justify-content-between align-items-center">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
         <span><i class="bi bi-table me-2"></i>Students &amp; Report Card Status</span>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-rc-outline" id="printSelectedBtn" style="display:none" onclick="reportCardsCtrl.printSelected()">
+                <i class="bi bi-file-check me-1"></i>Print Selected
+            </button>
             <button class="btn btn-sm btn-rc-outline" onclick="reportCardsCtrl.exportCSV()">
                 <i class="bi bi-filetype-csv me-1"></i>Export CSV
             </button>
@@ -222,15 +235,15 @@
                 <thead>
                     <tr>
                         <th style="width:36px"><input type="checkbox" id="selectAll"></th>
-                        <th>Student Name</th>
-                        <th>Admission No</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>CBC Grade</th>
-                        <th>Overall %</th>
-                        <th>Rank</th>
-                        <th>Card Status</th>
-                        <th>Term</th>
+                        <th scope="col">Student Name</th>
+                        <th scope="col">Admission No</th>
+                        <th scope="col">Class</th>
+                        <th scope="col">Stream</th>
+                        <th scope="col">CBC Grade</th>
+                        <th scope="col">Overall %</th>
+                        <th scope="col">Rank</th>
+                        <th scope="col">Card Status</th>
+                        <th scope="col">Term</th>
                         <th style="width:130px">Actions</th>
                     </tr>
                 </thead>
@@ -296,4 +309,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/report_cards.js?v=<?= time() ?>"></script>
+<?php asset_script($appBase, 'js/pages/report_cards.js'); ?>

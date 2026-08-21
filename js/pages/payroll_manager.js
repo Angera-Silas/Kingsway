@@ -24,24 +24,21 @@ const PayrollManagerController = {
    */
   init: async function () {
     try {
-      console.log("🚀 Initializing Payroll Manager...");
+      if (window.AuthContext?.ready) await window.AuthContext.ready();
 
-      if (window.StaffAccess) {
-        await StaffAccess.init();
-        this.accessReady = true;
-        const allowed =
-          this.canManagePayroll() ||
-          this.canApprovePayroll() ||
-          this.canProcessPayroll() ||
-          StaffAccess.can("staff.payslip.manage,staff.payslip.self");
-        if (!allowed) {
-          await StaffAccess.require("staff.payroll.manage,staff.payroll.approve,staff.payroll.process,staff.payslip.manage,staff.payslip.self");
-          return;
-        }
-        StaffAccess.apply(document);
+      const allowed =
+        this.canManagePayroll() ||
+        this.canApprovePayroll() ||
+        this.canProcessPayroll() ||
+        window.AuthContext?.hasPermission?.('staff.payslip.manage') ||
+        window.AuthContext?.hasPermission?.('staff.payslip.self');
+      if (!allowed) {
+        window.showNotification?.('You do not have payroll access.', 'error');
+        return;
       }
 
       this.applyRoleMode();
+      this.applyPayrollFormMode();
       this.renderPayrollHeader();
 
       // Set current month in filters
@@ -59,7 +56,6 @@ const PayrollManagerController = {
         this.loadStaffList(),
       ]);
 
-      console.log("✅ Payroll Manager initialized");
     } catch (error) {
       console.error("❌ Error initializing Payroll Manager:", error);
       this.showError("Failed to initialize payroll manager");
@@ -67,15 +63,40 @@ const PayrollManagerController = {
   },
 
   canManagePayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.manage");
+    return window.AuthContext?.hasPermission?.('staff.payroll.manage') || false;
   },
 
   canApprovePayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.approve");
+    return window.AuthContext?.hasPermission?.('staff.payroll.approve') || false;
   },
 
   canProcessPayroll: function () {
-    return !window.StaffAccess || StaffAccess.can("staff.payroll.process");
+    return window.AuthContext?.hasPermission?.('staff.payroll.process') || false;
+  },
+
+  isPayrollReviewer: function () {
+    const user = window.AuthContext?.getUser?.() || {};
+    const roleNames = [];
+    if (user.role_name) roleNames.push(user.role_name);
+    if (Array.isArray(user.roles)) roleNames.push(...user.roles.map((role) => role?.name || role));
+    if (roleNames.some((role) => String(role).toLowerCase() === "accountant")) return false;
+    return this.canApprovePayroll() || roleNames.some((role) =>
+      ["director", "school administrator", "system administrator"].includes(String(role).toLowerCase())
+    );
+  },
+
+  applyPayrollFormMode: function () {
+    const reviewer = this.isPayrollReviewer();
+    document.querySelectorAll("[data-review-only]").forEach((element) => {
+      element.hidden = !reviewer;
+    });
+    document.querySelectorAll("[data-accountant-hidden]").forEach((element) => {
+      element.hidden = !reviewer;
+    });
+    const title = document.getElementById("processPayrollModalTitle");
+    const button = document.getElementById("processPayrollButtonLabel");
+    if (title) title.textContent = reviewer ? "Review Staff Payroll" : "Prepare Staff Payroll";
+    if (button) button.textContent = reviewer ? "Save Review Draft" : "Prepare Draft";
   },
 
   applyRoleMode: function () {
@@ -356,9 +377,9 @@ const PayrollManagerController = {
     const childrenFees = parseFloat(p.children_fees_deducted) || 0;
     const statutoryDed =
       (parseFloat(p.nssf_deduction) || 0) +
-      (parseFloat(p.nhif_deduction) || 0) +
+      (parseFloat(p.shif_deduction ?? p.nhif_deduction) || 0) +
       (parseFloat(p.paye_tax) || 0) +
-      parseFloat(p.gross_salary) * 0.015;
+      (parseFloat(p.housing_levy) || parseFloat(p.gross_salary) * 0.015);
     const otherDed = (parseFloat(p.other_deductions) || 0) - childrenFees;
     return {
       period: `${monthNames[p.payroll_month] || ""} ${p.payroll_year || ""}`.trim(),
@@ -397,7 +418,10 @@ const PayrollManagerController = {
       <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
         <i class="fas fa-eye"></i>
       </button>
-      ${p.status === "pending" && this.canApprovePayroll() ? `
+      ${(p.status === "pending" || p.status === "draft") && this.canApprovePayroll() ? `
+        <button class="table-action-btn" onclick="PayrollManagerController.reviewPayroll(${p.id})" title="Review payroll inputs">
+          <i class="fas fa-pen-to-square"></i>
+        </button>
         <button class="table-action-btn approve" onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
           <i class="fas fa-user-check"></i>
         </button>
@@ -415,6 +439,7 @@ const PayrollManagerController = {
    */
   getStatusBadge: function (status) {
     const badges = {
+      draft: '<span class="status-badge pending"><i class="fas fa-pen"></i> Draft</span>',
       pending: '<span class="status-badge pending"><i class="fas fa-clock"></i> Pending</span>',
       processing: '<span class="status-badge processing"><i class="fas fa-spinner"></i> Processing</span>',
       approved: '<span class="status-badge processing"><i class="fas fa-user-check"></i> Approved</span>',
@@ -498,11 +523,12 @@ const PayrollManagerController = {
    * Show process payroll modal
    */
   showProcessPayrollModal: function () {
-    if (!this.canManagePayroll()) {
-      this.showError("You do not have permission to prepare payroll.");
+    if (!this.canManagePayroll() && !this.isPayrollReviewer()) {
+      this.showError("You do not have permission to prepare or review payroll.");
       return;
     }
     this.resetPayrollForm();
+    this.applyPayrollFormMode();
     const modal = new bootstrap.Modal(
       document.getElementById("processPayrollModal")
     );
@@ -534,7 +560,7 @@ const PayrollManagerController = {
       const response = await API.finance.getBulkPayrollPreview(month, year);
       this.bulkPayrollRows = Array.isArray(response) ? response.map((row) => ({
         ...row,
-        selected: row.payroll_eligible === true && (parseFloat(row.basic_salary) || 0) > 0,
+        selected: row.payroll_eligible === true && !row.already_prepared && (parseFloat(row.basic_salary) || 0) > 0,
       })) : [];
     } catch (error) {
       console.error("Error preparing bulk payroll:", error);
@@ -569,7 +595,7 @@ const PayrollManagerController = {
       checkbox.type = "checkbox";
       checkbox.className = "form-check-input";
       checkbox.checked = row.selected;
-      checkbox.disabled = !row.payroll_eligible;
+      checkbox.disabled = !row.payroll_eligible || row.already_prepared;
       checkbox.addEventListener("change", () => this.setBulkStaffSelected(index, checkbox.checked));
       selectTd.appendChild(checkbox);
 
@@ -583,7 +609,12 @@ const PayrollManagerController = {
       staffTd.appendChild(name);
       staffTd.appendChild(br);
       staffTd.appendChild(staffNo);
-      if (!row.payroll_eligible) {
+      if (row.already_prepared) {
+        const prepared = document.createElement("div");
+        prepared.className = "text-warning small fw-bold mt-1";
+        prepared.textContent = "Already prepared (" + (row.existing_payslip_status || "draft") + ")";
+        staffTd.appendChild(prepared);
+      } else if (!row.payroll_eligible) {
         const blocked = document.createElement("div");
         blocked.className = "text-danger small fw-bold mt-1";
         blocked.textContent = "Blocked: Missing " + row.missing_fields.join(", ");
@@ -632,7 +663,7 @@ const PayrollManagerController = {
 
   toggleBulkStaffSelection: function (selected) {
     this.bulkPayrollRows.forEach((row) => {
-      row.selected = selected && row.payroll_eligible && row.basic_salary > 0;
+      row.selected = selected && row.payroll_eligible && !row.already_prepared && row.basic_salary > 0;
     });
     this.renderBulkPayrollRows();
   },
@@ -683,11 +714,15 @@ const PayrollManagerController = {
 
       const processed = response && response.processed_count ? response.processed_count : 0;
       const failed = response && response.failed_count ? response.failed_count : 0;
+      const skipped = response && response.skipped_count ? response.skipped_count : 0;
       if (failed > 0) {
-        this.showError(`Prepared ${processed}; failed ${failed}. Check console for details.`);
+        const firstFailure = response.failed?.[0]?.message;
+        this.showError("Prepared " + processed + "; skipped " + skipped + "; failed " + failed + "." + (firstFailure ? " " + firstFailure : ""));
         console.warn("Bulk payroll failures:", response.failed || []);
+      } else if (skipped > 0 && processed === 0) {
+        this.showSuccess("No new payrolls prepared. " + skipped + " staff payrolls were already prepared for this period.");
       } else {
-        this.showSuccess(`Bulk payroll prepared for director review: ${processed} staff members.`);
+        this.showSuccess("Bulk payroll prepared for director review: " + processed + " staff members." + (skipped ? " " + skipped + " already prepared." : ""));
       }
     } catch (error) {
       console.error("Error processing bulk payroll:", error);
@@ -810,10 +845,14 @@ const PayrollManagerController = {
       totalFees += feeBalance;
 
       // Default deduction amount (can be full balance or partial)
+      const configuredAmount = parseFloat(child.fee_deduction_amount);
+      const configuredPercentage = parseFloat(child.fee_deduction_percentage);
       const defaultDeduction = child.fee_deduction_enabled
         ? Math.min(
             feeBalance,
-            (parseFloat(staff.basic_salary) * 0.3) / staff.children.length
+            Number.isFinite(configuredAmount) && configuredAmount >= 0
+              ? configuredAmount
+              : feeBalance * (Number.isFinite(configuredPercentage) ? configuredPercentage : 100) / 100
           )
         : 0;
 
@@ -862,7 +901,8 @@ const PayrollManagerController = {
                                 )}</strong>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label small mb-0">Deduct Amount</label>
+                                <label class="form-label small mb-0">Authorized deduction</label>
+                                <small class="d-block text-muted mb-1">$${Number.isFinite(configuredAmount) ? `Fixed KES ${this.formatCurrency(configuredAmount)}` : `${Number.isFinite(configuredPercentage) ? configuredPercentage : 100}% of balance`}</small>
                                 <div class="input-group input-group-sm">
                                     <span class="input-group-text">KES</span>
                                     <input type="number" class="form-control" id="childDeduction${index}"
@@ -972,9 +1012,11 @@ const PayrollManagerController = {
 
     // Calculate statutory deductions
     const nssf = this.calculateNSSF(grossSalary);
-    const nhif = this.calculateNHIF(grossSalary);
-    const paye = this.calculatePAYE(grossSalary - nssf);
+    const shif = this.calculateSHIF(grossSalary);
+    const paye = this.calculatePAYE(grossSalary - nssf - shif - grossSalary * 0.015);
     const housingLevy = grossSalary * 0.015;
+    const employerNSSF = this.calculateNSSF(grossSalary);
+    const employerHousingLevy = housingLevy;
 
     // Children fees
     const childrenFees = this.childrenDeductions.reduce(
@@ -983,17 +1025,21 @@ const PayrollManagerController = {
     );
 
     const totalDeductions =
-      nssf + nhif + paye + housingLevy + childrenFees + otherDeductions;
+      nssf + shif + paye + housingLevy + childrenFees + otherDeductions;
     const netSalary = grossSalary - totalDeductions;
 
     // Update display
     document.getElementById("calcGrossSalary").textContent =
       this.formatCurrency(grossSalary);
     document.getElementById("calcNSSF").textContent = this.formatCurrency(nssf);
-    document.getElementById("calcNHIF").textContent = this.formatCurrency(nhif);
+    document.getElementById("calcSHIF").textContent = this.formatCurrency(shif);
     document.getElementById("calcPAYE").textContent = this.formatCurrency(paye);
     document.getElementById("calcHousingLevy").textContent =
       this.formatCurrency(housingLevy);
+    document.getElementById("calcEmployerNSSF").textContent =
+      this.formatCurrency(employerNSSF);
+    document.getElementById("calcEmployerHousingLevy").textContent =
+      this.formatCurrency(employerHousingLevy);
     document.getElementById("calcChildrenFees").textContent =
       this.formatCurrency(childrenFees);
     document.getElementById("calcTotalDeductions").textContent =
@@ -1003,41 +1049,19 @@ const PayrollManagerController = {
   },
 
   /**
-   * Calculate NSSF (Kenya rates)
+   * Calculate NSSF Year 4 (2026) preview. Final payroll values come from the server configuration.
    */
   calculateNSSF: function (gross) {
-    const tierI = Math.min(gross, 7000) * 0.06;
-    const tierII = Math.max(0, Math.min(gross - 7000, 29000)) * 0.06;
+    const tierI = Math.min(gross, 9000) * 0.06;
+    const tierII = Math.max(0, Math.min(gross, 108000) - 9000) * 0.06;
     return tierI + tierII;
   },
 
   /**
-   * Calculate NHIF (Kenya rates)
+   * Calculate SHIF (2.75% of gross salary)
    */
-  calculateNHIF: function (gross) {
-    const rates = [
-      [5999, 150],
-      [7999, 300],
-      [11999, 400],
-      [14999, 500],
-      [19999, 600],
-      [24999, 750],
-      [29999, 850],
-      [34999, 900],
-      [39999, 950],
-      [44999, 1000],
-      [49999, 1100],
-      [59999, 1200],
-      [69999, 1300],
-      [79999, 1400],
-      [89999, 1500],
-      [99999, 1600],
-      [Infinity, 1700],
-    ];
-    for (const [limit, contribution] of rates) {
-      if (gross <= limit) return contribution;
-    }
-    return 1700;
+  calculateSHIF: function (gross) {
+    return gross * 0.0275;
   },
 
   /**
@@ -1071,8 +1095,8 @@ const PayrollManagerController = {
    * Submit payroll
    */
   submitPayroll: async function () {
-    if (!this.canManagePayroll()) {
-      this.showError("You do not have permission to prepare payroll.");
+    if (!this.canManagePayroll() && !this.isPayrollReviewer()) {
+      this.showError("You do not have permission to prepare or review payroll.");
       return;
     }
     if (!this.selectedStaff) {
@@ -1086,19 +1110,19 @@ const PayrollManagerController = {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
 
     try {
+      const reviewer = this.isPayrollReviewer();
       const basicSalary = parseFloat(this.selectedStaff.basic_salary) || 0;
-      const allowances = {
+      const allowances = reviewer ? {
         house: parseFloat(document.getElementById("houseAllowance").value) || 0,
-        transport:
-          parseFloat(document.getElementById("transportAllowance").value) || 0,
-        other:
-          parseFloat(document.getElementById("otherAllowances").value) || 0,
-      };
-      const otherDeductions =
-        parseFloat(document.getElementById("otherDeductions").value) || 0;
+        transport: parseFloat(document.getElementById("transportAllowance").value) || 0,
+        other: parseFloat(document.getElementById("otherAllowances").value) || 0,
+      } : {};
+      const otherDeductions = reviewer
+        ? parseFloat(document.getElementById("otherDeductions").value) || 0
+        : 0;
 
       // Prepare children deductions
-      const childrenDeductions = this.childrenDeductions
+      const childrenDeductions = reviewer ? this.childrenDeductions
         .filter((d) => d.enabled && d.amount > 0)
         .map((d) => ({
           staff_child_id: d.staff_child_id,
@@ -1107,7 +1131,7 @@ const PayrollManagerController = {
           fee_invoice_id: d.fee_invoice_id,
           term_id: d.term_id,
           gross_fee_amount: d.gross_fee_amount,
-        }));
+        })) : [];
 
       const data = {
         staff_id: this.selectedStaff.id,
@@ -1117,6 +1141,8 @@ const PayrollManagerController = {
         allowances: allowances,
         other_deductions: otherDeductions,
         children_deductions: childrenDeductions,
+        children_deductions_explicit: reviewer,
+        preparation_only: !reviewer,
       };
 
       const response = await API.finance.processPayrollWithDeductions(data);
@@ -1166,6 +1192,41 @@ const PayrollManagerController = {
     }
   },
 
+  reviewPayroll: async function (payrollId) {
+    if (!this.isPayrollReviewer()) {
+      this.showError("Only the director or school administrator can review payroll inputs.");
+      return;
+    }
+    try {
+      const response = await API.finance.getDetailedPayslip(payrollId);
+      if (!response || !response.id) throw new Error("Payroll draft not found");
+
+      this.resetPayrollForm();
+      this.applyPayrollFormMode();
+      document.getElementById("payrollMonth").value = response.payroll_month;
+      document.getElementById("payrollYear").value = response.payroll_year;
+      document.getElementById("payrollStaffSelect").value = response.staff_id;
+
+      const modal = new bootstrap.Modal(document.getElementById("processPayrollModal"));
+      modal.show();
+      await this.onStaffSelected();
+
+      const allowancesTotal = parseFloat(response.allowances_total) || 0;
+      document.getElementById("houseAllowance").value = 0;
+      document.getElementById("transportAllowance").value = 0;
+      document.getElementById("otherAllowances").value = allowancesTotal;
+      document.getElementById("otherDeductions").value = parseFloat(response.other_deductions_total) || 0;
+      this.childrenDeductions = Array.isArray(response.children_deductions)
+        ? response.children_deductions.map((child) => ({ ...child, enabled: true, amount: parseFloat(child.deducted_amount || child.amount || 0) }))
+        : [];
+      this.displayChildrenSection();
+      this.showSalaryCalculation();
+    } catch (error) {
+      console.error("Error loading payroll for review:", error);
+      this.showError(error.message || "Failed to load payroll draft for review");
+    }
+  },
+
   /**
    * Render payslip content
    */
@@ -1185,11 +1246,26 @@ const PayrollManagerController = {
       "November",
       "December",
     ];
-    const period = `${monthNames[data.payroll_month]} ${data.payroll_year}`;
+    const period = `${monthNames[Number(data.payroll_month)] || "-"} ${data.payroll_year || "-"}`;
 
     const grossSalary = parseFloat(data.gross_salary) || 0;
-    const housingLevy = grossSalary * 0.015;
+    const housingLevy = parseFloat(data.housing_levy) || 0;
+    const employeeNssf = parseFloat(data.nssf_deduction ?? data.nssf_contribution) || 0;
+    const employeeShif = parseFloat(data.shif_deduction ?? data.shif_contribution ?? data.nhif_contribution) || 0;
+    const paye = parseFloat(data.paye_tax) || 0;
+    const employerNssf = parseFloat(data.employer_nssf_contribution) || 0;
+    const employerHousing = parseFloat(data.employer_housing_levy) || 0;
     const childrenFees = parseFloat(data.total_children_fees) || 0;
+    const otherDeductions = parseFloat(data.other_deductions ?? data.other_deductions_total) || 0;
+    const totalDeductions = parseFloat(data.total_deductions ?? data.employee_deductions_total) ||
+      employeeNssf + employeeShif + paye + housingLevy + childrenFees + otherDeductions;
+    const school = data.school_profile || {};
+    const schoolName = school.school_name || "School profile not configured";
+    const schoolAddress = [school.address, school.city].filter(Boolean).join(", ");
+    const schoolLocation = [schoolAddress, school.postal_code ? `Postal code ${school.postal_code}` : null, school.country]
+      .filter(Boolean).join(" · ") || "School address not configured";
+    const logoPath = school.logo_url || "uploads/school_assets/official_school_logo.png";
+    const logoUrl = /^https?:\/\//i.test(logoPath) ? logoPath : `${window.APP_BASE || ""}/${String(logoPath).replace(/^\//, "")}`;
 
     let childrenHtml = "";
     if (data.children_deductions && data.children_deductions.length > 0) {
@@ -1218,17 +1294,19 @@ const PayrollManagerController = {
       mpesa: "M-Pesa",
       airtel_money: "Airtel Money",
     };
-    const paymentMode = paymentModeLabels[data.payment_mode] || "Not Recorded";
-    const datePaid = data.payment_date
-      ? new Date(data.payment_date).toLocaleString("en-KE")
+    const paymentMode = paymentModeLabels[data.payment_mode || data.payment_method] || (data.payment_mode || data.payment_method || "Not Recorded");
+    const paidDateValue = data.paid_at || data.payment_date;
+    const datePaid = paidDateValue
+      ? new Date(paidDateValue).toLocaleString("en-KE")
       : "Not Paid";
+    const status = data.status || data.payslip_status || data.payment_status || "Unknown";
 
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <img src="${window.APP_BASE || ""}/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
-                    <h4 class="mb-1">KINGSWAY PREPARATORY SCHOOL</h4>
-                    <p class="mb-0">P.O. Box 123, Nairobi, Kenya</p>
+                    <img src="${this.escapeHtml(logoUrl)}" alt="${this.escapeHtml(schoolName)} Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
+                    <h4 class="mb-1">${this.escapeHtml(schoolName).toUpperCase()}</h4>
+                    <p class="mb-0">${this.escapeHtml(schoolLocation)}</p>
                     <h5 class="mt-3">PAYSLIP</h5>
                     <p class="text-muted">${period}</p>
                 </div>
@@ -1254,8 +1332,8 @@ const PayrollManagerController = {
                             <tr><td><strong>NSSF No:</strong></td><td>${this.escapeHtml(
                               data.nssf_no || "-"
                             )}</td></tr>
-                            <tr><td><strong>NHIF No:</strong></td><td>${this.escapeHtml(
-                              data.nhif_no || "-"
+                            <tr><td><strong>SHIF No:</strong></td><td>${this.escapeHtml(
+                              data.shif_no || data.nhif_no || "-"
                             )}</td></tr>
                         </table>
                     </div>
@@ -1274,7 +1352,7 @@ const PayrollManagerController = {
                             <tr><td><strong>Date Paid:</strong></td><td>${datePaid}</td></tr>
                             <tr><td><strong>Pay Period:</strong></td><td>${period}</td></tr>
                             <tr><td><strong>Status:</strong></td><td>${this.getStatusBadge(
-                              data.status
+                              status
                             )}</td></tr>
                         </table>
                     </div>
@@ -1293,7 +1371,7 @@ const PayrollManagerController = {
                             <tr>
                                 <td>Allowances</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  data.allowances
+                              data.allowances ?? data.allowances_total ?? 0
                                 )}</td>
                             </tr>
                             <tr class="table-success fw-bold">
@@ -1311,23 +1389,23 @@ const PayrollManagerController = {
                             <tr>
                                 <td>NSSF</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  data.nssf_deduction
+                                  employeeNssf
                                 )}</td>
                             </tr>
                             <tr>
-                                <td>NHIF</td>
+                                <td>SHIF</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  data.nhif_deduction
+                                  employeeShif
                                 )}</td>
                             </tr>
                             <tr>
                                 <td>PAYE Tax</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  data.paye_tax
+                                  paye
                                 )}</td>
                             </tr>
                             <tr>
-                                <td>Housing Levy (1.5%)</td>
+                                <td>Employee Housing Levy (1.5%)</td>
                                 <td class="text-end">${this.formatCurrency(
                                   housingLevy
                                 )}</td>
@@ -1347,14 +1425,25 @@ const PayrollManagerController = {
                             <tr>
                                 <td>Other Deductions</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  (data.other_deductions || 0) - childrenFees
+                                  otherDeductions
                                 )}</td>
                             </tr>
                             <tr class="table-danger fw-bold">
                                 <td>Total Deductions</td>
                                 <td class="text-end">${this.formatCurrency(
-                                  data.total_deductions
+                                  totalDeductions
                                 )}</td>
+                            </tr>
+                        </table>
+                        <h6 class="text-secondary mt-3"><i class="fas fa-building me-1"></i>EMPLOYER CONTRIBUTIONS</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <td>Employer NSSF (school cost)</td>
+                                <td class="text-end">${this.formatCurrency(employerNssf)}</td>
+                            </tr>
+                            <tr>
+                                <td>Employer Housing Levy (school cost)</td>
+                                <td class="text-end">${this.formatCurrency(employerHousing)}</td>
                             </tr>
                         </table>
                     </div>
@@ -1532,62 +1621,99 @@ const PayrollManagerController = {
       return;
     }
 
-    const reportRows = rows.map((payroll) => ({
-      staff_name:
-        payroll.staff_name
-        || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
-      period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
-      basic_salary: Number(payroll.basic_salary || 0),
-      allowances: Number(payroll.allowances || 0),
-      deductions:
-        Number(payroll.statutory_deductions || 0)
-        + Number(payroll.children_fee_deductions || 0)
-        + Number(payroll.other_deductions || 0),
-      net_salary: Number(payroll.net_salary || 0),
-      status: payroll.status || "—",
-    }));
+    const reportRows = rows.map((payroll) => {
+      const nssf = Number(payroll.nssf_deduction ?? payroll.nssf_contribution ?? 0);
+      const shif = Number(payroll.shif_deduction ?? payroll.shif_contribution ?? payroll.nhif_contribution ?? 0);
+      const paye = Number(payroll.paye_deduction ?? payroll.paye_tax ?? 0);
+      const housing = Number(payroll.housing_levy ?? 0);
+      const children = Number(payroll.children_fees_deducted ?? payroll.child_fees_deduction ?? payroll.children_fee_deductions ?? 0);
+      const other = Number(payroll.other_deductions ?? payroll.other_deductions_total ?? 0);
+      const employeeDeductions = nssf + shif + paye + housing + children + other;
+      const employerContributions = Number(payroll.employer_nssf_contribution ?? 0)
+        + Number(payroll.employer_housing_levy ?? 0);
+
+      return {
+        staff_name:
+          payroll.staff_name
+          || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
+        staff_no: payroll.staff_no || "—",
+        position: payroll.position || "—",
+        department: payroll.department || "—",
+        period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
+        basic_salary: Number(payroll.basic_salary || 0),
+        allowances: Number(payroll.allowances ?? payroll.allowances_total ?? 0),
+        gross_salary: Number(payroll.gross_salary || 0),
+        nssf,
+        shif,
+        paye,
+        housing,
+        children,
+        other,
+        employee_deductions: employeeDeductions,
+        employer_contributions: employerContributions,
+        net_salary: Number(payroll.net_salary || 0),
+        status: payroll.status || payroll.payslip_status || "—",
+      };
+    });
 
     const currency = (value) =>
       `KSh ${Number(value || 0).toLocaleString("en-KE", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       })}`;
+    const tableAmount = (value) =>
+      Number(value || 0).toLocaleString("en-KE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
 
     await window.PrintManager.printTable({
       title: "Payroll Report",
-      description: "Consolidated staff payroll report.",
+      description: "Consolidated staff payroll report. All monetary values are in KES.",
+      documentClass: "payroll-report",
       columns: [
-        { key: "staff_name", label: "Staff", width: "24%" },
-        { key: "period", label: "Period", width: "14%" },
+        { key: "staff_name", label: "Staff", width: "11%" },
+        { key: "staff_no", label: "Staff No.", width: "5%" },
+        { key: "position", label: "Position", width: "6%" },
+        { key: "department", label: "Department", width: "6%" },
+        { key: "period", label: "Period", width: "5%" },
         {
           key: "basic_salary",
           label: "Basic Salary",
           type: "currency",
-          width: "15%",
-          formatter: currency,
+          width: "6%",
+          formatter: tableAmount,
         },
         {
           key: "allowances",
           label: "Allowances",
           type: "currency",
-          width: "14%",
-          formatter: currency,
+          width: "5%",
+          formatter: tableAmount,
         },
         {
-          key: "deductions",
-          label: "Deductions",
+          key: "gross_salary",
+          label: "Gross Salary",
           type: "currency",
-          width: "14%",
-          formatter: currency,
+          width: "6%",
+          formatter: tableAmount,
         },
+        { key: "nssf", label: "NSSF", type: "currency", width: "4%", formatter: tableAmount },
+        { key: "shif", label: "SHIF", type: "currency", width: "4%", formatter: tableAmount },
+        { key: "paye", label: "PAYE", type: "currency", width: "4%", formatter: tableAmount },
+        { key: "housing", label: "Employee Housing Levy", type: "currency", width: "6%", formatter: tableAmount },
+        { key: "children", label: "Children Fees", type: "currency", width: "4%", formatter: tableAmount },
+        { key: "other", label: "Other Deductions", type: "currency", width: "4%", formatter: tableAmount },
+        { key: "employee_deductions", label: "Total Employee Deductions", type: "currency", width: "8%", formatter: tableAmount },
+        { key: "employer_contributions", label: "Employer Contributions", type: "currency", width: "7%", formatter: tableAmount },
         {
           key: "net_salary",
           label: "Net Pay",
           type: "currency",
-          width: "14%",
-          formatter: currency,
+          width: "5%",
+          formatter: tableAmount,
         },
-        { key: "status", label: "Status", width: "10%" },
+        { key: "status", label: "Status", width: "4%" },
       ],
       rows: reportRows,
       orientation: "landscape",
@@ -1595,6 +1721,15 @@ const PayrollManagerController = {
       reportCode: `PAYROLL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
       summary: {
         "Staff Records": reportRows.length,
+        "Total Gross Salary": currency(
+          reportRows.reduce((sum, row) => sum + row.gross_salary, 0)
+        ),
+        "Total Employee Deductions": currency(
+          reportRows.reduce((sum, row) => sum + row.employee_deductions, 0)
+        ),
+        "Total Employer Contributions": currency(
+          reportRows.reduce((sum, row) => sum + row.employer_contributions, 0)
+        ),
         "Total Net Pay": currency(
           reportRows.reduce((sum, row) => sum + row.net_salary, 0)
         ),
@@ -1636,11 +1771,11 @@ const PayrollManagerController = {
     return months[parseInt(monthNum)] || "";
   },
 
-  showSuccess: function (message) {
+  showSuccess: async function (message) {
     if (typeof showNotification === "function") {
       showNotification(message, "success");
     } else {
-      alert("✅ " + message);
+      await window.infoDialog('Notice', "✅ " + message);
     }
   },
 
@@ -1709,11 +1844,11 @@ const PayrollManagerController = {
     });
   },
 
-  showError: function (message) {
+  showError: async function (message) {
     if (typeof showNotification === "function") {
       showNotification(message, "error");
     } else {
-      alert("❌ " + message);
+      await window.infoDialog('Notice', "❌ " + message);
     }
   },
 };

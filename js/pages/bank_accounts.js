@@ -20,10 +20,9 @@
          * Initialize controller
          */
         init: async function () {
+            if (window.AuthContext?.ready) await window.AuthContext.ready();
             try {
-                console.log("Initializing BankAccountsController...");
                 await this.loadData();
-                console.log("BankAccountsController initialized successfully");
             } catch (error) {
                 console.error("Error initializing BankAccountsController:", error);
                 this.showNotification("Failed to load bank accounts", "error");
@@ -232,6 +231,7 @@
                 account_name: document.getElementById("ba_account_name").value,
                 account_number: document.getElementById("ba_account_number").value,
                 account_type: document.getElementById("ba_type").value,
+                purpose: document.getElementById("ba_purpose").value,
                 opening_balance: parseFloat(document.getElementById("ba_opening_balance").value) || 0
             };
 
@@ -254,7 +254,7 @@
         /**
          * View account details
          */
-        viewAccount: function (id) {
+        viewAccount: async function (id) {
             var acc = this.data.find(function (a) { return a.id === id; });
             if (!acc) return;
 
@@ -265,7 +265,7 @@
                 "Branch: " + (acc.branch || "-") + "\n" +
                 "Balance: KES " + this.formatCurrency(acc.balance || acc.current_balance || 0) + "\n" +
                 "Status: " + (acc.status || "-");
-            alert(msg);
+            await window.infoDialog('Notice', msg);
         },
 
         /**
@@ -283,6 +283,7 @@
             document.getElementById("ba_account_name").value = acc.account_name || "";
             document.getElementById("ba_account_number").value = acc.account_number || "";
             document.getElementById("ba_type").value = acc.account_type || acc.type || "";
+            document.getElementById("ba_purpose").value = (acc.purposes || "operations").split(",")[0] || "operations";
             document.getElementById("ba_opening_balance").value = acc.opening_balance || acc.balance || 0;
 
             var modal = new bootstrap.Modal(document.getElementById("bankAccountModal"));
@@ -293,7 +294,7 @@
          * Delete account
          */
         deleteAccount: async function (id) {
-            if (!confirm("Are you sure you want to delete this bank account?")) return;
+            if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this bank account?", { confirmText: 'Delete', danger: true }))) return;
 
             try {
                 await API.callAPI("/accounts/bank-accounts/" + id, "DELETE");
@@ -421,11 +422,11 @@
                 .replace(/'/g, "&#39;");
         },
 
-        showNotification: function (message, type) {
+        showNotification: async function (message, type) {
             if (typeof showNotification === "function") {
                 showNotification(message, type || "info");
             } else {
-                alert(message);
+                await window.infoDialog('Notice', message);
             }
         },
 
@@ -440,4 +441,10 @@
     };
 
     window.BankAccountsController = BankAccountsController;
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => BankAccountsController.init().catch(() => {}));
+    } else {
+        BankAccountsController.init().catch(() => {});
+    }
 })();

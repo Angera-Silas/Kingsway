@@ -198,7 +198,7 @@ class ActivitiesManager extends BaseAPI
             $required = ['title', 'category_id', 'start_date', 'end_date'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    throw new Exception("Field '$field' is required");
+                    throw new \InvalidArgumentException("Field '$field' is required");
                 }
             }
 
@@ -226,12 +226,11 @@ class ActivitiesManager extends BaseAPI
                         category_id,
                         start_date,
                         end_date,
-                        location,
                         max_participants,
                         status,
-                        created_by,
+                        started_by,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
                 ";
 
                 $stmt = $this->db->prepare($sql);
@@ -241,7 +240,6 @@ class ActivitiesManager extends BaseAPI
                     $data['category_id'],
                     $data['start_date'],
                     $data['end_date'],
-                    $data['location'] ?? null,
                     $data['max_participants'] ?? null,
                     $data['status'] ?? 'planned',
                     $userId
@@ -269,7 +267,7 @@ class ActivitiesManager extends BaseAPI
                 return [
                     'success' => false,
                     'code' => 400,
-                    'message' => $e->getMessage()
+                    'message' => 'An internal error occurred.'
                 ];
             }
 
@@ -350,7 +348,6 @@ class ActivitiesManager extends BaseAPI
                 'category_id',
                 'start_date',
                 'end_date',
-                'location',
                 'max_participants',
                 'status'
             ];
@@ -383,7 +380,7 @@ class ActivitiesManager extends BaseAPI
             return [
                 'success' => false,
                 'code' => 400,
-                'message' => $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }
@@ -461,7 +458,7 @@ class ActivitiesManager extends BaseAPI
             return [
                 'success' => false,
                 'code' => 400,
-                'message' => $e->getMessage()
+                'message' => 'An internal error occurred.'
             ];
         }
     }

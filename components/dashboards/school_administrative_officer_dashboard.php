@@ -29,19 +29,19 @@
     <div class="row mb-4">
         <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-                <h2 class="mb-1"><i class="fas fa-briefcase me-2"></i>School Administrator Dashboard</h2>
+                <h2 class="mb-1"><i class="bi bi-briefcase me-2"></i>School Administrator Dashboard</h2>
                 <p class="text-muted mb-0">Operational overview and daily management</p>
             </div>
             <div class="d-flex align-items-center gap-2 flex-wrap">
                 <small class="text-muted me-3">
-                    <i class="fas fa-clock me-1"></i>
+                    <i class="bi bi-clock me-1"></i>
                     Last refresh: <span id="lastRefreshTime">--:--:--</span>
                 </small>
                 <button id="refreshDashboard" class="btn btn-sm btn-primary">
-                    <i class="fas fa-sync-alt"></i> Refresh
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
                 <button id="exportDashboard" class="btn btn-sm btn-outline-secondary">
-                    <i class="fas fa-download"></i> Export
+                    <i class="bi bi-download"></i> Export
                 </button>
             </div>
         </div>
@@ -60,7 +60,7 @@
                             <small class="text-muted" id="active-students-subtitle">Enrolled Students</small>
                         </div>
                         <div class="icon-circle bg-primary bg-opacity-10 text-primary">
-                            <i class="fas fa-user-graduate fa-lg"></i>
+                            <i class="bi bi-mortarboard fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -81,7 +81,7 @@
                             <small class="text-muted" id="teaching-staff-subtitle">Teaching Staff</small>
                         </div>
                         <div class="icon-circle bg-warning bg-opacity-10 text-warning">
-                            <i class="fas fa-chalkboard-teacher fa-lg"></i>
+                            <i class="bi bi-person-workspace fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -102,7 +102,7 @@
                             <small class="text-muted" id="staff-activities-subtitle">Staff Coordination</small>
                         </div>
                         <div class="icon-circle" style="background-color: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                            <i class="fas fa-tasks fa-lg"></i>
+                            <i class="bi bi-list-check fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -123,7 +123,7 @@
                             <small class="text-muted" id="class-timetables-subtitle">Academic Schedules</small>
                         </div>
                         <div class="icon-circle bg-info bg-opacity-10 text-info">
-                            <i class="fas fa-calendar-alt fa-lg"></i>
+                            <i class="bi bi-calendar-alt fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -144,7 +144,7 @@
                             <small class="text-muted" id="daily-attendance-subtitle">Daily Attendance</small>
                         </div>
                         <div class="icon-circle" style="background-color: rgba(0, 128, 128, 0.1); color: teal;">
-                            <i class="fas fa-clipboard-check fa-lg"></i>
+                            <i class="bi bi-clipboard-check fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -168,7 +168,7 @@
                             <small class="text-muted" id="announcements-subtitle">School Communications</small>
                         </div>
                         <div class="icon-circle" style="background-color: rgba(128, 0, 128, 0.1); color: purple;">
-                            <i class="fas fa-bullhorn fa-lg"></i>
+                            <i class="bi bi-megaphone fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -189,7 +189,7 @@
                             <small class="text-muted" id="student-admissions-subtitle">Admission Pipeline</small>
                         </div>
                         <div class="icon-circle bg-success bg-opacity-10 text-success">
-                            <i class="fas fa-user-plus fa-lg"></i>
+                            <i class="bi bi-person-plus fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -210,7 +210,7 @@
                             <small class="text-muted" id="staff-leaves-subtitle">Staff Leave Status</small>
                         </div>
                         <div class="icon-circle bg-danger bg-opacity-10 text-danger">
-                            <i class="fas fa-calendar-times fa-lg"></i>
+                            <i class="bi bi-calendar-times fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -231,7 +231,7 @@
                             <small class="text-muted" id="class-distribution-subtitle">Class Sizes</small>
                         </div>
                         <div class="icon-circle" style="background-color: rgba(199, 21, 133, 0.1); color: #c71585;">
-                            <i class="fas fa-chart-pie fa-lg"></i>
+                            <i class="bi bi-pie-chart fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -252,7 +252,7 @@
                             <small class="text-muted" id="system-status-subtitle">System Performance</small>
                         </div>
                         <div class="icon-circle bg-success bg-opacity-10 text-success">
-                            <i class="fas fa-check-circle fa-lg"></i>
+                            <i class="bi bi-check-lg-circle fa-lg"></i>
                         </div>
                     </div>
                     <div class="mt-2">
@@ -270,7 +270,7 @@
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-header bg-white border-0 py-3">
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <h5 class="mb-0"><i class="fas fa-chart-line me-2 text-teal"></i>Weekly Attendance Trend</h5>
+                        <h5 class="mb-0"><i class="bi bi-graph-up me-2 text-teal"></i>Weekly Attendance Trend</h5>
                         <div class="btn-group btn-group-sm" role="group">
                             <button type="button" class="btn btn-outline-secondary active" data-range="4weeks">4 Weeks</button>
                             <button type="button" class="btn btn-outline-secondary" data-range="8weeks">8 Weeks</button>
@@ -288,7 +288,7 @@
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-header bg-white border-0 py-3">
                     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                        <h5 class="mb-0"><i class="fas fa-chart-bar me-2 text-primary"></i>Class Distribution</h5>
+                        <h5 class="mb-0"><i class="bi bi-bar-chart me-2 text-primary"></i>Class Distribution</h5>
                         <select class="form-select form-select-sm" style="width: auto;" id="classDistributionFilter">
                             <option value="all">All Classes</option>
                             <option value="form1">Form 1</option>
@@ -313,18 +313,18 @@
                     <ul class="nav nav-tabs card-header-tabs" id="dashboardTabs" role="tablist">
                         <li class="nav-item" role="presentation">
                             <button class="nav-link active" id="pending-tab" data-bs-toggle="tab" data-bs-target="#pending" type="button" role="tab" aria-controls="pending" aria-selected="true">
-                                <i class="fas fa-clock me-2"></i>Pending Items
+                                <i class="bi bi-clock me-2"></i>Pending Items
                                 <span class="badge bg-warning text-dark ms-2" id="pending-count">--</span>
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="schedule-tab" data-bs-toggle="tab" data-bs-target="#schedule" type="button" role="tab" aria-controls="schedule" aria-selected="false">
-                                <i class="fas fa-calendar-day me-2"></i>Today's Schedule
+                                <i class="bi bi-calendar-day me-2"></i>Today's Schedule
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="staff-tab" data-bs-toggle="tab" data-bs-target="#staff" type="button" role="tab" aria-controls="staff" aria-selected="false">
-                                <i class="fas fa-address-book me-2"></i>Staff Directory
+                                <i class="bi bi-journal-bookmark me-2"></i>Staff Directory
                             </button>
                         </li>
                     </ul>
@@ -337,17 +337,17 @@
                                 <table class="table table-hover mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Type</th>
-                                            <th>Description</th>
-                                            <th>Count</th>
-                                            <th>Priority</th>
-                                            <th>Action</th>
+                                            <th scope="col">Type</th>
+                                            <th scope="col">Description</th>
+                                            <th scope="col">Count</th>
+                                            <th scope="col">Priority</th>
+                                            <th scope="col">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="pending-items-table">
                                         <tr>
                                             <td colspan="5" class="text-center py-4 text-muted">
-                                                <i class="fas fa-spinner fa-spin me-2"></i>Loading pending items...
+                                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading pending items...
                                             </td>
                                         </tr>
                                     </tbody>
@@ -361,17 +361,17 @@
                                 <table class="table table-hover mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Time</th>
-                                            <th>Event</th>
-                                            <th>Location</th>
-                                            <th>Attendees</th>
-                                            <th>Status</th>
+                                            <th scope="col">Time</th>
+                                            <th scope="col">Event</th>
+                                            <th scope="col">Location</th>
+                                            <th scope="col">Attendees</th>
+                                            <th scope="col">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody id="schedule-items-table">
                                         <tr>
                                             <td colspan="5" class="text-center py-4 text-muted">
-                                                <i class="fas fa-spinner fa-spin me-2"></i>Loading schedule...
+                                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading schedule...
                                             </td>
                                         </tr>
                                     </tbody>
@@ -383,7 +383,7 @@
                         <div class="tab-pane fade" id="staff" role="tabpanel" aria-labelledby="staff-tab">
                             <div class="p-3">
                                 <div class="input-group mb-3">
-                                    <span class="input-group-text bg-white"><i class="fas fa-search"></i></span>
+                                    <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
                                     <input type="text" class="form-control" id="staffSearchInput" placeholder="Search staff by name, position, or department...">
                                 </div>
                             </div>
@@ -391,17 +391,17 @@
                                 <table class="table table-hover mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Name</th>
-                                            <th>Position</th>
-                                            <th>Department</th>
-                                            <th>Contact</th>
-                                            <th>Status</th>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Position</th>
+                                            <th scope="col">Department</th>
+                                            <th scope="col">Contact</th>
+                                            <th scope="col">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody id="staff-directory-table">
                                         <tr>
                                             <td colspan="5" class="text-center py-4 text-muted">
-                                                <i class="fas fa-spinner fa-spin me-2"></i>Loading staff directory...
+                                                <i class="bi bi-arrow-clockwise fa-spin me-2"></i>Loading staff directory...
                                             </td>
                                         </tr>
                                     </tbody>
@@ -418,14 +418,14 @@
     <div class="d-lg-none position-fixed bottom-0 end-0 p-3" style="z-index: 1030;">
         <div class="dropdown dropup">
             <button class="btn btn-primary btn-lg rounded-circle shadow" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-plus"></i>
+                <i class="bi bi-plus-lg"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end mb-2">
-                <li><a class="dropdown-item" href="home.php?route=manage_students_admissions"><i class="fas fa-user-plus me-2"></i>New Admission</a></li>
-                <li><a class="dropdown-item" href="home.php?route=manage_announcements"><i class="fas fa-bullhorn me-2"></i>New Announcement</a></li>
-                <li><a class="dropdown-item" href="home.php?route=mark_attendance"><i class="fas fa-clipboard-check me-2"></i>Mark Attendance</a></li>
+                <li><a class="dropdown-item" href="home.php?route=manage_students_admissions"><i class="bi bi-person-plus me-2"></i>New Admission</a></li>
+                <li><a class="dropdown-item" href="home.php?route=manage_announcements"><i class="bi bi-megaphone me-2"></i>New Announcement</a></li>
+                <li><a class="dropdown-item" href="home.php?route=mark_attendance"><i class="bi bi-clipboard-check me-2"></i>Mark Attendance</a></li>
                 <li><hr class="dropdown-divider"></li>
-                <li><a class="dropdown-item" href="home.php?route=manage_staff"><i class="fas fa-users me-2"></i>View Staff</a></li>
+                <li><a class="dropdown-item" href="home.php?route=manage_staff"><i class="bi bi-people me-2"></i>View Staff</a></li>
             </ul>
         </div>
     </div>

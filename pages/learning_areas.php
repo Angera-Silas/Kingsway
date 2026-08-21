@@ -17,11 +17,11 @@
         <div class="col-12">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h4 class="mb-1"><i class="fas fa-layer-group me-2"></i>Learning Areas</h4>
+                    <h4 class="mb-1"><i class="bi bi-layers me-2"></i>Learning Areas</h4>
                     <p class="text-muted mb-0">Manage subjects, curriculum, and teaching assignments</p>
                 </div>
                 <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSubjectModal">
-                    <i class="fas fa-plus me-1"></i> Add Subject
+                    <i class="bi bi-plus-lg me-1"></i> Add Subject
                 </button>
             </div>
         </div>
@@ -67,22 +67,22 @@
     <ul class="nav nav-tabs mb-4" id="learningAreasTabs" role="tablist">
         <li class="nav-item">
             <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#allSubjects">
-                <i class="fas fa-book me-1"></i> All Subjects
+                <i class="bi bi-book me-1"></i> All Subjects
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#teacherAssignments">
-                <i class="fas fa-user-tag me-1"></i> Teacher Assignments
+                <i class="bi bi-person-tag me-1"></i> Teacher Assignments
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#curriculum">
-                <i class="fas fa-sitemap me-1"></i> Curriculum (CBC)
+                <i class="bi bi-diagram-3 me-1"></i> Curriculum (CBC)
             </button>
         </li>
         <li class="nav-item">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#schemesOfWork">
-                <i class="fas fa-file-alt me-1"></i> Schemes of Work
+                <i class="bi bi-file-text me-1"></i> Schemes of Work
             </button>
         </li>
     </ul>
@@ -102,13 +102,13 @@
                         <table class="table table-hover" id="subjectsTable">
                             <thead>
                                 <tr>
-                                    <th>Subject Code</th>
-                                    <th>Subject Name</th>
-                                    <th>Category</th>
-                                    <th>Classes</th>
-                                    <th>Teachers</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Subject Code</th>
+                                    <th scope="col">Subject Name</th>
+                                    <th scope="col">Category</th>
+                                    <th scope="col">Classes</th>
+                                    <th scope="col">Teachers</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -143,7 +143,7 @@
                         <div class="col-md-4">
                             <button class="btn btn-primary w-100" data-bs-toggle="modal"
                                 data-bs-target="#assignTeacherModal">
-                                <i class="fas fa-plus me-1"></i> New Assignment
+                                <i class="bi bi-plus-lg me-1"></i> New Assignment
                             </button>
                         </div>
                     </div>
@@ -151,12 +151,12 @@
                         <table class="table table-hover" id="assignmentsTable">
                             <thead>
                                 <tr>
-                                    <th>Teacher</th>
-                                    <th>Subject</th>
-                                    <th>Class</th>
-                                    <th>Lessons/Week</th>
-                                    <th>Status</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Teacher</th>
+                                    <th scope="col">Subject</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Lessons/Week</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -178,7 +178,7 @@
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info">
-                        <i class="fas fa-info-circle me-2"></i>
+                        <i class="bi bi-info-circle me-2"></i>
                         Manage CBC curriculum strands, sub-strands, and learning outcomes for each subject.
                     </div>
                     <div id="curriculumTree">
@@ -194,7 +194,7 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Schemes of Work</h5>
                     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadSowModal">
-                        <i class="fas fa-upload me-1"></i> Upload SOW
+                        <i class="bi bi-upload me-1"></i> Upload SOW
                     </button>
                 </div>
                 <div class="card-body">
@@ -202,13 +202,13 @@
                         <table class="table table-hover" id="sowTable">
                             <thead>
                                 <tr>
-                                    <th>Subject</th>
-                                    <th>Class</th>
-                                    <th>Term</th>
-                                    <th>Teacher</th>
-                                    <th>Status</th>
-                                    <th>Last Updated</th>
-                                    <th>Actions</th>
+                                    <th scope="col">Subject</th>
+                                    <th scope="col">Class</th>
+                                    <th scope="col">Term</th>
+                                    <th scope="col">Teacher</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Last Updated</th>
+                                    <th scope="col">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -272,4 +272,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/learning_areas.js"></script>
+<?php asset_script($appBase, 'js/pages/learning_areas.js'); ?>

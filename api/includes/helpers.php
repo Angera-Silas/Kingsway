@@ -12,6 +12,16 @@ namespace App\API\Includes;
  * - formatResponse() consolidated in api/controllers/BaseController.php
  * - logActivity() / logError() consolidated in BaseAPI.php methods
  * 
+ * MIGRATION NOTE (Response Format Convergence):
+ * The helpers in this file (formatResponse, successResponse, errorResponse) produce
+ * arrays with keys: status/message/type/code/data.
+ * The BaseController::respond() method (and ApiResponse::normalize()) expect the
+ * shape: success/status/data/message/code/timestamp/request_id.
+ * New code should use BaseController::respond() or ApiResponse::normalize()
+ * directly. These helper functions are kept for backward compatibility with
+ * Module API classes (AcademicAPI, StaffAPI, etc.) but should be migrated
+ * to return the same shape as respond() in a future refactor.
+ * 
  * This file now serves as a lightweight utility module only.
  */
 
@@ -71,7 +81,7 @@ function mapMessageToCode($message, $success)
     // 404 Not Found - Check for specific resource not found messages
     if (
         preg_match('/\b(expense|budget|payroll|fee|payment|record|resource|item|entity)\s+not\s+found\b/i', $message) ||
-        strpos($lowerMessage, 'does not exist') !== false && !strpos($lowerMessage, 'table') !== false
+        (strpos($lowerMessage, 'does not exist') !== false && strpos($lowerMessage, 'table') === false)
     ) {
         return 404;
     }
@@ -329,6 +339,33 @@ function successResponse($data = null, $messageOrCode = 200, $code = 200)
 }
 
 /**
+ * Convert a day-of-week value to the numeric convention 1=Monday..7=Sunday.
+ * Accepts numeric values (passed through when in range), full day names
+ * (e.g. "Monday"), and short day names (e.g. "Mon"), case-insensitively.
+ *
+ * @param mixed $day Day name, short day name, or numeric value
+ * @return int|null Numeric day 1-7, or null when unparseable
+ */
+function dayNameToNumber($day)
+{
+    if ($day === null || $day === '') {
+        return null;
+    }
+    if (is_numeric($day)) {
+        $n = (int) $day;
+        return ($n >= 1 && $n <= 7) ? $n : null;
+    }
+    $map = [
+        'Monday' => 1, 'Tuesday' => 2, 'Wednesday' => 3, 'Thursday' => 4,
+        'Friday' => 5, 'Saturday' => 6, 'Sunday' => 7,
+        'Mon' => 1, 'Tue' => 2, 'Wed' => 3, 'Thu' => 4,
+        'Fri' => 5, 'Sat' => 6, 'Sun' => 7,
+    ];
+    $key = ucfirst(strtolower(trim((string) $day)));
+    return $map[$key] ?? null;
+}
+
+/**
  * Sanitize input data recursively
  * Removes whitespace, encodes HTML entities
  * 
@@ -392,6 +429,9 @@ function getPreferredColumnName(string $table, array $candidates = ['amount_paid
 
     // Fallback: perform SHOW COLUMNS discovery
     try {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+            throw new \InvalidArgumentException('Invalid table name');
+        }
         $db = \App\Database\Database::getInstance()->getConnection();
         $foundCols = [];
         foreach ($candidates as $col) {
@@ -472,6 +512,9 @@ function sql_coalesce_existing_columns(string $table, array $candidates = ['amou
 
         // If no columns from DB cache or DB cache not used, perform SHOW COLUMNS
         if (empty($cols)) {
+            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
+                throw new \InvalidArgumentException('Invalid table name');
+            }
             $foundCols = [];
             foreach ($candidates as $col) {
                 $stmt = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");

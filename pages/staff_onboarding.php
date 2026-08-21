@@ -388,5 +388,6 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/staff_onboarding.js"></script>
+<?php $staffOnboardingJs = __DIR__ . '/../js/pages/staff_onboarding.js'; ?>
+<?php asset_script($appBase, 'js/pages/staff_onboarding.js'); ?>
 <script>document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>

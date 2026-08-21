@@ -11,6 +11,36 @@ if (typeof refreshTokenPromise === "undefined") {
   var refreshTokenPromise = null;
 }
 
+const SESSION_ACTIVITY_KEY = "kingsway_last_user_activity_at";
+const TOKEN_REFRESH_LOCK_KEY = "kingsway_token_refresh_lock";
+const TOKEN_REFRESH_EVENT_KEY = "kingsway_token_refresh_event";
+const TOKEN_REFRESH_LOCK_TTL_MS = 20000;
+const TOKEN_REFRESH_WAIT_MS = 18000;
+
+/**
+ * Per-user localStorage keys.  Two users sharing the same browser must not
+ * interfere with each other's session activity timestamps or refresh locks.
+ */
+function _userStorageKey(suffix) {
+  const uid = (() => {
+    try { return localStorage.getItem("kw_active_user_id") || null; }
+    catch (_) { return null; }
+  })();
+  return uid ? `kw_${uid}_${suffix}` : `kw_${suffix}`;
+}
+const KINGSWAY_AUTH_SESSION_CONFIG = window.AUTH_SESSION_CONFIG || {};
+const ACTIVE_SESSION_WINDOW_MS =
+  Math.max(
+    300,
+    Number(KINGSWAY_AUTH_SESSION_CONFIG.idleTimeoutSeconds) || 1800,
+  ) * 1000;
+const TOKEN_REFRESH_SKEW_SECONDS = Math.max(
+  60,
+  Number(KINGSWAY_AUTH_SESSION_CONFIG.refreshWindowSeconds) || 600,
+);
+const CURRENT_TAB_ID =
+  Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+
 // Notification types
 const NOTIFICATION_TYPES = {
   SUCCESS: "success",
@@ -267,20 +297,17 @@ const AuthContext = (() => {
     "dashboard_info",
   ];
 
+  // Sentinel key that stores the active user ID so doInitialize() can
+  // bootstrap without requiring currentUser to already be set (the
+  // chicken-and-egg problem).  Written by setUser(), read by doInitialize().
+  const ACTIVE_USER_ID_KEY = "kw_active_user_id";
+
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
+  let storagePrefix = "kw_";
+  let _accessToken = null;
 
-  // SINGLE SOURCE OF TRUTH for all auth state. Every key in AUTH_KEYS
-  // (token, refresh_token, user_data, user_permissions, user_roles,
-  // sidebar_items, dashboard_info) is read from and written to ONE store:
-  // localStorage. This guarantees that username, user_id, role, tokens and
-  // permissions are available GLOBALLY across every page, tab and window of the
-  // same browser — any new window opens with the full login response already
-  // present, so a user never has to "log in twice". sessionStorage is no longer
-  // used as a target; we only clear any stale sessionStorage keys left over from
-  // older builds. The HttpOnly refresh_token cookie remains the server-side
-  // anchor for device-level session lifetime.
   let activeStorage = localStorage;
 
   function getStorageName(storage) {
@@ -288,61 +315,93 @@ const AuthContext = (() => {
   }
 
   function getStorageByName(name) {
-    // There is only one canonical store now. Keeping this indirection for any
-    // external callers, but it always resolves to localStorage.
     return name === "local" ? localStorage : localStorage;
   }
 
-  // Detects whether an existing session is present. With a single store this is
-  // trivial, but it still short-circuits when a token is already in localStorage
-  // so callers (initialize) know there is nothing to restore from the cookie.
   function detectAuthStorage() {
-    // Single store: nothing to switch. Clear any legacy sessionStorage leftovers
-    // so they can't shadow or confuse future logic.
     removeAuthKeys(sessionStorage);
     activeStorage = localStorage;
     return activeStorage;
   }
 
+  /**
+   * Build a namespaced localStorage key.
+   *
+   * Resolution order:
+   *  1. currentUser.id / currentUser.user_id (already in memory)
+   *  2. The ACTIVE_USER_ID_KEY sentinel persisted by a previous setUser()
+   *  3. null → fallback to bare prefix "kw_<key>" (legacy / anonymous)
+   */
+  function namespacedKey(key) {
+    const userId =
+      currentUser?.id ||
+      currentUser?.user_id ||
+      (() => {
+        try { return localStorage.getItem(ACTIVE_USER_ID_KEY) || null; }
+        catch (_) { return null; }
+      })();
+
+    return userId
+      ? `${storagePrefix}${userId}_${key}`
+      : `${storagePrefix}${key}`;
+  }
+
   function removeAuthKeys(storage) {
-    AUTH_KEYS.forEach((key) => storage.removeItem(key));
+    AUTH_KEYS.forEach((key) => {
+      storage.removeItem(key);
+      storage.removeItem(namespacedKey(key));
+    });
+  }
+
+  /**
+   * Remove ALL namespaced keys for the active user from the given storage.
+   * Used during logout / clearUser() when currentUser may already be null.
+   */
+  function removeAllUserKeys(storage) {
+    const userId = (() => {
+      try { return localStorage.getItem(ACTIVE_USER_ID_KEY) || null; }
+      catch (_) { return null; }
+    })();
+
+    AUTH_KEYS.forEach((key) => {
+      storage.removeItem(key);                         // bare key
+      if (userId) storage.removeItem(`${storagePrefix}${userId}_${key}`); // namespaced
+    });
+
+    // Also clean the sentinel
+    if (storage === localStorage) {
+      storage.removeItem(ACTIVE_USER_ID_KEY);
+    }
   }
 
   function setPersistence(rememberMe = false) {
-    // Always persist auth state in localStorage (the single source of truth).
-    // 'rememberMe' is recorded for telemetry/UX only; the storage target is
-    // fixed so the full login response is always globally available. Session
-    // lifetime is governed by the server-side HttpOnly refresh cookie, not by
-    // client storage choice.
     activeStorage = localStorage;
     localStorage.setItem("auth_storage_mode", "local");
     removeAuthKeys(sessionStorage);
   }
 
   function getItem(key) {
-    // Use the same activeStorage as setItem - don't re-detect
-    return activeStorage.getItem(key);
+    const namespaced = namespacedKey(key);
+    return activeStorage.getItem(namespaced) || activeStorage.getItem(key);
   }
 
   function setItem(key, value) {
-    activeStorage.setItem(key, value);
+    const namespaced = namespacedKey(key);
+    activeStorage.setItem(namespaced, value);
   }
 
   function setTokens(token, refreshToken = null) {
     if (token) {
-      setItem("token", token);
-    }
-    if (refreshToken) {
-      setItem("refresh_token", refreshToken);
+      _accessToken = token;
     }
   }
 
   function getToken() {
-    return getItem("token");
+    return _accessToken;
   }
 
   function getRefreshToken() {
-    return getItem("refresh_token");
+    return null; // refresh_token is HttpOnly cookie only — JS never touches it
   }
 
   function getPersistenceMode() {
@@ -374,18 +433,20 @@ const AuthContext = (() => {
     if (_bootRefreshDone) return _bootRefreshResult;
     _bootRefreshDone = true;
     try {
-      const refreshToken = getRefreshToken();
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin,
       );
-      const response = await fetch(url, {
+      const response = await fetchWithBrowserFallback(url.toString(), {
         method: "POST",
         credentials: "include", // carries the HttpOnly refresh_token cookie
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          refreshToken ? { refresh_token: refreshToken } : {},
-        ),
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Cache-Control": "no-store",
+        },
+        // No body — server reads refresh_token from the HttpOnly cookie
       });
       if (!response.ok) return false;
       const result = await readJsonSafely(response, "Token refresh");
@@ -398,7 +459,7 @@ const AuthContext = (() => {
         // Rehydrate auth state from the refreshed response. The response has the
         // full user/permissions envelope only on the auth/refresh-token endpoint.
         const full = result.data;
-        setTokens(full.token, full.refresh_token || null);
+        setTokens(full.token);
         if (full.user) {
           // Rehydrate into the single auth store (localStorage). The refreshed
           // access token and full user envelope land in the same global store
@@ -429,36 +490,71 @@ const AuthContext = (() => {
   let _bootPromise = null;
 
   function doInitialize() {
-    // Set activeStorage once based on what actually has data
     detectAuthStorage();
-    let token = activeStorage.getItem("token");
-    const userData = activeStorage.getItem("user_data");
-    const permissionsData = activeStorage.getItem("user_permissions");
 
-    if (token && userData) {
+    // Restore user context from localStorage (user_data, permissions, roles).
+    // The access token is NOT stored here — it comes from in-memory or refresh cookie.
+    const userData = getItem("user_data");
+    const permissionsData = getItem("user_permissions");
+
+    if (userData) {
       try {
         currentUser = JSON.parse(userData);
         if (permissionsData) {
           permissions = new Set(JSON.parse(permissionsData));
-          roles = JSON.parse(activeStorage.getItem("user_roles") || "[]");
+          roles = JSON.parse(getItem("user_roles") || "[]");
         }
       } catch (e) {
-        console.warn("Failed to restore user context from auth storage:", e);
+        console.warn("Failed to restore user context from storage:", e);
         currentUser = null;
         permissions.clear();
         roles = [];
-        removeAuthKeys(activeStorage);
+        removeAuthKeys(localStorage);
       }
     }
 
-    // Single source of truth: if web-storage had no token, fall back to the
-    // server-side refresh cookie exactly once. Resolve rather than throw so the
-    // caller can decide whether to redirect.
-    if (!token) {
-      return bootstrapFromRefreshCookie().catch((e) => {
-        console.warn("AuthContext initialize refresh skipped:", e);
+    // If we already have an in-memory token (rare on page load):
+    if (_accessToken && currentUser) {
+      return Promise.resolve().then(async () => {
+        if (isSessionIdleExpired()) {
+          clearUser();
+          return false;
+        }
+        if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+          const refreshed = await refreshAccessToken();
+          if (!refreshed && isTokenExpired(0)) {
+            clearUser();
+            return false;
+          }
+        }
+        return isAuthenticated();
       });
     }
+
+    // No in-memory token — try cookie-based bootstrap.
+    // The HttpOnly refresh_token cookie may still be valid.
+    const shouldTryCookie =
+      !!currentUser ||
+      (() => {
+        try { return !!localStorage.getItem(ACTIVE_USER_ID_KEY); }
+        catch (_) { return false; }
+      })();
+
+    if (shouldTryCookie) {
+      return bootstrapFromRefreshCookie().then((refreshed) => {
+        if (!refreshed) {
+          clearUser();
+          return false;
+        }
+        return true;
+      }).catch((e) => {
+        console.warn("AuthContext initialize refresh skipped:", e);
+        clearUser();
+        return false;
+      });
+    }
+
+    return Promise.resolve(false);
   }
 
   async function initialize() {
@@ -482,6 +578,14 @@ const AuthContext = (() => {
   function setUser(userData, fullResponse, rememberMe = false) {
     setPersistence(rememberMe);
     currentUser = userData;
+
+    // Persist the active user ID so doInitialize() can bootstrap
+    // namespaced keys on the next page load without needing currentUser
+    // to already be set (fixes the chicken-and-egg problem).
+    try {
+      const uid = userData?.id || userData?.user_id;
+      if (uid) localStorage.setItem(ACTIVE_USER_ID_KEY, String(uid));
+    } catch (_) {}
 
     console.log("setUser called with:", { userData, fullResponse });
 
@@ -587,18 +691,28 @@ const AuthContext = (() => {
     // Store user data (now includes role_ids)
     setItem("user_data", JSON.stringify(userData));
     console.log("User data stored", userData);
+
+    // Store CSRF token if provided
+    if (fullResponse?.csrf_token) {
+      setCsrfToken(fullResponse.csrf_token);
+    }
   }
 
   /**
    * Clear user context on logout
    */
   function clearUser() {
+    _accessToken = null;
     currentUser = null;
     permissions.clear();
     roles = [];
-    removeAuthKeys(localStorage);
-    removeAuthKeys(sessionStorage);
+    _csrfToken = null;
+    // Use removeAllUserKeys() which reads the sentinel BEFORE clearing it,
+    // so it can compute the correct namespaced keys (kw_<userId>_*) to delete.
+    removeAllUserKeys(localStorage);
+    removeAllUserKeys(sessionStorage);
     localStorage.removeItem("auth_storage_mode");
+    localStorage.removeItem(_userStorageKey("session_activity"));
   }
 
   /**
@@ -729,8 +843,12 @@ const AuthContext = (() => {
   /**
    * Check if user is authenticated
    */
+  function hasSession() {
+    return Boolean(currentUser && getToken());
+  }
+
   function isAuthenticated() {
-    return !!currentUser && !!getToken();
+    return hasSession() && !isTokenExpired(0) && !isSessionIdleExpired();
   }
 
   /**
@@ -807,8 +925,14 @@ const AuthContext = (() => {
     }, {});
   }
 
-  // Initialize on load
-  initialize();
+  // Public pages still use apiCall(), but must not bootstrap a stale staff
+  // session and redirect a guest to login.
+  const isPublicUniformCatalogue = /\/uniform_catalog\.php(?:$|[?#])/.test(
+    window.location.pathname + window.location.search,
+  );
+  if (!window.KINGSWAY_PUBLIC_PAGE && !isPublicUniformCatalogue) {
+    initialize();
+  }
 
   // Return public API
   return {
@@ -840,6 +964,7 @@ const AuthContext = (() => {
     getSidebarItems,
     getDashboardInfo,
     getPermissionCount,
+    hasSession,
     isAuthenticated,
     initialize,
     canView,
@@ -854,10 +979,14 @@ const AuthContext = (() => {
     canAction,
     getAllowedActions,
     canManageStaff,
+    // Expose boot promise so apiCall() can wait for bootstrapFromRefreshCookie
+    // before treating a null in-memory token as session expiry.
+    getBootPromise: () => _bootPromise,
   };
 })();
 
 window.AuthContext = AuthContext;
+startSessionActivityTracking();
 
 // Lightweight state refresher registry so mutation calls can auto-refresh linked data
 const APIState = (() => {
@@ -893,6 +1022,42 @@ function inferResourceKey(endpoint = "") {
   // invalidation doesn't collide. /api/academic/classes and /api/academic/classes-list are
   // different resources and must not share a key.
   return segments.slice(0, 2).join("/");
+}
+
+// DataStore policy keys that must be dropped when the matching API route is
+// mutated. Controllers read reference data through DataStore keys ("subjects",
+// "classes", ...) while apiCall infers route keys ("academic/subjects-list", ...);
+// invalidating only the route key would leave the day-old IndexedDB snapshot alive.
+const DATASTORE_KEY_BY_ROUTE = {
+  "academic/classes": ["classes"],
+  "academic/classes-list": ["classes"],
+  "academic/streams": ["streams"],
+  "academic/streams-list": ["streams"],
+  "academic/subjects": ["subjects"],
+  "academic/subjects-list": ["subjects"],
+  "academic/terms": ["terms"],
+  "academic/terms-list": ["terms"],
+  "academic/years": ["academic_years"],
+  "academic/academic-years": ["academic_years"],
+  "staff/departments": ["departments"],
+  "staff/departments-get": ["departments"],
+  "staff/teachers": ["staff"],
+  "staff/staff": ["staff"],
+  "students/students": ["students"],
+  "attendance/attendance": ["attendance"],
+  "attendance/roster": ["attendance"],
+  "admissions/admissions": ["admissions"],
+  "admissions/applications": ["admissions"],
+  "website/school-profile": ["school_profile"],
+  "school/profile": ["school_profile"],
+};
+
+function dataStoreKeysForRoute(route = "") {
+  if (!route) return [];
+  const direct = DATASTORE_KEY_BY_ROUTE[route];
+  if (direct) return direct;
+  const prefix = route.split("/").slice(0, 2).join("/");
+  return DATASTORE_KEY_BY_ROUTE[prefix] || [];
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -1047,6 +1212,8 @@ const ENDPOINT_PERMISSIONS = {
   "/auth/login": null,
   "/auth/logout": null,
   "/auth/refresh-token": null,
+  "/auth/reset-default-password": null,
+  "/auth/reset-password": null,
   "/systemconfig/authorize": null,
 
   // Users
@@ -1191,6 +1358,15 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "academic_update",
     DELETE: "academic_update",
   },
+  "/academic/supervision-roster": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/supervision-roster-auto-generate": {
+    POST: "academic_update",
+  },
   "/academic/schemes-of-work": {
     GET: "academic_view",
     POST: "academic_update",
@@ -1213,7 +1389,21 @@ const ENDPOINT_PERMISSIONS = {
     GET: "academic_view",
     POST: "academic_create",
     PUT: "academic_update",
+    DELETE: "academic_delete",
   },
+  "/academic/my-teachers": [
+    "students_view_own",
+    "students_view",
+    "academic_view_own",
+    "academic_view",
+  ],
+  "/academic/parent-class-teachers": [
+    "students_parents_view",
+    "students_view_own",
+    "students_view",
+    "academic_view_own",
+    "academic_view",
+  ],
 
   // Attendance
   "/attendance/index": "attendance_view",
@@ -1232,9 +1422,51 @@ const ENDPOINT_PERMISSIONS = {
     POST: "finance_create",
     PUT: "finance_update",
   },
+  "/finance/student-fund-transfers": {
+    GET: "finance_view",
+    POST: "finance_create",
+    PUT: "finance_approve",
+  },
+  "/finance/student-fund-sources": "finance_view",
+  "/finance/student-fund-transfer-post": { POST: "finance_approve" },
+  "/finance/payment-routing-cases": "finance_view",
+  "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
+  "/finance/payment-references": { POST: "finance_create" },
+  "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
+
+  // M-Pesa (Daraja) outbound API triggers — all require finance permissions.
+  // Client-side gate only; server RBAC is enforced in PaymentsController.
+  "/payments/mpesa-stk-push": { POST: "finance_create" },
+  "/payments/kcb-mpesa-express": { POST: "finance_create" },
+  "/payments/mpesa-stk-query": { POST: "finance_view" },
+  "/payments/mpesa-c2b-register": { POST: "finance_create" },
+  "/payments/mpesa-c2b-simulate": { POST: "finance_create" },
+  "/payments/mpesa-transaction-status": { POST: "finance_create" },
+  "/payments/mpesa-account-balance": { POST: "finance_view" },
+  "/payments/mpesa-reversal": { POST: "finance_create" },
+  "/payments/mpesa-qr": { POST: "finance_create" },
+  "/payments/mpesa-b2b": { POST: "finance_create" },
+  "/payments/mpesa-b2c": { POST: "finance_create" },
+  "/payments/mpesa-results": { GET: "finance_view" },
+
+  "/transport/payment-intents": { POST: "finance_create", GET: "finance_view" },
+  "/transport/payment-intent-confirm": { POST: "finance_update" },
+  "/family": null,
+  "/family/dashboard": null,
+  "/family/community": null,
+  "/family/grading-scale": null,
+  "/inventory/uniform-payment-intents": { GET: "inventory_view", POST: "inventory_manage" },
+  "/inventory/uniform-payment-intent-confirm": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog": "inventory_view",
+  "/inventory/uniform-catalog-products": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog-images": { POST: "inventory_manage" },
+  "/inventory/uniform-catalog-purchases": { POST: "inventory_manage" },
 
   // Staff
-  "/staff/index": "staff_view",
+  // Staff-domain controllers enforce their canonical StaffAccess permissions
+  // and role fallbacks server-side. Keeping legacy-only client checks here
+  // blocks valid oversight roles before the request reaches PHP.
+  "/staff/index": null,
   "/staff/staff": {
     GET: "staff_view",
     POST: "staff_create",
@@ -1249,8 +1481,14 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/children-calculate-deductions": "staff_view",
   
   // New staff endpoints for UI controllers
-  "/staff/teachers": "staff_view",
-  "/staff/non-teaching": "staff_view",
+  "/staff/teachers": null,
+  "/staff/non-teaching": null,
+  "/staff/key-contacts": [
+    "staff_view_own",
+    "staff_view_contacts",
+    "students_view_own",
+    "students_view",
+  ],
   "/staff/performance-review-history": "staff_performance_view",
   "/staff/academic-kpi-summary": "staff_performance_view",
   "/staff/performance-reviews": "staff_performance_view",
@@ -1258,14 +1496,27 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/role-assignments": "staff_roles_manage",
   "/staff/assign-role": "staff_roles_manage",
   "/staff/revoke-role": "staff_roles_manage",
-  "/staff/onboarding": "staff_onboarding_view",
+  "/staff/onboarding": null,
+  "/staff/onboarding-task": null,
+  "/staff/onboarding-document": null,
+  "/staff/probation-review": null,
+  "/staff/onboarding-templates": null,
+  "/staff/onboarding-pending": null,
   "/staff/lifecycle": "staff_lifecycle_view",
   "/staff/appointments": "staff_appointments_view",
+  "/staff/id-card/generate": null,
+  "/staff/id-card/generate-bulk-pdf": null,
+  "/staff/id-card/print-single": null,
+  "/staff/id-cards": null,
+  "/staff/id-cards-generate": null,
+  "/staff/id-cards-bulk-generate": null,
+  "/staff/id-cards-issue": null,
   "/staff/import-existing": "staff_import_manage",
   "/staff-migration/reference-data": "staff_import",
   "/staff-migration/batches": "staff_import",
   "/staff-migration/batch": "staff_import",
   "/staff-migration/template": "staff_import",
+  "/staff-migration/template-xlsx": "staff_import",
   "/staff-migration/stage": "staff_import",
   "/staff-migration/commit": "staff_import",
   "/staff-migration/rollback": "staff_import_rollback",
@@ -1279,6 +1530,10 @@ const ENDPOINT_PERMISSIONS = {
     GET: "activities_view",
     POST: "activities_create",
     PUT: "activities_update",
+  },
+  "/activities/sports": {
+    GET: "activities_view",
+    POST: "activities_create",
   },
 
   // Inventory
@@ -1300,6 +1555,9 @@ const ENDPOINT_PERMISSIONS = {
   "/admission/upload-document": "admission_documents_upload",
   "/admission/verify-document": "admission_documents_verify",
   "/admission/schedule-interview": "admission_interviews_schedule",
+  "/admission/interview-assignment": "admission_interviews_schedule",
+  "/admission/interview-notifications": "admission_interviews_schedule",
+  "/admission/interview-sessions": "admission_interviews_schedule",
   "/admission/record-interview-results": "admission_interviews_create",
   "/admission/generate-placement-offer": "admission_applications_generate",
   "/admission/record-fee-payment": "admission_applications_edit",
@@ -1309,6 +1567,13 @@ const ENDPOINT_PERMISSIONS = {
     POST: "admission_applications_create",
     PUT: "admission_applications_edit",
   },
+  "/admission/open-terms": "admission_view",
+  "/admission/windows": {
+    GET: "admission_view",
+    POST: "admission_applications_edit",
+    PUT: "admission_applications_edit",
+  },
+  "/admission/advance-workflow-stage": "admission_manage",
 
   // Communications
   "/communications/index": "communications_view",
@@ -1316,6 +1581,7 @@ const ENDPOINT_PERMISSIONS = {
     GET: "communications_view",
     POST: "communications_create",
   },
+  "/communications/audience-options": "communications_view",
 
   // Transport
   "/transport/index": "transport_view",
@@ -1340,6 +1606,31 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-report-conflict": "schedules_create",
   "/schedules/timetable-time-slots": "schedules_view",
   "/schedules/rooms-get": "schedules_view",
+  "/schedules/exam-get": "schedules_view",
+  "/schedules/exam-create": "schedules_create",
+  "/schedules/exam-bulk-generate": "schedules_create",
+  "/schedules/events-get": "schedules_view",
+  "/schedules/events-create": "schedules_create",
+  "/schedules/events-update": "schedules_update",
+  "/schedules/events-delete": "schedules_update",
+  "/schedules/holidays-get": "schedules_view",
+  "/schedules/holidays-create": "schedules_create",
+  "/schedules/holidays-update": "schedules_update",
+  "/schedules/holidays-delete": "schedules_update",
+  "/schedules/holidays-apply": "schedules_update",
+
+  // Meetings (internal staff meetings - heads/HODs/deputies/class teachers)
+  "/meetings/meetings-get": "schedules_view",
+  "/meetings/staff-list": "schedules_view",
+  "/meetings/meetings-create": "schedules_create",
+  "/meetings/meetings-update": "schedules_update",
+  "/meetings/meetings-delete": "schedules_update",
+  "/meetings/meetings-respond": "schedules_update",
+  "/meetings/meetings-remind": "schedules_update",
+  "/schedules/activity-get": "schedules_view",
+  "/schedules/activity-create": "schedules_create",
+  "/schedules/route-get": "schedules_view",
+  "/schedules/route-create": "schedules_create",
 
   // Reports
   "/reports/index": "reports_view",
@@ -1358,6 +1649,18 @@ const ENDPOINT_PERMISSIONS = {
     "system.rbac.manage",
     "system_roles_edit",
   ],
+  "/system/dashboards": {
+    GET: "system_view",
+    POST: "system_manage",
+    PUT: "system_manage",
+    DELETE: "system_manage",
+  },
+  "/system/widgets": {
+    GET: "system_view",
+    POST: "system_manage",
+    PUT: "system_manage",
+    DELETE: "system_manage",
+  },
   "/system/permissions": {
     GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
     POST: "system.rbac.manage",
@@ -1547,58 +1850,69 @@ if (document.readyState === "loading") {
 }
 
 /**
- * A 401 refresh attempt failed. Rather than immediately clearing auth state
- * and hard-redirecting to index.php (which would bounce the whole app before
- * telemetry/data runs on initial load), we emit a SESSION_EXPIRED event and let
- * the app decide. A registered handler can show a login modal; only if nothing
- * handles it do we fall back to a redirect. The user is never silently logged
- * out in the middle of boot for a single transient failure.
+ * End the local session once Kingsway can no longer authenticate it.
+ *
+ * This is intentionally idempotent because several page requests can fail at
+ * the same time when one access token expires. One owner clears auth state,
+ * broadcasts the expiry and redirects the browser to the login page.
  */
 let _sessionExpiredEmitted = false;
+let _csrfToken = null;
+
+/**
+ * Public setter so other modules (login page, session bootstrap, etc.)
+ * can persist the server-issued CSRF token.
+ */
+function setCsrfToken(token) {
+  _csrfToken = token;
+}
+
 function handleSessionExpired(reason = "refresh_rejected") {
-  // This function is called only after the refresh endpoint has explicitly
-  // rejected the session with 401/403. Network failures, timeouts, 429 and 5xx
-  // responses must never erase a valid local session.
-  console.warn("[API] Session expired — emitting SESSION_EXPIRED", reason);
+  if (_sessionExpiredEmitted) return;
+  _sessionExpiredEmitted = true;
+
+  console.warn("[API] Session expired", reason);
 
   if (typeof AuthContext !== "undefined" && AuthContext.clearUser) {
     AuthContext.clearUser();
   }
 
-  // Prefer an event-driven UI (login modal) over a hard redirect.
   if (
     typeof SessionManager !== "undefined" &&
     typeof SessionManager.onSessionExpired === "function"
   ) {
     try {
-      SessionManager.onSessionExpired();
-    } catch (e) {
-      console.error(e);
-    }
-    return;
-  }
-
-  // Fallback: emit a global event other code can hook.
-  window.dispatchEvent(new CustomEvent("SESSION_EXPIRED"));
-
-  // Last-resort redirect only if nothing handled it and we're not mid-boot.
-  if (!_sessionExpiredEmitted) {
-    _sessionExpiredEmitted = true;
-    if (window.__APP_BOOTED__) {
-      // Avoid double redirects within the same tab.
-      if (sessionStorage.getItem("_session_expired_redirect")) return;
-      sessionStorage.setItem("_session_expired_redirect", "1");
-      setTimeout(function () {
-        sessionStorage.removeItem("_session_expired_redirect");
-        window.location.href = (window.APP_BASE || "") + "/index.php";
-      }, 2000);
+      SessionManager.onSessionExpired(reason);
+      return;
+    } catch (error) {
+      console.error("[API] SessionManager expiry handling failed:", error);
     }
   }
+
+  window.dispatchEvent(
+    new CustomEvent("SESSION_EXPIRED", { detail: { reason } }),
+  );
+
+  if (sessionStorage.getItem("_session_expired_redirect")) return;
+  sessionStorage.setItem("_session_expired_redirect", "1");
+  window.setTimeout(() => {
+    sessionStorage.removeItem("_session_expired_redirect");
+    window.location.replace(`${window.APP_BASE || ""}/index.php`);
+  }, 250);
+}
+
+function createSessionExpiredError(message = "Your session has expired") {
+  const error = new Error(message);
+  error.code = 401;
+  error.state = "unauthorized";
+  error.sessionExpired = true;
+  return error;
 }
 
 /**
  * Refresh access token using stored refresh token.
- * Implements token rotation with mutex to prevent concurrent refresh races.
+ * Implements a per-tab mutex plus a cross-tab lock so multiple open windows do
+ * not stampede the refresh endpoint.
  * @returns {Promise<boolean>} True if token was refreshed successfully
  */
 async function refreshAccessToken() {
@@ -1609,61 +1923,20 @@ async function refreshAccessToken() {
   isRefreshingToken = true;
 
   refreshTokenPromise = (async () => {
+    const ownsLock = acquireTokenRefreshLock();
+    if (!ownsLock) {
+      const remoteRefreshWorked = await waitForRemoteTokenRefresh();
+      if (remoteRefreshWorked || !isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+        return true;
+      }
+    }
+
     try {
-      const refreshToken = AuthContext.getRefreshToken();
-      const url = new URL(
-        API_BASE_URL + "/auth/refresh-token",
-        window.location.origin,
-      );
-
-      const response = await fetch(url, {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "Cache-Control": "no-store",
-        },
-        body: JSON.stringify(
-          refreshToken ? { refresh_token: refreshToken } : {},
-        ),
-      });
-
-      // Only an explicit authentication rejection proves the refresh session
-      // is dead. Do not log users out for rate limits, backend errors or an
-      // interrupted network connection.
-      if (response.status === 401 || response.status === 403) {
-        handleSessionExpired("refresh_rejected_" + response.status);
-        return false;
-      }
-
-      if (!response.ok) {
-        console.warn("[API] Temporary token refresh failure:", response.status);
-        return false;
-      }
-
-      const result = await readJsonSafely(response, "Token refresh");
-      const payload = result && result.data ? result.data : result;
-      const token = payload && (payload.token || payload.access_token);
-
-      if (!token) {
-        console.warn("[API] Refresh response did not contain an access token.");
-        return false;
-      }
-
-      AuthContext.setTokens(token, payload.refresh_token || null);
-
-      if (payload.user) {
-        AuthContext.setUser(payload.user, payload, true);
-      }
-
-      window.dispatchEvent(new CustomEvent("AUTH_TOKEN_REFRESHED"));
-      return true;
-    } catch (error) {
-      console.warn("[API] Token refresh temporarily unavailable:", error);
-      return false;
+      return await performRefreshAccessToken();
     } finally {
+      if (ownsLock) {
+        releaseTokenRefreshLock();
+      }
       isRefreshingToken = false;
       refreshTokenPromise = null;
     }
@@ -1672,29 +1945,269 @@ async function refreshAccessToken() {
   return refreshTokenPromise;
 }
 
+async function performRefreshAccessToken() {
+  try {
+    const url = new URL(
+      API_BASE_URL + "/auth/refresh-token",
+      window.location.origin,
+    );
+
+    const response = await fetchWithBrowserFallback(url.toString(), {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Cache-Control": "no-store",
+      },
+      // No body — server reads refresh_token from the HttpOnly cookie
+    });
+
+    // Only an explicit authentication rejection proves the refresh session
+    // is dead. Do not log users out for rate limits, backend errors or an
+    // interrupted network connection.
+    if (response.status === 401 || response.status === 403) {
+      handleSessionExpired("refresh_rejected_" + response.status);
+      return false;
+    }
+
+    if (!response.ok) {
+      console.warn("[API] Temporary token refresh failure:", response.status);
+      return false;
+    }
+
+    const result = await readJsonSafely(response, "Token refresh");
+    const payload = result && result.data ? result.data : result;
+    if (payload && payload.requires_2fa) {
+      // api.js can boot before the shared footer loads public.js. Wait briefly
+      // for the MFA modal provider instead of treating that ordering as logout.
+      for (let i = 0; i < 50 && typeof window.requestTFAForSession !== 'function'; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (typeof window.requestTFAForSession !== 'function') return false;
+      await window.requestTFAForSession(payload);
+      return true;
+    }
+    const token = payload && (payload.token || payload.access_token);
+
+    if (!token) {
+      console.warn("[API] Refresh response did not contain an access token.");
+      return false;
+    }
+
+    AuthContext.setTokens(token);
+
+    if (payload.user) {
+      AuthContext.setUser(payload.user, payload, true);
+    }
+
+    window.dispatchEvent(new CustomEvent("AUTH_TOKEN_REFRESHED"));
+    announceTokenRefresh();
+    return true;
+  } catch (error) {
+    console.warn("[API] Token refresh temporarily unavailable:", error);
+    return false;
+  }
+}
+
 /**
  * Check if JWT token is expired based on 'exp' claim
- * Returns true if token is about to expire (within 60 seconds)
+ * Returns true if token is about to expire within the supplied buffer.
  */
-function isTokenExpired() {
+function isTokenExpired(bufferSeconds = 60) {
+  const expiresIn = getTokenSecondsUntilExpiry();
+  return expiresIn === null || expiresIn < bufferSeconds;
+}
+
+function decodeAccessTokenPayload() {
   const token = AuthContext.getToken();
-  if (!token) return true;
+  if (!token) return null;
 
   try {
-    // Decode JWT (without verification, just get payload)
     const parts = token.split(".");
-    if (parts.length !== 3) return true;
-
-    const payload = JSON.parse(atob(parts[1]));
-    const now = Math.floor(Date.now() / 1000);
-    const expiresIn = payload.exp - now;
-
-    // Return true if expired or about to expire (within 60 seconds)
-    return expiresIn < 60;
+    if (parts.length !== 3) return null;
+    return JSON.parse(base64UrlDecode(parts[1]));
   } catch (error) {
-    console.error("Error checking token expiry:", error);
+    console.error("Error decoding access token:", error);
+    return null;
+  }
+}
+
+function getTokenSecondsUntilExpiry() {
+  const payload = decodeAccessTokenPayload();
+  if (!payload) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  return Number(payload.exp || 0) - now;
+}
+
+function getTokenIssuedAtMilliseconds() {
+  const payload = decodeAccessTokenPayload();
+  const issuedAt = Number(payload?.iat || 0);
+  return Number.isFinite(issuedAt) && issuedAt > 0
+    ? issuedAt * 1000
+    : 0;
+}
+
+function base64UrlDecode(value) {
+  const padded = String(value || "").padEnd(
+    Math.ceil(String(value || "").length / 4) * 4,
+    "=",
+  );
+  return atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+}
+
+function recordSessionActivity(source = "user") {
+  try {
+    localStorage.setItem(_userStorageKey("session_activity"), String(Date.now()));
+  } catch (_) {}
+  window.KingswaySessionActivitySource = source;
+}
+
+function getLastSessionActivityAt() {
+  const raw = localStorage.getItem(_userStorageKey("session_activity"));
+  const parsed = Number(raw || 0);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  // Legacy sessions may not have the activity key yet. Use the JWT issue time
+  // instead of treating a missing key as permanently active.
+  return getTokenIssuedAtMilliseconds();
+}
+
+function isSessionIdleExpired() {
+  const lastActivity = getLastSessionActivityAt();
+  if (!lastActivity) return false;
+  return Date.now() - lastActivity >= ACTIVE_SESSION_WINDOW_MS;
+}
+
+function isSessionActiveForRefresh() {
+  return !isSessionIdleExpired();
+}
+
+function acquireTokenRefreshLock() {
+  const now = Date.now();
+  const lockKey = _userStorageKey("token_refresh_lock");
+  try {
+    const existing = JSON.parse(
+      localStorage.getItem(lockKey) || "null",
+    );
+    if (
+      existing &&
+      existing.owner &&
+      existing.owner !== CURRENT_TAB_ID &&
+      now - Number(existing.created_at || 0) < TOKEN_REFRESH_LOCK_TTL_MS
+    ) {
+      return false;
+    }
+
+    const lock = { owner: CURRENT_TAB_ID, created_at: now };
+    localStorage.setItem(lockKey, JSON.stringify(lock));
+    const stored = JSON.parse(
+      localStorage.getItem(lockKey) || "null",
+    );
+    return stored && stored.owner === CURRENT_TAB_ID;
+  } catch (_) {
     return true;
   }
+}
+
+function releaseTokenRefreshLock() {
+  const lockKey = _userStorageKey("token_refresh_lock");
+  try {
+    const lock = JSON.parse(
+      localStorage.getItem(lockKey) || "null",
+    );
+    if (lock && lock.owner === CURRENT_TAB_ID) {
+      localStorage.removeItem(lockKey);
+    }
+  } catch (_) {
+    localStorage.removeItem(lockKey);
+  }
+}
+
+function announceTokenRefresh() {
+  const eventKey = _userStorageKey("token_refresh_event");
+  try {
+    localStorage.setItem(
+      eventKey,
+      JSON.stringify({ owner: CURRENT_TAB_ID, refreshed_at: Date.now() }),
+    );
+    localStorage.removeItem(eventKey);
+  } catch (_) {}
+}
+
+function waitForRemoteTokenRefresh() {
+  const eventKey = _userStorageKey("token_refresh_event");
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("AUTH_TOKEN_REFRESHED", onLocalRefresh);
+      clearTimeout(timer);
+      resolve(Boolean(ok));
+    };
+    const onStorage = (event) => {
+      if (event.key === eventKey) {
+        done(!isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS));
+      }
+    };
+    const onLocalRefresh = () => done(true);
+    const timer = setTimeout(() => done(false), TOKEN_REFRESH_WAIT_MS);
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("AUTH_TOKEN_REFRESHED", onLocalRefresh);
+
+    if (!isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+      done(true);
+    }
+  });
+}
+
+function startSessionActivityTracking() {
+  if (window.__KINGSWAY_ACTIVITY_TRACKING__) return;
+  window.__KINGSWAY_ACTIVITY_TRACKING__ = true;
+
+  let lastWrite = 0;
+  const mark = (source) => {
+    if (AuthContext?.hasSession?.() && isSessionIdleExpired()) {
+      handleSessionExpired("idle_timeout");
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastWrite < 15000) return;
+    lastWrite = now;
+    recordSessionActivity(source);
+  };
+
+  ["pointerdown", "keydown", "input", "touchstart", "scroll"].forEach(
+    (eventName) => {
+      window.addEventListener(eventName, () => mark(eventName), {
+        passive: true,
+        capture: true,
+      });
+    },
+  );
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") mark("visible");
+  });
+
+  window.KingswaySessionActivity = {
+    markActive: recordSessionActivity,
+    lastActivityAt: getLastSessionActivityAt,
+    isActive: isSessionActiveForRefresh,
+    isIdleExpired: isSessionIdleExpired,
+    shouldRefreshSoon: () =>
+      Boolean(AuthContext?.hasSession?.()) &&
+      isSessionActiveForRefresh() &&
+      isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS),
+    secondsUntilExpiry: getTokenSecondsUntilExpiry,
+  };
 }
 
 // Generic API call function using fetch
@@ -1705,27 +2218,15 @@ async function apiCall(
   params = {},
   options = {},
 ) {
+  let isProtectedRequest = false;
+
   try {
     const queryParams =
       params && typeof params === "object" && !Array.isArray(params)
         ? params
         : {};
 
-    // If the token is about to expire, try a proactive refresh. This is
-    // best-effort: a failed refresh must NOT abort the call. We let the request
-    // proceed and rely on the 401 path (now recoverable via SESSION_EXPIRED)
-    // instead of throwing and killing the whole load sequence.
-    if (AuthContext.isAuthenticated() && isTokenExpired()) {
-      console.log("Token expiring soon, refreshing...");
-      try {
-        await refreshAccessToken();
-      } catch (refreshError) {
-        console.warn(
-          "Proactive token refresh failed; continuing with current token:",
-          refreshError && refreshError.message,
-        );
-      }
-    }
+    const upperMethod = String(method || "GET").toUpperCase();
 
     // Validate permission BEFORE making the request
     // If user lacks permission, this will throw an error
@@ -1770,12 +2271,80 @@ async function apiCall(
       "/auth/session",
       "/auth/refresh-session",
       "/auth/validate-token",
+      // 2FA endpoints called during login (no JWT yet)
+      "/twofactor/challenge",
+      "/twofactor/verify",
+      // Parent portal public endpoints (backend AuthMiddleware/CsrfMiddleware skips these)
+      "/parent-portal/login",
+      "/parent-portal/login-otp-request",
+      "/parent-portal/login-otp-verify",
     ]);
-    const token = authFreeEndpoints.has(normalizedEndpoint)
-      ? null
-      : AuthContext.getToken();
-    if (!token && !authFreeEndpoints.has(normalizedEndpoint)) {
-      console.warn("⚠️ No JWT token found - API call will fail with 401");
+    isProtectedRequest =
+      !authFreeEndpoints.has(normalizedEndpoint) &&
+      !normalizedEndpoint.startsWith("/parent-portal/");
+
+    if (isProtectedRequest && AuthContext.hasSession?.()) {
+      if (isSessionIdleExpired()) {
+        handleSessionExpired("idle_timeout");
+        throw createSessionExpiredError(
+          "Your session expired after 30 minutes of inactivity",
+        );
+      }
+
+      // A successfully initiated protected request counts as session activity.
+      // This is deliberately recorded only after the idle check so a request
+      // arriving after the 30-minute cutoff cannot revive an expired session.
+      recordSessionActivity(
+        upperMethod === "GET" ? "api_read" : "api_write",
+      );
+
+      if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+        const tokenAlreadyExpired = isTokenExpired(0);
+        console.log("Access token is expiring; refreshing before request...");
+        const refreshed = await refreshAccessToken();
+        if (!refreshed) {
+          if (tokenAlreadyExpired) {
+            handleSessionExpired("expired_token_refresh_failed");
+            throw createSessionExpiredError(
+              "Your session expired. Please sign in again.",
+            );
+          }
+          // Pre-emptive refresh failed but the access token hadn't expired
+          // yet. If the server rejected the refresh cookie (401/403),
+          // performRefreshAccessToken already called handleSessionExpired
+          // which cleared the in-memory token.  Detect that and bail out
+          // instead of falling through to the getToken() null check which
+          // throws a misleading "not authenticated" error.
+          if (_sessionExpiredEmitted) {
+            throw createSessionExpiredError(
+              "Your session is no longer valid. Please sign in again.",
+            );
+          }
+          // Transient error (network blip) – the existing token is still
+          // usable so continue with the request.
+        }
+      }
+    }
+
+    const token = isProtectedRequest ? AuthContext.getToken() : null;
+    if (!token && isProtectedRequest) {
+      // If a boot refresh is in-flight, wait for it instead of immediately
+      // treating a null in-memory token as session expiry. The token may
+      // appear null during the window between page load and the completion
+      // of bootstrapFromRefreshCookie().
+      const bootP = AuthContext.getBootPromise?.();
+      if (bootP) {
+        await bootP;
+      }
+      const retryToken = AuthContext.getToken();
+      if (!retryToken && !_sessionExpiredEmitted) {
+        handleSessionExpired("missing_access_token");
+      }
+      if (!retryToken) {
+        throw createSessionExpiredError(
+          "Your session is no longer authenticated. Please sign in again.",
+        );
+      }
     }
 
     // Request options
@@ -1789,6 +2358,11 @@ async function apiCall(
         Accept: "application/json",
         ...(token && {
           Authorization: "Bearer " + token,
+        }),
+        ...(_csrfToken &&
+          !authFreeEndpoints.has(normalizedEndpoint) &&
+          !normalizedEndpoint.startsWith("/parent-portal/") && {
+          "X-CSRF-Token": _csrfToken,
         }),
         ...options.headers,
       },
@@ -1850,14 +2424,19 @@ async function apiCall(
           console.error(
             "Token refresh succeeded but no access token is available; session is invalid.",
           );
-          throw new Error("Authentication failed, please log in again");
+          handleSessionExpired("refresh_missing_access_token");
+          throw createSessionExpiredError(
+            "Your session has expired. Please sign in again.",
+          );
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
         response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
-        // Refresh failed, user is logged out and redirected
-        throw new Error("Authentication failed, please log in again");
+        handleSessionExpired("request_401_refresh_failed");
+        throw createSessionExpiredError(
+          "Your session has expired. Please sign in again.",
+        );
       }
     }
 
@@ -1881,7 +2460,14 @@ async function apiCall(
 
     // Auto-invalidate cached data on mutations
     if (MUTATION_METHODS.has(String(method).toUpperCase())) {
-      const targets = options.invalidate || [inferResourceKey(endpoint)];
+      const routeTargets = (options.invalidate || [inferResourceKey(endpoint)])
+        .filter(Boolean);
+      // Drop both the route-scoped key and the DataStore policy keys controllers
+      // actually read, so a create/edit/delete is visible on the next view.
+      const targets = [...new Set([
+        ...routeTargets,
+        ...routeTargets.flatMap((key) => dataStoreKeysForRoute(key)),
+      ])];
 
       // Use DataStore for automatic cache invalidation if available
       if (typeof DataStore !== "undefined") {
@@ -1910,7 +2496,23 @@ async function apiCall(
   } catch (error) {
     error.endpoint = error.endpoint || endpoint;
     error.method = error.method || method;
-    if (/Failed to fetch|NetworkError|network/i.test(error.message || "")) {
+    const isNetworkFailure = /Failed to fetch|NetworkError|network/i.test(
+      error.message || "",
+    );
+
+    if (
+      isNetworkFailure &&
+      isProtectedRequest &&
+      AuthContext.hasSession?.() &&
+      isTokenExpired(0)
+    ) {
+      handleSessionExpired("expired_token_network_failure");
+      throw createSessionExpiredError(
+        "Your session expired. Please sign in again.",
+      );
+    }
+
+    if (isNetworkFailure) {
       console.error("[api.js] Network fetch failed", {
         endpoint,
         method,
@@ -1981,12 +2583,155 @@ function createFormData(data, files = {}) {
   return formData;
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// App Dialog helpers — professional Bootstrap modals replacing the
+// native alert()/confirm()/prompt(). Dynamically created, shared globally.
+// ────────────────────────────────────────────────────────────────────────
+
+let _appDialogEl = null;
+let _appDialogResolve = null;
+
+function ensureAppDialog() {
+  if (_appDialogEl) return _appDialogEl;
+  _appDialogEl = document.createElement("div");
+  _appDialogEl.className = "modal fade";
+  _appDialogEl.id = "appDialogModal";
+  _appDialogEl.setAttribute("tabindex", "-1");
+  _appDialogEl.setAttribute("aria-hidden", "true");
+  _appDialogEl.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="appDialogTitle"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body" id="appDialogMessage"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="appDialogCancelBtn" data-bs-dismiss="modal"></button>
+          <button type="button" class="btn btn-primary" id="appDialogConfirmBtn"></button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(_appDialogEl);
+  _appDialogEl.addEventListener("hidden.bs.modal", () => {
+    if (_appDialogResolve) {
+      _appDialogResolve(false);
+      _appDialogResolve = null;
+    }
+  });
+  return _appDialogEl;
+}
+
+function openAppDialog({
+  title = "Confirm",
+  message = "",
+  confirmText = "OK",
+  cancelText = null,
+  danger = false,
+  prompt = false,
+  promptValue = "",
+}) {
+  const el = ensureAppDialog();
+  document.getElementById("appDialogTitle").textContent = title;
+  const msgEl = document.getElementById("appDialogMessage");
+  msgEl.textContent = message;
+
+  const confirmBtn = document.getElementById("appDialogConfirmBtn");
+  confirmBtn.textContent = confirmText;
+  confirmBtn.className = "btn " + (danger ? "btn-danger" : "btn-primary");
+
+  const cancelBtn = document.getElementById("appDialogCancelBtn");
+  cancelBtn.style.display = cancelText ? "" : "none";
+  cancelBtn.textContent = cancelText || "";
+
+  if (prompt) {
+    msgEl.style.display = "none";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "form-control";
+    input.id = "appDialogPromptInput";
+    input.value = promptValue;
+    input.addEventListener("click", (e) => e.stopPropagation());
+    msgEl.after(input);
+  } else {
+    const existing = document.getElementById("appDialogPromptInput");
+    if (existing) existing.remove();
+    msgEl.style.display = "";
+  }
+
+  return new Promise((resolve) => {
+    _appDialogResolve = (result) => {
+      resolve(result);
+      _appDialogResolve = null;
+    };
+    const modal = bootstrap.Modal.getOrCreateInstance(el);
+    confirmBtn.onclick = () => {
+      const result = prompt
+        ? document.getElementById("appDialogPromptInput").value
+        : true;
+      _appDialogResolve(result);
+      modal.hide();
+    };
+    cancelBtn.onclick = () => {
+      _appDialogResolve(prompt ? null : false);
+      modal.hide();
+    };
+    modal.show();
+  });
+}
+
+// Promise<boolean> — resolves true when the user confirms.
+async function confirmAction(title, message, options = {}) {
+  if (typeof bootstrap === "undefined") {
+    return window.confirm(message);
+  }
+  return openAppDialog({
+    title: title || "Confirm",
+    message: message || "Are you sure?",
+    confirmText: options.confirmText || "Confirm",
+    cancelText: options.cancelText || "Cancel",
+    danger: options.danger || false,
+  });
+}
+
+// Promise<string|null> — resolves the typed value, or null when cancelled.
+async function promptAction(title, message, defaultValue = "", options = {}) {
+  if (typeof bootstrap === "undefined") {
+    return window.prompt(message, defaultValue);
+  }
+  return openAppDialog({
+    title: title || "Input",
+    message: message || "",
+    confirmText: options.confirmText || "OK",
+    cancelText: options.cancelText || "Cancel",
+    prompt: true,
+    promptValue: defaultValue,
+  });
+}
+
+// Promise<void> — informational dialog, resolves on dismissal.
+async function infoDialog(title, message, options = {}) {
+  if (typeof bootstrap === "undefined") {
+    window.alert(message);
+    return;
+  }
+  await openAppDialog({
+    title: title || "Information",
+    message: message || "",
+    confirmText: options.confirmText || "OK",
+    danger: options.danger || false,
+  });
+}
+
 //attach API to window for global access
 window.API = {
   apiCall,
   // Alias so controllers using API.callAPI() instead of API.apiCall() work
   callAPI: apiCall,
   showNotification,
+  confirmAction,
+  promptAction,
+  infoDialog,
   applyPermissionContract,
   state: APIState,
   appState: AppState,
@@ -2003,11 +2748,19 @@ window.API = {
         remember_me: rememberMe,
       });
 
+      // ── 2FA gate ──────────────────────────────────────────────────────
+      // If the user has 2FA enabled, response will have requires_2fa: true
+      // (no token). Return early so the caller (login.html or modal) can
+      // open the verification modal.
+      if (response && response.requires_2fa) {
+        return response;
+      }
+      // ── end 2FA gate ──────────────────────────────────────────────────
+
       console.log("Full login response:", response);
 
       if (response && response.token) {
-        // Store both access and refresh tokens in selected auth storage
-        AuthContext.setTokens(response.token, response.refresh_token || null);
+        AuthContext.setTokens(response.token);
 
         // Store user context with permissions
         // The backend returns the user object in response.user
@@ -2018,6 +2771,7 @@ window.API = {
         console.log("Dashboard info:", response.dashboard);
 
         AuthContext.setUser(userData, response, rememberMe);
+        recordSessionActivity("login");
 
         console.log("After setUser - AuthContext state:");
         console.log("- User:", AuthContext.getUser());
@@ -2047,7 +2801,9 @@ window.API = {
         console.log("Dashboard info for navigation:", dashboardInfo);
 
         let redirectUrl;
-        if (dashboardInfo && dashboardInfo.key) {
+        if (response.password_setup_required && response.password_setup_url) {
+          redirectUrl = response.password_setup_url;
+        } else if (dashboardInfo && dashboardInfo.key) {
           // Use the normalized key (route name)
           redirectUrl =
             (window.APP_BASE || "") + "/home.php?route=" + dashboardInfo.key;
@@ -2061,15 +2817,33 @@ window.API = {
       }
       return response;
     },
+    // Complete a 2FA-verified login. Called after the user enters their
+    // TOTP/OTP code and /twofactor/verify returns success.
+    complete2FALogin: async (userId, rememberMe = false, challengeToken = "") => {
+      AuthContext.setPersistence(rememberMe);
+      const response = await apiCall("/auth/login", "POST", {
+        user_id: userId,
+        remember_me: rememberMe,
+        "2fa_verified": "1",
+        challenge_token: challengeToken,
+      });
+
+      if (response && response.token) {
+        AuthContext.setTokens(response.token);
+        const userData = response.user || {};
+        AuthContext.setUser(userData, response, rememberMe);
+        recordSessionActivity("login");
+      }
+      return response;
+    },
     logout: async () => {
       try {
-        // Revoke the refresh token on the server. Cookie-backed sessions still
-        // work even when nothing was stored in localStorage.
-        const refreshToken = AuthContext.getRefreshToken();
+        // Revoke the refresh token on the server. The HttpOnly cookie carries
+        // the token — no need to send it in the request body.
         await apiCall(
           "/auth/logout-refresh",
           "POST",
-          refreshToken ? { refresh_token: refreshToken } : {},
+          {},
           {},
           {
             checkPermission: false,
@@ -2081,8 +2855,18 @@ window.API = {
         console.warn("Error revoking refresh token on server:", error);
         // Continue with logout even if revoke fails
       } finally {
-        // Clear local storage
+        // Capture userId before clearUser() nulls it, so we can purge
+        // user-scoped IndexedDB data.
+        const userId = AuthContext.getUser?.()?.id || null;
+
+        // Clear auth state and namespaced localStorage keys
         AuthContext.clearUser();
+
+        // Purge user-scoped data from IndexedDB so the next login
+        // (possibly a different user) starts with a clean slate.
+        try { DataStore?.clearAll?.(); } catch (_) {}
+        try { KingswayDB?.clearUserData?.(userId); } catch (_) {}
+
         // Redirect to login
         window.location.href = (window.APP_BASE || "") + "/index.php";
       }
@@ -2104,11 +2888,10 @@ window.API = {
         { checkPermission: false },
       ),
     refreshToken: async () => {
-      const refreshToken = AuthContext.getRefreshToken();
       const response = await apiCall(
         "/auth/refresh-token",
         "POST",
-        refreshToken ? { refresh_token: refreshToken } : {},
+        {},
         {},
         {
           checkPermission: false,
@@ -2117,7 +2900,7 @@ window.API = {
         },
       );
       if (response && response.token) {
-        AuthContext.setTokens(response.token, response.refresh_token || null);
+        AuthContext.setTokens(response.token);
       }
       return response;
     },
@@ -2314,6 +3097,9 @@ window.API = {
         ? apiCall(`/students/student/${id}`, "GET")
         : apiCall("/students/student", "GET"),
     create: async (data) => apiCall("/students/student", "POST", data),
+    addExisting: async (data) => apiCall("/students/existing-add", "POST", data),
+    importExisting: async (formData) =>
+      apiCall("/students/import-existing", "POST", formData, {}, { isFile: true }),
     update: async (id, data) => apiCall(`/students/student/${id}`, "PUT", data),
     delete: async (id) => apiCall(`/students/student/${id}`, "DELETE"),
 
@@ -2520,20 +3306,10 @@ window.API = {
       apiCall("/students/attendance-mark", "POST", data),
 
     // Import
-    importExisting: async (data) =>
-      apiCall("/students/import-existing", "POST", data),
     importAddExisting: async (data) =>
       apiCall("/students/import-add-existing", "POST", data),
     importAddMultiple: async (data) =>
       apiCall("/students/import-add-multiple", "POST", data),
-    getImportTemplate: async () =>
-      apiCall(
-        "/students/import-template",
-        "GET",
-        null,
-        {},
-        { isDownload: true },
-      ),
 
     // Academic Year
     getCurrentAcademicYear: async () =>
@@ -2627,6 +3403,10 @@ window.API = {
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
     getContext: async () => apiCall("/academic/context", "GET"),
+    // Self-scoped teacher directory for the student/parent staff viewer.
+    myTeachers: async () => apiCall("/academic/my-teachers", "GET"),
+    parentClassTeachers: async () =>
+      apiCall("/academic/parent-class-teachers", "GET"),
     get: async (id = null) =>
       id ? apiCall(`/academic/${id}`, "GET") : apiCall("/academic", "GET"),
     create: async (data) => apiCall("/academic", "POST", data),
@@ -2657,6 +3437,22 @@ window.API = {
     approveResults: async (data) =>
       apiCall("/academic/exams-approve-results", "POST", data),
 
+    // Exam schedules + supervision roster
+    listExamSchedules: async (params = {}) =>
+      apiCall("/academic/exam-schedule", "GET", null, params),
+    listSupervisionRoster: async (params = {}) =>
+      apiCall("/academic/supervision-roster", "GET", null, params),
+    getSupervisionRoster: async (id) =>
+      apiCall(`/academic/supervision-roster/${id}`, "GET"),
+    createSupervisionRoster: async (data) =>
+      apiCall("/academic/supervision-roster", "POST", data),
+    updateSupervisionRoster: async (id, data) =>
+      apiCall(`/academic/supervision-roster/${id}`, "PUT", data),
+    deleteSupervisionRoster: async (id) =>
+      apiCall(`/academic/supervision-roster/${id}`, "DELETE"),
+    autoGenerateSupervisionRoster: async () =>
+      apiCall("/academic/supervision-roster-auto-generate", "POST"),
+
     // Promotions workflow
     startPromotionsWorkflow: async (data) =>
       apiCall("/academic/promotions-start-workflow", "POST", data),
@@ -2680,6 +3476,8 @@ window.API = {
       apiCall("/academic/assessments-mark-and-grade", "POST", data),
     analyzeResults: async (data) =>
       apiCall("/academic/assessments-analyze-results", "POST", data),
+    getAssessmentTypes: async (params) =>
+      apiCall("/academic/assessment-types", "GET", null, params),
 
     // Reports workflow
     startReportsWorkflow: async (data) =>
@@ -2766,6 +3564,8 @@ window.API = {
     createTerm: async (data) => apiCall("/academic/terms/create", "POST", data),
     listTerms: async (params) =>
       apiCall("/academic/terms-list", "GET", null, params),
+    getTerms: async (params) =>
+      apiCall("/academic/terms", "GET", null, params),
     getTerm: async (id) => apiCall(`/academic/terms/get/${id}`, "GET"),
     updateTerm: async (id, data) =>
       apiCall(`/academic/terms/update/${id}`, "PUT", data),
@@ -2806,6 +3606,8 @@ window.API = {
     // Learning Areas (Subjects)
     listLearningAreas: async (params) =>
       apiCall("/academic/learning-areas/list", "GET", null, params),
+    listSubjects: async (params) =>
+      apiCall("/academic/learning-areas/list", "GET", null, params),
     getLearningArea: async (id) =>
       apiCall(`/academic/learning-areas/get/${id}`, "GET"),
     createLearningArea: async (data) =>
@@ -2836,14 +3638,16 @@ window.API = {
       apiCall("/academic/curriculum-units-create", "POST", data),
     listCurriculumUnits: async (params) =>
       apiCall("/academic/curriculum-units-list", "GET", null, params),
+    getCurriculumUnits: async (params) =>
+      apiCall("/academic/curriculum-units-list", "GET", null, params),
     getCurriculumUnit: async (id = null) =>
       id
         ? apiCall(`/academic/curriculum-units-get/${id}`, "GET")
         : apiCall("/academic/curriculum-units-get", "GET"),
     updateCurriculumUnit: async (id, data) =>
-      apiCall("/academic/curriculum-units-update", "PUT", { id, ...data }),
+      apiCall(`/academic/curriculum-units-update/${id}`, "PUT", data),
     deleteCurriculumUnit: async (id) =>
-      apiCall("/academic/curriculum-units-delete", "DELETE", { id }),
+      apiCall(`/academic/curriculum-units-delete/${id}`, "DELETE"),
 
     // Topics
     createTopic: async (data) =>
@@ -2899,6 +3703,42 @@ window.API = {
       id
         ? apiCall(`/academic/scheme-of-work-get/${id}`, "GET")
         : apiCall("/academic/scheme-of-work-get", "GET"),
+
+    // Teacher portal (identity resolved server-side from JWT)
+    getMyClasses: async (params = {}) =>
+      apiCall("/academic/my-classes", "GET", null, params),
+    getInternClasses: async (params = {}) =>
+      apiCall("/academic/intern-classes", "GET", null, params),
+    getInternSubjects: async (params = {}) =>
+      apiCall("/academic/intern-subjects", "GET", null, params),
+    getMySubjects: async (params = {}) =>
+      apiCall("/academic/my-subjects", "GET", null, params),
+    getMySchemes: async (params = {}) =>
+      apiCall("/academic/my-schemes", "GET", null, params),
+    getSubjectSchemes: async (params = {}) =>
+      apiCall("/academic/subject-schemes", "GET", null, params),
+    getSyllabus: async (params = {}) =>
+      apiCall("/academic/syllabus", "GET", null, params),
+    getMySyllabus: async (params = {}) =>
+      apiCall("/academic/my-syllabus", "GET", null, params),
+    getYearCalendar: async () => apiCall("/academic/year-calendar", "GET"),
+    getCalendarDays: async (yearId) => apiCall(`/academic/calendar/days/${yearId}`, "GET"),
+    updateCalendarDay: async (dayId, payload) => apiCall(`/academic/calendar/day/${dayId}`, "PUT", payload),
+    getYearHistory: async () => apiCall("/academic/year-history", "GET"),
+    getLessonPlansByClass: async (params = {}) =>
+      apiCall("/academic/lesson-plans/by-class", "GET", null, params),
+    getLessonPlansByClassDetail: async (classId) =>
+      apiCall(`/academic/lesson-plans/by-class/${classId}`, "GET"),
+
+    // Curriculum CRUD (legacy flat endpoint)
+    createCurriculumEntry: async (data) =>
+      apiCall("/academic/curriculum", "POST", data),
+    updateCurriculumEntry: async (id, data) =>
+      apiCall(`/academic/curriculum/${id}`, "PUT", data),
+    deleteCurriculumEntry: async (id) =>
+      apiCall(`/academic/curriculum/${id}`, "DELETE"),
+    getCurriculumEntry: async (id) =>
+      apiCall(`/academic/curriculum/${id}`, "GET"),
 
     // Teachers
     listTeachers: async (params = {}) =>
@@ -3129,6 +3969,34 @@ window.API = {
       apiCall("/activities/workflow/evaluation/start", "POST", data),
     getWorkflowStatus: async (workflowId) =>
       apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
+    // Sports
+    sports: {
+      // Teams
+      listTeams: async (params = {}) =>
+        apiCall("/activities/sports/teams", "GET", null, params),
+      getTeam: async (id) =>
+        apiCall(`/activities/sports/teams/${id}`, "GET"),
+      createTeam: async (data) =>
+        apiCall("/activities/sports/teams", "POST", data),
+
+      // Team Members
+      listTeamMembers: async (params = {}) =>
+        apiCall("/activities/sports/team-members", "GET", null, params),
+
+      // Fixtures
+      listFixtures: async (params = {}) =>
+        apiCall("/activities/sports/fixtures", "GET", null, params),
+      getFixture: async (id) =>
+        apiCall(`/activities/sports/fixtures/${id}`, "GET"),
+      createFixture: async (data) =>
+        apiCall("/activities/sports/fixtures", "POST", data),
+      recordResult: async (id, data) =>
+        apiCall(`/activities/sports/fixtures/record-result/${id}`, "POST", data),
+
+      // Standings
+      getStandings: async (params = {}) =>
+        apiCall("/activities/sports/standings", "GET", null, params),
+    },
   },
 
   // Counseling endpoints
@@ -3159,6 +4027,16 @@ window.API = {
     },
   },
 
+  // Catering endpoints owned by CateringController/MealReportManager
+  catering: {
+    getStats: async (params = {}) =>
+      apiCall("/catering/stats", "GET", null, params),
+    getMenu: async (params = {}) =>
+      apiCall("/catering/menu", "GET", null, params),
+    getFoodStock: async (params = {}) =>
+      apiCall("/catering/food-stock", "GET", null, params),
+  },
+
   // Admission endpoints
   admission: {
     index: async () => apiCall("/admission/index", "GET"),
@@ -3168,6 +4046,8 @@ window.API = {
     getPolicy: async () => apiCall("/admission/policy", "GET"),
     getPayments: async (applicationId) =>
       apiCall(`/admission/payments/${applicationId}`, "GET"),
+    getPaidPayments: async (params = {}) =>
+      apiCall("/admission/paid-payments", "GET", null, params),
     // Get single application details with workflow state
     getApplication: async (id) =>
       apiCall(`/admission/application/${id}`, "GET"),
@@ -3199,10 +4079,28 @@ window.API = {
       apiCall("/admission/generate-placement-offer", "POST", data),
     recordFeePayment: async (data) =>
       apiCall("/admission/record-fee-payment", "POST", data),
+    promptPayment: async (data) =>
+      apiCall("/admission/prompt-payment", "POST", data),
     completeEnrollment: async (data) =>
       apiCall("/admission/complete-enrollment", "POST", data),
     confirmEnrollment: async (data) =>
       apiCall("/admission/confirm-enrollment", "POST", data),
+    // Intake windows + open terms (school-admin controlled)
+    getOpenAdmissionTerms: async () =>
+      apiCall("/admission/open-terms", "GET"),
+    getAdmissionWindows: async () =>
+      apiCall("/admission/windows", "GET"),
+    // Backward-compatible name used by the admissions workspace.
+    getWindows: async () => apiCall("/admission/windows", "GET"),
+    saveAdmissionWindow: async (data) =>
+      apiCall("/admission/windows", "POST", data),
+    updateAdmissionWindow: async (id, data) =>
+      apiCall(`/admission/windows/${id}`, "PUT", data),
+    toggleAdmissionWindow: async (id, status) =>
+      apiCall(`/admission/windows/${id}`, "PUT", { status }),
+    // Inline edit of an application's core fields
+    updateApplication: async (id, data) =>
+      apiCall(`/admission/application/${id}`, "PUT", data),
   },
 
   // Communications endpoints
@@ -3212,6 +4110,8 @@ window.API = {
     // SMS callbacks
     smsDeliveryReport: async (data) =>
       apiCall("/communications/sms-delivery-report", "POST", data),
+    whatsappDeliveryReport: async (data) =>
+      apiCall("/communications/whatsapp-delivery-report", "POST", data),
     smsOptOutCallback: async (data) =>
       apiCall("/communications/sms-opt-out-callback", "POST", data),
     smsSubscriptionCallback: async (data) =>
@@ -3320,6 +4220,8 @@ window.API = {
         : apiCall("/communications/communication", "GET"),
     createCommunication: async (data) =>
       apiCall("/communications/communication", "POST", data),
+    dispatchCommunication: async (id) =>
+      apiCall(`/communications/dispatch-communication/${id}`, "POST"),
     updateCommunication: async (id, data) =>
       apiCall(`/communications/communication/${id}`, "PUT", data),
     deleteCommunication: async (id) =>
@@ -3406,6 +4308,14 @@ window.API = {
     getUnreadCount: async () =>
       apiCall("/communications/communication?status=unread", "GET"),
 
+    // Resend a failed/pending communication (SMS, email, etc.)
+    resendCommunication: async (data) =>
+      apiCall("/communications/resend", "POST", data),
+
+    // Send WhatsApp message with optional media
+    sendWhatsapp: async (data) =>
+      apiCall("/communications/send-whatsapp", "POST", data),
+
     // Fee reminder SMS/WhatsApp
     sendFeeReminder: async (data) =>
       apiCall("/communications/fee-reminder", "POST", data),
@@ -3414,6 +4324,8 @@ window.API = {
     getTemplates: async () => apiCall("/communications/template", "GET"),
     saveTemplate: async (data) =>
       apiCall("/communications/template", "POST", data),
+    getAudienceOptions: async () => apiCall("/communications/audience-options", "GET"),
+    createWhatsappTemplate: async (data) => apiCall("/communications/create-whatsapp-template", "POST", data),
   },
 
   // Finance endpoints
@@ -3425,6 +4337,50 @@ window.API = {
     create: async (data) => apiCall("/finance", "POST", data),
     update: async (id, data) => apiCall(`/finance/${id}`, "PUT", data),
     delete: async (id) => apiCall(`/finance/${id}`, "DELETE"),
+    listStudentFundTransfers: async (params = {}) =>
+      apiCall("/finance/student-fund-transfers", "GET", null, params),
+    getStudentFundSources: async () =>
+      apiCall("/finance/student-fund-sources", "GET"),
+    getPaymentRoutingCases: async (params = {}) =>
+      apiCall("/finance/payment-routing-cases", "GET", null, params),
+    resolvePaymentRoutingCase: async (id, data) =>
+      apiCall(`/finance/payment-routing-cases-resolve/${id}`, "POST", data),
+    generatePaymentReference: async (data) =>
+      apiCall("/finance/payment-references", "POST", data),
+    getPaymentCollectionRoutes: async () =>
+      apiCall("/finance/payment-collection-routes", "GET"),
+    savePaymentCollectionRoute: async (data) =>
+      apiCall("/finance/payment-collection-routes", "POST", data),
+    getAccountingTrialBalance: async () =>
+      apiCall("/finance/accounting/trial-balance", "GET"),
+    getAccountingReport: async (type = "income") =>
+      apiCall("/finance/accounting/report", "GET", null, { type }),
+    getFinancialAccounts: async (params = {}) =>
+      apiCall("/finance/financial-accounts", "GET", null, params),
+    getFinancialAccountSetupOptions: async () =>
+      apiCall("/finance/financial-account-setup-options", "GET"),
+    createFinancialAccount: async (data) =>
+      apiCall("/finance/financial-accounts", "POST", data),
+    updateFinancialAccount: async (id, data) =>
+      apiCall(`/finance/financial-accounts/${id}`, "PUT", data),
+    verifyFinancialAccount: async (id, status) =>
+      apiCall(`/finance/financial-accounts/${id}/verify`, "PUT", { status }),
+    setFinancialAccountPermissions: async (id, permissions) =>
+      apiCall(`/finance/financial-accounts/${id}/permissions`, "POST", { permissions }),
+    getFinancialAccountPermissions: async (id) =>
+      apiCall(`/finance/financial-accounts/${id}/permissions`, "GET"),
+    getStatementLines: async (params = {}) =>
+      apiCall("/finance/reconciliation/statement-lines", "GET", null, params),
+    importStatement: async (data) =>
+      apiCall("/finance/reconciliation/statement-imports", "POST", data),
+    resolveStatementLine: async (id, data) =>
+      apiCall(`/finance/reconciliation/statement-lines/${id}/resolve`, "POST", data),
+    createStudentFundTransfer: async (data) =>
+      apiCall("/finance/student-fund-transfers", "POST", data),
+    decideStudentFundTransfer: async (id, decision) =>
+      apiCall(`/finance/student-fund-transfers/${id}`, "PUT", { decision }),
+    postStudentFundTransfer: async (id) =>
+      apiCall(`/finance/student-fund-transfer-post/${id}`, "POST"),
 
     // Department budgets
     proposeBudget: async (data) =>
@@ -3519,11 +4475,12 @@ window.API = {
         payroll_id: payrollId,
         approved_by: approvedBy,
       }),
-    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank") =>
+    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null) =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
         payment_reference: paymentRef,
         payment_mode: paymentMode,
+        source_financial_account_id: sourceFinancialAccountId,
       }),
 
     // Payments
@@ -3559,6 +4516,8 @@ window.API = {
       apiCall("/finance/fees-approve-structure", "POST", data),
     activateStructure: async (data) =>
       apiCall("/finance/fees-activate-structure", "POST", data),
+    deactivateFeeStructure: async (data) =>
+      apiCall("/finance/fees-deactivate-structure", "POST", data),
     rolloverStructure: async (data) =>
       apiCall("/finance/fees-rollover-structure", "POST", data),
     getTermBreakdown: async (params) =>
@@ -3571,14 +4530,43 @@ window.API = {
       apiCall("/finance/fees-update-annual-structure", "POST", data),
     deleteAnnualStructure: async (data) =>
       apiCall("/finance/fees-delete-annual-structure", "POST", data),
-    listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
     listStudentTypes: async () => apiCall("/finance/student-types-list", "GET"),
+    createFeeStructureBundle: async (data) =>
+      apiCall("/finance/fees-create-bundle", "POST", data),
+    getFeeStructureBundleGrid: async (params) =>
+      apiCall("/finance/fees-bundle-grid", "GET", null, params),
     generateFeeInvoice: async (data) =>
       apiCall("/finance/fee-invoices-generate", "POST", data),
     generateFeeInvoicesBatch: async (data) =>
       apiCall("/finance/fee-invoices-generate-batch", "POST", data),
     getFeeInvoice: async (params) =>
       apiCall("/finance/fee-invoices-get", "GET", null, params),
+
+    // Extra Charges
+    listExtraCharges: async (params = {}) =>
+      apiCall("/finance/extra-charges", "GET", null, params),
+    getExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/${id}`, "GET"),
+    createExtraCharge: async (data) =>
+      apiCall("/finance/extra-charges", "POST", data),
+    updateExtraCharge: async (id, data) =>
+      apiCall(`/finance/extra-charges/${id}`, "PUT", data),
+    deleteExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/${id}`, "DELETE"),
+    submitExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/submit/${id}`, "POST"),
+    approveExtraCharge: async (id) =>
+      apiCall(`/finance/extra-charges/approve/${id}`, "POST"),
+    rejectExtraCharge: async (id, data) =>
+      apiCall(`/finance/extra-charges/reject/${id}`, "POST", data),
+    getExtraChargesAcademicYears: async () =>
+      apiCall("/finance/extra-charges/academic-years", "GET"),
+    getExtraChargesGLAccounts: async () =>
+      apiCall("/finance/extra-charges/gl-accounts", "GET"),
+
+    // Fee Structures List
+    getFeeStructuresList: async (params = {}) =>
+      apiCall("/finance/fee-structures-list", "GET", null, params),
 
     // Students
     getStudentPaymentStatusList: async (params = {}) =>
@@ -3619,8 +4607,10 @@ window.API = {
     getPayments: async (params = {}) =>
       apiCall("/finance/payrolls-staff-payments", "GET", null, params),
     getStats: async () => apiCall("/finance", "GET"),
-    getOutstandingFees: async () =>
-      apiCall("/finance/fees-annual-summary", "GET"),
+    getSupplierPayables: async () => apiCall("/finance/supplier-payables", "GET"),
+    submitSupplierPayments: async (data) => apiCall("/finance/supplier-payments", "POST", data),
+    getOutstandingFees: async (params = {}) =>
+      apiCall("/finance/fees-annual-summary", "GET", null, params),
     getPaymentHistory: async (params = {}) =>
       apiCall("/finance/payrolls-history", "GET", null, params),
   },
@@ -3842,6 +4832,15 @@ window.API = {
     getUniformPaymentSummary: async () =>
       apiCall("/inventory/uniform-payment-summary", "GET"),
 
+    createUniformPaymentIntent: async (data) =>
+      apiCall("/inventory/uniform-payment-intents", "POST", data),
+
+    getUniformPaymentIntent: async (id) =>
+      apiCall(`/inventory/uniform-payment-intents/${id}`, "GET"),
+
+    confirmUniformPaymentIntent: async (id) =>
+      apiCall(`/inventory/uniform-payment-intent-confirm/${id}`, "POST"),
+
     // Get student uniform size profile
     getStudentUniformProfile: async (studentId) =>
       apiCall(`/inventory/uniform-student-profile/${studentId}`, "GET"),
@@ -3913,6 +4912,8 @@ window.API = {
         ? apiCall(`/staff/departments-get/${id}`, "GET")
         : apiCall("/staff/departments-get", "GET"),
     getAll: async (params = {}) => apiCall("/staff", "GET", null, params),
+    // Curated leadership/admin contacts for the student/parent staff viewer.
+    keyContacts: async () => apiCall("/staff/key-contacts", "GET"),
 
     // Assignments
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
@@ -3937,7 +4938,7 @@ window.API = {
     // Attendance
     getAttendance: async (id = null, params = {}) =>
       id
-        ? apiCall(`/staff/attendance-get/${id}`, "GET")
+        ? apiCall(`/staff/attendance-get/${id}`, "GET", null, params)
         : apiCall("/staff/attendance-get", "GET", null, params),
     markAttendance: async (data) =>
       apiCall("/staff/attendance-mark", "POST", data),
@@ -4075,15 +5076,30 @@ window.API = {
       apiCall("/staff/id-cards", "GET", null, params),
     generateIdCard: async (payload) =>
       apiCall("/staff/id-cards-generate", "POST", payload),
+    generateBulkIdCards: async (payload) =>
+      apiCall("/staff/id-cards-bulk-generate", "POST", payload),
+    previewBulkIdCards: async (payload) =>
+      apiCall("/staff/id-card/generate-bulk-pdf", "POST", payload),
+    printSingleIdCard: async (payload) =>
+      apiCall("/staff/id-card/print-single", "POST", payload),
     issueIdCard: async (payload) =>
       apiCall("/staff/id-cards-issue", "POST", payload),
     getLeaveTypes: async () => apiCall("/staff/leave-types", "GET"),
+    getLeaveBalance: async () => apiCall("/staff/leave-balance", "GET"),
     getLeaveRequests: async (params = {}) =>
       apiCall("/staff/leave-requests", "GET", null, params),
     createLeaveRequest: async (payload) =>
       apiCall("/staff/leave-requests", "POST", payload),
     updateLeaveRequestStatus: async (id, payload) =>
       apiCall(`/staff/leave-requests-status/${id}`, "PUT", payload),
+    getInternalOpportunities: async () =>
+      apiCall("/staff/internal-opportunities", "GET"),
+    applyForInternalOpportunity: async (payload) =>
+      apiCall("/staff/internal-opportunities-apply", "POST", payload),
+    getIncidentReports: async () =>
+      apiCall("/staff/incidents", "GET"),
+    createIncidentReport: async (payload) =>
+      apiCall("/staff/incidents", "POST", payload),
     getAvailableRoles: async () => apiCall("/staff/available-roles", "GET"),
     getRoleAssignments: async (staffId) =>
       apiCall("/staff/role-assignments", "GET", null, { staff_id: staffId }),
@@ -4170,6 +5186,8 @@ window.API = {
   // Transport endpoints
   transport: {
     index: async () => apiCall("/transport/index", "GET"),
+    getMyRoute: async () => apiCall("/transport/my-route", "GET"),
+    getMyVehicle: async () => apiCall("/transport/my-vehicle", "GET"),
 
     // Student verification
     verifyStudent: async (data) =>
@@ -4178,44 +5196,50 @@ window.API = {
     // Routes
     getRoute: async (id = null) =>
       id
-        ? apiCall(`/transport/route/${id}`, "GET")
-        : apiCall("/transport/route", "GET"),
+        ? apiCall(`/transport/transport-route/${id}`, "GET")
+        : apiCall("/transport/transport-route", "GET"),
     getAllRoutes: async (params) =>
       apiCall("/transport/all-routes", "GET", null, params),
-    createRoute: async (data) => apiCall("/transport/route", "POST", data),
+    createRoute: async (data) =>
+      apiCall("/transport/transport-route", "POST", data),
     updateRoute: async (id, data) =>
-      apiCall(`/transport/route/${id}`, "PUT", data),
-    deleteRoute: async (id) => apiCall(`/transport/route/${id}`, "DELETE"),
+      apiCall(`/transport/transport-route/${id}`, "PUT", data),
+    deleteRoute: async (id) =>
+      apiCall(`/transport/transport-route/${id}`, "DELETE"),
 
     // Stops
     getStop: async (id = null) =>
       id
-        ? apiCall(`/transport/stop/${id}`, "GET")
-        : apiCall("/transport/stop", "GET"),
+        ? apiCall(`/transport/transport-stop/${id}`, "GET")
+        : apiCall("/transport/transport-stop", "GET"),
     getAllStops: async (params) =>
       apiCall("/transport/all-stops", "GET", null, params),
-    createStop: async (data) => apiCall("/transport/stop", "POST", data),
+    createStop: async (data) =>
+      apiCall("/transport/transport-stop", "POST", data),
     updateStop: async (id, data) =>
-      apiCall(`/transport/stop/${id}`, "PUT", data),
-    deleteStop: async (id) => apiCall(`/transport/stop/${id}`, "DELETE"),
+      apiCall(`/transport/transport-stop/${id}`, "PUT", data),
+    deleteStop: async (id) =>
+      apiCall(`/transport/transport-stop/${id}`, "DELETE"),
 
     // Vehicles
     getVehicle: async (id = null) =>
       id
-        ? apiCall(`/transport/vehicle/${id}`, "GET")
-        : apiCall("/transport/vehicle", "GET"),
+        ? apiCall(`/transport/transport-vehicle/${id}`, "GET")
+        : apiCall("/transport/transport-vehicle", "GET"),
 
     // Drivers
     getDriver: async (id = null) =>
       id
-        ? apiCall(`/transport/driver/${id}`, "GET")
-        : apiCall("/transport/driver", "GET"),
+        ? apiCall(`/transport/transport-driver/${id}`, "GET")
+        : apiCall("/transport/transport-driver", "GET"),
     getAllDrivers: async (params) =>
       apiCall("/transport/all-drivers", "GET", null, params),
-    createDriver: async (data) => apiCall("/transport/driver", "POST", data),
+    createDriver: async (data) =>
+      apiCall("/transport/transport-driver", "POST", data),
     updateDriver: async (id, data) =>
-      apiCall(`/transport/driver/${id}`, "PUT", data),
-    deleteDriver: async (id) => apiCall(`/transport/driver/${id}`, "DELETE"),
+      apiCall(`/transport/transport-driver/${id}`, "PUT", data),
+    deleteDriver: async (id) =>
+      apiCall(`/transport/transport-driver/${id}`, "DELETE"),
     assignDriver: async (data) =>
       apiCall("/transport/driver-assign", "POST", data),
 
@@ -4226,6 +5250,20 @@ window.API = {
       apiCall("/transport/withdraw-assignment", "POST", data),
     getAssignments: async (params) =>
       apiCall("/transport/assignments", "GET", null, params),
+    createEntitlement: async (data) =>
+      apiCall("/transport/entitlements", "POST", data),
+    enrollStudentForTransport: async (data) =>
+      apiCall("/transport/enrollments", "POST", data),
+    allocateEntitlementPayment: async (entitlementId, data) =>
+      apiCall(`/transport/entitlements-payment/${entitlementId}`, "POST", data),
+    getEntitlementAccess: async (studentId, params = {}) =>
+      apiCall(`/transport/entitlement-access/${studentId}`, "GET", null, params),
+    createPaymentIntent: async (data) =>
+      apiCall("/transport/payment-intents", "POST", data),
+    confirmPaymentIntent: async (id) =>
+      apiCall(`/transport/payment-intent-confirm/${id}`, "POST"),
+    getPaymentIntent: async (id) =>
+      apiCall(`/transport/payment-intents/${id}`, "GET"),
     getStudentsByRoute: async (routeId) =>
       apiCall(`/transport/students-by-route?route_id=${routeId}`, "GET"),
 
@@ -4286,6 +5324,11 @@ window.API = {
   },
 
   // Boarding/Dormitory endpoints
+  chapel: {
+    getServices: async (params = {}) =>
+      apiCall("/chapel/services", "GET", null, params),
+  },
+
   boarding: {
     // Dormitories
     getDormitories: async () => apiCall("/boarding/dormitories", "GET"),
@@ -4296,15 +5339,6 @@ window.API = {
       apiCall(`/boarding/dormitories/${id}`, "PUT", data),
     deleteDormitory: async (id) =>
       apiCall(`/boarding/dormitories/${id}`, "DELETE"),
-
-    // Beds
-    getBeds: async (dormId = null) =>
-      dormId
-        ? apiCall(`/boarding/beds?dormitory_id=${dormId}`, "GET")
-        : apiCall("/boarding/beds", "GET"),
-    assignBed: async (data) => apiCall("/boarding/beds/assign", "POST", data),
-    unassignBed: async (bedId) =>
-      apiCall(`/boarding/beds/unassign/${bedId}`, "PUT"),
 
     // Roll Call
     getRollCalls: async (params = {}) =>
@@ -4328,29 +5362,10 @@ window.API = {
     rejectExeat: async (id, reason) =>
       apiCall(`/boarding/exeats/reject/${id}`, "PUT", { reason }),
 
-    // Food Store
-    getFoodStore: async () => apiCall("/boarding/food-store", "GET"),
-    addFoodItem: async (data) => apiCall("/boarding/food-store", "POST", data),
-    updateFoodItem: async (id, data) =>
-      apiCall(`/boarding/food-store/${id}`, "PUT", data),
-    recordConsumption: async (data) =>
-      apiCall("/boarding/food-store/consume", "POST", data),
-
     // Menu Planning
     getMenus: async (params = {}) =>
       apiCall("/boarding/menus", "GET", null, params),
     createMenu: async (data) => apiCall("/boarding/menus", "POST", data),
-    updateMenu: async (id, data) =>
-      apiCall(`/boarding/menus/${id}`, "PUT", data),
-    deleteMenu: async (id) => apiCall(`/boarding/menus/${id}`, "DELETE"),
-
-    // Chapel Services
-    getChapelServices: async (params = {}) =>
-      apiCall("/boarding/chapel-services", "GET", null, params),
-    createChapelService: async (data) =>
-      apiCall("/boarding/chapel-services", "POST", data),
-    updateChapelService: async (id, data) =>
-      apiCall(`/boarding/chapel-services/${id}`, "PUT", data),
 
     // Statistics
     getStats: async () => apiCall("/boarding/stats", "GET"),
@@ -4394,6 +5409,8 @@ window.API = {
         ? apiCall(`/schedules/exam-get/${id}`, "GET")
         : apiCall("/schedules/exam-get", "GET"),
     createExam: async (data) => apiCall("/schedules/exam-create", "POST", data),
+    bulkGenerateExams: async (data) =>
+      apiCall("/schedules/exam-bulk-generate", "POST", data),
 
     // Events
     getEvents: async (id = null) =>
@@ -4402,6 +5419,9 @@ window.API = {
         : apiCall("/schedules/events-get", "GET"),
     createEvent: async (data) =>
       apiCall("/schedules/events-create", "POST", data),
+    syncEvents: async () => apiCall("/schedules/events-sync", "POST", {}),
+    markExamWeek: async (data) =>
+      apiCall("/schedules/calendar-mark-exam-week", "POST", data),
 
     // Activity schedules
     getActivity: async (id = null) =>
@@ -4418,14 +5438,6 @@ window.API = {
         : apiCall("/schedules/rooms-get", "GET"),
     createRoom: async (data) =>
       apiCall("/schedules/rooms-create", "POST", data),
-
-    // Reports
-    getReports: async (id = null) =>
-      id
-        ? apiCall(`/schedules/reports-get/${id}`, "GET")
-        : apiCall("/schedules/reports-get", "GET"),
-    createReport: async (data) =>
-      apiCall("/schedules/reports-create", "POST", data),
 
     // Routes
     getRoute: async (id = null) =>
@@ -4493,12 +5505,48 @@ window.API = {
     updateSchedule: async (data) =>
       apiCall("/schedules/timetable-create", "POST", data),
     addEvent: async (data) => apiCall("/schedules/events-create", "POST", data),
-    updateEvent: async (id, data) => apiCall(`/schedules/${id}`, "PUT", data),
-    deleteEvent: async (id) => apiCall(`/schedules/${id}`, "DELETE"),
+    updateEvent: async (id, data) =>
+      apiCall(`/schedules/events-update/${id}`, "PUT", data),
+    deleteEvent: async (id) =>
+      apiCall(`/schedules/events-delete/${id}`, "DELETE"),
     getHolidays: async () =>
       apiCall("/schedules/events-get?type=holiday", "GET"),
     setHoliday: async (data) =>
       apiCall("/schedules/events-create", "POST", { ...data, type: "holiday" }),
+
+    // Holiday registry (UI-managed; single source of truth for all holidays)
+    listHolidays: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/schedules/holidays-get?${qs}` : "/schedules/holidays-get", "GET");
+    },
+    createHoliday: async (data) =>
+      apiCall("/schedules/holidays-create", "POST", data),
+    updateHoliday: async (id, data) =>
+      apiCall(`/schedules/holidays-update/${id}`, "PUT", data),
+    deleteHoliday: async (id) =>
+      apiCall(`/schedules/holidays-delete/${id}`, "DELETE"),
+    applyHolidays: async (data = {}) =>
+      apiCall("/schedules/holidays-apply", "POST", data),
+  },
+
+  // Internal staff meetings (heads/HODs/deputies/class teachers) - integrated
+  // with the academic calendar (linked school_events row carries venue/link).
+  meetings: {
+    list: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/meetings/meetings-get?${qs}` : "/meetings/meetings-get", "GET");
+    },
+    get: async (id) => apiCall(`/meetings/meetings-get/${id}`, "GET"),
+    create: async (data) => apiCall("/meetings/meetings-create", "POST", data),
+    update: async (id, data) =>
+      apiCall(`/meetings/meetings-update/${id}`, "PUT", data),
+    remove: async (id) =>
+      apiCall(`/meetings/meetings-delete/${id}`, "DELETE"),
+    respond: async (meetingId, status) =>
+      apiCall("/meetings/meetings-respond", "POST", { meeting_id: meetingId, status }),
+    remind: async (id) =>
+      apiCall(`/meetings/meetings-remind/${id}`, "POST", {}),
+    staffList: async () => apiCall("/meetings/staff-list", "GET"),
   },
 
   // Reports endpoints
@@ -4750,6 +5798,8 @@ window.API = {
     // Unmatched M-Pesa payments (for reconciliation)
     getUnmatchedMpesa: async (params = {}) =>
       apiCall("/payments/unmatched-mpesa", "GET", null, params),
+    getMpesaSettlements: async (params = {}) =>
+      apiCall("/payments/unmatched-mpesa", "GET", null, { ...params, scope: "settlements" }),
 
     // Reconcile M-Pesa payment (with optional student_id to allocate to fees)
     reconcileMpesa: async (
@@ -4771,6 +5821,25 @@ window.API = {
         `/payments/mpesa-reconcile-history?mpesa_id=${encodeURIComponent(mpesaId)}`,
         "GET",
       ),
+
+    // === Outbound M-Pesa (Daraja) API triggers ===
+    // All 10 APIs are drivable from the app. Async results (transaction
+    // status, account balance, reversal, B2B, B2C) land on the webhook sinks
+    // and can be read back via getMpesaResults().
+    stkPush: async (data) => apiCall("/payments/mpesa-stk-push", "POST", data),
+    kcbMpesaExpress: async (data) => apiCall("/payments/kcb-mpesa-express", "POST", data),
+    stkQuery: async (data) => apiCall("/payments/mpesa-stk-query", "POST", data),
+    c2bRegister: async (data) => apiCall("/payments/mpesa-c2b-register", "POST", data),
+    c2bSimulate: async (data) => apiCall("/payments/mpesa-c2b-simulate", "POST", data),
+    transactionStatus: async (data) =>
+      apiCall("/payments/mpesa-transaction-status", "POST", data),
+    accountBalance: async () => apiCall("/payments/mpesa-account-balance", "POST"),
+    reversal: async (data) => apiCall("/payments/mpesa-reversal", "POST", data),
+    qr: async (data) => apiCall("/payments/mpesa-qr", "POST", data),
+    b2b: async (data) => apiCall("/payments/mpesa-b2b", "POST", data),
+    b2c: async (data) => apiCall("/payments/mpesa-b2c", "POST", data),
+    getMpesaResults: async (params = {}) =>
+      apiCall("/payments/mpesa-results", "GET", null, params),
   },
 
   // Accounts endpoints (bank accounts, transactions)
@@ -5017,6 +6086,8 @@ window.API = {
   // Maintenance endpoints (exactly as implemented in MaintenanceController)
   maintenance: {
     index: async () => apiCall("/maintenance/index", "GET"),
+    getDashboardSummary: async () =>
+      apiCall("/maintenance/dashboard-summary", "GET"),
 
     getLogs: async (params) =>
       apiCall("/maintenance/logs", "GET", null, params),
@@ -5097,7 +6168,6 @@ window.API = {
       apiCall("/dashboard/system-admin/api-load", "GET"),
 
     // Shared dashboard statistics retained from the superseded duplicate block.
-    getStudentStats: async () => apiCall("/students/stats", "GET"),
     getTodayAttendance: async () => apiCall("/attendance/today", "GET"),
     getTeachingStats: async () => apiCall("/staff/stats", "GET"),
     getFeesCollected: async () => apiCall("/payments/stats", "GET"),
@@ -5111,10 +6181,6 @@ window.API = {
       apiCall("/admissions/pending", "GET"),
     getMyClassAttendance: async () =>
       apiCall("/attendance/my-class", "GET"),
-    getMyClassAssessments: async () =>
-      apiCall("/assessments/my-results", "GET"),
-    getMyLessonPlan: async () =>
-      apiCall("/schedules/my-lessons", "GET"),
     getFeeStatusByStudent: async () =>
       apiCall("/payments/fee-status", "GET"),
     getMonthlyFinancialReport: async () =>
@@ -5191,14 +6257,6 @@ window.API = {
      */
     getAccountantBankAccounts: async (params = {}) => {
       return await apiCall("/accounts/bank-accounts", "GET", null, params);
-    },
-
-    /**
-     * Get full accountant dashboard data in a single API call (optimized)
-     * Returns: financial, payments, alerts, bankAccounts, unmatchedPayments
-     */
-    getAccountantFull: async (params = {}) => {
-      return await apiCall("/dashboard/accountant/full", "GET", null, params);
     },
 
     getDirectorAnnouncements: async () => {
@@ -5444,8 +6502,8 @@ window.API = {
      * Get full class teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getClassTeacherFull: async () => {
-      return await apiCall("/dashboard/class-teacher/full", "GET");
+    getClassTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/class-teacher/full", "GET", null, params);
     },
 
     /**
@@ -5489,8 +6547,8 @@ window.API = {
      * Get full subject teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getSubjectTeacherFull: async () => {
-      return await apiCall("/dashboard/subject-teacher/full", "GET");
+    getSubjectTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/subject-teacher/full", "GET", null, params);
     },
 
     /**
@@ -5520,8 +6578,8 @@ window.API = {
      * Get full intern teacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getInternTeacherFull: async () => {
-      return await apiCall("/dashboard/intern-teacher/full", "GET");
+    getInternTeacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/intern-teacher/full", "GET", null, params);
     },
 
     /**
@@ -5561,10 +6619,16 @@ window.API = {
       apiCall("/staff-migration/batches", "GET", null, params),
     batch: async (id) => apiCall(`/staff-migration/batch/${id}`, "GET"),
     templateUrl: () => `${API_BASE_URL}/staff-migration/template`,
+    templateXlsxUrl: () => `${API_BASE_URL}/staff-migration/template-xlsx`,
     downloadTemplate: async () =>
       apiCall("/staff-migration/template", "GET", null, {}, {
         isDownload: true,
         filename: "existing_staff_migration_template.csv",
+      }),
+    downloadTemplateXlsx: async () =>
+      apiCall("/staff-migration/template-xlsx", "GET", null, {}, {
+        isDownload: true,
+        filename: "existing_staff_migration_template.xlsx",
       }),
     stage: async (formData) =>
       apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),
@@ -5585,3 +6649,8 @@ window.API = {
 
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
+
+// Global dialog helpers — native alert()/confirm()/prompt() replacements
+window.confirmAction = confirmAction;
+window.promptAction = promptAction;
+window.infoDialog = infoDialog;

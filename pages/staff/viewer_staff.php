@@ -125,53 +125,84 @@
 </style>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-        loadContacts();
-    });
+    (function () {
+        function boot() {
+            RoleBasedUI.applyLayout();
+            loadContacts();
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot);
+        } else {
+            boot();
+        }
+    })();
 
     async function loadContacts() {
+        const user = typeof AuthContext !== 'undefined' ? AuthContext.getUser() : null;
+        const roleNames = userRoleNames(user);
+
+        const isStudent = roleNames.includes('student');
+        const isParent = roleNames.includes('parent') || roleNames.includes('guardian');
+
+        // Administration — key contacts for every viewer.
         try {
-            // Load admin contacts
-            const adminResponse = await fetch('/api/?route=staff&action=key-contacts');
-            const adminData = await adminResponse.json();
-
-            if (adminData.success) {
-                renderContacts('adminContacts', adminData.data);
-            }
-
-            // Determine if user is student or parent
-            const user = typeof AuthContext !== 'undefined' ? AuthContext.getUser() : null;
-
-            if (user && user.role === 'Student') {
-                // Show teachers section, hide class teacher section
-                document.getElementById('classTeacherSection').style.display = 'none';
-
-                // Load my teachers
-                const teachersResponse = await fetch('/api/?route=students&action=my-teachers');
-                const teachersData = await teachersResponse.json();
-
-                if (teachersData.success) {
-                    renderContacts('teacherContacts', teachersData.data);
-                }
-            } else if (user && ['Parent', 'Guardian'].includes(user.role)) {
-                // Show class teacher section, hide teachers section
-                document.getElementById('teachersSection').style.display = 'none';
-
-                // Load class teacher(s) for children
-                const classTeacherResponse = await fetch('/api/?route=parents&action=class-teachers');
-                const classTeacherData = await classTeacherResponse.json();
-
-                if (classTeacherData.success) {
-                    renderContacts('classTeacherContact', classTeacherData.data);
-                }
-            } else {
-                document.getElementById('teachersSection').style.display = 'none';
-                document.getElementById('classTeacherSection').style.display = 'none';
-            }
+            const adminResponse = await window.API.staff.keyContacts();
+            renderContacts('adminContacts', adminResponse?.data || adminResponse);
         } catch (error) {
-            console.error('Error loading contacts:', error);
+            console.error('Error loading admin contacts:', error);
+            const el = document.getElementById('adminContacts');
+            if (el) el.innerHTML = '<div class="error-item">Unable to load contacts</div>';
         }
+
+        const teachersSection = document.getElementById('teachersSection');
+        const classTeacherSection = document.getElementById('classTeacherSection');
+
+        if (isParent) {
+            if (teachersSection) teachersSection.style.display = 'none';
+            if (classTeacherSection) classTeacherSection.style.display = '';
+
+            // Class teachers for the current user's children.
+            try {
+                const classTeacherResponse = await window.API.academic.parentClassTeachers();
+                renderContacts('classTeacherContact', classTeacherResponse?.data || classTeacherResponse);
+            } catch (error) {
+                console.error('Error loading class teachers:', error);
+                const el = document.getElementById('classTeacherContact');
+                if (el) el.innerHTML = '<div class="error-item">Unable to load class teachers</div>';
+            }
+        } else if (isStudent) {
+            if (classTeacherSection) classTeacherSection.style.display = 'none';
+            if (teachersSection) teachersSection.style.display = '';
+
+            // Teachers assigned to the current student's class.
+            try {
+                const teachersResponse = await window.API.academic.myTeachers();
+                renderContacts('teacherContacts', teachersResponse?.data || teachersResponse);
+            } catch (error) {
+                console.error('Error loading my teachers:', error);
+                const el = document.getElementById('teacherContacts');
+                if (el) el.innerHTML = '<div class="error-item">Unable to load teachers</div>';
+            }
+        } else {
+            if (teachersSection) teachersSection.style.display = 'none';
+            if (classTeacherSection) classTeacherSection.style.display = 'none';
+        }
+    }
+
+    function userRoleNames(user) {
+        const names = [];
+        const push = (value) => {
+            if (typeof value === 'string' && value) names.push(value.toLowerCase());
+        };
+        if (user) {
+            push(user.role);
+            push(user.role_name);
+            if (Array.isArray(user.roles)) {
+                user.roles.forEach((role) => push(typeof role === 'string' ? role : role && role.name));
+            }
+        }
+        return names;
     }
 
     function renderContacts(containerId, contacts) {
@@ -188,6 +219,7 @@
                 <div class="contact-info">
                     <div class="contact-name">${escapeHtml(c.name)}</div>
                     <div class="contact-role">${escapeHtml(c.role || '')}</div>
+                    ${c.context ? `<div class="contact-role">${escapeHtml(c.context)}</div>` : ''}
                     <div class="contact-phone">${escapeHtml(c.phone || '-')}</div>
                 </div>
                 ${c.phone ? `<a href="tel:${c.phone}" class="contact-action">📞 Call</a>` : ''}

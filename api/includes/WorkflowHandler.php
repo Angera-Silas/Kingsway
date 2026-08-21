@@ -121,8 +121,15 @@ class WorkflowHandler extends BaseAPI
      */
     public function startWorkflow($reference_type, $reference_id, $initial_data = [], $userId = null)
     {
+        $startedTransaction = false;
         try {
-            $this->db->beginTransaction();
+            // Only manage the transaction when the caller did not already open one
+            // (callers such as StudentPromotionWorkflow::defineCriteria start their
+            // own transaction to keep batch creation + workflow start atomic).
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $startedTransaction = true;
+            }
 
             // Get first stage
             $first_stage = $this->getFirstStage();
@@ -158,14 +165,18 @@ class WorkflowHandler extends BaseAPI
             // Send notifications
             $this->sendStageNotifications($instance_id, $first_stage, 'stage_entry');
 
-            $this->db->commit();
+            if ($startedTransaction) {
+                $this->db->commit();
+            }
 
             $this->logAction('workflow_started', $instance_id, 
                 "Started workflow instance for {$reference_type} ID {$reference_id}");
 
             return $instance_id;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($startedTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('workflow_start_failed', $e->getMessage());
             throw $e;
         }
@@ -276,8 +287,12 @@ class WorkflowHandler extends BaseAPI
      */
     public function cancelWorkflow($instance_id, $reason)
     {
+        $startedTransaction = false;
         try {
-            $this->db->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $startedTransaction = true;
+            }
 
             $sql = "UPDATE workflow_instances 
                     SET status = 'cancelled',
@@ -292,13 +307,17 @@ class WorkflowHandler extends BaseAPI
 
             $this->logStageEntry($instance_id, 'cancelled', "Cancelled: {$reason}");
 
-            $this->db->commit();
+            if ($startedTransaction) {
+                $this->db->commit();
+            }
 
             $this->logAction('workflow_cancelled', $instance_id, "Workflow cancelled: {$reason}");
 
             return true;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($startedTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('workflow_cancel_failed', $e->getMessage());
             throw $e;
         }
@@ -437,7 +456,7 @@ class WorkflowHandler extends BaseAPI
             'instance_id' => $instance_id,
             'from_stage' => $from_stage,
             'to_stage' => $stage_code,
-            'processed_by' => $this->user_id,
+            'processed_by' => $this->user_id ?? 1,
             'remarks' => $notes
         ]);
     }
@@ -499,9 +518,10 @@ class WorkflowHandler extends BaseAPI
                 $starterId = (int) ($instance['started_by'] ?? 0);
                 if ($starterId > 0) {
                     $stmt = $this->db->prepare(
-                        "SELECT id, username, email
-                         FROM users
-                         WHERE id = :id AND status = 'active'
+                        "SELECT u.id, u.username, p.email
+                         FROM users u
+                         LEFT JOIN persons p ON p.id = u.person_id
+                         WHERE u.id = :id AND u.status = 'active'
                          LIMIT 1"
                     );
                     $stmt->execute(['id' => $starterId]);
@@ -542,10 +562,11 @@ class WorkflowHandler extends BaseAPI
             return [];
         }
 
-        $sql = "SELECT DISTINCT u.id, u.username, u.email, r.name as role_name
+        $sql = "SELECT DISTINCT u.id, u.username, p.email, r.name as role_name
                 FROM users u
+                LEFT JOIN persons p ON p.id = u.person_id
                 LEFT JOIN user_roles ur ON ur.user_id = u.id
-                LEFT JOIN roles r ON r.id = COALESCE(ur.role_id, u.role_id)
+                LEFT JOIN roles r ON r.id = ur.role_id
                 WHERE u.status = 'active'";
 
         $stmt = $this->db->prepare($sql);

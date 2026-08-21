@@ -18,16 +18,16 @@
                 class="btn btn-outline-primary"
                 href="<?= htmlspecialchars($appBase) ?>/home.php?route=role_permission_matrix"
             >
-                <i class="fas fa-key me-1"></i> Permission matrix
+                <i class="bi bi-key me-1"></i> Permission matrix
             </a>
             <button type="button" class="btn btn-outline-secondary" id="exportRolesBtn">
-                <i class="fas fa-file-export me-1"></i> Export
+                <i class="bi bi-file-export me-1"></i> Export
             </button>
             <button type="button" class="btn btn-outline-secondary" id="refreshRolesBtn">
-                <i class="fas fa-sync-alt me-1"></i> Refresh
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
             <button type="button" class="btn btn-primary" id="createRoleBtn">
-                <i class="fas fa-plus me-1"></i> Create role
+                <i class="bi bi-plus-lg me-1"></i> Create role
             </button>
         </div>
     </div>
@@ -49,7 +49,7 @@
                 <div class="col-lg-6">
                     <label class="form-label small text-muted" for="searchRoles">Search</label>
                     <div class="input-group">
-                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input
                             class="form-control"
                             id="searchRoles"
@@ -90,13 +90,13 @@
             <table class="table table-hover align-middle mb-0">
                 <thead id="roleDefinitionsTableHead">
                     <tr>
-                        <th>Role</th>
-                        <th>Description</th>
-                        <th>Scope</th>
-                        <th>Type</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Scope</th>
+                        <th scope="col">Type</th>
                         <th class="text-center">Users</th>
                         <th class="text-center">Permissions</th>
-                        <th>Status</th>
+                        <th scope="col">Status</th>
                         <th class="text-end">Actions</th>
                     </tr>
                 </thead>
@@ -165,7 +165,7 @@
                     </div>
 
                     <div class="alert alert-secondary mb-0">
-                        <i class="fas fa-info-circle me-1"></i>
+                        <i class="bi bi-info-circle me-1"></i>
                         Assign or revoke permissions after saving from the Role-Permission Matrix.
                         Protected system roles are read-only and cannot be deactivated or deleted.
                     </div>

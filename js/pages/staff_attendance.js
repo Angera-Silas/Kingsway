@@ -1,4 +1,3 @@
-document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.attendance.view'); });
 const StaffAttendanceController = {
   departments: [],
   dutyTypes: [],
@@ -13,6 +12,8 @@ const StaffAttendanceController = {
   },
 
   init: async function () {
+    if (window.AuthContext?.ready) await window.AuthContext.ready();
+    if (!window.AuthContext?.hasAnyPermission?.(['staff.attendance.view', 'staff_attendance_view'])) return;
     this.setDefaultDates();
     this.bindEvents();
     await Promise.all([this.loadDepartments(), this.loadDutyTypes()]);
@@ -64,7 +65,7 @@ const StaffAttendanceController = {
 
   async loadDepartments() {
     try {
-      // Reference data: cache 7d (rarely changes) to skip DB re-query.
+      // Reference data: network-first with a 1 h offline fallback (freshness wins).
       const response = await DataStore.fetchPage('departments', {
         endpoint: '/staff/departments-get', storeName: 'reference_departments',
         ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'

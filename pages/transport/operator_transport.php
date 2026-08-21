@@ -32,7 +32,7 @@
 <!-- Route Info -->
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="fas fa-route me-2"></i>My Route: <span id="routeName" class="text-primary">Loading...</span></h6>
+        <h6 class="mb-0"><i class="bi bi-signpost me-2"></i>My Route: <span id="routeName" class="text-primary">Loading...</span></h6>
     </div>
     <div class="card-body">
         <div class="row g-3">
@@ -51,9 +51,9 @@
 <!-- Student List -->
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <h6 class="mb-0"><i class="fas fa-users me-2"></i>Students on My Route</h6>
+        <h6 class="mb-0"><i class="bi bi-people me-2"></i>Students on My Route</h6>
         <button class="btn btn-sm btn-success" id="markAttendanceBtn">
-            <i class="fas fa-check me-1"></i> Mark Attendance
+            <i class="bi bi-check-lg me-1"></i> Mark Attendance
         </button>
     </div>
     <div class="card-body p-0" id="studentList">
@@ -64,7 +64,7 @@
 <!-- Stops List -->
 <div class="card shadow-sm">
     <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>Route Stops</h6>
+        <h6 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Route Stops</h6>
     </div>
     <div class="card-body p-0" id="stopsList">
         <div class="text-center text-muted py-4">Loading stops...</div>

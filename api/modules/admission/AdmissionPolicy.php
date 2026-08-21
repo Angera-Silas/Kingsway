@@ -3,7 +3,10 @@ namespace App\API\Modules\admission;
 
 class AdmissionPolicy
 {
-    private const INTERVIEW_GRADES = ['Grade2', 'Grade3', 'Grade4', 'Grade5', 'Grade6'];
+    // CBC intake policy: Grade 4 through Grade 9 applicants require an
+    // interview. Playgroup, PP1, PP2 and Grades 1-3 proceed directly after
+    // the application has been approved.
+    private const INTERVIEW_GRADES = ['Grade4', 'Grade5', 'Grade6', 'Grade7', 'Grade8', 'Grade9'];
 
     public function normalizeGrade(string $grade): string
     {
@@ -34,17 +37,34 @@ class AdmissionPolicy
         return in_array($this->normalizeGrade($grade), self::INTERVIEW_GRADES, true);
     }
 
-    public function getRequiredDocuments(string $grade, string $category = 'standard'): array
+    public function getRequiredDocuments(string $grade, string $category = 'standard', bool $isExistingParent = false): array
     {
-        $requiresTransferDocs = $this->requiresInterview($grade);
+        $normalized = $this->normalizeGrade($grade);
+        $gradeNumber = (int) preg_replace('/\D/', '', $normalized);
+        $isUpper = $gradeNumber >= 4 && $gradeNumber <= 9;
 
-        return [
+        $docs = [
             'birth_certificate' => ['mandatory' => true, 'label' => 'Birth Certificate'],
-            'immunization_card' => ['mandatory' => true, 'label' => 'Immunization Card'],
             'passport_photo' => ['mandatory' => true, 'label' => 'Passport Photo'],
-            'progress_report' => ['mandatory' => $requiresTransferDocs, 'label' => 'Latest Progress Report'],
-            'leaving_certificate' => ['mandatory' => $requiresTransferDocs, 'label' => 'Leaving Certificate from Previous School'],
         ];
+
+        if ($isUpper) {
+            $docs['previous_school_report'] = ['mandatory' => true, 'label' => 'Previous School Report'];
+            $docs['medical_records'] = ['mandatory' => true, 'label' => 'Health / Medical Records'];
+        } else {
+            $docs['immunization_card'] = ['mandatory' => true, 'label' => 'Immunization Card'];
+        }
+
+        if (!$isExistingParent) {
+            $docs['parent_id'] = ['mandatory' => true, 'label' => 'Parent/Guardian National ID'];
+        }
+
+        if ($this->requiresInterview($normalized)) {
+            $docs['progress_report'] = ['mandatory' => false, 'label' => 'Latest Progress Report'];
+            $docs['leaving_certificate'] = ['mandatory' => false, 'label' => 'Leaving Certificate from Previous School'];
+        }
+
+        return $docs;
     }
 
     public function resolveApplicationSource(array $data): string
@@ -76,21 +96,17 @@ class AdmissionPolicy
             return (int) $termId;
         }
 
-        $category = $this->resolveAdmissionCategory($data);
-        if ($category === 'nursery_term_1') {
-            return 1;
-        }
-        if ($category === 'nursery_term_3') {
-            return 3;
-        }
-
+        // Human-readable term tokens (e.g. "Term 1 2027") need a database join
+        // to resolve to an academic_year_terms.id, so they are handled by the
+        // workflow handler rather than here. This pure helper only surfaces an
+        // explicitly supplied id.
         return null;
     }
 
     public function describeInterviewPolicy(string $grade): string
     {
         return $this->requiresInterview($grade)
-            ? 'Grade 2-6 applicants require interview assessment.'
+            ? 'Grade 4-9 applicants require interview assessment.'
             : 'This grade proceeds to placement after document verification.';
     }
 

@@ -2,7 +2,7 @@
  * Timetable Controller
  * Page: timetable.php
  * Manages school timetable viewing by class, teacher, or room (read-only)
- * Connected to class_schedules table via SchedulesAPI
+ * Connected to timetable_entries via SchedulesAPI (day_of_week numeric 1=Mon..7=Sun)
  */
 const TimetableController = {
   state: {
@@ -15,10 +15,27 @@ const TimetableController = {
   },
 
   async init() {
+    await window.AuthContext?.ready();
     if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+
+    if (
+      typeof PageShell !== "undefined" &&
+      !PageShell.hasAny(["schedules_view", "timetable_view", "schedules_manage"])
+    ) {
+      const container = document.getElementById("timetableContainer") || document.querySelector(".container-fluid");
+      if (container) {
+        container.innerHTML =
+          '<div class="alert alert-warning border-0 shadow-sm">' +
+          '<i class="bi bi-shield-lock me-2"></i>' +
+          "You do not have permission to view the timetable." +
+          "</div>";
+      }
+      return;
+    }
+
     this.bindEvents();
     await Promise.all([this.loadFilters(), this.loadTimeSlots()]);
   },
@@ -47,8 +64,7 @@ const TimetableController = {
 
   async loadTimeSlots() {
     try {
-      const res = await window.API.schedules.getTimeSlots();
-      const data = res?.data || res || [];
+      const data = await window.API.schedules.getTimeSlots() || [];
       if (data.length > 0) {
         this.state.timeSlots = data.map((s) => ({
           label: s.label || `Period ${s.period_number}`,
@@ -70,15 +86,15 @@ const TimetableController = {
         window.API.academic.listClasses(),
       ]);
 
-      if (classesRes?.success !== false) {
-        this.state.classes = classesRes?.data || classesRes || [];
+      if (classesRes) {
+        this.state.classes = classesRes || [];
         this.populateSelect("#selectClass", this.state.classes, "id", "name");
       }
 
       // Load teachers
       try {
         const tRes = await window.API.academic.getTeachers();
-        this.state.teachers = tRes?.data || tRes || [];
+        this.state.teachers = tRes || [];
         this.populateSelect("#selectTeacher", this.state.teachers, "id", (t) =>
           `${t.first_name || ""} ${t.last_name || ""}`.trim(),
         );
@@ -89,7 +105,7 @@ const TimetableController = {
       // Load rooms
       try {
         const rRes = await window.API.schedules.getRooms();
-        this.state.rooms = rRes?.data || rRes || [];
+        this.state.rooms = rRes || [];
         this.populateSelect("#selectRoom", this.state.rooms, "id", "name");
       } catch (e) {
         console.warn("Rooms load:", e);
@@ -138,17 +154,8 @@ const TimetableController = {
         params.teacher_id = teacherId;
       }
 
-      const res = await window.API.schedules.getTimetable(params);
-
-      if (res?.success !== false) {
-        this.state.timetable = res?.data || res || [];
-        this.renderTimetableGrid();
-      } else {
-        this.showNotification(
-          res?.message || "Failed to load timetable",
-          "error",
-        );
-      }
+      this.state.timetable = await window.API.schedules.getTimetable(params) || [];
+      this.renderTimetableGrid();
     } catch (error) {
       console.error("Error loading timetable:", error);
       this.showNotification("Error loading timetable", "error");
@@ -261,48 +268,58 @@ const TimetableController = {
     const className = classSelect?.options[classSelect.selectedIndex]?.text || 'All Classes';
     const viewType = this.state.viewType || 'weekly';
 
-    const filters = {
-      'Class': className,
-      'View Type': viewType
-    };
-
-    // Convert timetable to printable format
-    const timetableRows = this.state.timetable.map(item => ({
-      day: item.day || '—',
+    const slots = this.state.timetable.map(item => ({
+      day: item.day || 'Monday',
       time: `${item.start_time || ''} - ${item.end_time || ''}`,
+      start: item.start_time || '',
+      end: item.end_time || '',
       subject: item.subject_name || item.subject || '—',
-      teacher: item.teacher_name || item.teacher || '—',
-      room: item.room || item.classroom || '—'
+      teacher: item.teacher_name || item.teacher || '',
+      room: item.room || item.classroom || '',
+      color: item.color || '#0f5b3b',
     }));
 
-    const columns = [
-      { key: 'day', label: 'Day' },
-      { key: 'time', label: 'Time' },
-      { key: 'subject', label: 'Subject' },
-      { key: 'teacher', label: 'Teacher' },
-      { key: 'room', label: 'Room' }
-    ];
-
-    window.PrintManager.printTable({
-      title: 'Class Timetable',
-      subtitle: `${className} - ${viewType} View`,
-      columns: columns,
-      rows: timetableRows,
-      summary: {
-        'Class': className,
-        'View Type': viewType,
-        'Total Periods': timetableRows.length,
-        'Generated Date': new Date().toLocaleDateString()
-      },
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'TT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-      signatureSection: [
-        { label: 'Head Teacher' },
-        { label: 'Principal' }
-      ]
+    const subjectColors = {};
+    const legend = [];
+    slots.forEach(s => {
+      if (s.subject && !subjectColors[s.subject]) {
+        subjectColors[s.subject] = s.color;
+        legend.push({ subject: s.subject, color: s.color });
+      }
     });
+
+    if (window.PrintManager?.printTimetable) {
+      window.PrintManager.printTimetable({
+        className: className,
+        teacherName: '',
+        period: viewType,
+        slots: slots,
+        breaks: [
+          { label: 'Break', time: '10:00 - 10:15' },
+          { label: 'Lunch', time: '12:00 - 13:00' },
+        ],
+        legend: legend,
+        filename: `timetable_${className.replace(/\s+/g, '_')}_${Date.now()}`,
+      });
+    } else {
+      const timetableRows = slots.map(s => ({
+        day: s.day, time: s.time, subject: s.subject, teacher: s.teacher, room: s.room
+      }));
+      window.PrintManager?.printTable?.({
+        title: 'Class Timetable',
+        subtitle: `${className} - ${viewType} View`,
+        columns: [
+          { key: 'day', label: 'Day' },
+          { key: 'time', label: 'Time' },
+          { key: 'subject', label: 'Subject' },
+          { key: 'teacher', label: 'Teacher' },
+          { key: 'room', label: 'Room' }
+        ],
+        rows: timetableRows,
+        orientation: 'landscape',
+        paperSize: 'A4',
+      });
+    }
   },
 
   populateSelect(selector, items, valueKey, labelKey) {

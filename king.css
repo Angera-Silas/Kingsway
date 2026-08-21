@@ -477,6 +477,19 @@ textarea {
   box-shadow: var(--app-shadow);
 }
 
+.app-header-menu {
+  width: min(430px, calc(100vw - 24px));
+  max-height: min(650px, calc(100vh - 90px));
+  overflow: hidden;
+}
+
+#header-notification-list {
+  max-height: min(510px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
 .app-user-menu {
   min-width: 260px;
 }
@@ -484,8 +497,21 @@ textarea {
 .app-menu-heading,
 .app-user-menu-summary,
 .app-notification-item {
+  position: relative;
   display: flex;
   align-items: center;
+}
+
+.app-notification-item[data-notification-url] { cursor: pointer; }
+
+.app-notification-state {
+  display: block;
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  color: var(--app-brand, #178a50);
+  background: transparent;
+  font-size: 0.68rem;
 }
 
 .app-menu-heading {
@@ -528,6 +554,42 @@ textarea {
 .app-user-menu-summary small {
   color: var(--app-muted);
   font-size: 0.72rem;
+}
+
+.app-notification-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-notification-item--unread {
+  background: var(--app-surface-muted, #f6f7f9);
+}
+
+.app-notification-item--read {
+  opacity: 0.62;
+}
+
+.app-notification-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--app-brand, #178a50);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.app-notification-empty {
+  padding: 16px 10px;
+  color: var(--app-muted);
+  font-size: 0.78rem;
+  text-align: center;
 }
 
 .app-user-menu-summary {

@@ -11,6 +11,7 @@ const pastPapersController = {
   _papers: [],
 
   init: async function () {
+    await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
@@ -20,7 +21,6 @@ const pastPapersController = {
     if (window.AcademicContext) {
       // Subscribe to context changes
       window.AcademicContext.subscribe((context, event, data) => {
-        console.log('AcademicContext changed in past_papers:', event, data);
         if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
           // Reload papers when academic year or term changes
           this.loadPapers();
@@ -65,7 +65,7 @@ const pastPapersController = {
 
   _loadYearDropdown: async function () {
     try {
-      const r = await callAPI('/academic/years', 'GET');
+      const r = await callAPI('/academic/years/list', 'GET');
       const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel = document.getElementById('ppYear');
       if (!sel) return;

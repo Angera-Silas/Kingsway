@@ -97,14 +97,14 @@
             <table class="table table-hover" id="stockMovementsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Date/Time</th>
-                        <th>Transaction Type</th>
-                        <th>Item</th>
-                        <th>Quantity</th>
-                        <th>From/To</th>
-                        <th>Performed By</th>
-                        <th>Reference</th>
-                        <th>Actions</th>
+                        <th scope="col">Date/Time</th>
+                        <th scope="col">Transaction Type</th>
+                        <th scope="col">Item</th>
+                        <th scope="col">Quantity</th>
+                        <th scope="col">From/To</th>
+                        <th scope="col">Performed By</th>
+                        <th scope="col">Reference</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -257,4 +257,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_stock.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_stock.js'); ?>

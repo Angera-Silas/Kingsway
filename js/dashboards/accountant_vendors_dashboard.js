@@ -232,6 +232,10 @@ const accountantVendorsDashboardController = Object.assign(
   }
 );
 
-document.addEventListener("DOMContentLoaded", function () {
+if (window.__APP_BOOTED__) {
   accountantVendorsDashboardController.init();
-});
+} else {
+  window.addEventListener("kingsway:ready", () => {
+    accountantVendorsDashboardController.init();
+  }, { once: true });
+}

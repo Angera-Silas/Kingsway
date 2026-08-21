@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-clipboard-list"></i> Requisitions Management</h4>
+            <h4 class="mb-0"><i class="bi bi-clipboard-data"></i> Requisitions Management</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="createRequisitionBtn" data-permission="requisitions_create">
                     <i class="bi bi-plus-circle"></i> New Requisition
@@ -97,13 +97,13 @@
             <table class="table table-hover" id="requisitionsTable">
                 <thead class="table-light">
                     <tr>
-                        <th>Req. No.</th>
-                        <th>Date</th>
-                        <th>Requested By</th>
-                        <th>Department</th>
-                        <th>Items</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th scope="col">Req. No.</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Requested By</th>
+                        <th scope="col">Department</th>
+                        <th scope="col">Items</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -215,4 +215,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/manage_requisitions.js"></script>
+<?php asset_script($appBase, 'js/pages/manage_requisitions.js'); ?>

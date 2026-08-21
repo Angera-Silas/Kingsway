@@ -69,13 +69,29 @@ class AssetDisposalWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
+            $assetIds = array_values(array_unique(array_map('intval', (array) $data['asset_ids'])));
+            if (empty($assetIds)) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'No valid assets provided');
+            }
+
+            // Map suggested disposal method to the live disposal_type enum
+            $methodMap = [
+                self::METHOD_SALE => 'sale',
+                self::METHOD_TRADE_IN => 'sale',
+                self::METHOD_DONATION => 'donation',
+                self::METHOD_SCRAP => 'scrap',
+                self::METHOD_RECYCLING => 'scrap',
+                self::METHOD_WRITE_OFF => 'write_off'
+            ];
+            $disposalType = $methodMap[$data['suggested_method']] ?? 'sale';
+
             // Validate assets exist and are available for disposal
-            $assetIds = $data['asset_ids'];
             $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
             $stmt = $this->db->prepare("
-                SELECT id, item_name, status, book_value 
-                FROM inventory_items 
-                WHERE id IN ($placeholders) AND status NOT IN ('disposed', 'in_disposal')
+                SELECT id, name, status, current_book_value
+                FROM fixed_assets 
+                WHERE id IN ($placeholders) AND status NOT IN ('disposed', 'written_off')
             ");
             $stmt->execute($assetIds);
             $assets = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -85,41 +101,34 @@ class AssetDisposalWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Some assets are not available for disposal');
             }
 
-            // Create disposal record
-            $stmt = $this->db->prepare("
+            // Create one disposal record per asset
+            $disposalIds = [];
+            $totalBookValue = 0;
+            $insert = $this->db->prepare("
                 INSERT INTO asset_disposals (
-                    requested_by, disposal_date, disposal_reason,
-                    suggested_method, status, total_book_value, created_at
-                ) VALUES (?, NOW(), ?, ?, 'pending', ?, NOW())
+                    asset_id, disposal_date, disposal_type,
+                    book_value_at_disposal, reason, authorised_by, created_at
+                ) VALUES (?, NOW(), ?, ?, ?, ?, NOW())
             ");
-
-            $totalBookValue = array_sum(array_column($assets, 'book_value'));
-
-            $stmt->execute([
-                $userId,
-                $data['disposal_reason'],
-                $data['suggested_method'],
-                $totalBookValue
-            ]);
-
-            $disposalId = $this->db->lastInsertId();
-
-            // Link assets to disposal
-            foreach ($assetIds as $assetId) {
-                $stmt = $this->db->prepare("
-                    INSERT INTO disposal_assets (disposal_id, asset_id)
-                    VALUES (?, ?)
-                ");
-                $stmt->execute([$disposalId, $assetId]);
-
-                // Mark assets as in disposal
-                $stmt = $this->db->prepare("UPDATE inventory_items SET status = 'in_disposal' WHERE id = ?");
-                $stmt->execute([$assetId]);
+            foreach ($assets as $asset) {
+                $bookValue = (float) $asset['current_book_value'];
+                $insert->execute([
+                    $asset['id'],
+                    $disposalType,
+                    $bookValue,
+                    $data['disposal_reason'],
+                    $userId
+                ]);
+                $disposalIds[] = (int) $this->db->lastInsertId();
+                $totalBookValue += $bookValue;
             }
+
+            $disposalId = $disposalIds[0];
 
             // Start workflow
             $workflowData = [
                 'disposal_id' => $disposalId,
+                'disposal_ids' => $disposalIds,
                 'asset_ids' => $assetIds,
                 'assets' => $assets,
                 'total_book_value' => $totalBookValue,
@@ -131,20 +140,13 @@ class AssetDisposalWorkflow extends WorkflowHandler
             // Start workflow - returns instance_id (int)
             $instance_id = $this->startWorkflow('disposal', $disposalId, $workflowData);
 
-            // Update disposal with workflow instance ID
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET workflow_instance_id = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([$instance_id, $disposalId]);
-
             $this->db->commit();
             $this->logAction('create', $instance_id, "Initiated disposal workflow for {$disposalId}");
 
             return formatResponse(true, [
                 'workflow_id' => $instance_id,
                 'disposal_id' => $disposalId,
+                'disposal_ids' => $disposalIds,
                 'asset_count' => count($assetIds),
                 'total_book_value' => $totalBookValue,
                 'current_stage' => 'disposal_request'
@@ -192,20 +194,6 @@ class AssetDisposalWorkflow extends WorkflowHandler
             }
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
-
-            // Update disposal record
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET condition_rating = ?, condition_assessment_notes = ?,
-                    assessed_by = ?, assessed_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $data['condition_rating'],
-                $data['assessment_notes'],
-                $userId,
-                $workflowData['disposal_id']
-            ]);
 
             // Update workflow data
             $workflowData['condition_assessment'] = [
@@ -255,21 +243,6 @@ class AssetDisposalWorkflow extends WorkflowHandler
             }
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
-
-            // Update disposal record
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET estimated_value = ?, valuation_method = ?,
-                    valuation_notes = ?, valuated_by = ?, valuated_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $data['estimated_value'],
-                $data['valuation_method'] ?? 'market_value',
-                $data['valuation_notes'] ?? null,
-                $userId,
-                $workflowData['disposal_id']
-            ]);
 
             // Update workflow data
             $workflowData['valuation'] = [
@@ -334,18 +307,6 @@ class AssetDisposalWorkflow extends WorkflowHandler
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
-            // Update disposal record
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET disposal_method = ?, method_selection_reason = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $data['disposal_method'],
-                $data['selection_reason'] ?? null,
-                $workflowData['disposal_id']
-            ]);
-
             // Update workflow data
             $workflowData['disposal_method_selection'] = [
                 'selected_by' => $userId,
@@ -397,34 +358,26 @@ class AssetDisposalWorkflow extends WorkflowHandler
             $totalBookValue = $workflowData['total_book_value'];
 
             // Check approval authority based on asset value
-            $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
+            $stmt = $this->db->prepare("
+                SELECT r.name AS role
+                FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = ? AND r.is_active = 1
+            ");
             $stmt->execute([$userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
             $userRole = $user['role'] ?? '';
 
             $approvalLevels = [
-                'inventory_manager' => 20000,
-                'director' => 100000,
-                'board' => PHP_INT_MAX
+                'Inventory Manager' => 20000,
+                'Director' => 100000,
+                'System Administrator' => PHP_INT_MAX
             ];
 
             // Check if user has authority
             if (!isset($approvalLevels[$userRole]) || $totalBookValue > $approvalLevels[$userRole]) {
                 return formatResponse(false, null, "You do not have authority to approve this disposal (Book value: KES " . number_format($totalBookValue, 2) . ")");
             }
-
-            // Update disposal record
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET status = 'approved', approved_by = ?, approved_at = NOW(),
-                    approval_notes = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $userId,
-                $data['approval_notes'] ?? null,
-                $workflowData['disposal_id']
-            ]);
 
             // Update workflow data
             $workflowData['disposal_approval'] = [
@@ -472,20 +425,36 @@ class AssetDisposalWorkflow extends WorkflowHandler
             }
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
-            $disposalMethod = $workflowData['disposal_method_selection']['disposal_method'];
+            $disposalMethod = $workflowData['disposal_method_selection']['disposal_method'] ?? $workflowData['suggested_method'] ?? self::METHOD_WRITE_OFF;
+            $assetIds = $workflowData['asset_ids'] ?? [];
+            $disposalIds = $workflowData['disposal_ids'] ?? [];
 
-            // Update disposal record
-            $stmt = $this->db->prepare("
-                UPDATE asset_disposals 
-                SET execution_date = ?, executed_by = ?, execution_notes = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $data['execution_date'] ?? date('Y-m-d'),
-                $userId,
-                $data['execution_notes'] ?? null,
-                $workflowData['disposal_id']
-            ]);
+            // Persist execution results on the disposal record(s)
+            if (!empty($disposalIds)) {
+                $sets = [];
+                $vals = [];
+                if (isset($data['proceeds'])) {
+                    $sets[] = 'proceeds = ?';
+                    $vals[] = $data['proceeds'];
+                }
+                if (isset($data['buyer_name'])) {
+                    $sets[] = 'buyer_name = ?';
+                    $vals[] = $data['buyer_name'];
+                }
+                if (!empty($sets)) {
+                    $placeholders = implode(',', array_fill(0, count($disposalIds), '?'));
+                    $stmt = $this->db->prepare("UPDATE asset_disposals SET " . implode(', ', $sets) . " WHERE id IN ($placeholders)");
+                    $stmt->execute(array_merge($vals, $disposalIds));
+                }
+            }
+
+            // Mark assets as disposed or written off
+            if (!empty($assetIds)) {
+                $status = $disposalMethod === self::METHOD_WRITE_OFF ? 'written_off' : 'disposed';
+                $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
+                $stmt = $this->db->prepare("UPDATE fixed_assets SET status = ?, updated_at = NOW() WHERE id IN ($placeholders)");
+                $stmt->execute(array_merge([$status], $assetIds));
+            }
 
             // Update workflow data
             $workflowData['disposal_execution'] = [
@@ -610,7 +579,8 @@ class AssetDisposalWorkflow extends WorkflowHandler
             }
         } catch (Exception $e) {
             $this->logError('processStage', $e->getMessage());
-            return ['success' => false, 'message' => $e->getMessage()];
+            error_log('[AssetDisposalWorkflow] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+return ['success' => false, 'message' => 'An internal error occurred.'];
         }
     }
 

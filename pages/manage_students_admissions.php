@@ -113,6 +113,17 @@ if ($appBase === '.')
             font-size: 0.875rem;
         }
     }
+
+    #admissionsWorkspaceApplicationModal .modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    @media (max-height: 600px) {
+        #admissionsWorkspaceApplicationModal .modal-body {
+            max-height: 55vh;
+        }
+    }
 </style>
 
 <div class="admissions-page-shell">
@@ -145,7 +156,7 @@ if ($appBase === '.')
             </li>
             <li class="nav-item">
                 <button class="nav-link" data-tab="documents" onclick="admissionsWorkspaceController.switchTab('documents')">
-                    <i class="bi bi-file-earmark-check me-2"></i>Documents
+                    <i class="bi bi-file-earmark-check me-2"></i>Application Intake
                     <span class="badge bg-warning" id="tabBadgeDocuments">0</span>
                 </button>
             </li>
@@ -157,20 +168,25 @@ if ($appBase === '.')
             </li>
             <li class="nav-item">
                 <button class="nav-link" data-tab="decisions" onclick="admissionsWorkspaceController.switchTab('decisions')">
-                    <i class="bi bi-check-square me-2"></i>Decisions
+                    <i class="bi bi-person-badge me-2"></i>Admission Numbers
                     <span class="badge bg-primary" id="tabBadgeDecisions">0</span>
                 </button>
             </li>
             <li class="nav-item">
                 <button class="nav-link" data-tab="placements" onclick="admissionsWorkspaceController.switchTab('placements')">
-                    <i class="bi bi-award me-2"></i>Placements
+                    <i class="bi bi-award me-2"></i>Placement &amp; Payments
                     <span class="badge bg-success" id="tabBadgePlacements">0</span>
                 </button>
             </li>
             <li class="nav-item">
                 <button class="nav-link" data-tab="enrollment" onclick="admissionsWorkspaceController.switchTab('enrollment')">
-                    <i class="bi bi-person-check me-2"></i>Enrollment
+                    <i class="bi bi-person-check me-2"></i>Final Enrollment
                     <span class="badge bg-danger" id="tabBadgeEnrollment">0</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" data-tab="windows" onclick="admissionsWorkspaceController.switchTab('windows')">
+                    <i class="bi bi-door-open me-2"></i>Intake Windows
                 </button>
             </li>
         </ul>
@@ -268,11 +284,11 @@ if ($appBase === '.')
                 <div id="applications-content" style="display:none;"></div>
             </div>
 
-            <!-- Documents Tab -->
+            <!-- Application Applied / Intake Tab (documents are submitted with the application) -->
             <div id="tab-documents" class="tab-pane" style="display:none;">
                 <div id="documents-loading" class="text-center py-4">
                     <div class="spinner-border text-warning" role="status"></div>
-                    <div class="mt-2 text-muted">Loading documents...</div>
+                    <div class="mt-2 text-muted">Loading application intake...</div>
                 </div>
                 <div id="documents-content" style="display:none;"></div>
             </div>
@@ -312,6 +328,15 @@ if ($appBase === '.')
                 </div>
                 <div id="enrollment-content" style="display:none;"></div>
             </div>
+
+            <!-- Intake Windows Tab -->
+            <div id="tab-windows" class="tab-pane" style="display:none;">
+                <div id="windows-loading" class="text-center py-4">
+                    <div class="spinner-border text-success" role="status"></div>
+                    <div class="mt-2 text-muted">Loading intake windows...</div>
+                </div>
+                <div id="windows-content" style="display:none;"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -340,8 +365,4 @@ if ($appBase === '.')
     window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
 
-<script
-    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_workspace.js?v=<?= time() ?>"
-    onload="console.log('admissions_workspace.js script tag loaded successfully')"
-    onerror="console.error('FAILED to load admissions_workspace.js. Check path:', this.src)">
-</script>
+<?php asset_script($appBase, 'js/pages/admissions_workspace.js'); ?>
