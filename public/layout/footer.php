@@ -131,7 +131,7 @@
     }
   })();
 </script>
-<?php asset_script($appBase, 'js/public.js'); ?>
+<?php asset_script($appBase, 'public/js/public.js'); ?>
 <?php if (!empty($pageScript)): ?>
 <!-- Page controller: pages are thin HTML shells; js/pages/public/<name>.js renders
      the dynamic sections through window.PublicSite. Falls back to SSR-only output
