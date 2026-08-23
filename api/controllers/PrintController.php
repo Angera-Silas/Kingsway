@@ -457,7 +457,17 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
-            $pdfPath = $this->prints()->printFeeStatement($data);
+            $studentId = (int) ($data['student_id'] ?? $data['studentId'] ?? $id ?? 0);
+            if ($studentId <= 0) {
+                return formatResponse(false, null, 'student_id is required');
+            }
+            $statement = $this->prints()->prepareStudentFeeStatement(
+                $studentId,
+                $data['academic_year'] ?? $data['academicYear'] ?? null
+            );
+            $pdfPath = $this->prints()->printFeeStatement($statement, [
+                'filename' => 'fee_statement_student_' . $studentId . '_' . date('Ymd_His'),
+            ]);
             $pdfUrl = $this->getPrintUrl($pdfPath);
             return formatResponse(true, [
                 'file' => ['filename' => basename($pdfPath), 'mime_type' => 'application/pdf', 'url' => $pdfUrl, 'download_url' => $pdfUrl],

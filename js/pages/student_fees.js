@@ -774,6 +774,17 @@ const StudentFeesController = {
     const student = this.data.selectedStudent;
     const billingHistory = this.data.billingHistory || [];
 
+    // The server prepares the canonical statement from obligations, waivers,
+    // balances and confirmed payments. Do not print a browser-reconstructed
+    // table that can drift from the accounting database.
+    if (window.PrintManager && typeof window.PrintManager.printFeeStatement === 'function') {
+      return window.PrintManager.printFeeStatement({
+        student_id: student.student_id || student.id,
+        academic_year: this.filters.academic_year || undefined,
+        download: false,
+      });
+    }
+
     // Build fee statement rows
     const feeRows = [];
     billingHistory.forEach(term => {

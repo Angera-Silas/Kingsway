@@ -18,6 +18,7 @@ $date = $date ?? date('d F Y');
 $items = $items ?? [];
 $total = $total ?? 0;
 $paymentMethod = $paymentMethod ?? 'Cash';
+$useSharedReportShell = $useSharedReportShell ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -62,12 +63,12 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
 </style>
 </head>
 <body>
-<div class="rct-header">
+<?php if (!$useSharedReportShell): ?><div class="rct-header">
     <div class="school-name"><?= re($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?></div>
     <div class="school-motto">"<?= re($schoolMotto ?? 'In God We Soar') ?>"</div>
     <div class="school-addr"><?= re($schoolAddress ?? '') ?></div>
     <div class="rct-title">OFFICIAL RECEIPT</div>
-</div>
+</div><?php endif; ?>
 
 <div class="rct-info">
     <div class="rct-info-box">
@@ -123,7 +124,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
 <div class="rct-remarks"><strong>Remarks:</strong> <?= re($remarks) ?></div>
 <?php endif; ?>
 
-<div class="rct-footer">
+<?php if (!$useSharedReportShell): ?><div class="rct-footer">
     <table>
         <tr>
             <td>
@@ -143,6 +144,6 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
             </td>
         </tr>
     </table>
-</div>
+</div><?php endif; ?>
 </body>
 </html>

@@ -261,6 +261,197 @@ class WebsiteController extends BaseController
         return $this->handleResponse($this->manager->getDownloads($data));
     }
 
+    /**
+     * GET /api/website/printable-downloads
+     *
+     * Public catalog for generated school PDFs. The actual PDF is generated
+     * only after the visitor requests a specific file, keeping the catalog
+     * cheap while ensuring it always reflects the selected academic year.
+     */
+    public function getPrintableDownloads($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+
+        try {
+            $years = $this->db->query(
+                "SELECT id, year_code, year_name, status
+                 FROM academic_years
+                 ORDER BY id DESC"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $years = array_map(static function (array $year): array {
+                return [
+                    'id' => (int) ($year['id'] ?? 0),
+                    'year_code' => (string) ($year['year_code'] ?? ''),
+                    'year_name' => (string) ($year['year_name'] ?? ''),
+                    'status' => (string) ($year['status'] ?? ''),
+                ];
+            }, $years ?: []);
+
+            if (!$years) {
+                return $this->success(['items' => [], 'academic_years' => []], 'No academic years available.');
+            }
+
+            $yearInput = trim((string) ($data['academic_year'] ?? $data['academicYear'] ?? ''));
+            $selectedYear = $this->resolvePrintableYear($years, $yearInput);
+            if (!$selectedYear) {
+                return $this->badRequest('The selected academic year is not available.');
+            }
+
+            $yearId = (int) $selectedYear['id'];
+            $yearLabel = (string) ($selectedYear['year_code'] ?: $selectedYear['year_name']);
+            $items = $this->buildPrintableDownloadCatalog($yearId, $yearLabel);
+
+            return $this->success([
+                'items' => $items,
+                'academic_years' => $years,
+                'selected_academic_year' => $yearLabel,
+            ], 'Printable downloads available.');
+        } catch (\Throwable $exception) {
+            error_log('[WebsiteController] printable downloads: ' . $exception->getMessage());
+            return $this->serverError('Printable downloads are temporarily unavailable.');
+        }
+    }
+
+    /**
+     * GET /api/website/printable-download
+     * Generate one public school PDF and return an attachment URL.
+     */
+    public function getPrintableDownload($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+
+        try {
+            $kind = strtolower(trim((string) ($data['kind'] ?? '')));
+            if (!in_array($kind, ['fee', 'calendar'], true)) {
+                return $this->badRequest('Invalid printable document type.');
+            }
+
+            $years = $this->db->query(
+                "SELECT id, year_code, year_name, status FROM academic_years ORDER BY id DESC"
+            )->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+            $years = array_map(static function (array $year): array {
+                return [
+                    'id' => (int) ($year['id'] ?? 0),
+                    'year_code' => (string) ($year['year_code'] ?? ''),
+                    'year_name' => (string) ($year['year_name'] ?? ''),
+                    'status' => (string) ($year['status'] ?? ''),
+                ];
+            }, $years);
+            $selectedYear = $this->resolvePrintableYear(
+                $years,
+                trim((string) ($data['academic_year'] ?? $data['academicYear'] ?? ''))
+            );
+            if (!$selectedYear) return $this->badRequest('The selected academic year is not available.');
+
+            $yearValue = (string) ($selectedYear['year_code'] ?: $selectedYear['id']);
+            if ($kind === 'calendar') {
+                $pdfPath = $this->prints()->printAcademicCalendar([
+                    'academicYear' => $yearValue,
+                ]);
+            } else {
+                $scope = strtolower(trim((string) ($data['scope'] ?? 'all')));
+                $studentType = strtolower(trim((string) ($data['student_type'] ?? $data['studentType'] ?? 'both')));
+                if (!in_array($studentType, ['both', 'day', 'boarder'], true)) {
+                    return $this->badRequest('Invalid student type.');
+                }
+                if (!preg_match('/^(all|ecd|lower_primary|upper_primary|primary|jss|class_[0-9]+)$/', $scope)) {
+                    return $this->badRequest('Invalid fee-structure scope.');
+                }
+
+                $pdfPath = $this->prints()->printSimpleFeeStructure([
+                    'academicYear' => $yearValue,
+                    'scope' => $scope,
+                    'studentType' => $studentType,
+                ]);
+            }
+
+            return $this->success([
+                'filename' => basename($pdfPath),
+                'download_url' => $this->generatedDownloadUrl($pdfPath),
+            ], 'PDF generated.');
+        } catch (\Throwable $exception) {
+            error_log('[WebsiteController] printable download generation: ' . $exception->getMessage());
+            return $this->serverError('Unable to generate this PDF right now.');
+        }
+    }
+
+    private function resolvePrintableYear(array $years, string $input): ?array
+    {
+        if ($input !== '') {
+            foreach ($years as $year) {
+                if ((string) $year['id'] === $input || $year['year_code'] === $input || $year['year_name'] === $input) {
+                    return $year;
+                }
+            }
+            return null;
+        }
+
+        foreach ($years as $year) {
+            if (strtolower($year['status']) === 'active') return $year;
+        }
+        return $years[0] ?? null;
+    }
+
+    private function buildPrintableDownloadCatalog(int $yearId, string $yearLabel): array
+    {
+        $items = [
+            ['key' => 'calendar', 'title' => $yearLabel . ' Academic Year Calendar', 'category' => 'Academic Year Calendar', 'icon' => 'bi-calendar3', 'color' => '#0d6efd', 'kind' => 'calendar'],
+            ['key' => 'fee-all-both', 'title' => $yearLabel . ' School Fee Structure — Day Scholars & Boarders', 'category' => 'Fee Structures', 'icon' => 'bi-cash-stack', 'color' => '#198754', 'kind' => 'fee', 'scope' => 'all', 'student_type' => 'both'],
+            ['key' => 'fee-all-day', 'title' => $yearLabel . ' Day Scholars Fee Structure', 'category' => 'Fee Structures', 'icon' => 'bi-person-walking', 'color' => '#198754', 'kind' => 'fee', 'scope' => 'all', 'student_type' => 'day'],
+            ['key' => 'fee-all-boarder', 'title' => $yearLabel . ' Boarders Fee Structure', 'category' => 'Fee Structures', 'icon' => 'bi-house-heart-fill', 'color' => '#1e40af', 'kind' => 'fee', 'scope' => 'all', 'student_type' => 'boarder'],
+        ];
+
+        $scopes = [
+            'ecd' => 'ECD / Pre-primary',
+            'lower_primary' => 'Lower Primary',
+            'upper_primary' => 'Upper Primary',
+            'primary' => 'Primary School',
+            'jss' => 'Junior School',
+        ];
+        foreach ($scopes as $scope => $scopeLabel) {
+            foreach (['both' => 'Both Types', 'day' => 'Day Scholars', 'boarder' => 'Boarders'] as $type => $typeLabel) {
+                $items[] = [
+                    'key' => 'fee-' . $scope . '-' . $type,
+                    'title' => $yearLabel . ' ' . $scopeLabel . ' Fee Structure — ' . $typeLabel,
+                    'category' => 'Fee Structures',
+                    'icon' => $type === 'boarder' ? 'bi-house-heart-fill' : ($type === 'day' ? 'bi-person-walking' : 'bi-mortarboard-fill'),
+                    'color' => $type === 'boarder' ? '#1e40af' : '#198754',
+                    'kind' => 'fee',
+                    'scope' => $scope,
+                    'student_type' => $type,
+                ];
+            }
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT c.id, c.name
+             FROM academic_year_classes ayc
+             JOIN classes c ON c.id = ayc.class_id
+             WHERE ayc.academic_year_id = ?
+             ORDER BY c.id"
+        );
+        $stmt->execute([$yearId]);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $class) {
+            $classId = (int) $class['id'];
+            $className = (string) $class['name'];
+            foreach (['both' => 'Both Types', 'day' => 'Day Scholar', 'boarder' => 'Boarder'] as $type => $label) {
+                $items[] = [
+                    'key' => 'fee-class-' . $classId . '-' . $type,
+                    'title' => $yearLabel . ' ' . $className . ' Fee Structure — ' . $label,
+                    'category' => 'Class Fee Structures',
+                    'icon' => $type === 'boarder' ? 'bi-house-heart-fill' : ($type === 'day' ? 'bi-person-walking' : 'bi-card-list'),
+                    'color' => $type === 'boarder' ? '#1e40af' : '#198754',
+                    'kind' => 'fee',
+                    'scope' => 'class_' . $classId,
+                    'student_type' => $type,
+                ];
+            }
+        }
+
+        return $items;
+    }
+
     public function postDownloads($id = null, $data = [], $segments = [])
     {
         $guard = $this->requirePerm('website_downloads_manage');

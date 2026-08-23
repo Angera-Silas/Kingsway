@@ -23,6 +23,7 @@ $statutory = $statutory ?? ['paye'=>0,'nssf'=>0,'nhif_shif'=>0,'housing_levy'=>0
 $grossPay = $grossPay ?? 0;
 $totalDeductions = $totalDeductions ?? 0;
 $netPay = $netPay ?? 0;
+$useSharedReportShell = $useSharedReportShell ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -71,12 +72,12 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
 </style>
 </head>
 <body>
-<div class="ps-header">
+<?php if (!$useSharedReportShell): ?><div class="ps-header">
     <div class="school-name"><?= pe($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?></div>
     <div class="school-motto">"<?= pe($schoolMotto ?? 'In God We Soar') ?>"</div>
     <div class="ps-title">STAFF PAYSLIP</div>
     <div class="ps-period"><?= pe($period) ?></div>
-</div>
+</div><?php endif; ?>
 
 <table class="ps-info">
     <tr><td>Employee Name</td><td><strong><?= pe($employeeName ?? '') ?></strong></td><td>Staff No</td><td><?= pe($staffNo ?? '') ?></td></tr>
@@ -130,13 +131,13 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
     </table>
 </div>
 
-<div class="ps-signatures">
+<?php if (!$useSharedReportShell): ?><div class="ps-signatures">
     <table>
         <tr>
             <td><div class="sig-line"></div><div class="sig-name">Accounts Officer</div></td>
             <td><div class="sig-line"></div><div class="sig-name">Employee Acknowledgement</div></td>
         </tr>
     </table>
-</div>
+</div><?php endif; ?>
 </body>
 </html>

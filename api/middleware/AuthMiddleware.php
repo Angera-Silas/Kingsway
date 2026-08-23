@@ -93,6 +93,10 @@ class AuthMiddleware
             'website/events',
             'website/gallery',
             'website/downloads',
+            // Public fee structures and academic calendars are generated on
+            // demand and return short-lived encrypted download URLs.
+            'website/printable-downloads',
+            'website/printable-download',
             'website/jobs',
             'website/settings',
             'website/content',

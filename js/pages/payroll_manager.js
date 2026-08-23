@@ -1304,10 +1304,7 @@ const PayrollManagerController = {
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <img src="${this.escapeHtml(logoUrl)}" alt="${this.escapeHtml(schoolName)} Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
-                    <h4 class="mb-1">${this.escapeHtml(schoolName).toUpperCase()}</h4>
-                    <p class="mb-0">${this.escapeHtml(schoolLocation)}</p>
-                    <h5 class="mt-3">PAYSLIP</h5>
+                    <h5 class="mt-3">EMPLOYEE PAYSLIP</h5>
                     <p class="text-muted">${period}</p>
                 </div>
                 
@@ -1535,30 +1532,64 @@ const PayrollManagerController = {
    * Print payslip
    */
   printPayslip: async function () {
-    const source = document.getElementById("payslipPrintArea");
-
-    if (!source) {
+    if (!this.currentPayslipId) {
       this.showError("Payslip is not ready to print");
       return;
     }
 
-    await window.PrintManager.printRecord({
-      title: "Staff Payslip",
-      description: "Official payroll statement.",
-      sections: [
-        {
-          title: "Payslip Details",
-          content: source.innerHTML,
-          allowHtml: true,
+    try {
+      const data = await API.finance.getDetailedPayslip(this.currentPayslipId);
+      if (!data || !data.id) throw new Error("Payslip details are unavailable");
+      const number = (value) => Number.parseFloat(value) || 0;
+      const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const children = Array.isArray(data.children_deductions) ? data.children_deductions : [];
+      const deductions = children.map((child) => ({
+        name: `School fees — ${child.student_name || "Child"}${child.class_name ? ` (${child.class_name})` : ""}`,
+        amount: number(child.deducted_amount || child.amount),
+      }));
+      const other = number(data.other_deductions ?? data.other_deductions_total);
+      if (other > 0) deductions.push({ name: "Other deductions", amount: other });
+      const mode = data.payment_mode || data.payment_method || "Bank Transfer";
+      const modeLabels = { bank: "Bank Transfer", cash: "Cash", mpesa: "M-Pesa", airtel_money: "Airtel Money" };
+      const school = data.school_profile || {};
+
+      await window.PrintManager.printDedicatedPayslip({
+        title: "Staff Payslip",
+        subtitle: `${monthNames[Number(data.payroll_month)] || "-"} ${data.payroll_year || "-"}`,
+        employeeName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
+        staffNo: data.staff_no || data.staff_number || "-",
+        department: data.department || "-",
+        designation: data.position || data.designation || "-",
+        kraPin: data.kra_pin || "-",
+        period: `${monthNames[Number(data.payroll_month)] || "-"} ${data.payroll_year || "-"}`,
+        basicSalary: number(data.basic_salary),
+        allowances: number(data.allowances ?? data.allowances_total) > 0 ? [{ name: "Allowances", amount: number(data.allowances ?? data.allowances_total) }] : [],
+        deductions,
+        statutory: {
+          paye: number(data.paye_tax),
+          nssf: number(data.nssf_deduction ?? data.nssf_contribution),
+          nhif_shif: number(data.shif_deduction ?? data.shif_contribution ?? data.nhif_contribution),
+          housing_levy: number(data.housing_levy),
         },
-      ],
-      filename: `staff_payslip_${new Date().toISOString().slice(0, 10)}`,
-      reportCode: `PAYSLIP-${Date.now()}`,
-      signatureSection: [
-        { label: "Payroll Officer", dateLine: true },
-        { label: "Headteacher", dateLine: true },
-      ],
-    });
+        grossPay: number(data.gross_salary),
+        totalDeductions: number(data.total_deductions ?? data.employee_deductions_total),
+        netPay: number(data.net_salary),
+        paymentMethod: modeLabels[mode] || mode,
+        bankAccount: [data.bank_name, data.bank_account_number || data.bank_account].filter(Boolean).join(" / ") || "—",
+        schoolName: school.school_name,
+        schoolLogo: school.logo_url,
+        schoolMotto: school.motto,
+        filename: `staff_payslip_${data.payroll_year || new Date().getFullYear()}_${data.payroll_month || ""}`,
+        reportCode: `PAYSLIP-${data.id}`,
+        signatureSection: [
+          { label: "Accounts Officer", dateLine: true },
+          { label: "Employee Acknowledgement", dateLine: true },
+        ],
+      });
+    } catch (error) {
+      console.error("Error printing payslip:", error);
+      this.showError(error.message || "Unable to generate the payslip");
+    }
   },
 
   /**
