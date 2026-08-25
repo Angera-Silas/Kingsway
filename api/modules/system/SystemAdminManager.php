@@ -204,7 +204,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('promotion-', cpq.id) AS id,
                         'class_promotion' AS type,
-                        CONCAT('Class promotion batch #', cpq.batch_id, ': ', c.name, ' / ', COALESCE(s.name, 'N/A')) AS description,
+                        CONVERT(CONCAT('Class promotion batch #', cpq.batch_id, ': ', c.name, ' / ', COALESCE(s.name, 'N/A')) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
                         NULL AS amount,
                         cpq.approval_status AS status,
                         CASE cpq.approval_status
@@ -233,7 +233,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('purchase-order-', po.id) AS id,
                         'purchase_order' AS type,
-                        CONCAT('Purchase order ', po.order_number, ' awaiting approval') AS description,
+                        CONVERT(CONCAT('Purchase order ', po.order_number, ' awaiting approval') USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
                         po.total_amount AS amount,
                         po.status AS status,
                         CASE WHEN po.total_amount >= 100000 THEN 'high' ELSE 'medium' END AS priority,
@@ -254,7 +254,7 @@ class SystemAdminManager extends BaseAPI
                     SELECT
                         CONCAT('expense-', e.id) AS id,
                         'expense' AS type,
-                        CONCAT('Expense: ', COALESCE(e.description, e.expense_number)) AS description,
+                        CONVERT(CONCAT('Expense: ', COALESCE(e.description, e.expense_number)) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS description,
                         e.amount AS amount,
                         e.status AS status,
                         CASE WHEN e.amount >= 50000 THEN 'high' ELSE 'medium' END AS priority,
@@ -266,7 +266,7 @@ class SystemAdminManager extends BaseAPI
                     FROM expenses e
                     LEFT JOIN users u ON u.id = e.created_by
                     LEFT JOIN persons p ON p.id = u.person_id
-                    WHERE e.status = 'pending'
+                    WHERE e.status IN ('pending', 'pending_approval')
                 ";
             }
 

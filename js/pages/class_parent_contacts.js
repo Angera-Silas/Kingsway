@@ -21,10 +21,8 @@ const classParentContactsController = {
 
   _load: async function () {
     this._show('cpLoading');
-    const cls = document.getElementById('cpClassFilter')?.value || 'self';
-
     try {
-      const r = await callAPI('/students/parents?class=' + cls, 'GET');
+      const r = await callAPI('/students/parents?class=self', 'GET');
       this._data = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       this._filtered = [...this._data];
       this._render();

@@ -199,11 +199,11 @@ class TransportBillingManager
     {
         $stmt = $this->db->prepare("
             SELECT COUNT(*) AS total_bills,
-                   SUM(tmb.amount_due) AS total_due,
-                   SUM(COALESCE(tbp_sum.amount_paid, 0)) AS total_paid,
-                   SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)) AS total_outstanding,
-                   SUM(CASE WHEN tmb.payment_status='paid' THEN 1 ELSE 0 END) AS paid_count,
-                   SUM(CASE WHEN tmb.payment_status='pending' THEN 1 ELSE 0 END) AS pending_count
+                   COALESCE(SUM(tmb.amount_due), 0) AS total_due,
+                   COALESCE(SUM(COALESCE(tbp_sum.amount_paid, 0)), 0) AS total_paid,
+                   COALESCE(SUM(tmb.amount_due - COALESCE(tbp_sum.amount_paid, 0)), 0) AS total_outstanding,
+                   COALESCE(SUM(CASE WHEN tmb.payment_status='paid' THEN 1 ELSE 0 END), 0) AS paid_count,
+                   COALESCE(SUM(CASE WHEN tmb.payment_status='pending' THEN 1 ELSE 0 END), 0) AS pending_count
             FROM transport_monthly_bills tmb
             LEFT JOIN (
                 SELECT bill_id, SUM(amount) AS amount_paid

@@ -4,9 +4,8 @@
  *
  * Features:
  * - 4 KPI stat cards (Total Accounts, Combined Balance, Active Accounts, Last Reconciled)
- * - Filters: search, bank, type, status
- * - Data table with CRUD actions
- * - Add/Edit account modal
+ * - Filters: search, bank and status
+ * - Read-only data table of normalized school bank accounts
  * - Icon: fa-university
  */
 ?>
@@ -16,15 +15,12 @@
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1"><i class="bi bi-bank me-2 text-dark"></i>Bank Accounts</h2>
-            <p class="text-muted mb-0">Manage school bank accounts, balances and reconciliation</p>
+            <h2 class="mb-1"><i class="bi bi-bank me-2 text-dark"></i>School Bank Accounts</h2>
+            <p class="text-muted mb-0">View the school bank accounts that have been added and their balances</p>
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-secondary" onclick="BankAccountsController.exportCSV()">
                 <i class="bi bi-download me-1"></i> Export CSV
-            </button>
-            <button class="btn btn-dark" onclick="BankAccountsController.showCreateModal()">
-                <i class="bi bi-plus-lg me-1"></i> Add Account
             </button>
         </div>
     </div>
@@ -108,19 +104,12 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small text-muted">Type</label>
-                    <select class="form-select" id="baTypeFilter" onchange="BankAccountsController.filterData()">
-                        <option value="">All Types</option>
-                        <option value="Current">Current</option>
-                        <option value="Savings">Savings</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
                     <label class="form-label small text-muted">Status</label>
                     <select class="form-select" id="baStatusFilter" onchange="BankAccountsController.filterData()">
                         <option value="">All Statuses</option>
                         <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
+                        <option value="Pending_verification">Pending verification</option>
+                        <option value="Suspended">Suspended</option>
                         <option value="Closed">Closed</option>
                     </select>
                 </div>
@@ -144,16 +133,15 @@
                             <th scope="col">Bank Name</th>
                             <th scope="col">Account Name</th>
                             <th scope="col">Account Number</th>
-                            <th class="text-center">Type</th>
                             <th class="text-end">Balance (KES)</th>
                             <th class="text-center">Status</th>
                             <th scope="col">Last Transaction</th>
-                            <th class="text-center" width="140">Actions</th>
+                            <th class="text-center" width="100">View</th>
                         </tr>
                     </thead>
                     <tbody id="bankAccountsTableBody">
                         <tr>
-                            <td colspan="9" class="text-center py-4">
+                            <td colspan="8" class="text-center py-4">
                                 <div class="spinner-border text-dark spinner-border-sm me-2" role="status"></div>
                                 Loading bank accounts...
                             </td>
@@ -171,77 +159,4 @@
     </div>
 </div>
 
-<!-- Add/Edit Account Modal -->
-<div class="modal fade" id="bankAccountModal" tabindex="-1" aria-labelledby="bankAccountModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title" id="bankAccountModalLabel">
-                    <i class="bi bi-bank me-2"></i> Add Bank Account
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <form id="bankAccountForm">
-                    <input type="hidden" id="ba_id">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Bank Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="ba_bank_name" placeholder="e.g. KCB, Equity, Co-op" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Branch</label>
-                            <input type="text" class="form-control" id="ba_branch" placeholder="Branch name">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Account Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="ba_account_name" placeholder="Account holder name" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Account Number <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="ba_account_number" placeholder="Account number" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Account Type <span class="text-danger">*</span></label>
-                            <select class="form-select" id="ba_type" required>
-                                <option value="">Select Type</option>
-                                <option value="Current">Current</option>
-                                <option value="Savings">Savings</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Financial Purpose <span class="text-danger">*</span></label>
-                            <select class="form-select" id="ba_purpose" required>
-                                <option value="operations">General operations</option>
-                                <option value="fees">School fees</option>
-                                <option value="transport">Transport</option>
-                                <option value="uniforms">Uniforms and merchandise</option>
-                                <option value="payroll">Payroll</option>
-                                <option value="suppliers">Suppliers and procurement</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Opening Balance (KES)</label>
-                            <input type="number" class="form-control" id="ba_opening_balance" step="0.01" min="0" placeholder="0.00">
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-dark" onclick="BankAccountsController.saveAccount()">
-                    <i class="bi bi-check-lg me-1"></i> Save Account
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <?php asset_script($appBase, 'js/pages/bank_accounts.js'); ?>
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof BankAccountsController !== 'undefined') {
-            BankAccountsController.init();
-        }
-    });
-</script>

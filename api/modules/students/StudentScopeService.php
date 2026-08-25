@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\API\Modules\students;
 
+use App\API\Services\TeacherScopeService;
 use PDO;
 
 /**
@@ -33,6 +34,7 @@ class StudentScopeService
             'student_ids' => [],
             'class_ids' => [],
             'stream_ids' => [],
+            'class_stream_pairs' => [],
             'boarding_only' => false,
             'transport_route_ids' => [],
         ];
@@ -47,11 +49,16 @@ class StudentScopeService
         }
 
         if ($context === 'teacher_class') {
-            $scope = array_merge($scope, $this->staffClassScope($user, ['class_teacher']));
+            // Class teachers have pastoral ownership of their streams and may
+            // also teach specialist areas in other streams (especially Grades
+            // 4-9). Their learner visibility is the blended union.
+            $teacher = (new TeacherScopeService($this->db))->forUser($user);
+            $scope['class_stream_pairs'] = $teacher['class_stream_pairs'] ?? [];
         }
 
         if ($context === 'subject_teacher') {
-            $scope = array_merge($scope, $this->staffClassScope($user, ['subject_teacher', 'assistant', 'hod']));
+            $teacher = (new TeacherScopeService($this->db))->forUser($user);
+            $scope['class_stream_pairs'] = $teacher['subject_stream_pairs'] ?? [];
         }
 
         if ($context === 'parent_children') {
@@ -86,7 +93,7 @@ class StudentScopeService
                 $clauses[] = 's.id IN (' . implode(',', array_fill(0, count($scope['student_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['student_ids']);
             }
-            if (!empty($scope['stream_ids'])) {
+            if (!empty($scope['stream_ids']) && empty($scope['class_stream_pairs'])) {
                 $clauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['stream_ids']);
             }
@@ -97,6 +104,15 @@ class StudentScopeService
             if (!empty($scope['transport_route_ids'])) {
                 $clauses[] = 'sta.route_id IN (' . implode(',', array_fill(0, count($scope['transport_route_ids']), '?')) . ')';
                 $bindings = array_merge($bindings, $scope['transport_route_ids']);
+            }
+            if (!empty($scope['class_stream_pairs'])) {
+                $pairClauses = [];
+                foreach ($scope['class_stream_pairs'] as $pair) {
+                    $pairClauses[] = '(ayc.class_id = ? AND aycs.stream_id = ?)';
+                    $bindings[] = (int) $pair['class_id'];
+                    $bindings[] = (int) $pair['stream_id'];
+                }
+                $clauses[] = '(' . implode(' OR ', $pairClauses) . ')';
             }
             $conditions[] = $clauses ? '(' . implode(' OR ', $clauses) . ')' : '1 = 0';
         } elseif (!empty($scope['transport_route_ids'])) {
@@ -129,7 +145,14 @@ class StudentScopeService
         }
 
         $classClauses = [];
-        if (!empty($scope['stream_ids'])) {
+        if (!empty($scope['class_stream_pairs'])) {
+            foreach ($scope['class_stream_pairs'] as $pair) {
+                $classClauses[] = '(ayc.class_id = ? AND aycs.stream_id = ?)';
+                $bindings[] = (int) $pair['class_id'];
+                $bindings[] = (int) $pair['stream_id'];
+            }
+        }
+        if (!empty($scope['stream_ids']) && empty($scope['class_stream_pairs'])) {
             $classClauses[] = 'aycs.stream_id IN (' . implode(',', array_fill(0, count($scope['stream_ids']), '?')) . ')';
             $bindings = array_merge($bindings, $scope['stream_ids']);
         }
@@ -146,7 +169,7 @@ class StudentScopeService
             $bindings = array_merge($bindings, $scope['transport_route_ids']);
         }
 
-        if (!empty($scope['restricted']) && empty($scope['student_ids']) && empty($scope['class_ids']) && empty($scope['stream_ids']) && empty($scope['transport_route_ids'])) {
+        if (!empty($scope['restricted']) && empty($scope['student_ids']) && empty($scope['class_ids']) && empty($scope['stream_ids']) && empty($scope['class_stream_pairs']) && empty($scope['transport_route_ids'])) {
             return false;
         }
 
@@ -192,6 +215,8 @@ class StudentScopeService
         $where[] = 'la_teachers.role IN (' . implode(',', array_fill(0, count($roles), '?')) . ')';
         $bindings = array_merge($bindings, $roles);
 
+        $rows = [];
+        if (!in_array('class_teacher', $roles, true)) {
         $stmt = $this->db->prepare("
             SELECT DISTINCT ayc.class_id, aycs.stream_id, aycs.id AS academic_year_class_stream_id
             FROM academic_year_class_learning_area_teachers la_teachers
@@ -205,10 +230,39 @@ class StudentScopeService
         );
         $stmt->execute($bindings);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        }
+
+        // Class-teacher ownership is stored on the active class-stream row,
+        // not in the learning-area teacher table. Include those streams so a
+        // class teacher sees the learners actually assigned to her/his class.
+        if (in_array('class_teacher', $roles, true)) {
+            $classWhere = ["EXISTS (
+                SELECT 1 FROM vw_teacher_effective_stream_learning_areas teacher_scope
+                WHERE teacher_scope.staff_id = ?
+                  AND teacher_scope.academic_year_class_stream_id = aycs.id
+                  AND teacher_scope.scope_type = 'class_teacher'
+            )"];
+            $classBindings = [$staffId];
+            if ($yearId) {
+                $classWhere[] = 'ayc.academic_year_id = ?';
+                $classBindings[] = $yearId;
+            }
+            $classStmt = $this->db->prepare("SELECT DISTINCT ayc.class_id, aycs.stream_id
+                FROM academic_year_class_streams aycs
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE " . implode(' AND ', $classWhere));
+            $classStmt->execute($classBindings);
+            $rows = array_merge($rows, $classStmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
+        }
 
         return [
             'class_ids' => array_values(array_unique(array_filter(array_map('intval', array_column($rows, 'class_id'))))),
             'stream_ids' => array_values(array_unique(array_filter(array_map('intval', array_column($rows, 'stream_id'))))),
+            'class_stream_pairs' => array_values(array_map(static function ($row) {
+                return ['class_id' => (int) $row['class_id'], 'stream_id' => (int) $row['stream_id']];
+            }, array_filter($rows, static function ($row) {
+                return !empty($row['class_id']) && !empty($row['stream_id']);
+            }))),
         ];
     }
 

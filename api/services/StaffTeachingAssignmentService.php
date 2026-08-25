@@ -201,8 +201,9 @@ final class StaffTeachingAssignmentService
         $staffId = (int)($data['teacher_id'] ?? $data['staff_id'] ?? 0);
         $subjectId = (int)($data['subject_id'] ?? 0);
         $classId = (int)($data['class_id'] ?? 0);
+        $streamId = (int)($data['stream_id'] ?? $data['academic_year_class_stream_id'] ?? 0);
         $yearId = (int)($data['academic_year_id'] ?? 0) ?: $this->currentYearId();
-        if (!$staffId || !$subjectId || !$classId) throw new RuntimeException('teacher_id, subject_id and class_id are required', 422);
+        if (!$staffId || !$subjectId || !$classId || !$streamId) throw new RuntimeException('teacher_id, subject_id, class_id and stream_id are required', 422);
         $this->teacher($staffId);
 
         $role = in_array(($data['role'] ?? 'subject_teacher'), ['subject_teacher','assistant','hod'], true) ? $data['role'] : 'subject_teacher';
@@ -215,6 +216,49 @@ final class StaffTeachingAssignmentService
             [$aycId, $subjectId]
         )->fetchColumn();
         if (!$areaId) throw new RuntimeException('This learning area is not set up for the class in the selected academic year', 422);
+
+        // Grade 4-9 commonly assigns different subject teachers to parallel
+        // streams. Persist that relationship at stream level when supplied;
+        // the older class-level table remains available for assignments that
+        // intentionally apply to every stream.
+        if ($streamId > 0) {
+            $streamValid = (int)$this->db->query(
+                "SELECT COUNT(*) FROM academic_year_class_streams
+                 WHERE id = ? AND academic_year_class_id = ? AND status IN ('planning','active')",
+                [$streamId, $aycId]
+            )->fetchColumn();
+            if (!$streamValid) throw new RuntimeException('This stream is not part of the selected class and academic year', 422);
+            $contextId = (int)$this->db->query(
+                "SELECT sla.id FROM academic_year_class_stream_learning_areas sla
+                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                 WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
+                [$streamId, $subjectId]
+            )->fetchColumn();
+            if (!$contextId) throw new RuntimeException('This learning area is not configured for the selected stream', 422);
+            if ($id) {
+                $this->db->query(
+                    "UPDATE academic_year_class_stream_learning_area_teachers
+                     SET academic_year_class_stream_id = ?, academic_year_class_stream_learning_area_id = ?, academic_year_term_id = ?, learning_area_id = ?, staff_id = ?, role = ?
+                     WHERE id = ?",
+                    [$streamId, $contextId, $termId, $subjectId, $staffId, $role, $id]
+                );
+                return $id;
+            }
+            $conflict = $this->db->query(
+                "SELECT id FROM academic_year_class_stream_learning_area_teachers
+                 WHERE academic_year_class_stream_id = ? AND academic_year_term_id = ?
+                   AND learning_area_id = ? AND staff_id = ? AND role = ? LIMIT 1",
+                [$streamId, $termId, $subjectId, $staffId, $role]
+            )->fetchColumn();
+            if ($conflict) throw new RuntimeException('Duplicate stream subject assignment', 409);
+            $this->db->query(
+                "INSERT INTO academic_year_class_stream_learning_area_teachers
+                    (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, learning_area_id, staff_id, role)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                [$streamId, $contextId, $termId, $subjectId, $staffId, $role]
+            );
+            return (int)$this->db->lastInsertId();
+        }
 
         if ($id) {
             $this->db->query(

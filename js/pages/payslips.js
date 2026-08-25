@@ -8,6 +8,10 @@ document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAcce
 const payslipsController = {
 
   _staffId:  null,
+  _selectedStaffId: null,
+  _canSelectStaff: false,
+  _activeTab: 'personal',
+  _selectedEmployeeIds: new Set(),
   _payslips: [],
   _currentSlipData: null,
 
@@ -18,10 +22,55 @@ const payslipsController = {
       return;
     }
     const user = AuthContext.getUser();
-    this._staffId = user?.staff_id ?? user?.user_id ?? null;
+    // This is a personal payslip page. A user ID is not a staff ID; using it
+    // here made the page query the wrong employee (or fall through to the
+    // finance-wide payroll list). Only use an explicitly linked staff record.
+    this._staffId = user?.staff_id ?? user?.staff?.id ?? null;
+    this._selectedStaffId = this._staffId;
+    const roles = [user?.role_name, ...(Array.isArray(user?.roles) ? user.roles.map(r => r?.name || r) : [])]
+      .filter(Boolean).map(r => String(r).toLowerCase());
+    this._canSelectStaff = roles.some(r => ['director', 'school administrator', 'school admin', 'accountant'].includes(r));
+    this._activeTab = this._canSelectStaff ? 'employees' : 'personal';
 
     this._populateYearFilter();
+    this._applyTabState();
     await this.load();
+  },
+
+  switchTab: function (tab) {
+    if (tab === 'employees' && !this._canSelectStaff) return;
+    this._activeTab = tab === 'employees' ? 'employees' : 'personal';
+    this._selectedStaffId = this._activeTab === 'employees' ? null : this._staffId;
+    this._selectedEmployeeIds.clear();
+    this._applyTabState();
+    this.load();
+  },
+
+  _applyTabState: function () {
+    const employeeItem = document.getElementById('employeePayslipsTabItem');
+    const employeeTab = document.getElementById('employeePayslipsTab');
+    const personalTab = document.getElementById('personalPayslipsTab');
+    const summary = document.getElementById('psCurrentSummary');
+    const p9 = document.getElementById('psP9Button');
+    const view = document.getElementById('psViewSelected');
+    const generate = document.getElementById('psGenerateSelectedP9');
+    const print = document.getElementById('psPrintSelected');
+    const email = document.getElementById('psShareEmail');
+    const whatsapp = document.getElementById('psShareWhatsapp');
+    if (employeeItem) employeeItem.hidden = !this._canSelectStaff;
+    if (employeeTab) employeeTab.classList.toggle('active', this._activeTab === 'employees');
+    if (personalTab) personalTab.classList.toggle('active', this._activeTab === 'personal');
+    if (summary) summary.hidden = this._activeTab === 'employees';
+    if (p9) p9.hidden = this._activeTab === 'employees';
+    if (view) view.hidden = this._activeTab !== 'employees';
+    if (generate) generate.hidden = this._activeTab !== 'employees';
+    if (print) print.hidden = this._activeTab !== 'employees';
+    if (email) email.hidden = this._activeTab !== 'employees';
+    if (whatsapp) whatsapp.hidden = this._activeTab !== 'employees';
+    const title = document.querySelector('#payslipsPage h3');
+    if (title) title.innerHTML = this._activeTab === 'employees'
+      ? '<i class="bi bi-people me-2 text-primary"></i>Employee Payslips &amp; P9 Forms'
+      : '<i class="bi bi-person me-2 text-primary"></i>My Payslips &amp; P9 Forms';
   },
 
   _populateYearFilter: function () {
@@ -34,21 +83,43 @@ const payslipsController = {
 
   load: async function () {
     const tbody = document.getElementById('psTableBody');
+    const thead = tbody?.closest('table')?.querySelector('thead');
+    if (thead && this._activeTab === 'personal') {
+      thead.innerHTML = '<tr><th>Month</th><th class="text-end">Gross Pay</th><th class="text-end">PAYE</th><th class="text-end">SHIF</th><th class="text-end">NSSF</th><th class="text-end">Net Pay</th><th>Status</th><th></th></tr>';
+    }
     tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
 
     const year = document.getElementById('psYear').value;
+    const selectedStaffId = this._activeTab === 'personal' ? this._staffId : null;
+    const p9 = document.getElementById('psP9Button');
+    if (p9) p9.disabled = !selectedStaffId;
+    if (!selectedStaffId) {
+      if (this._activeTab === 'employees') {
+        try {
+          this._selectedEmployeeIds.clear();
+          const response = await window.API.finance.getPayrollList({ year });
+          const payload = response?.data ?? response;
+          this._payslips = Array.isArray(payload) ? payload : (payload?.payroll || payload?.rows || []);
+          this._renderEmployeeTable(tbody, this._payslips);
+          this._updateBulkActions();
+        } catch (e) {
+          tbody.innerHTML = '<tr><td colspan="9" class="text-danger text-center py-4">Failed to load employee payslips.</td></tr>';
+        }
+        return;
+      }
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No personal staff profile is linked to this account.</td></tr>';
+      return;
+    }
     try {
-      const params = { year };
-      if (this._staffId) params.staff_id = this._staffId;
-
-      const r = await callAPI('/staff/payroll-list?' + new URLSearchParams(params).toString(), 'GET');
-      // The API returns { data: { payroll: [...] } } while older deployments
-      // may unwrap the outer data object. Accept both shapes, but never create
-      // client-side payroll rows when the database returns none.
+      const endpoint = `/staff/payroll-history?staff_id=${encodeURIComponent(selectedStaffId)}`;
+      const r = await callAPI(endpoint, 'GET', null, { year });
+      // This endpoint is staff-scoped and returns payroll_history. Do not use
+      // /finance/payroll-list here: that endpoint intentionally returns every
+      // employee for payroll administration.
       const payload = r?.data ?? r;
       this._payslips = Array.isArray(payload)
         ? payload
-        : (Array.isArray(payload?.payroll) ? payload.payroll : []);
+        : (Array.isArray(payload?.payroll_history) ? payload.payroll_history : []);
 
       // Update current month card with most recent payslip
       if (this._payslips.length) {
@@ -63,15 +134,101 @@ const payslipsController = {
     }
   },
 
+  _renderEmployeeTable: function (tbody, rows) {
+    const fmt = n => n != null ? 'KES ' + Number(n).toLocaleString('en-KE', { minimumFractionDigits: 2 }) : '—';
+    const thead = tbody?.closest('table')?.querySelector('thead');
+    if (thead) thead.innerHTML = '<tr><th class="text-center"><i class="bi bi-check2-square"></i></th><th>Employee</th><th>Period</th><th class="text-end">Gross Pay</th><th class="text-end">PAYE</th><th class="text-end">SHIF</th><th class="text-end">NSSF</th><th class="text-end">Net Pay</th><th>Status</th></tr>';
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No employee payslips found for this year.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(row => {
+      const id = Number(row.id || row.payslip_id);
+      const status = row.status || row.payslip_status || 'issued';
+      return `<tr>
+        <td class="text-center"><input type="checkbox" class="ps-employee-check" value="${id}" onchange="payslipsController.toggleEmployee(${id}, this.checked)" ${this._selectedEmployeeIds.has(id) ? 'checked' : ''}></td>
+        <td><strong>${this._esc(row.staff_name || '—')}</strong><div class="small text-muted">${this._esc(row.staff_no || row.staff_number || '')}</div></td>
+        <td>${this._esc(row.period_display || row.payroll_period || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`)}</td>
+        <td class="text-end">${fmt(row.gross_salary || row.gross_pay)}</td>
+        <td class="text-end">${fmt(row.paye_tax || row.paye_deduction)}</td>
+        <td class="text-end">${fmt(row.shif_contribution || row.shif_deduction || row.nhif_contribution)}</td>
+        <td class="text-end">${fmt(row.nssf_contribution || row.nssf_deduction)}</td>
+        <td class="text-end fw-semibold">${fmt(row.net_salary || row.net_pay)}</td>
+        <td><span class="badge bg-${status === 'paid' ? 'success' : status === 'approved' ? 'primary' : 'secondary'}">${this._esc(status)}</span></td>
+      </tr>`;
+    }).join('');
+  },
+
+  toggleEmployee: function (id, checked) {
+    if (checked) this._selectedEmployeeIds.add(Number(id));
+    else this._selectedEmployeeIds.delete(Number(id));
+    this._updateBulkActions();
+  },
+
+  _updateBulkActions: function () {
+    const count = this._selectedEmployeeIds.size;
+    const view = document.getElementById('psViewSelected');
+    const generate = document.getElementById('psGenerateSelectedP9');
+    const print = document.getElementById('psPrintSelected');
+    const email = document.getElementById('psShareEmail');
+    const whatsapp = document.getElementById('psShareWhatsapp');
+    if (view) view.disabled = count < 1;
+    if (generate) generate.disabled = count < 1;
+    if (print) print.disabled = count < 1;
+    if (email) email.disabled = count < 1;
+    if (whatsapp) whatsapp.disabled = count < 1;
+  },
+
+  viewSelected: function () {
+    if (!this._selectedEmployeeIds.size) {
+      showNotification('Select at least one employee payslip to view.', 'warning');
+      return;
+    }
+    const rows = this._payslips.filter(item => this._selectedEmployeeIds.has(Number(item.id || item.payslip_id)));
+    const body = document.getElementById('payslipModalBody');
+    body.innerHTML = rows.map(row => `<div class="border-bottom mb-4 pb-3"><h5>${this._esc(row.staff_name || 'Employee')} <small class="text-muted">${this._esc(row.period_display || '')}</small></h5>${this._renderSlipHtml(row)}</div>`).join('');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('payslipModal')).show();
+  },
+
+  printSelected: function () {
+    if (!this._selectedEmployeeIds.size) return showNotification('Select payslips to print.', 'warning');
+    this._selectedEmployeeIds.forEach(id => {
+      const row = this._payslips.find(item => Number(item.id || item.payslip_id) === id);
+      if (row) this._printRow(row);
+    });
+  },
+
+  _printRow: function (row) {
+    if (!window.PrintManager?.printDedicatedPayslip) return;
+    return window.PrintManager.printDedicatedPayslip({
+      employeeName: row.staff_name || '', staffNo: row.staff_no || row.staff_number || '',
+      period: row.period_display || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`,
+      basicSalary: row.basic_salary || 0, grossPay: row.gross_salary || row.gross_pay || 0,
+      totalDeductions: row.total_deductions || 0, netPay: row.net_salary || row.net_pay || 0,
+      statutory: { paye: row.paye_tax || row.paye_deduction || 0, nssf: row.nssf_contribution || row.nssf_deduction || 0, nhif_shif: row.shif_contribution || row.shif_deduction || 0 },
+      filename: `payslip_${row.staff_no || row.staff_id}_${row.payroll_year}_${row.payroll_month}`,
+    });
+  },
+
+  shareSelected: async function (channel) {
+    if (!this._selectedEmployeeIds.size) return showNotification('Select payslips first.', 'warning');
+    const names = this._payslips.filter(r => this._selectedEmployeeIds.has(Number(r.id || r.payslip_id))).map(r => r.staff_name).join(', ');
+    const text = `Kingsway Preparatory School payslips: ${names}`;
+    if (channel === 'whatsapp') window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    else window.location.href = `mailto:?subject=${encodeURIComponent('Kingsway Preparatory School Payslips')}&body=${encodeURIComponent(text)}`;
+  },
+
   _updateCurrentCard: function (slip) {
     const fmt  = n => n != null ? 'KES ' + Number(n).toLocaleString('en-KE', { minimumFractionDigits: 2 }) : '—';
     const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
 
-    setEl('psCurrentMonth', slip.month_label ?? slip.payroll_period ?? slip.month ?? '—');
+    const period = slip.month_label ?? slip.period_display ?? slip.payroll_period
+      ?? `${slip.payroll_year || ''}-${String(slip.payroll_month || '').padStart(2, '0')}`.replace(/^-|-$/g, '');
+    setEl('psCurrentMonth', period || '—');
     setEl('psGross',        fmt(slip.gross_pay     ?? slip.gross_salary));
     setEl('psDeductions',   fmt(slip.total_deductions));
     setEl('psNet',          fmt(slip.net_pay        ?? slip.net_salary));
-    setEl('psStatus',       (slip.status ?? '').toUpperCase() || 'ISSUED');
+    setEl('psStatus',       (slip.status ?? slip.payslip_status ?? '').toUpperCase() || 'ISSUED');
     this._currentSlipData = slip;
   },
 
@@ -83,15 +240,15 @@ const payslipsController = {
     const fmt = n => n != null ? 'KES ' + Number(n).toLocaleString('en-KE', { minimumFractionDigits: 2 }) : '—';
     tbody.innerHTML = payslips.map(s => `
       <tr>
-        <td><strong>${this._esc(s.month_label ?? s.payroll_period ?? s.month ?? '—')}</strong></td>
+        <td><strong>${this._esc(s.month_label ?? s.period_display ?? s.payroll_period ?? `${s.payroll_year || ''}-${String(s.payroll_month || '').padStart(2, '0')}`)}</strong></td>
         <td class="text-end">${fmt(s.gross_pay ?? s.gross_salary)}</td>
         <td class="text-end text-muted">${fmt(s.paye_tax ?? s.paye)}</td>
         <td class="text-end text-muted">${fmt(s.shif ?? s.nhif ?? s.nhif_contribution)}</td>
         <td class="text-end text-muted">${fmt(s.nssf ?? s.nssf_contribution)}</td>
         <td class="text-end fw-semibold text-success">${fmt(s.net_pay ?? s.net_salary)}</td>
-        <td><span class="badge bg-${s.status === 'paid' || s.status === 'disbursed' ? 'success' : s.status === 'pending' ? 'warning' : 'secondary'}">${s.status ?? 'issued'}</span></td>
+        <td><span class="badge bg-${(s.status ?? s.payslip_status) === 'paid' || (s.status ?? s.payslip_status) === 'disbursed' ? 'success' : (s.status ?? s.payslip_status) === 'pending' ? 'warning' : 'secondary'}">${this._esc(s.status ?? s.payslip_status ?? 'issued')}</span></td>
         <td>
-          <button class="btn btn-sm btn-outline-primary" onclick="payslipsController.viewSlip(${s.id ?? s.payroll_id ?? 'null'}, '${this._esc(s.month ?? '')}', ${s.year ?? new Date().getFullYear()})">
+          <button class="btn btn-sm btn-outline-primary" onclick="payslipsController.viewSlip(${s.id ?? s.payslip_id ?? s.payroll_id ?? 'null'}, '${this._esc(s.month ?? s.payroll_month ?? '')}', ${s.year ?? s.payroll_year ?? new Date().getFullYear()})">
             <i class="bi bi-eye"></i>
           </button>
         </td>
@@ -110,14 +267,32 @@ const payslipsController = {
       // Try detailed payslip endpoint
       const params = {};
       if (id)           params.payroll_id = id;
-      if (this._staffId) params.staff_id  = this._staffId;
+      if (this._selectedStaffId) params.staff_id  = this._selectedStaffId;
       if (month)         params.month     = month;
       if (year)          params.year      = year;
 
       const r = await callAPI('/staff/payroll-detailed-payslip?' + new URLSearchParams(params).toString(), 'GET');
-      detail = r?.data ?? r;
+      const raw = (r?.data?.data ?? r?.data ?? r);
+      // Staff detailed-payslip returns { payslip, allowances_breakdown,
+      // deductions_breakdown }. Normalize that contract for the view model.
+      const base = raw?.payslip || raw;
+      detail = {
+        ...base,
+        employee_name: base.employee_name || base.staff_name,
+        employee_no: base.employee_no || base.staff_no,
+        department: base.department || base.department_name,
+        allowances: base.allowances || raw?.allowances_breakdown || [],
+        deductions: base.deductions || raw?.deductions_breakdown || [],
+        total_deductions: base.total_deductions ?? (
+          Number(base.paye_tax || 0) + Number(base.nssf_contribution || 0) +
+          Number(base.nhif_contribution || base.shif_contribution || 0) +
+          Number(base.housing_levy || 0) + Number(base.loan_deduction || 0) +
+          Number(base.other_deductions_total || 0)
+        )
+      };
 
       if (detail) {
+        this._currentSlipData = detail;
         body.innerHTML = this._renderSlipHtml(detail);
       } else {
         body.innerHTML = '<div class="alert alert-warning">Payslip detail not available.</div>';
@@ -130,6 +305,8 @@ const payslipsController = {
   _renderSlipHtml: function (d) {
     const fmt  = n => n != null ? 'KES ' + Number(n).toLocaleString('en-KE', { minimumFractionDigits: 2 }) : '—';
     const row  = (label, value, cls = '') => `<tr><td class="text-muted">${label}</td><td class="text-end ${cls}">${value}</td></tr>`;
+    const allowances = Array.isArray(d.allowances) ? d.allowances : (Array.isArray(d.allowances_breakdown) ? d.allowances_breakdown : []);
+    const deductions = Array.isArray(d.deductions) ? d.deductions : (Array.isArray(d.deductions_breakdown) ? d.deductions_breakdown : []);
 
     return `
       <div class="p-3">
@@ -160,7 +337,7 @@ const payslipsController = {
           <thead class="table-light"><tr><th>Earnings</th><th class="text-end">Amount</th></tr></thead>
           <tbody>
             ${row('Basic Salary', fmt(d.basic_salary))}
-            ${(d.allowances ?? []).map(a => row(this._esc(a.name), fmt(a.amount))).join('')}
+            ${allowances.map(a => row(this._esc(a.name || a.description || a.item_name || 'Allowance'), fmt(a.amount ?? a.value))).join('')}
             <tr class="fw-bold"><td>Gross Pay</td><td class="text-end">${fmt(d.gross_pay ?? d.gross_salary)}</td></tr>
           </tbody>
         </table>
@@ -174,7 +351,7 @@ const payslipsController = {
             ${row('Employee Housing Levy', fmt(d.housing_levy), 'text-danger')}
             ${row('Employer NSSF (school cost)', fmt(d.employer_nssf_contribution), 'text-muted')}
             ${row('Employer Housing Levy (school cost)', fmt(d.employer_housing_levy), 'text-muted')}
-            ${(d.deductions ?? []).map(x => row(this._esc(x.name), fmt(x.amount), 'text-danger')).join('')}
+            ${deductions.map(x => row(this._esc(x.name || x.description || x.item_name || 'Deduction'), fmt(x.amount ?? x.value), 'text-danger')).join('')}
             <tr class="fw-bold text-danger"><td>Total Deductions</td><td class="text-end">${fmt(d.total_deductions)}</td></tr>
           </tbody>
         </table>
@@ -188,22 +365,22 @@ const payslipsController = {
 
   viewCurrentSlip: function () { this.viewSlip(null); },
   printCurrentSlip: function () {
-    if (!this.data.currentPayslip) {
+    if (!this._currentSlipData) {
       showNotification("No payslip to print", "warning");
       return;
     }
 
-    const payslip = this.data.currentPayslip;
-    const staff = this.data.selectedStaff || {};
+    const payslip = this._currentSlipData;
+    const staff = payslip;
 
     if (window.PrintManager && window.PrintManager.printDedicatedPayslip) {
       window.PrintManager.printDedicatedPayslip({
-        employeeName: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
+        employeeName: staff.employee_name || staff.staff_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
         staffNo: staff.staff_no || '',
         department: staff.department_name || staff.department || '',
         designation: staff.designation || staff.position || '',
         kraPin: staff.kra_pin || '',
-        period: payslip.period || new Date().toISOString().slice(0, 7),
+        period: payslip.period || payslip.payroll_period || `${payslip.payroll_year || new Date().getFullYear()}-${String(payslip.payroll_month || new Date().getMonth() + 1).padStart(2, '0')}`,
         basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
         allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
         deductions: (payslip.deductions || []).map(d => ({ name: d.description || d.name || '', amount: d.amount || d.value || 0 })),
@@ -227,37 +404,60 @@ const payslipsController = {
   downloadP9: async function () {
     try {
       const year = document.getElementById('psYear').value;
-      const staffId = this._staffId;
+      let staffId = this._activeTab === 'employees' ? null : this._staffId;
+      if (this._activeTab === 'employees') {
+        if (!this._selectedEmployeeIds.size) {
+          showNotification('Select at least one employee before generating P9 forms.', 'warning');
+          return;
+        }
+        const rows = this._payslips.filter(item => this._selectedEmployeeIds.has(Number(item.id || item.payslip_id)));
+        for (const row of rows) {
+          await this._generateP9ForStaff(Number(row.staff_id), year, row);
+        }
+        return;
+      }
+      if (!staffId || !this._payslips.length) {
+        showNotification('Select an employee with payroll data before generating a P9.', 'warning');
+        return;
+      }
 
       if (window.PrintManager && window.PrintManager.printP9Form) {
         const payslip = this._currentSlipData || {};
         const staff = payslip;
-        await window.PrintManager.printP9Form({
-          employeeName: staff.employee_name || staff.staff_name || '',
-          staffNo: staff.staff_no || '',
-          kraPin: staff.kra_pin || '',
-          department: staff.department_name || '',
-          designation: staff.designation || '',
-          taxYear: year,
-          employerName: 'Kingsway Preparatory School',
-          employerPin: '',
-          employerKraAddress: '',
-          monthlyData: staff.monthly_payslips || payslip.monthly_payslips || [],
-          basicSalary: staff.basic_salary || 0,
-          grossPay: staff.gross_pay || 0,
-          totalPaye: staff.paye_tax || staff.paye || 0,
-          totalNssf: staff.nssf || 0,
-          totalNhifShif: staff.nhif || staff.shif || 0,
-          totalHousingLevy: staff.housing_levy || 0,
-          filename: `P9_${staff.staff_no || staffId || 'staff'}_${year}`,
-        });
+        await this._generateP9ForStaff(staffId, year, staff);
       } else {
         const params = new URLSearchParams({ year });
-        if (staffId) params.set('staff_id', staffId);
+        params.set('staff_id', staffId);
         const url = (window.APP_BASE || '') + '/api/staff/payroll-download-p9?' + params.toString();
         window.open(url, '_blank');
       }
     } catch (e) { showNotification('P9 download failed', 'error'); }
+  },
+
+  _generateP9ForStaff: async function (staffId, year, staff = {}) {
+    if (!staffId || !window.PrintManager?.printP9Form) return;
+    return window.PrintManager.printP9Form({
+      employeeName: staff.employee_name || staff.staff_name || '',
+      staffNo: staff.staff_no || staff.staff_number || '',
+      kraPin: staff.kra_pin || '',
+      department: staff.department_name || staff.department || '',
+      designation: staff.designation || staff.position || '',
+      taxYear: year,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      staff_id: staffId,
+      employerName: 'Kingsway Preparatory School',
+      employerPin: '',
+      employerKraAddress: '',
+      monthlyData: staff.monthly_payslips || [],
+      basicSalary: staff.basic_salary || 0,
+      grossPay: staff.gross_pay || staff.gross_salary || 0,
+      totalPaye: staff.paye_tax || staff.paye || staff.paye_deduction || 0,
+      totalNssf: staff.nssf || staff.nssf_contribution || staff.nssf_deduction || 0,
+      totalNhifShif: staff.nhif || staff.shif || staff.shif_contribution || staff.shif_deduction || 0,
+      totalHousingLevy: staff.housing_levy || 0,
+      filename: `P9_${staff.staff_no || staff.staff_number || staffId || 'staff'}_${year}`,
+    });
   },
 
   _esc: function (str) {

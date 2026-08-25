@@ -1,153 +1,21 @@
 <?php
-/**
- * Transport - Operator Layout
- * For Drivers (view their assigned route and students)
- * Features: 2 stat cards, student list, mark attendance, route stops
- */
-/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
+/** Bus device / driver manifest view. USB QR readers operate as HID input. */
 ?>
-
-<!-- Stats - 2 columns -->
-<div class="row mb-4">
-    <div class="col-6">
-        <div class="card shadow-sm border-0 text-center">
-            <div class="card-body">
-                <div class="fs-2">👨‍🎓</div>
-                <h4 id="studentCount" class="mb-0">0</h4>
-                <small class="text-muted">Students</small>
-            </div>
+<link rel="stylesheet" href="<?= htmlspecialchars(($appBase ?? '') . '/css/transport-operator.css', ENT_QUOTES, 'UTF-8') ?>">
+<main class="transport-operator" id="transportOperatorApp">
+    <section class="operator-hero">
+        <div><div class="operator-kicker"><i class="bi bi-bus-front-fill"></i> BUS DEVICE</div><h1>Live passenger manifest</h1><p>Connect the USB QR scanner to this device. Every accepted scan appears here immediately.</p></div>
+        <div class="operator-status-wrap"><span id="operatorConnectivity" class="operator-status offline"><i class="bi bi-wifi-off"></i> Connecting…</span><span id="scannerDeviceStatus" class="operator-status"><i class="bi bi-usb-drive"></i> USB HID ready</span><button id="connectSerialScanner" class="btn btn-sm btn-light"><i class="bi bi-usb-drive me-1"></i>Connect serial scanner</button></div>
+    </section>
+    <section class="operator-toolbar card border-0 shadow-sm">
+        <div class="operator-toolbar-row">
+            <div><label class="form-label small fw-semibold" for="operatorTripSession">Trip</label><select class="form-select" id="operatorTripSession"><option value="morning_pickup">Morning pickup</option><option value="evening_dropoff">Evening drop-off</option><option value="midday_trip">Midday trip</option><option value="special_trip">Special trip</option></select></div>
+            <div class="operator-date"><label class="form-label small fw-semibold" for="operatorDate">Date</label><input class="form-control" type="date" id="operatorDate"></div>
+            <div class="operator-actions"><button class="btn btn-primary" id="operatorRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh manifest</button><button class="btn btn-outline-secondary" id="operatorSync"><i class="bi bi-cloud-arrow-up me-1"></i>Sync queued scans <span id="queuedScanCount" class="badge text-bg-warning">0</span></button></div>
         </div>
-    </div>
-    <div class="col-6">
-        <div class="card shadow-sm border-0 text-center">
-            <div class="card-body">
-                <div class="fs-2">📍</div>
-                <h4 id="stopCount" class="mb-0">0</h4>
-                <small class="text-muted">Stops</small>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Route Info -->
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="bi bi-signpost me-2"></i>My Route: <span id="routeName" class="text-primary">Loading...</span></h6>
-    </div>
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-6 text-center">
-                <small class="text-muted d-block">AM Pickup</small>
-                <strong id="amPickup" class="text-success">--:--</strong>
-            </div>
-            <div class="col-6 text-center">
-                <small class="text-muted d-block">PM Dropoff</small>
-                <strong id="pmDropoff" class="text-warning">--:--</strong>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Student List -->
-<div class="card shadow-sm mb-4">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <h6 class="mb-0"><i class="bi bi-people me-2"></i>Students on My Route</h6>
-        <button class="btn btn-sm btn-success" id="markAttendanceBtn">
-            <i class="bi bi-check-lg me-1"></i> Mark Attendance
-        </button>
-    </div>
-    <div class="card-body p-0" id="studentList">
-        <div class="text-center text-muted py-4">Loading students...</div>
-    </div>
-</div>
-
-<!-- Stops List -->
-<div class="card shadow-sm">
-    <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="bi bi-geo-alt me-2"></i>Route Stops</h6>
-    </div>
-    <div class="card-body p-0" id="stopsList">
-        <div class="text-center text-muted py-4">Loading stops...</div>
-    </div>
-</div>
-
-<script>
-(function () {
-    document.addEventListener('DOMContentLoaded', function () {
-        loadMyRoute();
-        document.getElementById('markAttendanceBtn').addEventListener('click', markAttendance);
-    });
-
-    async function loadMyRoute() {
-        try {
-            const response = await API.transport.getMyRoute();
-            if (response?.success && response.data) {
-                const route = response.data;
-                document.getElementById('routeName').textContent = route.name || 'My Route';
-                document.getElementById('studentCount').textContent = route.students?.length || 0;
-                document.getElementById('stopCount').textContent = route.stops?.length || 0;
-                document.getElementById('amPickup').textContent = route.am_pickup || '--:--';
-                document.getElementById('pmDropoff').textContent = route.pm_dropoff || '--:--';
-                renderStudentList(route.students || []);
-                renderStopsList(route.stops || []);
-            } else {
-                document.getElementById('routeName').textContent = 'No route assigned';
-                document.getElementById('studentList').innerHTML = '<div class="text-center text-muted py-4">No route assigned to you.</div>';
-            }
-        } catch (error) {
-            document.getElementById('routeName').textContent = 'Error loading route';
-        }
-    }
-
-    function renderStudentList(students) {
-        const container = document.getElementById('studentList');
-        if (!students.length) {
-            container.innerHTML = '<div class="text-center text-muted py-4">No students assigned.</div>';
-            return;
-        }
-        container.innerHTML = students.map(function (s) {
-            return `<div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom">
-                <input type="checkbox" class="form-check-input student-check" id="student_${s.id}" ${s.present ? 'checked' : ''} style="width:20px;height:20px">
-                <label for="student_${s.id}" class="d-flex justify-content-between flex-fill cursor-pointer mb-0">
-                    <span class="fw-500">${esc(s.full_name)}</span>
-                    <small class="text-muted">${esc(s.stop_name || '')}</small>
-                </label>
-            </div>`;
-        }).join('');
-    }
-
-    function renderStopsList(stops) {
-        const container = document.getElementById('stopsList');
-        if (!stops.length) {
-            container.innerHTML = '<div class="text-center text-muted py-4">No stops defined.</div>';
-            return;
-        }
-        container.innerHTML = stops.map(function (stop, i) {
-            return `<div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom">
-                <span class="badge bg-success rounded-circle" style="width:28px;height:28px;line-height:20px">${i+1}</span>
-                <span class="flex-fill fw-500">${esc(stop.name)}</span>
-                <small class="text-muted">${stop.time || ''}</small>
-            </div>`;
-        }).join('');
-    }
-
-    async function markAttendance() {
-        const present = Array.from(document.querySelectorAll('.student-check:checked'))
-            .map(function (cb) { return cb.id.replace('student_', ''); });
-        try {
-            await API.transport.markAttendance({ students: present });
-            if (typeof showNotification === 'function') {
-                showNotification('Attendance saved!', 'success');
-            } else {
-                alert('Attendance saved!');
-            }
-        } catch (e) {
-            alert('Failed to save attendance.');
-        }
-    }
-
-    function esc(s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-})();
-</script>
+        <div class="operator-scan-row"><i class="bi bi-qr-code-scan fs-4 text-primary"></i><div class="flex-grow-1"><label class="form-label small fw-semibold mb-1" for="operatorScanInput">Scan learner QR code</label><input id="operatorScanInput" class="form-control form-control-lg" autocomplete="off" inputmode="none" placeholder="USB scanner input appears here…" autofocus></div><div id="operatorScanFeedback" class="scan-feedback text-muted">Waiting for scan</div></div>
+    </section>
+    <section class="operator-summary" id="operatorSummary"><div class="summary-card"><span class="summary-icon blue"><i class="bi bi-people"></i></span><div><strong id="manifestExpected">0</strong><small>Expected</small></div></div><div class="summary-card"><span class="summary-icon green"><i class="bi bi-person-check"></i></span><div><strong id="manifestBoarded">0</strong><small>Boarded</small></div></div><div class="summary-card"><span class="summary-icon orange"><i class="bi bi-person-exclamation"></i></span><div><strong id="manifestRemaining">0</strong><small>Not boarded</small></div></div><div class="summary-card"><span class="summary-icon gray"><i class="bi bi-cloud-slash"></i></span><div><strong id="manifestQueued">0</strong><small>Queued offline</small></div></div></section>
+    <section class="card border-0 shadow-sm mb-4"><div class="card-header bg-white d-flex justify-content-between align-items-center"><div><h2 class="h5 mb-1">Today’s route</h2><div id="manifestRouteLabel" class="text-muted small">Loading assigned route…</div></div><div id="manifestGeneratedAt" class="text-muted small">—</div></div><div id="manifestEmpty" class="empty-state">No active vehicle and route are assigned to this driver.</div><div class="table-responsive"><table class="table align-middle operator-table mb-0"><thead><tr><th>Stop</th><th>Learner</th><th>Admission no.</th><th>Boarding</th><th>Time</th></tr></thead><tbody id="operatorManifestBody"><tr><td colspan="5" class="text-center text-muted py-5">Loading manifest…</td></tr></tbody></table></div></section>
+</main>
+<?php asset_script($appBase, 'js/pages/transport_operator.js'); ?>

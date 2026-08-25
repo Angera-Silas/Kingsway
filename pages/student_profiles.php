@@ -8,11 +8,15 @@
 <section class="student-profile-context bg-white border rounded p-3" id="studentProfileContext">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
         <div>
-            <h2 class="h4 mb-1">Student Profile</h2>
-            <div class="text-muted small">Role-aware profile details and actions.</div>
+            <h2 class="h4 mb-1">Learner Profiles</h2>
+            <div class="text-muted small">Browse and open individual profiles from the learners you are allowed to view.</div>
         </div>
-        <a class="btn btn-outline-secondary btn-sm" href="home.php?route=all_students">
-            <i class="bi bi-arrow-left me-1"></i>Directory
+        <a
+            class="btn btn-outline-secondary btn-sm d-none"
+            id="studentProfileBackButton"
+            href="home.php?route=student_profiles"
+        >
+            <i class="bi bi-arrow-left me-1"></i>Back to Learner Profiles
         </a>
     </div>
 
@@ -22,6 +26,10 @@
     </div>
 
     <div id="studentProfileSearch" class="d-none">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h3 class="h6 mb-0">Available learners</h3>
+            <span class="badge bg-primary-subtle text-primary-emphasis" id="studentProfileResultCount">0 learners</span>
+        </div>
         <div class="input-group mb-3">
             <span class="input-group-text"><i class="bi bi-search"></i></span>
             <input type="search" class="form-control" id="studentProfileSearchInput" placeholder="Search by name or admission number">
@@ -45,4 +53,4 @@
     </div>
 </section>
 
-<script src="js/pages/student_profile_context.js?v=20260703"></script>
+<script src="js/pages/student_profile_context.js?v=20260825"></script>

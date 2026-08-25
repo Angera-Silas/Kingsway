@@ -14,6 +14,7 @@ use PDO;
 use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\StaffDomainAccessService;
 use App\API\Services\StaffTeachingAssignmentService;
+use App\API\Services\ReportCardReleaseService;
 use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
@@ -182,6 +183,54 @@ class AcademicController extends BaseController
 return $this->error('An internal error occurred.');
         }
     }
+
+    /** GET /api/academic/teacher-planning-context */
+    public function getTeacherPlanningContext($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getTeacherPlanningContext());
+    }
+
+    /** GET /api/academic/lesson-planning-context/{schemeId} */
+    public function getLessonPlanningContext($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getLessonPlanningContext($id ?? ($data['id'] ?? 0)));
+    }
+
+    public function postLessonPlanLearnerEvidence($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->saveLessonPlanLearnerEvidence($id ?? ($data['lesson_plan_id'] ?? 0), $data));
+    }
+
+    public function getLegacyContentReconciliation($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->getLegacyContentReconciliation()); }
+
+    public function postResolveLegacyAcademicContent($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->resolveLegacyAcademicContent($data)); }
+
+    public function postSchemeOfWorkBatch($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->createSchemeOfWorkBatch($data)); }
+
+    public function postSchemeWorkbookSave($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->saveSchemeWorkbook($data)); }
+
+    public function postSchemeWorkbookSubmit($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->submitSchemeWorkbook($data)); }
+
+    public function postSchemeWorkbookRequestRevision($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->requestSchemeWorkbookRevision((int)($id ?? ($data['workbook_id'] ?? 0)), $data)); }
+
+    public function postSchemeWorkbookReopenRevision($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->reopenSchemeWorkbookRevision((int)($id ?? ($data['workbook_id'] ?? 0)), $data)); }
+
+    public function postSchemeWorkbookApprove($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->approveSchemeWorkbook((int)($id ?? ($data['workbook_id'] ?? 0)), $data)); }
+
+    public function getSchemeWorkbook($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->getSchemeWorkbook((int)$id)); }
+
+    /** Compatibility wrapper for the explicit /scheme-workbook-get/{id} route. */
+    public function getSchemeWorkbookGet($id = null, $data = [], $segments = [])
+    { return $this->handleResponse($this->api->getSchemeWorkbook((int)$id)); }
 
     /**
      * GET /api/academics/kpis
@@ -752,6 +801,27 @@ return $this->serverError('An internal error occurred.');
     }
 
     /**
+     * GET /api/academic/exam-result-entry/{examScheduleId}
+     * Returns the exact published assessment, enrolled learners and saved marks.
+     * The service applies the authenticated teacher's stream/learning-area scope.
+     */
+    public function getExamResultEntry($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(
+            ['assessments_view', 'assessments_edit', 'academic_edit', 'academics_edit'],
+            [1, 4, 5, 6, 7, 8],
+            ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'class teacher', 'subject teacher']
+        )) {
+            return $this->forbidden('You do not have permission to enter or review exam results');
+        }
+        $examScheduleId = (int) ($id ?? ($data['exam_schedule_id'] ?? 0));
+        if ($examScheduleId <= 0) {
+            return $this->badRequest('exam_schedule_id is required');
+        }
+        return $this->handleResponse($this->api->getExamResultEntry($examScheduleId));
+    }
+
+    /**
      * POST /api/academic/exam-schedule - Create new exam schedule
      * Router calls: postExamSchedule(null, $data, $segments)
      */
@@ -1012,8 +1082,12 @@ return $this->serverError('An internal error occurred.');
      */
     public function postAssessmentsMarkAndGrade($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
-            return $guard;
+        if (!$this->userHasAny(
+            ['assessments_edit', 'academic_edit', 'academics_edit'],
+            [1, 4, 5, 6, 7, 8],
+            ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic', 'class teacher', 'subject teacher']
+        )) {
+            return $this->forbidden('You do not have permission to enter assessment results');
         }
 
         $instanceId = $data['instance_id'] ?? null;
@@ -1025,8 +1099,8 @@ return $this->serverError('An internal error occurred.');
             $result = $this->api->saveAssessmentResults([
                 'assessment_id' => (int) $assessmentId,
                 'marks' => $gradingData,
-                'is_final' => (bool) ($data['is_final'] ?? true),
-                'marked_by' => $data['marked_by'] ?? null,
+                'is_final' => (bool) ($data['is_final'] ?? false),
+                'reason' => $data['reason'] ?? '',
             ]);
             return $this->handleResponse($result);
         }
@@ -1082,8 +1156,50 @@ return $this->serverError('An internal error occurred.');
             return $guard;
         }
 
-        $result = $this->api->generateStudentReports($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
+        if (!empty($data['instance_id'])) {
+            return $this->badRequest('Legacy workflow instances cannot generate official report cards. Submit term_id with student_ids or class_id.');
+        }
+
+        $termId = (int) ($data['term_id'] ?? 0);
+        if (!$termId) return $this->badRequest('term_id is required');
+        $studentIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['student_ids'] ?? [])))));
+        if (!$studentIds && !empty($data['class_id'])) {
+            $pdo = $this->db->getConnection();
+            $stmt = $pdo->prepare(
+                "SELECT DISTINCT sae.student_id
+                 FROM student_academic_enrollments sae
+                 JOIN academic_year_class_streams aycs ON aycs.id=sae.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
+                 JOIN academic_year_terms ayt ON ayt.academic_year_id=ayc.academic_year_id
+                 WHERE ayt.id=? AND (ayc.class_id=? OR aycs.id=?)
+                   AND sae.enrollment_status IN ('pending','active')"
+            );
+            $stmt->execute([$termId, (int) $data['class_id'], (int) $data['class_id']]);
+            $studentIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+        if (!$studentIds) return $this->badRequest('student_ids or class_id is required');
+
+        $service = new ReportCardReleaseService($this->db->getConnection());
+        $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+        $generated = [];
+        $failed = [];
+        foreach ($studentIds as $studentId) {
+            try {
+                $payload = $this->academicManager->getReportCardData($studentId, $termId);
+                if (($payload['status'] ?? '') !== 'success' || !is_array($payload['data'] ?? null)) {
+                    throw new RuntimeException($payload['message'] ?? 'Report card data is unavailable');
+                }
+                $generated[] = $service->generate($payload['data'], $actor);
+            } catch (\Throwable $e) {
+                $failed[] = ['student_id' => $studentId, 'message' => $e->getMessage()];
+            }
+        }
+        return $this->success([
+            'generated' => $generated,
+            'failed' => $failed,
+            'generated_count' => count($generated),
+            'failed_count' => count($failed),
+        ], count($failed) ? 'Report card generation completed with exceptions' : 'Report cards generated for approval');
     }
 
     /**
@@ -1096,8 +1212,16 @@ return $this->serverError('An internal error occurred.');
             return $guard;
         }
 
-        $result = $this->api->reviewAndApproveReports($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
+        if (!empty($data['release_id'])) {
+            try {
+                $service = new ReportCardReleaseService($this->db->getConnection());
+                $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+                return $this->success($service->approve((int) $data['release_id'], $actor), 'Report card approved');
+            } catch (RuntimeException $e) {
+                return $e->getCode() === 404 ? $this->notFound($e->getMessage()) : $this->badRequest($e->getMessage());
+            }
+        }
+        return $this->badRequest('release_id is required; legacy workflow approval is disabled for official report cards');
     }
 
     /**
@@ -1110,8 +1234,35 @@ return $this->serverError('An internal error occurred.');
             return $guard;
         }
 
-        $result = $this->api->distributeReports($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
+        if (!empty($data['release_id'])) {
+            try {
+                $service = new ReportCardReleaseService($this->db->getConnection());
+                $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+                $channels = $data['channels'] ?? ['sms', 'email', 'whatsapp'];
+                return $this->success(
+                    $service->release((int) $data['release_id'], $actor, is_array($channels) ? $channels : [$channels]),
+                    'Report card released to parents and guardians'
+                );
+            } catch (RuntimeException $e) {
+                return $e->getCode() === 404 ? $this->notFound($e->getMessage()) : $this->badRequest($e->getMessage());
+            }
+        }
+        return $this->badRequest('release_id is required; report cards must be approved before guardian distribution');
+    }
+
+    /** GET /api/academic/report-card-releases — latest immutable release per learner/term. */
+    public function getReportCardReleases($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
+        try {
+            $filters = array_merge($_GET, is_array($data) ? $data : []);
+            if ($id !== null) $filters['student_id'] = (int) $id;
+            $service = new ReportCardReleaseService($this->db->getConnection());
+            return $this->success($service->list($filters));
+        } catch (\Throwable $e) {
+            error_log('[AcademicController] report card releases: ' . $e->getMessage());
+            return $this->serverError('Unable to load report card releases');
+        }
     }
 
     // ==================== LIBRARY WORKFLOW ====================
@@ -2488,6 +2639,15 @@ return $this->serverError('An internal error occurred.');
      */
     public function getCustom($id = null, $data = [], $segments = [])
     {
+        if (($data['action'] ?? null) === 'parent-meetings') {
+            $roles = $this->getUserRoleIds();
+            if (empty(array_intersect($roles, [2, 3, 4]))) {
+                $data['_meeting_scope_user_id'] = (int) $this->getUserId();
+                $data['_meeting_scope'] = 'class';
+            } else {
+                $data['_meeting_scope'] = 'all';
+            }
+        }
         $result = $this->api->handleCustomGet(
             $data['id'] ?? $id,
             $data['action'] ?? null,
@@ -2501,6 +2661,15 @@ return $this->serverError('An internal error occurred.');
      */
     public function postCustom($id = null, $data = [], $segments = [])
     {
+        if (($data['action'] ?? null) === 'schedule-meeting') {
+            $roles = $this->getUserRoleIds();
+            if (empty(array_intersect($roles, [2, 3, 4]))) {
+                $data['_meeting_scope_user_id'] = (int) $this->getUserId();
+                $data['_meeting_scope'] = 'class';
+            } else {
+                $data['_meeting_scope'] = 'all';
+            }
+        }
         $result = $this->api->handleCustomPost(
             $data['id'] ?? $id,
             $data['action'] ?? null,
@@ -2517,13 +2686,32 @@ return $this->serverError('An internal error occurred.');
      */
     public function getFormativeAssessments($id = null, $data = [], $segments = [])
     {
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to view formative assessments');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
         $filters = array_merge($_GET, is_array($data) ? $data : []);
-        return $this->handleResponse($this->academicManager->getFormativeAssessments($filters, $this->getCurrentStaffId()));
+        if (!$this->canManageAllFormativeAssessments()) {
+            $filters['teacher_scope_only'] = true;
+        }
+        return $this->handleResponse($this->academicManager->getFormativeAssessments($filters, $staffId));
     }
 
     public function postFormativeAssessments($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->academicManager->postFormativeAssessments(is_array($data) ? $data : [], $this->user));
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to create formative assessments');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
+        $user = is_object($this->user) ? get_object_vars($this->user) : (array) $this->user;
+        $user['staff_id'] = $staffId;
+        return $this->handleResponse($this->academicManager->postFormativeAssessments(
+            is_array($data) ? $data : [],
+            $user,
+            $this->canManageAllFormativeAssessments()
+        ));
     }
 
     /**
@@ -2532,7 +2720,17 @@ return $this->serverError('An internal error occurred.');
     public function putFormativeAssessments($id = null, $data = [], $segments = [])
     {
         if ($id === null) return $this->badRequest('assessment id is required');
-        return $this->handleResponse($this->academicManager->putFormativeAssessments((int) $id, is_array($data) ? $data : []));
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to update formative assessments');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
+        return $this->handleResponse($this->academicManager->putFormativeAssessments(
+            (int) $id,
+            is_array($data) ? $data : [],
+            $staffId,
+            $this->canManageAllFormativeAssessments()
+        ));
     }
 
     /**
@@ -2541,7 +2739,16 @@ return $this->serverError('An internal error occurred.');
     public function deleteFormativeAssessments($id = null, $data = [], $segments = [])
     {
         if ($id === null) return $this->badRequest('assessment id is required');
-        return $this->handleResponse($this->academicManager->deleteFormativeAssessments((int) $id));
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to delete formative assessments');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
+        return $this->handleResponse($this->academicManager->deleteFormativeAssessments(
+            (int) $id,
+            $staffId,
+            $this->canManageAllFormativeAssessments()
+        ));
     }
 
     /**
@@ -2585,7 +2792,16 @@ return $this->serverError('An internal error occurred.');
     {
         $assessmentId = $id ?? (int) ($_GET['assessment_id'] ?? 0);
         if (!$assessmentId) return $this->badRequest('assessment_id is required');
-        return $this->handleResponse($this->academicManager->getFormativeAssessmentMarks((int) $assessmentId));
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to view formative assessment marks');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
+        return $this->handleResponse($this->academicManager->getFormativeAssessmentMarks(
+            (int) $assessmentId,
+            $staffId,
+            $this->canManageAllFormativeAssessments()
+        ));
     }
 
     /**
@@ -2596,8 +2812,19 @@ return $this->serverError('An internal error occurred.');
     {
         $assessmentId = $id ?? (int) ($data['assessment_id'] ?? 0);
         if (!$assessmentId) return $this->badRequest('assessment_id is required');
+        if (!$this->canAccessFormativeAssessments()) {
+            return $this->forbidden('You do not have permission to record formative assessment marks');
+        }
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) return $this->notFound('Staff account not found');
         $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
-        return $this->handleResponse($this->academicManager->postFormativeAssessmentMarks((int) $assessmentId, is_array($data) ? $data : [], $userId));
+        return $this->handleResponse($this->academicManager->postFormativeAssessmentMarks(
+            (int) $assessmentId,
+            is_array($data) ? $data : [],
+            $userId,
+            $staffId,
+            $this->canManageAllFormativeAssessments()
+        ));
     }
 
     /**
@@ -3417,6 +3644,7 @@ return $this->serverError('An internal error occurred.');
      */
     public function getPendingModeration($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) return $guard;
         $query = array_merge($_GET, is_array($data) ? $data : []);
         return $this->handleResponse($this->academicManager->getPendingModeration($query));
     }
@@ -3430,12 +3658,12 @@ return $this->serverError('An internal error occurred.');
             $studentId = isset($data['student_id']) ? (int)$data['student_id'] : null;
             if (!$assessmentId) return $this->badRequest('assessment_id is required');
 
-            if ($studentId) {
-                return $this->handleResponse($this->academicManager->approveAssessmentResults($assessmentId, $studentId));
-            }
-            $remarks = $data['remarks'] ?? '';
-            $result = $this->api->moderateExamMarks($assessmentId, $remarks, false);
-            return $this->handleResponse($result);
+            return $this->handleResponse($this->api->moderateAssessmentResults([
+                'assessment_id' => $assessmentId,
+                'student_id' => $studentId,
+                'action' => 'approve',
+                'reason' => $data['reason'] ?? $data['remarks'] ?? '',
+            ]));
         } catch (\Exception $e) {
             error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
@@ -3450,9 +3678,14 @@ return $this->serverError('An internal error occurred.');
             $assessmentId = (int)($data['assessment_id'] ?? 0);
             $studentId = (int)($data['student_id'] ?? 0);
             $reason = $data['reason'] ?? '';
-            if (!$assessmentId || !$studentId) return $this->badRequest('assessment_id and student_id are required');
+            if (!$assessmentId) return $this->badRequest('assessment_id is required');
 
-            return $this->handleResponse($this->academicManager->rejectAssessmentResult($assessmentId, $studentId, $reason));
+            return $this->handleResponse($this->api->moderateAssessmentResults([
+                'assessment_id' => $assessmentId,
+                'student_id' => $studentId ?: null,
+                'action' => 'reject',
+                'reason' => $reason,
+            ]));
         } catch (\Exception $e) {
             error_log('[AcademicController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             return $this->serverError('An internal error occurred.');
@@ -3484,6 +3717,47 @@ return $this->serverError('An internal error occurred.');
         $stmt->execute([(int) $userId]);
         $staffId = $stmt->fetchColumn();
         return $staffId ? (int) $staffId : null;
+    }
+
+    private function canAccessFormativeAssessments(): bool
+    {
+        return $this->userHasAny(
+            [
+                'academic_assessments_view',
+                'academic_assessments_create',
+                'academic_assessments_edit',
+                'assessments_view',
+                'assessments_create',
+                'assessments_edit',
+            ],
+            [1, 3, 4, 5, 6, 7, 8],
+            [
+                'system administrator',
+                'school administrator',
+                'director',
+                'principal',
+                'headteacher',
+                'deputy head - academic',
+                'class teacher',
+                'subject teacher',
+            ]
+        );
+    }
+
+    private function canManageAllFormativeAssessments(): bool
+    {
+        return $this->userHasAny(
+            [],
+            [1, 3, 4, 5, 6],
+            [
+                'system administrator',
+                'school administrator',
+                'director',
+                'principal',
+                'headteacher',
+                'deputy head - academic',
+            ]
+        );
     }
 
     /**
@@ -3662,6 +3936,25 @@ return $this->serverError('An internal error occurred.');
     {
         $studentId = $id ? (int)$id : (int)($data['student_id'] ?? $_GET['student_id'] ?? 0);
         if (!$studentId) return $this->badRequest('Student ID is required');
+
+        // Keep portfolio viewing aligned with the learner context list. A
+        // class teacher may open only learners in their assigned active class
+        // streams; management roles retain school-wide access.
+        $roles = $this->getUserRoleIds();
+        $roleName = strtolower((string) ($this->user['role'] ?? $this->user['role_name'] ?? ''));
+        if ((in_array(7, $roles, true) || strpos($roleName, 'class teacher') !== false)
+            && !array_intersect($roles, [1, 2, 3, 4, 5, 6, 10, 63])) {
+            $userId = (int) ($this->user['id'] ?? 0);
+            $stmt = $this->db->prepare("SELECT 1
+                FROM student_academic_enrollments sae
+                JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                JOIN staff st ON st.id = aycs.class_teacher_id
+                JOIN users u ON u.person_id = st.person_id
+                WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                  AND aycs.status = 'active' AND u.id = ? LIMIT 1");
+            $stmt->execute([$studentId, $userId]);
+            if (!$stmt->fetchColumn()) return $this->forbidden('You can only view portfolios for your assigned learners');
+        }
         return $this->handleResponse($this->academicManager->getPortfolioAll($studentId));
     }
 

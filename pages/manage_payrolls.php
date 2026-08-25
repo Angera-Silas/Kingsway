@@ -619,6 +619,9 @@
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.refresh()">
                         <i class="bi bi-arrow-clockwise me-1"></i> Refresh
                     </button>
+                    <button class="payroll-action-btn primary" id="paySelectedPayrollBtn" data-payment-control hidden disabled onclick="PayrollManagerController.paySelected()">
+                        <i class="bi bi-cash-coin me-1"></i> Pay Selected
+                    </button>
                     <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="bi bi-people-cog me-1"></i> Bulk Payroll
                     </button>
@@ -708,7 +711,10 @@
     <div class="payroll-panel">
         <div class="payroll-panel-header">
             <h5><i class="bi bi-list-ul me-2" style="color: var(--payroll-gold)"></i>Payroll Records</h5>
-            <span class="status-badge pending" id="payrollCount">0 records</span>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-muted" id="payrollPaymentSelectionSummary">No staff selected</span>
+                <span class="status-badge pending" id="payrollCount">0 records</span>
+            </div>
         </div>
         <div class="table-responsive">
             <table class="table mb-0" id="payrollTable">
@@ -878,6 +884,13 @@
                                     <td class="text-end">
                                         <input type="number" id="otherAllowances" class="form-control form-control-sm text-end"
                                                value="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
+                                    </td>
+                                </tr>
+                                <tr data-review-only>
+                                    <td style="color: #6b7a8d;">One-off Bonus</td>
+                                    <td class="text-end">
+                                        <input type="number" id="bonusAllowance" class="form-control form-control-sm text-end"
+                                               value="0" min="0" step="0.01" onchange="PayrollManagerController.recalculatePayroll()" style="border-radius: 8px;">
                                     </td>
                                 </tr>
                                 <tr style="background: rgba(26, 122, 76, 0.06);">
@@ -1088,12 +1101,15 @@
         <div class="modal-content" style="border: none; border-radius: 12px; overflow: hidden;">
             <div class="modal-header border-0" style="background: linear-gradient(135deg, #0d4f2a, #198754); color: white;">
                 <h5 class="modal-title">
-                    <i class="bi bi-cash-coin"></i> Record Payment
+                    <i class="bi bi-cash-coin"></i> Release Payroll Payment
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body py-4">
                 <div class="mb-3">
+                    <div class="alert alert-warning small mb-3">
+                        Select the salary source account above. The system validates its payroll purpose, disbursement permission, account mapping, and the latest available provider balance before sending payments.
+                    </div>
                     <label class="form-label fw-bold">Payment Mode</label>
                     <div class="row g-2" id="paymentModeOptions">
                         <div class="col-6">

@@ -40,6 +40,24 @@ class TransportController extends BaseController
         return null;
     }
 
+    private function guardTransportManage(): ?array
+    {
+        if ($guard = $this->guardTransport()) return $guard;
+        if (!$this->userHasAny(['transport_manage','transport_create','transport_edit','transport_delete','transport_assign'], [], ['director','school_administrator','school_accountant','transport_manager','transport_officer','admin'])) {
+            return $this->forbidden('Transport management permission is required');
+        }
+        return null;
+    }
+
+    private function guardTransportAttendance(): ?array
+    {
+        if ($guard = $this->guardTransport()) return $guard;
+        if (!$this->userHasAny(['transport_attendance_mark','transport_manage'], [], ['driver','transport_officer','transport_manager','school_administrator','director','admin'])) {
+            return $this->forbidden('Transport attendance permission is required');
+        }
+        return null;
+    }
+
     private function guardTransportFinance(): ?array
     {
         if ($guard = $this->guardTransport()) return $guard;
@@ -95,19 +113,19 @@ class TransportController extends BaseController
     }
     public function postTransportRoute($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->createRoute($data);
         return $this->handleResponse($result);
     }
     public function putTransportRoute($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->updateRoute($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportRoute($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->deleteRoute($id);
         return $this->handleResponse($result);
     }
@@ -125,21 +143,41 @@ class TransportController extends BaseController
     }
     public function postTransportStop($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->createStop($data);
         return $this->handleResponse($result);
     }
     public function putTransportStop($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->updateStop($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportStop($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->deleteStop($id);
         return $this->handleResponse($result);
+    }
+
+    public function getAllVehicles($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getAllVehicles());
+    }
+    public function postTransportVehicle($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        return $this->handleResponse($this->api->createVehicle($data));
+    }
+    public function putTransportVehicle($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        return $this->handleResponse($this->api->updateVehicle($id, $data));
+    }
+    public function deleteTransportVehicle($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportManage()) return $guard;
+        return $this->handleResponse($this->api->deleteVehicle($id));
     }
 
     // VEHICLE ENDPOINTS
@@ -162,25 +200,25 @@ class TransportController extends BaseController
     }
     public function postTransportDriver($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->createDriver($data);
         return $this->handleResponse($result);
     }
     public function putTransportDriver($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->updateDriver($id, $data);
         return $this->handleResponse($result);
     }
     public function deleteTransportDriver($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->deleteDriver($id);
         return $this->handleResponse($result);
     }
     public function postDriverAssign($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         if (empty($data['driver_id']) || empty($data['route_id'])) {
             return $this->badRequest('driver_id and route_id are required');
         }
@@ -191,7 +229,7 @@ class TransportController extends BaseController
     // ASSIGNMENT ENDPOINTS
     public function postAssignStudent($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         if (empty($data['student_id']) || empty($data['route_id'])) {
             return $this->badRequest('student_id and route_id are required');
         }
@@ -200,7 +238,7 @@ class TransportController extends BaseController
     }
     public function postWithdrawAssignment($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         if (empty($data['student_id'])) {
             return $this->badRequest('student_id is required');
         }
@@ -295,6 +333,30 @@ class TransportController extends BaseController
         $result = $this->api->getRouteManifest($routeId, $data['month'] ?? null, $data['year'] ?? null);
         return $this->handleResponse($result);
     }
+
+    /**
+     * GET /api/transport/driver-manifest
+     * Live route manifest for the authenticated driver/device.
+     */
+    public function getDriverManifest($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardTransportAttendance()) return $guard;
+        $userId = $this->getCurrentUserId();
+        if (!$userId) return $this->unauthorized('Authentication required');
+        $date = (string)($data['date'] ?? date('Y-m-d'));
+        $tripSession = (string)($data['trip_session'] ?? 'morning_pickup');
+        try {
+            return $this->success(
+                $this->api->getDriverManifest((int)$userId, $date, $tripSession),
+                'Driver manifest retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[TransportController] driver manifest failed: ' . $e->getMessage());
+            return $this->serverError('An internal error occurred.');
+        }
+    }
     public function getStudentSummary($id = null, $data = [], $segments = [])
     {
         $studentId = $data['student_id'] ?? $id ?? null;
@@ -373,7 +435,7 @@ class TransportController extends BaseController
      */
     public function postRoutesAssign($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->assignRoute($data);
         return $this->handleResponse($result);
     }
@@ -396,7 +458,7 @@ class TransportController extends BaseController
      */
     public function postVehiclesAssign($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportManage()) return $guard;
         $result = $this->api->assignVehicle($data);
         return $this->handleResponse($result);
     }
@@ -548,13 +610,18 @@ return $this->serverError('An internal error occurred.');
      */
     public function postAttendance($id = null, $data = [], $segments = [])
     {
-        if ($guard = $this->guardTransport()) return $guard;
+        if ($guard = $this->guardTransportAttendance()) return $guard;
         $userId = $this->getCurrentUserId();
         $date = $data['date'] ?? date('Y-m-d');
         $presentIds = $data['present_student_ids'] ?? [];
 
         if (empty($presentIds)) {
             return $this->success(['recorded' => 0, 'message' => 'No student IDs provided']);
+        }
+        $routeId = (int)($data['route_id'] ?? 0);
+        $isLeadership = $this->userHasAnyRole(['director','school_administrator','transport_manager','transport_officer','admin']);
+        if ($routeId > 0 && !$isLeadership && !$this->api->userHasAssignedRoute((int)$userId, $routeId)) {
+            return $this->forbidden('You may only mark attendance for your assigned route');
         }
         $result = $this->api->recordStudentAttendance($userId, $date, $presentIds, $data);
         return $this->handleResponse($result);

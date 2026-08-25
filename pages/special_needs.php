@@ -16,13 +16,6 @@ if (!isset($appBase)) {
 
 <div class="container-fluid py-4" id="specialNeedsPage">
 
-    <!-- Print Header (only visible when printing) -->
-    <div class="print-header">
-        <h1>KINGSWAY PREPARATORY ACADEMY</h1>
-        <h2>Special Needs & Student Support Report</h2>
-        <div class="date">Printed on: <span id="printDate"></span></div>
-    </div>
-
     <div class="card shadow-sm border-0 mb-4">
         <div class="card-header bg-info text-white">
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">

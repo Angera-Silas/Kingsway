@@ -107,7 +107,7 @@ class KcbFundsTransferService
             $bankName = trim((string) ($data['bank_name'] ?? ''));
             $amount = (float) ($data['amount'] ?? 0);
 
-            if ($accountNumber === '' || !preg_match('/^[0-9]{6,30}$/', $accountNumber)) {
+            if ($accountNumber === '' || !preg_match('/^[0-9]{6,10}$/', $accountNumber)) {
                 throw new Exception('A valid beneficiary account number is required.');
             }
             if ($bankName === '') {
@@ -135,11 +135,11 @@ class KcbFundsTransferService
             ];
 
             $normalizedBank = strtoupper($bankName);
-            if ($normalizedBank !== 'KCB' && $normalizedBank !== 'KCB BANK') {
-                $payload['beneficiaryBankCode'] = trim((string) ($data['bank_code'] ?? '')) !== ''
-                    ? trim((string) $data['bank_code'])
-                    : $this->getBankCode($bankName);
-            }
+            // FT v1.4 expects beneficiaryBankCode for IF/EFT/RTGS. KCB's
+            // participant code is 01; callers may override it explicitly.
+            $payload['beneficiaryBankCode'] = trim((string) ($data['bank_code'] ?? '')) !== ''
+                ? trim((string) $data['bank_code'])
+                : (($normalizedBank === 'KCB' || $normalizedBank === 'KCB BANK') ? '01' : $this->getBankCode($bankName));
 
             $path = defined('KCB_FUNDS_TRANSFER_PATH')
                 ? (string) KCB_FUNDS_TRANSFER_PATH
@@ -152,14 +152,18 @@ class KcbFundsTransferService
 
             $this->logTransaction($accountNumber, $amount, $response);
 
-            $header = is_array($response['header'] ?? null) ? $response['header'] : [];
+            // FT v1.4 returns statusCode/merchantID/retrievalRefNumber at the
+            // top level. Accept the older nested-header envelope as well.
+            $header = is_array($response['header'] ?? null) ? $response['header'] : $response;
             $statusCode = (string) ($header['statusCode'] ?? '1');
             if ($statusCode === '0') {
                 return [
                     'status' => 'pending',
                     'message' => 'KCB transfer accepted for processing.',
                     'transaction_ref' => $header['retrievalRefNumber'] ?? $reference,
-                    'request_id' => $header['messageID'] ?? null,
+                    // KCB FT callbacks correlate with merchantId. Keep the
+                    // gateway message ID as a fallback for older responses.
+                    'request_id' => $header['merchantID'] ?? ($header['merchantId'] ?? ($header['messageID'] ?? null)),
                     'response' => $response,
                 ];
             }

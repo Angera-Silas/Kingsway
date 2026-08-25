@@ -1,193 +1,538 @@
-/* =====================================================
-   FEE STRUCTURE PRINT — Kingsway Preparatory School
-   Shared styles for all fee structure PDF variants.
-   Loaded by fee_structure_simple.php and its partials.
-   ===================================================== */
-
-/* ── Design Tokens ─────────────────────────────────── */
-:root {
-    --fs-green-dark: #07552f;
-    --fs-green: #0b6b3a;
-    --fs-green-light: #eaf4ed;
-    --fs-gold-dark: #a87908;
-    --fs-gold: #c99a24;
-    --fs-gold-light: #f8efd3;
-    --fs-cream: #fffdf6;
-    --fs-cream-dark: #f8f4e7;
-    --fs-white: #ffffff;
-    --fs-text-dark: #20251f;
-    --fs-border: #d8d3c4;
+/* Precise A4 Dompdf Single-Page Print Layout - Vertical Fill & Auto Wrapping */
+@page {
+    size: 210mm 297mm;
+    margin: 0;
 }
 
-/* ── Page ──────────────────────────────────────────── */
-@page { size: A4 portrait; margin: 8mm; }
-* { box-sizing: border-box; }
-body { margin: 0; padding: 0; background: #fff; color: var(--fs-text-dark); font-family: 'Montserrat', Arial, sans-serif; }
-
-.fs-document { width: 100%; max-width: 800px; margin: auto; background: var(--fs-cream); overflow: hidden; position: relative; }
-
-/* ── Watermark ─────────────────────────────────────── */
-.fs-watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.10; z-index: 0; pointer-events: none; }
-.fs-watermark img { max-width: 350px; max-height: 350px; object-fit: contain; }
-
-/* ── Header ────────────────────────────────────────── */
-.fs-header { padding: 35px 45px 25px; background: var(--fs-white); position: relative; }
-.fs-header::before { content: ""; position: absolute; top: 0; right: 0; width: 180px; height: 8px; background: var(--fs-gold); }
-.fs-header::after  { content: ""; position: absolute; top: 0; right: 0; width: 90px; height: 100px; background: var(--fs-green-dark); clip-path: polygon(100% 0, 100% 100%, 0 0); opacity: .95; }
-.fs-logo-frame { width: 150px; height: 150px; display: flex; justify-content: center; align-items: center; }
-.fs-logo-frame img { max-width: 140px; max-height: 140px; object-fit: contain; }
-.fs-school-name { color: var(--fs-green-dark); font-size: 32px; font-weight: 800; letter-spacing: 1px; margin-bottom: 8px; }
-.fs-school-meta { font-size: 14px; color: #444; margin-bottom: 4px; }
-.fs-school-meta i { color: var(--fs-gold-dark); margin-right: 6px; }
-.fs-motto { font-family: 'Playfair Display', serif; font-size: 24px; font-style: italic; color: var(--fs-green); margin-top: 10px; }
-.fs-header-rule { height: 4px; background: linear-gradient(to right, var(--fs-green-dark), var(--fs-gold), var(--fs-green-dark)); margin-top: 22px; position: relative; }
-.fs-header-rule::after { content: "\25C6"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--fs-gold); background: white; padding: 0 12px; font-size: 13px; }
-
-/* ── Title ─────────────────────────────────────────── */
-.fs-title-block { text-align: center; padding: 28px 20px 22px; background: var(--fs-white); }
-.fs-title-block h1 { margin: 0; font-size: 38px; font-weight: 800; letter-spacing: 1px; color: var(--fs-green-dark); }
-.fs-subtitle { display: inline-block; margin-top: 12px; padding: 8px 35px; background: var(--fs-green); color: white; font-size: 17px; font-weight: 700; letter-spacing: 1px; position: relative; }
-.fs-subtitle::before, .fs-subtitle::after { content: ""; position: absolute; top: 50%; width: 90px; height: 2px; background: var(--fs-gold); }
-.fs-subtitle::before { right: 100%; margin-right: 15px; }
-.fs-subtitle::after  { left: 100%; margin-left: 15px; }
-
-/* ── Content ───────────────────────────────────────── */
-.fs-content { padding: 0 35px 35px; }
-
-/* ── Section Header ────────────────────────────────── */
-.fs-section-header { background: var(--fs-green-dark); color: white; text-align: center; padding: 11px 15px; font-size: 21px; font-weight: 800; letter-spacing: 1px; border-radius: 8px 8px 0 0; }
-
-/* ── Category Title ────────────────────────────────── */
-.fs-category { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 800; margin-bottom: 10px; color: var(--fs-green-dark); }
-.fs-category i { font-size: 22px; color: var(--fs-gold-dark); }
-
-/* ── Fee Table ─────────────────────────────────────── */
-.fs-card { border: 1px solid var(--fs-border); background: white; border-radius: 0 0 8px 8px; overflow: hidden; margin-bottom: 20px; }
-.fs-table { margin: 0; width: 100%; border-collapse: collapse; }
-.fs-table thead th { background: var(--fs-green); color: white; text-align: center; padding: 10px 6px; font-size: 12px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
-.fs-table thead th:first-child { text-align: left; padding-left: 12px; }
-.fs-table tbody td { padding: 8px 7px; border: 1px solid var(--fs-border); font-size: 13px; text-align: center; white-space: nowrap; }
-.fs-table tbody td:first-child { text-align: left; font-weight: 600; color: #30352f; }
-.fs-table tbody tr:nth-child(even) { background: var(--fs-cream); }
-.fs-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
-
-/* ── Boarder variant ───────────────────────────────── */
-.fs-card--boarder .fs-table thead th { background: var(--fs-green-dark); }
-
-/* ── Junior variant ────────────────────────────────── */
-.fs-table--junior thead th { background: var(--fs-gold-dark); }
-.fs-table--junior .fs-total { color: var(--fs-green-dark); }
-
-/* ── Info Card ─────────────────────────────────────── */
-.fs-info-card { border: 1px solid var(--fs-border); border-radius: 10px; overflow: hidden; height: 100%; background: white; }
-.fs-info-card-header { background: var(--fs-green-dark); color: white; padding: 11px 16px; font-weight: 800; font-size: 17px; display: flex; align-items: center; gap: 9px; }
-.fs-info-card-header i { color: var(--fs-gold); font-size: 21px; }
-.fs-info-card-body { padding: 20px; }
-
-/* ── Charge Row ────────────────────────────────────── */
-.fs-charge { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #c8c1ac; padding: 10px 0; font-size: 14px; }
-.fs-charge:last-child { border-bottom: none; }
-.fs-charge-name { font-weight: 500; }
-.fs-charge-amount { font-size: 16px; font-weight: 800; color: var(--fs-green-dark); }
-
-/* ── Payment Box ───────────────────────────────────── */
-.fs-pay-box { border: 1px solid #d7d2c5; border-radius: 8px; padding: 16px; height: 100%; text-align: center; background: var(--fs-cream); }
-.fs-pay-icon { font-size: 32px; color: var(--fs-green); margin-bottom: 4px; }
-.fs-pay-title { color: var(--fs-green-dark); font-size: 16px; font-weight: 800; margin-bottom: 12px; }
-.fs-pay-label { font-size: 11px; text-transform: uppercase; font-weight: 600; color: #555; margin-top: 8px; }
-.fs-pay-value { font-size: 18px; font-weight: 800; color: var(--fs-green-dark); }
-.fs-pay-value--sm { font-size: 15px; }
-.fs-pay-divider { height: 1px; background: var(--fs-gold); opacity: .6; margin: 10px 0; }
-
-/* ── Important Notes ───────────────────────────────── */
-.fs-important { margin-top: 20px; border: 1px solid var(--fs-gold); border-radius: 10px; background: #fffaf0; overflow: hidden; }
-.fs-important-header { background: var(--fs-gold-light); color: #805b00; padding: 13px 18px; font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
-.fs-important-header i { font-size: 25px; }
-.fs-important-list { margin: 0; padding: 15px 25px 15px 45px; list-style: none; }
-.fs-important-list li { padding: 7px 0; font-size: 13px; border-bottom: 1px dashed #ded4bb; }
-.fs-important-list li:last-child { border-bottom: none; }
-
-/* ── Footer ────────────────────────────────────────── */
-.fs-footer { background: var(--fs-green-dark); border-top: 5px solid var(--fs-gold); color: white; text-align: center; padding: 17px; }
-.fs-footer-motto { font-family: 'Playfair Display', serif; font-style: italic; font-size: 17px; }
-
-/* ── Grade Card (per_class_fees_table) ──────────────── */
-.fs-grade-card { border: 2px solid var(--fs-green-dark); border-radius: 10px; overflow: hidden; margin-bottom: 24px; background: white; position: relative; z-index: 1; }
-.fs-grade-card-header { background: var(--fs-green-dark); color: white; text-align: center; padding: 12px 15px; }
-.fs-grade-card-header h3 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 1px; }
-.fs-grade-card-header small { font-size: 12px; font-weight: 600; opacity: 0.85; }
-.fs-grade-card-body { padding: 16px 20px; }
-.fs-student-type-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; margin-bottom: 8px; margin-top: 14px; }
-.fs-student-type-label:first-child { margin-top: 0; }
-.fs-student-type-label .fs-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.fs-student-type-label .fs-dot--day { background: var(--fs-green); }
-.fs-student-type-label .fs-dot--boarder { background: #2563eb; }
-.fs-grade-card-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
-.fs-grade-card-table th { background: var(--fs-green); color: white; text-align: center; padding: 8px 6px; font-size: 11px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
-.fs-grade-card-table th:first-child { text-align: left; padding-left: 10px; }
-.fs-grade-card-table td { padding: 6px 7px; border: 1px solid var(--fs-border); font-size: 12px; text-align: center; white-space: nowrap; }
-.fs-grade-card-table td:first-child { text-align: left; font-weight: 600; }
-.fs-grade-card-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
-.fs-grade-card-table--boarder th { background: #1e40af; }
-
-/* ── Student Type Section (per_student_type, day_only, boarding_only) ── */
-.fs-student-section { margin-bottom: 24px; position: relative; z-index: 1; }
-.fs-student-section-header { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 800; color: var(--fs-green-dark); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--fs-gold); }
-.fs-student-section-header i { font-size: 18px; color: var(--fs-gold-dark); }
-.fs-student-section-header .fs-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.fs-student-section-header .fs-dot--day { background: var(--fs-green); }
-.fs-student-section-header .fs-dot--boarder { background: #2563eb; }
-.fs-student-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 1px solid var(--fs-border); }
-.fs-student-table th { background: var(--fs-green); color: white; text-align: center; padding: 10px 6px; font-size: 12px; font-weight: 800; border-right: 1px solid rgba(255,255,255,.25); }
-.fs-student-table th:first-child { text-align: left; padding-left: 12px; }
-.fs-student-table td { padding: 8px 7px; border: 1px solid var(--fs-border); font-size: 13px; text-align: center; white-space: nowrap; }
-.fs-student-table td:first-child { text-align: left; font-weight: 600; color: #30352f; }
-.fs-student-table tbody tr:nth-child(even) { background: var(--fs-cream); }
-.fs-student-table .fs-total { color: var(--fs-green-dark); font-weight: 800 !important; background: var(--fs-gold-light) !important; }
-.fs-student-table--boarder th { background: #1e40af; }
-
-/* ── Print Overrides ───────────────────────────────── */
-@media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .fs-document { max-width: none; width: 100%; box-shadow: none; border-radius: 0; }
-    .fs-header { padding: 18px 25px 15px; }
-    .fs-logo-frame { width: 110px; height: 110px; }
-    .fs-logo-frame img { max-width: 100px; max-height: 100px; }
-    .fs-school-name { font-size: 25px; }
-    .fs-title-block { padding: 15px 10px; }
-    .fs-title-block h1 { font-size: 30px; }
-    .fs-subtitle { font-size: 14px; padding: 6px 25px; }
-    .fs-content { padding: 0 20px 20px; }
-    .fs-section-header { font-size: 17px; padding: 8px; }
-    .fs-category { font-size: 14px; margin-bottom: 6px; }
-    .fs-table thead th { padding: 6px 4px; font-size: 10px; }
-    .fs-table tbody td { padding: 5px 4px; font-size: 10px; }
-    .fs-card { margin-bottom: 10px; }
-    .fs-info-card-header { font-size: 13px; padding: 7px 10px; }
-    .fs-info-card-body { padding: 10px; }
-    .fs-charge { padding: 6px 0; font-size: 10px; }
-    .fs-charge-amount { font-size: 12px; }
-    .fs-pay-box { padding: 8px; }
-    .fs-pay-title { font-size: 12px; margin-bottom: 6px; }
-    .fs-pay-label { font-size: 8px; margin-top: 4px; }
-    .fs-pay-value { font-size: 13px; }
-    .fs-pay-value--sm { font-size: 10px; }
-    .fs-important-header { padding: 7px 10px; font-size: 12px; }
-    .fs-important-list { padding: 7px 15px 7px 30px; }
-    .fs-important-list li { padding: 3px 0; font-size: 9px; }
-    .fs-footer { padding: 8px; }
-    .fs-footer-motto { font-size: 12px; }
-    .fs-watermark { opacity: 0.08; }
-    .fs-watermark img { max-width: 280px; max-height: 280px; }
-    .fs-grade-card { margin-bottom: 16px; }
-    .fs-grade-card-header { padding: 8px 12px; }
-    .fs-grade-card-header h3 { font-size: 16px; }
-    .fs-grade-card-body { padding: 10px 14px; }
-    .fs-grade-card-table th { padding: 5px 4px; font-size: 9px; }
-    .fs-grade-card-table td { padding: 4px 4px; font-size: 10px; }
-    .fs-student-section { margin-bottom: 16px; }
-    .fs-student-section-header { font-size: 13px; }
-    .fs-student-table th { padding: 6px 4px; font-size: 10px; }
-    .fs-student-table td { padding: 5px 4px; font-size: 10px; }
-    tr, .fs-info-card, .fs-important, .fs-grade-card, .fs-student-section { page-break-inside: avoid; }
+* {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
 }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 210mm;
+    height: 297mm;
+    background: #ffffff;
+    color: #0f172a;
+    font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif;
+    font-size: 2.7mm;
+    line-height: 1.15;
+}
+
+/* Page Outer Container */
+.fs-document {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+/* Outer Navy Rounded Border Shell */
+.fs-inner-border {
+    position: relative;
+    width: 205mm;
+    height: 290mm;
+    background: #fffdf5;
+    padding: 2.5mm 3mm 0mm 3mm;
+    overflow: hidden;
+}
+
+/* Watermark */
+.fs-watermark {
+    position: absolute;
+    z-index: 1;
+    top: 90mm;
+    left: 50%;
+    margin-left: -38mm;
+    width: 96mm;
+    height: 96mm;
+    opacity: 0.1;
+    pointer-events: none;
+}
+.fs-watermark img {
+    width: 96mm;
+    height: 96mm;
+}
+
+.fs-content-wrap {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+}
+
+/* Corner Accent Overlay */
+.fs-corner-accent-overlay {
+    position: absolute;
+    top: -2.5mm;
+    right: -3mm;
+    width: 32mm;
+    height: 32mm;
+    z-index: 5;
+    pointer-events: none;
+}
+.fs-corner-accent-overlay img {
+    width: 32mm;
+    height: 32mm;
+    display: block;
+}
+
+/* Header Section */
+.fs-header-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    position: relative;
+    z-index: 2;
+}
+.fs-header-logo-cell {
+    width: 22%;
+    vertical-align: middle;
+    text-align: left;
+}
+.fs-header-logo-cell img {
+    width: 34mm;
+    height: 34mm;
+    object-fit: contain;
+}
+.fs-header-details-cell {
+    width: 78%;
+    vertical-align: middle;
+    text-align: center;
+    padding-right: 12mm;
+}
+
+.fs-school-name {
+    font-size: 5.6mm;
+    font-weight: 900;
+    color: #062653;
+    letter-spacing: 0.15mm;
+    text-transform: uppercase;
+    font-family: 'Arial Black', Arial, sans-serif;
+    white-space: nowrap;
+}
+.fs-school-meta {
+    font-size: 2.95mm;
+    font-weight: 700;
+    margin-top: 0.6mm;
+    color: #111111;
+    white-space: nowrap;
+}
+.fs-motto {
+    margin-top: 0.6mm;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 4.8mm;
+    color: #07552f;
+    font-style: italic;
+    font-weight: bold;
+}
+
+/* Gold Header Divider with Center Diamond */
+.fs-gold-rule-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2mm 0 0 0;
+}
+.fs-gold-rule-line {
+    border-bottom: 0.55mm solid #c9941d;
+    width: 48%;
+}
+.fs-gold-rule-diamond {
+    width: 4%;
+    text-align: center;
+    height: 3.2mm;
+    line-height: 0;
+}
+.fs-gold-rule-diamond span {
+    display: inline-block;
+    width: 2.2mm;
+    height: 2.2mm;
+    background: #c9941d;
+    transform: rotate(45deg);
+}
+.fs-gold-rule-svg {
+    display: block;
+    width: 100%;
+    height: 3.2mm;
+    margin: 1.2mm 0 0;
+}
+.fs-gold-rule-svg line {
+    stroke: #c9941d;
+    stroke-width: 0.55;
+}
+.fs-gold-rule-svg polygon {
+    fill: #c9941d;
+}
+
+/* Title Block & Centered Subtitle Ribbon */
+.fs-title-block {
+    text-align: center;
+    margin-bottom: 2mm;
+    margin-top: 1mm;
+}
+.fs-title-block h1 {
+    margin: 0;
+    font-size: 6.8mm;
+    color: #062653;
+    font-weight: 900;
+    letter-spacing: 0.3mm;
+    text-transform: uppercase;
+    font-family: 'Arial Black', Arial, sans-serif;
+}
+
+.fs-ribbon-wrapper {
+    width: 70%;
+    margin: 1.2mm auto 0 auto;
+    text-align: center;
+}
+.fs-ribbon-img {
+    width: 100%;
+    height: 6.8mm;
+    display: block;
+}
+
+/* Main Fee Sections */
+.fs-fee-section {
+    margin-bottom: 8mm;
+}
+.fs-section-header {
+    background: #062653;
+    color: #ffffff;
+    text-align: center;
+    padding: 0.8mm 1mm;
+    font-size: 3.2mm;
+    font-weight: 900;
+    letter-spacing: 0.2mm;
+    border-radius: 1mm 1mm 0 0;
+    text-transform: uppercase;
+}
+.fs-primary-panel, .fs-junior-panel {
+    border: 0.3mm solid #062653;
+    border-top: none;
+    background: #ffffff;
+    padding: 0.8mm;
+    border-radius: 0 0 1mm 1mm;
+}
+
+.fs-two-col-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.fs-col-cell {
+    vertical-align: top;
+}
+.fs-col-cell--left {
+    padding-right: 0.8mm;
+}
+.fs-col-cell--right {
+    padding-left: 0.8mm;
+}
+
+.fs-category-title {
+    text-align: center;
+    font-weight: 900;
+    font-size: 3mm;
+    padding: 0.5mm 0;
+    color: #07552f;
+}
+.fs-category-title--boarder {
+    color: #062653;
+}
+
+/* Data Tables */
+.fs-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    background: #ffffff;
+}
+.fs-table th {
+    background: #07552f;
+    color: #ffffff;
+    font-size: 2.3mm;
+    padding: 0.7mm 0.2mm;
+    border: 0.2mm solid #ffffff;
+    text-align: center;
+    font-weight: 800;
+    line-height: 1.05;
+}
+.fs-col-boarder .fs-table th {
+    background: #062653;
+}
+.fs-table--junior th {
+    background: #4A235A;
+}
+
+.fs-table td {
+    padding: 0.6mm 0.3mm;
+    border: 0.2mm solid #94a3b8;
+    text-align: center;
+    font-size: 2.45mm;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.fs-table td:first-child {
+    text-align: left;
+    padding-left: 1mm;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+/* Allow Junior Table Category Names to Wrap Gracefully */
+.fs-table--junior td:first-child {
+    white-space: normal !important;
+    word-wrap: break-word;
+    font-size: 2.3mm;
+    line-height: 1.1;
+}
+
+.fs-table tr:nth-child(even) td {
+    background: #fcfbfa;
+}
+.fs-table .fs-total {
+    font-weight: 900;
+    color: #07552f;
+}
+.fs-col-boarder .fs-table .fs-total {
+    color: #062653;
+}
+.fs-table--junior .fs-total {
+    color: #4A235A;
+}
+
+/* Lower Section Grid - Calibrated to Fill Vertical Canvas */
+.fs-lower-area {
+    margin-top: 2.5mm;
+}
+.fs-lower-grid {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.fs-charges-cell {
+    width: 35%;
+    vertical-align: top;
+    padding-right: 1mm;
+}
+.fs-payments-cell {
+    width: 65%;
+    vertical-align: top;
+    padding-left: 1mm;
+}
+
+.fs-card {
+    border: 0.3mm solid #07552f;
+    border-radius: 1.2mm;
+    background: #ffffff;
+    overflow: hidden;
+}
+.fs-card--navy {
+    border-color: #062653;
+}
+.fs-card-header {
+    background: #07552f;
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 2.9mm;
+    padding: 0.7mm 1.2mm;
+    text-align: left;
+}
+.fs-card--navy .fs-card-header {
+    background: #062653;
+}
+
+.fs-card-body {
+    padding: 1.2mm;
+    min-height: 26mm;
+}
+
+.fs-charge-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.2mm;
+}
+.fs-charge-name {
+    font-size: 2.5mm;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+}
+.fs-charge-dots {
+    border-bottom: 0.2mm dotted #94a3b8;
+    width: 100%;
+}
+.fs-charge-amount {
+    font-size: 2.6mm;
+    font-weight: 900;
+    color: #0f172a;
+    text-align: right;
+    white-space: nowrap;
+    padding-left: 0.8mm;
+}
+
+.fs-pay-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.fs-pay-box-cell {
+    width: 50%;
+    vertical-align: top;
+}
+.fs-pay-box-cell:first-child {
+    padding-right: 0.8mm;
+}
+.fs-pay-box-cell:last-child {
+    padding-left: 0.8mm;
+}
+
+.fs-pay-box {
+    border: 0.2mm solid #cbd5e1;
+    border-radius: 1mm;
+    padding: 1mm;
+    text-align: center;
+    background: #ffffff;
+    min-height: 22mm;
+}
+.fs-pay-title {
+    font-size: 2.5mm;
+    font-weight: 900;
+    color: #07552f;
+    margin-bottom: 0.4mm;
+}
+.fs-pay-title--bank {
+    color: #062653;
+}
+.fs-pay-label {
+    font-size: 1.9mm;
+    font-weight: 800;
+    color: #475569;
+    margin-top: 0.4mm;
+}
+.fs-pay-value {
+    font-size: 3mm;
+    font-weight: 900;
+    color: #07552f;
+}
+.fs-pay-value--bank {
+    color: #062653;
+    font-size: 2.2mm;
+    font-weight: 800;
+}
+.fs-pay-divider {
+    height: 0.2mm;
+    border-bottom: 0.2mm dotted #cbd5e1;
+    margin: 0.6mm 0;
+}
+
+/* Important Notes Container - Handles Border Radius in Dompdf */
+.fs-important-box {
+    width: 100%;
+    margin-top: 3.5mm;
+    border: 0.35mm solid #c9941d;
+    background: #fff9e9;
+    border-radius: 2.5mm; /* Works reliably on div wrappers */
+    overflow: hidden;
+}
+
+.fs-important-table {
+    width: 100%;
+    border-collapse: separate; /* Required for clean cell fitting inside rounded corners */
+    border-spacing: 0;
+}
+
+.fs-important-label-cell {
+    width: 28%;
+    padding: 1.5mm;
+    vertical-align: middle;
+    border-right: 0.25mm solid #e2d8b8;
+    text-align: center;
+    background: transparent;
+}
+
+.fs-important-text {
+    font-size: 2.8mm;
+    font-weight: 900;
+    color: #704800;
+    line-height: 1.25;
+    text-align: center;
+}
+
+.fs-important-list-cell {
+    width: 72%;
+    padding: 1.2mm 1.5mm 1.2mm 3mm;
+    vertical-align: middle;
+    background: transparent;
+}
+
+.fs-important-list-cell .fs-important-list {
+    margin: 0;
+    padding-left: 6mm;
+    list-style-type: upper-roman;
+}
+
+.fs-important-list-cell .fs-important-list li {
+    font-size: 2.45mm;
+    font-weight: 700;
+    line-height: 1.35;
+    padding: 0.8mm 0;
+    color: #0f172a;
+    border-bottom: 0.18mm solid #f0dfb4;
+}
+
+.fs-important-list-cell .fs-important-list li:last-child {
+    border-bottom: 0;
+}
+
+.fs-important-list-cell strong {
+    font-weight: 900;
+}
+
+.fs-note-mpesa { color: #087f5b; }
+.fs-note-kcb { color: #174ea6; }
+.fs-note-portal { color: #7b2cbf; }
+.fs-note-warning { color: #a33a00; }
+/* Edge-to-Edge Rounded-Corner Footer */
+.fs-footer-dome-fixed {
+    position: absolute;
+    bottom: 0 !important;
+    left: -2mm !important;
+    right: -2mm !important;
+    width: 214mm !important;
+    height: 20mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    z-index: 100;
+}
+
+.fs-footer-dome-svg {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.fs-footer-dome-text {
+    position: absolute;
+    bottom: 3.5mm;
+    left: 0;
+    right: 0;
+    width: 100%;
+    text-align: center;
+    color: #ffffff;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 3.8mm;
+    font-style: italic;
+    font-weight: normal;
+    z-index: 101;
+}
+
+

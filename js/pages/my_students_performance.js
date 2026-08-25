@@ -55,7 +55,7 @@ const myStudentsPerformanceCtrl = (() => {
     async function loadYears() {
         try {
             const response = await apiCall('academic/years-list');
-            state.years = response.data || [];
+            state.years = response.data?.data || response.data || [];
             const select = document.getElementById('yearFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Years</option>';
@@ -75,7 +75,7 @@ const myStudentsPerformanceCtrl = (() => {
     async function loadTerms() {
         try {
             const response = await apiCall('academic/terms-list');
-            state.terms = response.data || [];
+            state.terms = response.data?.data || response.data || [];
             const select = document.getElementById('termFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Terms</option>';
@@ -98,7 +98,7 @@ const myStudentsPerformanceCtrl = (() => {
             const response = await apiCall('academic/classes-list', 'GET', {
                 class_teacher_only: true
             });
-            state.classes = response.data || [];
+            state.classes = response.data?.data || response.data || [];
             const select = document.getElementById('classFilter');
             if (select) {
                 select.innerHTML = '<option value="">All Classes</option>';
@@ -128,7 +128,8 @@ const myStudentsPerformanceCtrl = (() => {
             });
 
             // Map performance-overview rows to the per-student shape this page renders.
-            state.performance = (response.data?.rows || []).map(r => ({
+            const payload = response?.data?.data || response?.data || response || {};
+            state.performance = (payload.rows || []).map(r => ({
                 student_id: r.student_id,
                 student_name: r.full_name || `${r.first_name || ''} ${r.last_name || ''}`.trim(),
                 admission_no: r.admission_no,

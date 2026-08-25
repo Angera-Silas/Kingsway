@@ -12,6 +12,7 @@
       const params = new URLSearchParams(window.location.search);
       this.studentId = params.get("id") || params.get("student_id") || "";
       this.context = params.get("context") || "";
+      this.updateBackButton();
       this.waitForAuth().then(() => {
         if (this.studentId) {
           this.loadProfile(this.studentId);
@@ -19,6 +20,14 @@
           this.showSearch();
         }
       }).catch((error) => this.renderState("error", error.message));
+    },
+
+    updateBackButton() {
+      const button = this.root.querySelector("#studentProfileBackButton");
+      if (!button) return;
+
+      button.classList.toggle("d-none", !this.studentId);
+      button.href = `${window.APP_BASE || ""}/home.php?route=student_profiles`;
     },
 
     waitForAuth() {
@@ -67,6 +76,8 @@
         this.context = payload.context || this.context;
         const results = this.root.querySelector("#studentProfileResults");
         const students = payload.students || [];
+        const count = this.root.querySelector("#studentProfileResultCount");
+        if (count) count.textContent = `${students.length} learner${students.length === 1 ? "" : "s"}`;
         if (!students.length) {
           results.innerHTML = '<div class="text-muted py-4 text-center">No students found.</div>';
           return;

@@ -400,6 +400,23 @@ class StudentInsightsService
     {
         $conditions = ["s.status = 'active'"];
         $bindings = [];
+        if (!empty($filters['_class_teacher_user_id'])) {
+            $conditions[] = "EXISTS (
+                SELECT 1
+                FROM student_academic_enrollments scoped_sae
+                JOIN academic_year_class_streams scoped_aycs ON scoped_aycs.id = scoped_sae.academic_year_class_stream_id
+                JOIN vw_teacher_effective_stream_learning_areas ts
+                  ON ts.academic_year_class_stream_id = scoped_aycs.id
+                 AND ts.scope_type = 'class_teacher'
+                JOIN staff scoped_staff ON scoped_staff.id = ts.staff_id
+                JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
+                WHERE scoped_sae.student_id = s.id
+                  AND scoped_sae.enrollment_status = 'active'
+                  AND scoped_aycs.status = 'active'
+                  AND scoped_user.id = ?
+            )";
+            $bindings[] = (int) $filters['_class_teacher_user_id'];
+        }
         $map = [
             'status' => 'i.status = ?',
             'class_id' => 'ayc.class_id = ?',

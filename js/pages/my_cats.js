@@ -1,7 +1,6 @@
 /**
- * My CATs Controller - Class Teacher Specific CAT Management
- * Role: Class Teacher (7)
- * Shows only CATs for the teacher's assigned classes
+ * Formative Assessments Controller - effective scope for class teachers,
+ * subject teachers, and staff holding both roles.
  * Integrates with AcademicContext for academic year awareness
  */
 
@@ -12,6 +11,7 @@ const myCatsCtrl = (() => {
         terms: [],
         classes: [],
         subjects: [],
+        assignments: [],
         currentAcademicYear: null,
         currentTerm: null
     };
@@ -45,9 +45,9 @@ const myCatsCtrl = (() => {
         }
     }
 
-    async function apiCall(endpoint, method = 'GET', data = null) {
+    async function apiCall(endpoint, method = 'GET', data = null, params = {}) {
         try {
-            return await window.API.apiCall(endpoint, method, data, null, { checkPermission: false });
+            return await window.API.apiCall(endpoint, method, data, params, { checkPermission: false });
         } catch (error) {
             console.error('API call failed:', error);
             throw error;
@@ -94,10 +94,24 @@ const myCatsCtrl = (() => {
         }
     }
 
-    async function loadClasses() {
+    async function loadTeachingScope() {
         try {
-            const response = await apiCall('academic/classes-list');
-            state.classes = response || [];
+            const response = await apiCall('academic/my-classes');
+            state.assignments = Array.isArray(response) ? response : [];
+            const classMap = new Map();
+            const subjectMap = new Map();
+            state.assignments.forEach((assignment) => {
+                classMap.set(Number(assignment.class_id), {
+                    id: Number(assignment.class_id),
+                    name: assignment.class_name
+                });
+                subjectMap.set(Number(assignment.subject_id), {
+                    id: Number(assignment.subject_id),
+                    name: assignment.subject_name
+                });
+            });
+            state.classes = [...classMap.values()];
+            state.subjects = [...subjectMap.values()];
             const select = document.getElementById('classFilter');
             const catClassSelect = document.getElementById('catClass');
             
@@ -106,7 +120,7 @@ const myCatsCtrl = (() => {
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.name || cls.class_name || '';
+                    option.textContent = cls.name || '';
                     select.appendChild(option);
                 });
             }
@@ -116,32 +130,28 @@ const myCatsCtrl = (() => {
                 state.classes.forEach(cls => {
                     const option = document.createElement('option');
                     option.value = cls.id;
-                    option.textContent = cls.name || cls.class_name || '';
+                    option.textContent = cls.name || '';
                     catClassSelect.appendChild(option);
                 });
             }
+            populateSubjectOptions();
         } catch (error) {
-            console.error('Failed to load classes:', error);
+            console.error('Failed to load teaching scope:', error);
+            toast('Unable to load your assigned classes and learning areas', 'error');
         }
     }
 
-    async function loadSubjects() {
-        try {
-            const response = await apiCall('academic/subjects-list');
-            state.subjects = response || [];
-            const select = document.getElementById('catSubject');
-            if (select) {
-                select.innerHTML = '<option value="">Select Subject</option>';
-                state.subjects.forEach(subject => {
-                    const option = document.createElement('option');
-                    option.value = subject.id;
-                    option.textContent = subject.name || subject.subject_name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load subjects:', error);
-        }
+    function populateSubjectOptions(classId = '') {
+        const select = document.getElementById('catSubject');
+        if (!select) return;
+        const selected = String(select.value || '');
+        const subjectMap = new Map();
+        state.assignments
+            .filter((assignment) => !classId || String(assignment.class_id) === String(classId))
+            .forEach((assignment) => subjectMap.set(Number(assignment.subject_id), assignment.subject_name));
+        select.innerHTML = '<option value="">Select Learning Area</option>' +
+            [...subjectMap.entries()].map(([id, name]) => `<option value="${id}">${_esc(name)}</option>`).join('');
+        if ([...subjectMap.keys()].some((id) => String(id) === selected)) select.value = selected;
     }
 
     async function loadCats() {
@@ -154,7 +164,7 @@ const myCatsCtrl = (() => {
                 year_id: yearId,
                 term_id: termId,
                 class_id: classId,
-                teacher_only: true // Only show CATs for this teacher's classes
+                teacher_scope_only: true
             });
 
             state.cats = response || [];
@@ -162,7 +172,7 @@ const myCatsCtrl = (() => {
             updateStats();
         } catch (error) {
             console.error('Failed to load CATs:', error);
-            toast('Failed to load CATs', 'error');
+            toast('Failed to load formative assessments', 'error');
         }
     }
 
@@ -174,7 +184,7 @@ const myCatsCtrl = (() => {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="8" class="text-center text-muted py-4">
-                        No CATs found for your classes
+                        No formative assessments found in your teaching scope
                     </td>
                 </tr>
             `;
@@ -237,7 +247,7 @@ const myCatsCtrl = (() => {
                 const typeMatch = typeSelect
                     ? [...typeSelect.options].find(o => o.text.toLowerCase() === typeName || typeName.includes(o.value))
                     : null;
-                title.textContent = 'Edit CAT';
+                title.textContent = 'Edit Formative Assessment';
                 document.getElementById('catId').value = cat.id;
                 document.getElementById('catName').value = cat.name || '';
                 document.getElementById('catType').value = typeMatch ? typeMatch.value : (cat.type || '');
@@ -249,7 +259,7 @@ const myCatsCtrl = (() => {
                 document.getElementById('catStatus').value = cat.status || 'draft';
             }
         } else {
-            title.textContent = 'Create CAT';
+            title.textContent = 'New Formative Assessment';
         }
 
         modal.show();
@@ -275,24 +285,24 @@ const myCatsCtrl = (() => {
             await apiCall(endpoint, method, data);
             
             bootstrap.Modal.getInstance(document.getElementById('catModal')).hide();
-            toast(catId ? 'CAT updated successfully' : 'CAT created successfully', 'success');
+            toast(catId ? 'Formative assessment updated' : 'Formative assessment created', 'success');
             loadCats();
         } catch (error) {
-            console.error('Failed to save CAT:', error);
-            toast('Failed to save CAT', 'error');
+            console.error('Failed to save formative assessment:', error);
+            toast('Failed to save formative assessment', 'error');
         }
     }
 
     async function deleteCat(catId) {
-        if (!(await window.confirmAction('Confirm Deletion', 'Are you sure you want to delete this CAT?', { confirmText: 'Delete', danger: true }))) return;
+        if (!(await window.confirmAction('Confirm Deletion', 'Delete this formative assessment?', { confirmText: 'Delete', danger: true }))) return;
 
         try {
             await apiCall(`academic/formative-assessments/${catId}`, 'DELETE');
-            toast('CAT deleted successfully', 'success');
+            toast('Formative assessment deleted', 'success');
             loadCats();
         } catch (error) {
-            console.error('Failed to delete CAT:', error);
-            toast('Failed to delete CAT', 'error');
+            console.error('Failed to delete formative assessment:', error);
+            toast('Failed to delete formative assessment', 'error');
         }
     }
 
@@ -309,6 +319,7 @@ const myCatsCtrl = (() => {
         document.getElementById('yearFilter')?.addEventListener('change', loadCats);
         document.getElementById('termFilter')?.addEventListener('change', loadCats);
         document.getElementById('classFilter')?.addEventListener('change', loadCats);
+        document.getElementById('catClass')?.addEventListener('change', (event) => populateSubjectOptions(event.target.value));
     }
 
     async function init() {
@@ -339,7 +350,7 @@ const myCatsCtrl = (() => {
         document.getElementById('myCatsLoading').style.display = 'none';
         document.getElementById('myCatsContent').style.display = 'block';
 
-        await Promise.all([loadYears(), loadTerms(), loadClasses(), loadSubjects()]);
+        await Promise.all([loadYears(), loadTerms(), loadTeachingScope()]);
         await loadCats();
         bindEvents();
     }

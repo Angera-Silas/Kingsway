@@ -1,157 +1,302 @@
 <?php
 /**
- * Fee Structure — Simple Mode Assembler
- * Includes header, watermark, body sections, and footer. All data is dynamic.
- * THE MASTER/GENERAL/SIMPLE fee structure — existing layout preserved.
- *
- * Expected variables:
- *   $schoolName, $schoolAddress, $schoolPhone, $schoolMotto, $schoolLogo
- *   $yearLabel, $documentTitle, $documentSubtitle
- *   $sections, $otherCharges, $paymentMpesa, $paymentBank, $importantNotes
- *   $generatedAt
+ * Fully Dynamic A4 Fee Structure Print Engine
+ * Layout Matrix:
+ * - Multiple Classes + Both Types  => 50/50 Split (Default Layout)
+ * - Single Class + Both Types       => Stacked 100% Full Width Tables
+ * - Any Scope + Single Type (D/B)   => 100% Full Width Table
  */
 $tplDir = __DIR__;
-$cssUrl  = '/public/css/fee-structure-print.css';
-if (!function_exists('fsMoney')) {
-    function fsMoney($amount) { return number_format((float)$amount); }
+$cssFile = dirname(__DIR__, 5) . '/public/css/fee-structure-print.css';
+$cssText = is_file($cssFile) ? file_get_contents($cssFile) : '';
+if (!function_exists('fsMoney')) { 
+    function fsMoney($amount) { return number_format((float) $amount); } 
 }
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><?= htmlspecialchars($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?> — Fee Structure</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?= $cssUrl ?>">
+    <meta charset="UTF-8">
+    <title><?= htmlspecialchars($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?> — Fee Structure</title>
+    <style><?= $cssText ?></style>
 </head>
 <body>
-
 <div class="fs-document">
+    <div class="fs-inner-border">
+        <?php include $tplDir . '/fee_structure_watermark.php'; ?>
+        
+        <div class="fs-content-wrap">
+            <?php include $tplDir . '/fee_structure_header.php'; ?>
 
-    <?php include $tplDir . '/fee_structure_header.php'; ?>
-    <?php include $tplDir . '/fee_structure_watermark.php'; ?>
-
-    <main class="fs-content">
-
-    <?php foreach (($sections ?? []) as $section):
-        $secTitle   = $section['title'] ?? '';
-        $secVariant = $section['variant'] ?? 'custom';
-    ?>
-
-        <!-- Section Header -->
-        <div class="fs-section-header"><?= htmlspecialchars($secTitle) ?></div>
-
-        <?php if ($secVariant === 'primary' && !empty($section['dayRows'])): ?>
-            <!-- Two-column Day / Boarder -->
-            <div class="row g-3">
-                <div class="col-lg-6">
-                    <div class="fs-category mt-3"><i class="bi bi-person-walking"></i>DAY SCHOLARS</div>
-                    <div class="fs-card">
-                        <table class="fs-table">
-                            <thead><tr>
-                                <th>GRADE</th>
-                                <th>TERM I<br><small>(KSh)</small></th>
-                                <th>TERM II<br><small>(KSh)</small></th>
-                                <th>TERM III<br><small>(KSh)</small></th>
-                                <th>TOTAL<br><small>(KSh)</small></th>
-                            </tr></thead>
-                            <tbody>
-                            <?php foreach (($section['dayRows'] ?? []) as $row): ?>
+            <main class="fs-content">
+                <?php foreach (($sections ?? []) as $section):
+                    $variant = $section['variant'] ?? 'custom';
+                    $dayRows = $section['dayRows'] ?? [];
+                    $boarderRows = $section['boarderRows'] ?? [];
+                    $hasDay = !empty($dayRows);
+                    $hasBoarder = !empty($boarderRows);
+                    
+                    // Count total rows to determine if single class
+                    $totalDayCount = count($dayRows);
+                    $totalBoarderCount = count($boarderRows);
+                    $isSingleClass = ($totalDayCount <= 1 && $totalBoarderCount <= 1);
+                ?>
+                <section class="fs-fee-section">
+                    <div class="fs-section-header"><?= htmlspecialchars($section['title'] ?? '') ?></div>
+                    
+                    <?php if ($variant === 'primary'): ?>
+                    <div class="fs-primary-panel">
+                        
+                        <?php if ($hasDay && $hasBoarder && !$isSingleClass): ?>
+                            <!-- CASE 1: MULTIPLE CLASSES + BOTH TYPES -> 50/50 SPLIT (DEFAULT) -->
+                            <table class="fs-two-col-table">
                                 <tr>
-                                    <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                    <!-- DAY SCHOLARS -->
+                                    <td class="fs-col-cell fs-col-cell--left">
+                                        <div class="fs-category-title">&#127979; DAY SCHOLARS</div>
+                                        <table class="fs-table">
+                                            <colgroup>
+                                                <col style="width:24%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                            </colgroup>
+                                            <thead>
+                                                <tr>
+                                                    <th>GRADE</th>
+                                                    <th>TERM I<br><small>(KSh)</small></th>
+                                                    <th>TERM II<br><small>(KSh)</small></th>
+                                                    <th>TERM III<br><small>(KSh)</small></th>
+                                                    <th>TOTAL<br><small>(KSh)</small></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                            <?php foreach ($dayRows as $row): ?>
+                                                <tr>
+                                                    <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                                    <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                                    <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                                    <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                                    <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </td>
+
+                                    <!-- BOARDERS -->
+                                    <td class="fs-col-cell fs-col-cell--right fs-col-boarder">
+                                        <div class="fs-category-title fs-category-title--boarder">&#128716; BOARDERS</div>
+                                        <table class="fs-table">
+                                            <colgroup>
+                                                <col style="width:24%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                                <col style="width:19%;">
+                                            </colgroup>
+                                            <thead>
+                                                <tr>
+                                                    <th>GRADE</th>
+                                                    <th>TERM I<br><small>(KSh)</small></th>
+                                                    <th>TERM II<br><small>(KSh)</small></th>
+                                                    <th>TERM III<br><small>(KSh)</small></th>
+                                                    <th>TOTAL<br><small>(KSh)</small></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                            <?php foreach ($boarderRows as $row): ?>
+                                                <tr>
+                                                    <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                                    <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                                    <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                                    <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                                    <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        <?php elseif ($hasDay && $hasBoarder && $isSingleClass): ?>
+                            <!-- CASE 2: SINGLE CLASS + BOTH TYPES -> STACKED FULL-WIDTH TABLES -->
+                            <div class="fs-category-title">&#127979; DAY SCHOLARS</div>
+                            <table class="fs-table fs-table--fullwidth" style="margin-bottom: 2mm;">
+                                <colgroup>
+                                    <col style="width:40%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>GRADE</th>
+                                        <th>TERM I <small>(KSh)</small></th>
+                                        <th>TERM II <small>(KSh)</small></th>
+                                        <th>TERM III <small>(KSh)</small></th>
+                                        <th>TOTAL <small>(KSh)</small></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($dayRows as $row): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                        <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                        <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                            <div class="fs-category-title fs-category-title--boarder">&#128716; BOARDERS</div>
+                            <table class="fs-table fs-table--fullwidth fs-col-boarder">
+                                <colgroup>
+                                    <col style="width:40%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>GRADE</th>
+                                        <th>TERM I <small>(KSh)</small></th>
+                                        <th>TERM II <small>(KSh)</small></th>
+                                        <th>TERM III <small>(KSh)</small></th>
+                                        <th>TOTAL <small>(KSh)</small></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($boarderRows as $row): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                        <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                        <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                        <?php elseif ($hasDay): ?>
+                            <!-- CASE 3: DAY SCHOLAR ONLY -> 100% FULL-WIDTH TABLE -->
+                            <div class="fs-category-title">&#127979; DAY SCHOLARS</div>
+                            <table class="fs-table fs-table--fullwidth">
+                                <colgroup>
+                                    <col style="width:40%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>GRADE</th>
+                                        <th>TERM I <small>(KSh)</small></th>
+                                        <th>TERM II <small>(KSh)</small></th>
+                                        <th>TERM III <small>(KSh)</small></th>
+                                        <th>TOTAL <small>(KSh)</small></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($dayRows as $row): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                        <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                        <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                        <?php elseif ($hasBoarder): ?>
+                            <!-- CASE 4: BOARDER ONLY -> 100% FULL-WIDTH TABLE -->
+                            <div class="fs-category-title fs-category-title--boarder">&#128716; BOARDERS</div>
+                            <table class="fs-table fs-table--fullwidth fs-col-boarder">
+                                <colgroup>
+                                    <col style="width:40%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                    <col style="width:15%;">
+                                </colgroup>
+                                <thead>
+                                    <tr>
+                                        <th>GRADE</th>
+                                        <th>TERM I <small>(KSh)</small></th>
+                                        <th>TERM II <small>(KSh)</small></th>
+                                        <th>TERM III <small>(KSh)</small></th>
+                                        <th>TOTAL <small>(KSh)</small></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <?php foreach ($boarderRows as $row): ?>
+                                    <tr>
+                                        <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
+                                        <td><?= fsMoney($row['term1'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term2'] ?? 0) ?></td>
+                                        <td><?= fsMoney($row['term3'] ?? 0) ?></td>
+                                        <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+                    </div>
+
+                    <?php else: $rows = $section['rows'] ?? []; ?>
+                    <!-- JUNIOR SCHOOL / CUSTOM SINGLE FULL-WIDTH TABLE -->
+                    <div class="fs-junior-panel">
+                        <table class="fs-table fs-table--junior">
+                            <colgroup>
+                                <col style="width:40%;">
+                                <col style="width:15%;">
+                                <col style="width:15%;">
+                                <col style="width:15%;">
+                                <col style="width:15%;">
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th><?= htmlspecialchars($section['firstCol'] ?? 'CATEGORY') ?></th>
+                                    <th>TERM I <small>(KSh)</small></th>
+                                    <th>TERM II <small>(KSh)</small></th>
+                                    <th>TERM III <small>(KSh)</small></th>
+                                    <th>TOTAL <small>(KSh)</small></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php foreach ($rows as $row): ?>
+                                <tr>
+                                    <td><?= htmlspecialchars($row['category'] ?? $row['label'] ?? '') ?></td>
                                     <td><?= fsMoney($row['term1'] ?? 0) ?></td>
                                     <td><?= fsMoney($row['term2'] ?? 0) ?></td>
                                     <td><?= fsMoney($row['term3'] ?? 0) ?></td>
                                     <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($section['dayRows'])): ?>
-                                <tr><td colspan="5" class="text-center text-muted" style="padding:12px;font-size:12px">No fee data</td></tr>
-                            <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
-                </div>
-                <div class="col-lg-6">
-                    <div class="fs-category mt-3"><i class="bi bi-house-heart-fill"></i>BOARDERS</div>
-                    <div class="fs-card fs-card--boarder">
-                        <table class="fs-table">
-                            <thead><tr>
-                                <th>GRADE</th>
-                                <th>TERM I<br><small>(KSh)</small></th>
-                                <th>TERM II<br><small>(KSh)</small></th>
-                                <th>TERM III<br><small>(KSh)</small></th>
-                                <th>TOTAL<br><small>(KSh)</small></th>
-                            </tr></thead>
-                            <tbody>
-                            <?php foreach (($section['boarderRows'] ?? []) as $row): ?>
-                                <tr>
-                                    <td><?= htmlspecialchars($row['label'] ?? '') ?></td>
-                                    <td><?= fsMoney($row['term1'] ?? 0) ?></td>
-                                    <td><?= fsMoney($row['term2'] ?? 0) ?></td>
-                                    <td><?= fsMoney($row['term3'] ?? 0) ?></td>
-                                    <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                            <?php if (empty($section['boarderRows'])): ?>
-                                <tr><td colspan="5" class="text-center text-muted" style="padding:12px;font-size:12px">No fee data</td></tr>
-                            <?php endif; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-        <?php elseif ($secVariant === 'junior' || $secVariant === 'custom'): ?>
-            <!-- Single table (full width) -->
-            <?php $tableTitle = $section['tableTitle'] ?? null; ?>
-            <?php $tableIcon = $section['tableIcon'] ?? null; ?>
-            <?php $firstColHeader = $section['firstCol'] ?? 'CATEGORY'; ?>
-            <?php $rows = $section['rows'] ?? []; ?>
-            <?php if ($tableTitle): ?>
-                <div class="fs-category mt-3">
-                    <?php if ($tableIcon): ?><i class="bi <?= htmlspecialchars($tableIcon) ?>"></i><?php endif; ?>
-                    <?= htmlspecialchars($tableTitle) ?>
-                </div>
-            <?php endif; ?>
-            <div class="fs-card">
-                <table class="fs-table fs-table--junior">
-                    <thead><tr>
-                        <th><?= htmlspecialchars($firstColHeader) ?></th>
-                        <th>TERM I<br><small>(KSh)</small></th>
-                        <th>TERM II<br><small>(KSh)</small></th>
-                        <th>TERM III<br><small>(KSh)</small></th>
-                        <th>TOTAL<br><small>(KSh)</small></th>
-                    </tr></thead>
-                    <tbody>
-                    <?php foreach ($rows as $row): ?>
-                        <tr>
-                            <td><?= htmlspecialchars($row['category'] ?? $row['label'] ?? '') ?></td>
-                            <td><?= fsMoney($row['term1'] ?? 0) ?></td>
-                            <td><?= fsMoney($row['term2'] ?? 0) ?></td>
-                            <td><?= fsMoney($row['term3'] ?? 0) ?></td>
-                            <td class="fs-total"><?= fsMoney($row['total'] ?? 0) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($rows)): ?>
-                        <tr><td colspan="5" class="text-center text-muted" style="padding:12px;font-size:12px">No fee data</td></tr>
                     <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
+                </section>
+                <?php endforeach; ?>
 
-        <?php endif; ?>
+                <?php include $tplDir . '/fee_structure_body_lower.php'; ?>
+            </main>
+        </div>
+    </div>
 
-    <?php endforeach; ?>
-
-    </main>
-
-    <?php include $tplDir . '/fee_structure_footer.php'; ?>
-
+    <!-- ROOT LEVEL FOOTER -->
+    <?php include $tplDir . '/fee_structure_page_footer.php'; ?>
 </div>
-
 </body>
 </html>

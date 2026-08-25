@@ -141,23 +141,20 @@
     <div class="row g-3">
         <div class="col-md-4 pf-sidebar">
             <div class="card shadow-sm">
-                <div class="card-header bg-light"><h6 class="mb-0"><i class="bi bi-search me-1"></i>Select Student</h6></div>
+                <div class="card-header bg-light"><h6 class="mb-0"><i class="bi bi-people me-1"></i>My Learners</h6></div>
                 <div class="card-body">
-                    <div class="mb-2">
+                    <div class="mb-2" id="pfClassPickerWrap">
                         <label class="form-label small fw-semibold">Class</label>
                         <select class="form-select form-select-sm" id="pfClassFilter">
-                            <option value="">All Classes</option>
+                            <option value="">Select a class...</option>
                         </select>
                     </div>
-                    <div class="mb-2">
+                    <div class="mb-2" id="pfStudentPickerWrap">
                         <label class="form-label small fw-semibold">Student</label>
-                        <select class="form-select form-select-sm" id="pfStudentSelect">
-                            <option value="">Select a student...</option>
-                        </select>
+                        <div id="pfStudentList" class="list-group small"></div>
+                        <select class="form-select form-select-sm d-none" id="pfStudentSelect"><option value=""></option></select>
                     </div>
-                    <button class="btn btn-primary btn-sm w-100" onclick="PortfolioController.loadPortfolio()">
-                        <i class="bi bi-folder2-open me-1"></i> View Portfolio
-                    </button>
+                    <div class="small text-muted" id="pfScopeHint">Select a learner to view their cumulative portfolio.</div>
                 </div>
             </div>
         </div>

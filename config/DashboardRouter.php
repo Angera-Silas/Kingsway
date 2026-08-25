@@ -44,12 +44,21 @@ class DashboardRouter
         'school_admin_dashboard' => 'school_administrative_officer_dashboard',
     ];
 
+    // Retired teacher assessment pages remain valid bookmarks, but resolve to
+    // the single scoped formative-assessment workspace.
+    private const ROUTE_ALIASES = [
+        'create_assessment' => 'my_cats',
+        'create_subject_cat' => 'my_cats',
+        'my_subject_cats' => 'my_cats',
+    ];
+
     // Auto-generated from role_sidebars.php — do not edit manually
     // Run: php scripts/generate_route_roles.php
 // Auto-generated from role_sidebars.php — do not edit manually
 // Run: php scripts/generate_route_roles.php
 private const ROUTE_ROLES = [
     'academic_calendar' => [2, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 18 role(s)
+    'academic_planning_oversight' => [3, 4, 5],  // 3 role(s)
     'academic_reports' => [3, 4, 5, 6],  // 4 role(s)
     'academic_students' => [6],  // 1 role(s)
     'academic_years' => [3, 4, 5, 6],  // 4 role(s)
@@ -121,9 +130,6 @@ private const ROUTE_ROLES = [
     'counseling_referrals' => [24],  // 1 role(s)
     'counseling_reports' => [24],  // 1 role(s)
     'create_activity' => [21],  // 1 role(s)
-    'create_assessment' => [7],  // 1 role(s)
-    'create_lesson_plan' => [7, 8, 9],  // 3 role(s)
-    'create_subject_cat' => [8],  // 1 role(s)
     'curriculum_cbc' => [4, 5, 6],  // 3 role(s)
     'daily_attendance' => [6],  // 1 role(s)
     'data_retention' => [2],  // 1 role(s)
@@ -143,13 +149,14 @@ private const ROUTE_ROLES = [
     'end_of_term_travel' => [18],  // 1 role(s)
     'enrollment_reports' => [3, 4, 5, 10],  // 4 role(s)
     'enrollment_trends' => [6],  // 1 role(s)
-    'enter_exam_results' => [8],  // 1 role(s)
+    'enter_exam_results' => [4, 5, 6, 7, 8],  // leadership oversight + assigned teachers
     'enter_marks' => [7],  // 1 role(s)
     'error_logs' => [2],  // 1 role(s)
     'evening_roll_call' => [18],  // 1 role(s)
-    'exam_moderation' => [4, 5],  // 2 role(s)
+    'exam_moderation' => [4, 5, 6],  // school admin, headteacher, deputy academic
+    'exam_timetable_drafts' => [4, 5, 6],  // academic leadership draft/review/publish workflow
     'exam_schedule' => [3, 4, 5, 6, 7],  // 5 role(s)
-    'exam_setup' => [5, 6],  // 2 role(s)
+    'exam_setup' => [6],  // 1 role(s)
     'exception_reports' => [10],  // 1 role(s)
     'exeat_history' => [18],  // 1 role(s)
     'exeat_reports' => [18],  // 1 role(s)
@@ -167,7 +174,6 @@ private const ROUTE_ROLES = [
     'generate_class_report' => [7],  // 1 role(s)
     'generate_subject_report' => [8],  // 1 role(s)
     'goods_received' => [14],  // 1 role(s)
-    'grade_entry' => [7],  // 1 role(s)
     'grading_scales' => [4, 5, 6],  // 3 role(s)
     'grading_status' => [4, 5, 6],  // 3 role(s)
     'headteacher_dashboard' => [5],  // 1 role(s)
@@ -197,7 +203,7 @@ private const ROUTE_ROLES = [
     'manage_activities' => [3, 5, 21],  // 3 role(s)
     'manage_admissions_payments' => [10],  // 1 role(s)
     'manage_announcements' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 16, 18, 21, 23, 24, 32, 33, 34, 63, 64],  // 20 role(s)
-    'manage_articles' => [5, 6, 21, 63],  // 4 role(s)
+    'manage_articles' => [6, 21, 63],  // 3 role(s)
     'manage_boarding' => [3, 4, 5, 18],  // 4 role(s)
     'manage_boarding_fee_structure' => [10],  // 1 role(s)
     'manage_classes' => [3, 4, 5, 6],  // 4 role(s)
@@ -207,21 +213,21 @@ private const ROUTE_ROLES = [
     'manage_family_groups' => [4],  // 1 role(s)
     'manage_fee_structure' => [3, 4, 5, 10],  // 4 role(s)
     'manage_holidays' => [4],  // 1 role(s)
-    'manage_inquiries' => [5],  // 1 role(s)
+    'manage_inquiries' => [4],  // 1 role(s)
     'manage_inventory' => [3, 14],  // 2 role(s)
-    'manage_job_applications' => [5, 6],  // 2 role(s)
-    'manage_job_vacancies' => [5],  // 1 role(s)
+    'manage_job_applications' => [4, 6],  // 2 role(s)
+    'manage_job_vacancies' => [4],  // 1 role(s)
     'manage_lesson_plans' => [5, 6, 7, 8, 9, 63],  // 6 role(s)
     'manage_library' => [3, 4, 5, 6, 14, 63],  // 6 role(s)
     'manage_menus' => [16],  // 1 role(s)
-    'manage_page_content' => [5],  // 1 role(s)
+    'manage_page_content' => [4],  // 1 role(s)
     'manage_payments' => [3, 4, 10],  // 3 role(s)
     'manage_payrolls' => [3, 4, 10],  // 3 role(s)
-    'manage_public_downloads' => [5],  // 1 role(s)
-    'manage_public_events' => [5, 6, 21, 63],  // 4 role(s)
+    'manage_public_downloads' => [4],  // 1 role(s)
+    'manage_public_events' => [6, 21, 63],  // 3 role(s)
     'manage_requisitions' => [14],  // 1 role(s)
     'manage_roles' => [2],  // 1 role(s)
-    'manage_school_gallery' => [5, 21],  // 2 role(s)
+    'manage_school_gallery' => [21],  // 1 role(s)
     'manage_sms' => [2, 3, 4, 5, 6, 7, 8, 9, 10, 63],
     'manage_staff' => [3, 4, 5, 63],  // 4 role(s)
     'manage_staff_meetings' => [4],  // 1 role(s)
@@ -253,14 +259,13 @@ private const ROUTE_ROLES = [
     'mpesa_reconciliation' => [10],  // 1 role(s)
     'mpesa_settlements' => [3, 10],  // 2 role(s)
     'my_attendance' => [6, 32, 33, 34, 63, 64],  // 6 role(s)
-    'my_cats' => [7],  // 1 role(s)
+    'my_cats' => [7, 8],  // 2 role(s)
     'my_classes_taught' => [8],  // 1 role(s)
     'my_mentor' => [9],  // 1 role(s)
     'my_routes' => [3, 4, 23],  // 3 role(s)
-    'my_schemes_of_work' => [7],  // 1 role(s)
+    'my_schemes_of_work' => [5, 7, 8],  // 3 role(s)
     'my_students_list' => [6, 7, 63],  // 3 role(s)
     'my_students_performance' => [7],  // 1 role(s)
-    'my_subject_cats' => [8],  // 1 role(s)
     'my_subject_syllabus' => [8],  // 1 role(s)
     'my_subjects_overview' => [8],  // 1 role(s)
     'my_vehicle' => [23],  // 1 role(s)
@@ -304,6 +309,7 @@ private const ROUTE_ROLES = [
     'sanctions' => [63],  // 1 role(s)
     'schedule_parent_meetings' => [24],  // 1 role(s)
     'schemes_of_work' => [5, 6, 63],  // 3 role(s)
+    'academic_content_reconciliation' => [5, 6],  // controlled legacy academic-content reconciliation
     'school_accountant_dashboard' => [10],  // 1 role(s)
     'school_administrative_officer_dashboard' => [4],  // 1 role(s)
     'school_counselor_chaplain_dashboard' => [24],  // 1 role(s)
@@ -404,9 +410,9 @@ private const ROUTE_ROLES = [
     'year_rollover' => [2, 4],  // 2 role(s)
 ];
 
-// Total: 350 unique routes
-// Routes in 1 role only: 231
-// Routes shared by 2+ roles: 119
+// Total: 347 unique routes
+// Routes in 1 role only: 221
+// Routes shared by 2+ roles: 126
 // Routes shared by 5+ roles: 19
 
     // role name → role_id for string-based lookups
@@ -584,6 +590,7 @@ private const ROUTE_ROLES = [
      */
     public static function isRouteAllowedForRole(string $route, int $roleId): bool
     {
+        $route = self::ROUTE_ALIASES[$route] ?? $route;
         // Dashboard routes bypass the allowlist (each role has its own dashboard)
         $dashboardKeys = array_values(self::ROLE_DASHBOARDS);
         if (in_array($route, $dashboardKeys, true)) {

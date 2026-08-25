@@ -34,7 +34,11 @@ final class FinancialPostingCoordinator
     public function postIncomingToChargeAccounts(string $sourceType, int $sourceId, int $financialAccountId, array $allocations, int $actorUserId = 0, ?string $reference = null): array
     {
         $source = $this->sourceAccount($financialAccountId);
-        $lines = [['account_code' => $source['ledger_code'], 'debit' => '0', 'credit' => '0']];
+        // Build the debit line only after the allocation total is known.
+        // A zero/zero journal line is invalid by design in
+        // AccountingPostingService and used to make admission extra-charge
+        // payments fail before they could be posted.
+        $lines = [];
         $total = 0.0;
         foreach ($allocations as $allocation) {
             $amount = round((float) ($allocation['amount'] ?? 0), 2);
@@ -44,7 +48,11 @@ final class FinancialPostingCoordinator
             $total += $amount;
         }
         if ($total <= 0) throw new RuntimeException('No charge allocation is available for accounting.');
-        $lines[0]['debit'] = number_format($total, 2, '.', '');
+        array_unshift($lines, [
+            'account_code' => $source['ledger_code'],
+            'debit' => number_format($total, 2, '.', ''),
+            'description' => 'Money received into ' . $source['account_name'],
+        ]);
         return $this->journals->post($sourceType, $sourceId, 'incoming_extra_charge', 'Incoming extra charge' . ($reference ? ' ' . $reference : ''), $lines, $actorUserId);
     }
 

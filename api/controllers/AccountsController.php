@@ -44,22 +44,13 @@ class AccountsController extends BaseController
 
         // Bank accounts are financial accounts. The old bank_accounts table is
         // no longer a source of truth; expose only normalized bank accounts.
-        $result = $this->api->listFinancialAccounts();
+        $result = $this->api->listBankAccounts();
         if (($result['code'] ?? 200) >= 400) {
             return $this->error($result['message'] ?? 'Failed to load bank accounts');
         }
 
-        $accounts = $result['data']['accounts'] ?? [];
-        $banks = array_values(array_map(static function (array $account): array {
-            $account['account_number'] = $account['account_identifier'] ?? null;
-            $account['account_type'] = $account['account_kind'] ?? 'bank';
-            $account['balance'] = (float) ($account['balance'] ?? 0);
-            $account['is_active'] = ($account['status'] ?? '') === 'active' ? 1 : 0;
-            return $account;
-        }, array_filter($accounts, static function (array $account): bool {
-            return ($account['account_kind'] ?? '') === 'bank';
-        })));
-        return $this->success(['bank_accounts' => $banks]);
+        $accounts = $result['data']['bank_accounts'] ?? [];
+        return $this->success(['bank_accounts' => $accounts]);
     }
 
     // POST /api/accounts/bank-accounts - create/update

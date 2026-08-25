@@ -107,6 +107,36 @@ const ManageSubjectsController = {
     }
   },
 
+  // The database stores one learning-area record per education band. The
+  // management page presents the canonical subject once and combines its
+  // authorised bands into one row.
+  groupedSubjects(subjects = this.state.subjects) {
+    const groups = new Map();
+    subjects.forEach((subject) => {
+      const key = String(subject.code || subject.name || '').trim().toLowerCase();
+      if (!key) return;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          ...subject,
+          ids: [subject.id],
+          levels: subject.levels || '',
+          levelSet: new Set(String(subject.levels || '').split(',').map(v => v.trim()).filter(Boolean)),
+          teacher_count: Number(subject.teacher_count || 0),
+        });
+      } else {
+        const group = groups.get(key);
+        group.ids.push(subject.id);
+        String(subject.levels || '').split(',').map(v => v.trim()).filter(Boolean).forEach(level => group.levelSet.add(level));
+        group.teacher_count = Math.max(group.teacher_count, Number(subject.teacher_count || 0));
+        if (subject.status === 'active') group.status = 'active';
+      }
+    });
+    return [...groups.values()].map(group => ({
+      ...group,
+      levels: [...group.levelSet].join(', '),
+    }));
+  },
+
   async loadCurriculumUnits() {
     try {
       const payload = await window.API.academic.listCurriculumUnits() || {};
@@ -122,12 +152,13 @@ const ManageSubjectsController = {
     const tbody = document.querySelector('#subjectsTable tbody');
     if (!tbody) return;
 
-    if (this.state.subjects.length === 0) {
+    const subjects = this.groupedSubjects();
+    if (subjects.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">No subjects found</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = this.state.subjects.map((subject, index) => {
+    tbody.innerHTML = subjects.map((subject, index) => {
       const statusBadge = subject.status === 'active' 
         ? '<span class="badge bg-success">Active</span>' 
         : '<span class="badge bg-secondary">Inactive</span>';
@@ -152,7 +183,7 @@ const ManageSubjectsController = {
               <button class="btn btn-outline-info" onclick="ManageSubjectsController.viewUnits(${subject.id})" title="View Units">
                 <i class="bi bi-journal-text"></i>
               </button>
-              <button class="btn btn-outline-danger" onclick="ManageSubjectsController.deleteSubject(${subject.id})" title="Delete">
+              <button class="btn btn-outline-danger" onclick="ManageSubjectsController.deleteSubject(${subject.id})" title="Delete this curriculum-band record">
                 <i class="bi bi-trash"></i>
               </button>
             </div>
@@ -200,12 +231,13 @@ const ManageSubjectsController = {
   },
 
   updateStats() {
-    document.getElementById('totalSubjectsCount').textContent = this.state.subjects.length;
-    document.getElementById('coreSubjectsCount').textContent = this.state.subjects.filter(s => !s.is_optional).length;
-    document.getElementById('optionalSubjectsCount').textContent = this.state.subjects.filter(s => s.is_optional).length;
+    const subjects = this.groupedSubjects();
+    document.getElementById('totalSubjectsCount').textContent = subjects.length;
+    document.getElementById('coreSubjectsCount').textContent = subjects.filter(s => !s.is_optional).length;
+    document.getElementById('optionalSubjectsCount').textContent = subjects.filter(s => s.is_optional).length;
     
     // Count teachers assigned (simplified - would need API call for accurate count)
-    document.getElementById('teachersAssignedCount').textContent = this.state.subjects.filter(s => s.teacher_count > 0).length;
+    document.getElementById('teachersAssignedCount').textContent = subjects.filter(s => s.teacher_count > 0).length;
   },
 
   showSubjectModal() {
@@ -408,7 +440,7 @@ const ManageSubjectsController = {
   },
 
   filterSubjects(searchTerm) {
-    const filtered = this.state.subjects.filter(subject => {
+    const filtered = this.groupedSubjects().filter(subject => {
       const searchLower = searchTerm.toLowerCase();
       return subject.name.toLowerCase().includes(searchLower) ||
              (subject.code && subject.code.toLowerCase().includes(searchLower)) ||
@@ -423,7 +455,7 @@ const ManageSubjectsController = {
     const level = document.getElementById('levelFilter')?.value || '';
     const status = document.getElementById('subjectStatusFilter')?.value || '';
     
-    let filtered = [...this.state.subjects];
+    let filtered = this.groupedSubjects();
     
     if (category === 'core') {
       filtered = filtered.filter(s => !s.is_optional);
@@ -431,8 +463,8 @@ const ManageSubjectsController = {
       filtered = filtered.filter(s => s.is_optional);
     }
     
-    if (level && s.levels) {
-      filtered = filtered.filter(s => s.levels.toLowerCase().includes(level.toLowerCase()));
+    if (level) {
+      filtered = filtered.filter(s => s.levels && s.levels.toLowerCase().includes(level.toLowerCase()));
     }
     
     if (status) {
@@ -487,7 +519,8 @@ const ManageSubjectsController = {
   },
 
   exportSubjects() {
-    if (!this.state.subjects.length) return;
+    const subjects = this.groupedSubjects();
+    if (!subjects.length) return;
 
     if (!window.PrintManager) {
       this.showNotification('PrintManager not available', 'error');
@@ -503,7 +536,7 @@ const ManageSubjectsController = {
         { key: 'levels', label: 'Levels' },
         { key: 'status', label: 'Status' }
       ],
-      rows: this.state.subjects.map((subject) => ({
+      rows: subjects.map((subject) => ({
         ...subject,
         type: subject.is_optional ? 'Optional' : 'Core'
       }))

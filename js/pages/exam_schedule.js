@@ -15,6 +15,8 @@ const ExamScheduleController = (() => {
     summary: { total: 0, upcoming: 0, in_progress: 0, completed: 0 },
     currentAcademicYear: null,
     currentTerm: null,
+    canManageSchedules: false,
+    canDeleteSchedules: false,
   };
 
   const filters = {
@@ -23,6 +25,48 @@ const ExamScheduleController = (() => {
     subject: "",
     status: "",
   };
+
+  const scheduleLeadershipRoles = [
+    "System Administrator",
+    "Director",
+    "School Administrator",
+    "Principal",
+    "Headteacher",
+    "Deputy Head - Academic",
+  ];
+
+  function hasScheduleLeadershipRole() {
+    return scheduleLeadershipRoles.some((role) =>
+      window.AuthContext.hasRole(role),
+    );
+  }
+
+  function canManageSchedules() {
+    return hasScheduleLeadershipRole() || window.AuthContext.hasAnyPermission([
+      "academic_manage",
+      "academics_manage",
+      "academic_edit",
+      "academics_edit",
+    ]);
+  }
+
+  function canDeleteSchedules() {
+    return hasScheduleLeadershipRole() || window.AuthContext.hasAnyPermission([
+      "academic_manage",
+      "academics_manage",
+    ]);
+  }
+
+  function syncAcademicContext() {
+    if (!window.AcademicContext) return;
+
+    state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+    state.currentTerm = window.AcademicContext.getTermId();
+    filters.term = state.currentTerm ? String(state.currentTerm) : "";
+
+    const termFilter = document.getElementById("termFilter");
+    if (termFilter) termFilter.value = filters.term;
+  }
 
   // ---- Helpers ----
 
@@ -90,7 +134,7 @@ const ExamScheduleController = (() => {
 
   // ---- Data Loading ----
 
-  async function loadReferenceData() {
+  async function loadReferenceData(includeSupervisors = false) {
     try {
       const classResp = await window.API.academic.listClasses();
       const classPayload = unwrapPayload(classResp);
@@ -113,17 +157,17 @@ const ExamScheduleController = (() => {
       console.warn("Failed to load subjects", error);
     }
 
-    try {
-      const staffResp = await window.API.apiCall(
-        "/staff/staff?limit=500",
-        "GET",
-      );
-      const staffPayload = unwrapPayload(staffResp);
-      const teachers = staffPayload?.staff || staffPayload || [];
-      state.teachers = Array.isArray(teachers) ? teachers : [];
-      populateSupervisorDropdown();
-    } catch (error) {
-      console.warn("Failed to load teachers", error);
+    if (includeSupervisors) {
+      try {
+        const teacherResp = await window.API.academic.listTeachers({
+          limit: 500,
+        });
+        const teacherPayload = unwrapPayload(teacherResp);
+        state.teachers = Array.isArray(teacherPayload) ? teacherPayload : [];
+        populateSupervisorDropdown();
+      } catch (error) {
+        console.warn("Failed to load teaching staff", error);
+      }
     }
   }
 
@@ -279,10 +323,11 @@ const ExamScheduleController = (() => {
             <td><span class="badge bg-${statusBadge(status)}">${formatStatus(status)}</span></td>
             <td>
               <div class="btn-group btn-group-sm">
-                ${AuthContext.hasPermission('assessments_create') ? `
+                ${state.canManageSchedules ? `
                 <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit">
                   <i class="bi bi-pencil"></i>
-                </button>
+                </button>` : ''}
+                ${state.canDeleteSchedules ? `
                 <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete">
                   <i class="bi bi-trash"></i>
                 </button>` : ''}
@@ -313,6 +358,11 @@ const ExamScheduleController = (() => {
   // ---- CRUD Actions ----
 
   function openExamModal(examId = null) {
+    if (!state.canManageSchedules) {
+      showError("You do not have permission to manage the exam schedule");
+      return;
+    }
+
     const modalEl = document.getElementById("examModal");
     const form = document.getElementById("examForm");
     if (!modalEl || !form) return;
@@ -349,6 +399,11 @@ const ExamScheduleController = (() => {
   }
 
   async function saveExam() {
+    if (!state.canManageSchedules) {
+      await showError("You do not have permission to manage the exam schedule");
+      return;
+    }
+
     const examId = document.getElementById("examId").value;
 
     const payload = {
@@ -406,6 +461,11 @@ const ExamScheduleController = (() => {
   }
 
   async function deleteExam(examId) {
+    if (!state.canDeleteSchedules) {
+      await showError("You do not have permission to delete exam schedules");
+      return;
+    }
+
     if (!(await window.confirmAction('Confirm Deletion', "Are you sure you want to delete this exam schedule?", { confirmText: 'Delete', danger: true }))) return;
 
     try {
@@ -558,39 +618,34 @@ const ExamScheduleController = (() => {
     
     // Initialize Academic Context if available
     if (window.AcademicContext) {
-      // Subscribe to context changes
-      window.AcademicContext.subscribe((context, event, data) => {
-        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
-          // Reload exams when academic year or term changes
-          loadData();
-        }
-      });
-      
       // Ensure context is loaded
       if (!window.AcademicContext.isLoaded()) {
         await window.AcademicContext.init();
       }
-      
-      // Get current academic context
-      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
-      state.currentTerm = window.AcademicContext.getTermId();
-      
-      // Update filters to use current context
-      if (state.currentTerm) {
-        filters.term = state.currentTerm;
-      }
+
+      syncAcademicContext();
+
+      // Subscribe only after initial context loading so initialization does not
+      // trigger an unfiltered request immediately before the scoped request.
+      window.AcademicContext.subscribe((context, event) => {
+        if (["yearChanged", "termChanged", "refreshed"].includes(event)) {
+          syncAcademicContext();
+          loadData(1);
+        }
+      });
     }
 
-    const canCreate = AuthContext.hasPermission('assessments_create');
+    state.canManageSchedules = canManageSchedules();
+    state.canDeleteSchedules = canDeleteSchedules();
 
     // Hide write-action buttons if no permission
-    if (!canCreate) {
+    if (!state.canManageSchedules) {
       const addBtn = document.getElementById("addExamBtn");
       if (addBtn) addBtn.classList.add("d-none");
     }
 
-    attachEventListeners(canCreate);
-    await loadReferenceData();
+    attachEventListeners(state.canManageSchedules);
+    await loadReferenceData(state.canManageSchedules);
     await loadData();
   }
 

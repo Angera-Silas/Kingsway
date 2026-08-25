@@ -126,6 +126,11 @@ database/seeds/
 # --------------------------------------------------------
 deploy
 scripts
+!scripts/payment_integration_curl_smoke.sh
+!deploy/
+!deploy/systemd/
+!deploy/systemd/kingsway-attendance-register-worker.service
+!deploy/systemd/kingsway-attendance-register-worker.timer
 tests
 audit
 structure.txt
@@ -143,6 +148,8 @@ CLAUDE.md
 ./CLAUDE.md
 ADMISSION_SUBMISSION_PROCESS.md
 Kingsway.code-workspace
+KEELCODE.md
+docs
 
 # --------------------------------------------------------
 # Binaries and OS-specific files
@@ -161,6 +168,9 @@ Safaricom Signed Letter.pdf
 Signed Letter.pdf
 signature.png
 The+Co-operative+Bank+Open+Banking+Sandbox+TPP+Onboarding+process+form.docx
+policy.yaml
+ngrok-start.sh
+kingsway-ngrok.yml
 
 # KCB Buni integration scratch (credentials / collections)
 kcb_buni/

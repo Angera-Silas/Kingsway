@@ -1,142 +1,250 @@
 <?php
 /**
- * Payslip — Portrait A4
+ * Fully Dynamic A4 Fee Structure Print Engine
+ * Layout Matrix:
+ * - Multiple Classes + Both Types  => 50/50 Split (Default Layout)
+ * - Single Class + Both Types       => Stacked 100% Full Width Tables
+ * - Any Scope + Single Type (D/B)   => 100% Full Width Table
+ */
+/**
+ * Payslip — Portrait A4 standalone document
+ *
+ * The document BODY is a 1:1 mirror of the "Detailed Payslip" view modal
+ * body used on the Manage Payrolls page (#payslipPrintArea in
+ * js/pages/payroll_manager.js::renderPayslip) — same layout, same
+ * Bootstrap-5 visual language, same typography. This template owns the full
+ * document, including its school header and footer; it must not be wrapped
+ * in the shared report shell.
  *
  * Variables:
  *   $employeeName, $staffNo, $department, $designation, $kraPin,
- *   $period (string, e.g. "August 2026"), $basicSalary,
- *   $allowances (array [{name, amount}]), $deductions (array [{name, amount}]),
+ *   $nssfNo, $shifNo,
+ *   $bankName, $bankAccountNumber, $paymentMethod, $paymentReference,
+ *   $datePaid, $period (string, e.g. "August 2026"), $status,
+ *   $basicSalary, $allowances (array [{name, amount}]),
  *   $statutory (array {paye, nssf, nhif_shif, housing_levy}),
+ *   $childrenDeductions (array [{student_name, class_name, deducted_amount}]),
+ *   $otherDeductions (float),
+ *   $deductions (array [{name, amount}]) — legacy fallback list,
  *   $grossPay, $totalDeductions, $netPay,
- *   $paymentMethod, $bankAccount,
- *   $schoolName, $schoolLogo, $schoolMotto
+ *   $employerNssf, $employerHousing,
+ *   $generatedOn (string), $schoolName, $schoolLogo, $schoolMotto
  */
-declare(strict_types=1);
-if (!function_exists('pe')) { function pe(mixed $v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8'); }}
-if (!function_exists('pm')) { function pm($v): string { return 'KES ' . number_format((float)($v ?? 0), 2); }}
 
+
+declare(strict_types=1);
+if (!function_exists('pe')) { function pe(mixed $v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8'); } }
+if (!function_exists('pm')) { function pm($v): string { return 'KES ' . number_format((float)($v ?? 0), 2); } }
+$tplDir = __DIR__;
+$cssFile = dirname(__DIR__, 4) . '/public/css/pay-slip-print.css';
 $period = $period ?? date('F Y');
+$employeeName = trim((string)($employeeName ?? '')) ?: '-';
+$staffNo = trim((string)($staffNo ?? '')) ?: '-';
+$department = trim((string)($department ?? '')) ?: '-';
+$designation = trim((string)($designation ?? '')) ?: '-';
+$kraPin = trim((string)($kraPin ?? '')) ?: '-';
+$nssfNo = trim((string)($nssfNo ?? '')) ?: '-';
+$shifNo = trim((string)($shifNo ?? '')) ?: '-';
+$bankName = trim((string)($bankName ?? '')) ?: '-';
+$bankAccountNumber = trim((string)($bankAccountNumber ?? '')) ?: '-';
+$paymentMethod = trim((string)($paymentMethod ?? '')) ?: 'Not Recorded';
+$paymentReference = trim((string)($paymentReference ?? '')) ?: '-';
+$datePaid = trim((string)($datePaid ?? '')) ?: 'Not Paid';
 $basicSalary = $basicSalary ?? 0;
 $allowances = $allowances ?? [];
-$deductions = $deductions ?? [];
 $statutory = $statutory ?? ['paye'=>0,'nssf'=>0,'nhif_shif'=>0,'housing_levy'=>0];
 $grossPay = $grossPay ?? 0;
 $totalDeductions = $totalDeductions ?? 0;
 $netPay = $netPay ?? 0;
+$employerNssf = $employerNssf ?? 0;
+$employerHousing = $employerHousing ?? 0;
+$otherDeductions = isset($otherDeductions) ? (float)$otherDeductions : null;
+$legacyDeductions = is_array($deductions ?? null) ? $deductions : [];
+$childrenDeductions = is_array($childrenDeductions ?? null) ? $childrenDeductions : [];
+$totalChildrenFees = 0.0;
+foreach ($childrenDeductions as $child) {
+    $totalChildrenFees += (float)($child['deducted_amount'] ?? $child['amount'] ?? 0);
+}
+$useSharedReportShell = false;
+
+/* Status badge — mirrors getStatusBadge() + .status-badge styles */
+$statusKey = strtolower(trim((string)($status ?? '')));
+$statusLabels = [
+    'draft' => 'Draft', 'pending' => 'Pending', 'processing' => 'Processing',
+    'approved' => 'Approved', 'paid' => 'Paid', 'cancelled' => 'Cancelled',
+];
+$statusLabel = $statusLabels[$statusKey] ?? ucfirst($statusKey !== '' ? $statusKey : 'unknown');
+$badgeClassMap = [
+    'draft' => 'b-pending', 'pending' => 'b-pending',
+    'processing' => 'b-processing', 'approved' => 'b-processing',
+    'paid' => 'b-paid', 'cancelled' => 'b-cancelled',
+];
+$badgeClass = $badgeClassMap[$statusKey] ?? 'b-pending';
+
+$generatedOn = trim((string)($generatedOn ?? '')) ?: date('d/m/Y');
+
+$cssText = is_file($cssFile) ? file_get_contents($cssFile) : '';
+if (!function_exists('fsMoney')) {
+    function fsMoney($amount) { return number_format((float) $amount); }
+}
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<style>
-@page { size: A4 portrait; margin: 12mm 15mm; }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a23; }
-
-.ps-header { text-align:center; margin-bottom:4mm; padding-bottom:3mm; border-bottom:2pt solid #0f5b3b; }
-.ps-header .school-name { font-size:15pt; font-weight:800; color:#0f5b3b; }
-.ps-header .school-motto { font-size:8pt; color:#d3ad24; font-style:italic; }
-.ps-header .ps-title { font-size:12pt; font-weight:700; color:#083f2b; margin-top:2mm; background:#e8f5e9; padding:2mm; }
-.ps-header .ps-period { font-size:10pt; color:#0f5b3b; font-weight:700; margin-top:1mm; }
-
-.ps-info { width:100%; border-collapse:collapse; margin-bottom:4mm; font-size:8.5pt; }
-.ps-info td { padding:1.5mm 3mm; border:0.5pt solid #e5e7eb; }
-.ps-info td:first-child { font-weight:700; background:#f9fafb; width:22%; color:#0f5b3b; }
-
-.ps-section-title { background:#0f5b3b; color:#fff; padding:1.5mm 3mm; font-size:8.5pt; font-weight:700; margin:3mm 0 0; }
-.ps-table { width:100%; border-collapse:collapse; font-size:8.5pt; border:0.5pt solid #e5e7eb; }
-.ps-table th { background:#f3f4f6; padding:1.5mm 3mm; text-align:left; font-weight:700; border:0.5pt solid #e5e7eb; }
-.ps-table th.amt { text-align:right; }
-.ps-table td { padding:1.5mm 3mm; border:0.5pt solid #e5e7eb; }
-.ps-table td.amt { text-align:right; font-family:'DejaVu Sans Mono',monospace; }
-.ps-table tr.total-row { background:#e8f5e9; font-weight:700; }
-
-.ps-statutory { display:flex; gap:3mm; margin:3mm 0; }
-.ps-stat-box { flex:1; border:0.5pt solid #c7d3cc; border-radius:1.5mm; padding:2mm; text-align:center; }
-.ps-stat-box .stat-label { font-size:7pt; color:#5e6e65; text-transform:uppercase; }
-.ps-stat-box .stat-value { font-size:11pt; font-weight:800; color:#0f5b3b; margin-top:0.5mm; }
-
-.ps-net-pay { background:#0f5b3b; color:#fff; text-align:center; padding:4mm; margin:4mm 0; border-radius:2mm; }
-.ps-net-pay .net-label { font-size:9pt; text-transform:uppercase; }
-.ps-net-pay .net-value { font-size:18pt; font-weight:800; margin-top:1mm; }
-
-.ps-footer { margin-top:4mm; font-size:7.5pt; color:#5e6e65; }
-.ps-footer table { width:100%; border-collapse:collapse; }
-.ps-footer td { padding:1mm 0; }
-.ps-signatures { margin-top:6mm; }
-.ps-signatures table { width:100%; border-collapse:collapse; }
-.ps-signatures td { width:50%; text-align:center; vertical-align:top; padding-top:10mm; }
-.ps-signatures .sig-line { border-top:0.5pt solid #000; width:60%; margin:0 auto 1mm; }
-.ps-signatures .sig-name { font-size:8pt; font-weight:700; }
-</style>
+    <meta charset="UTF-8">
+    <title><?= htmlspecialchars($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?> — Payslip</title>
+    <style><?= $cssText ?></style>
 </head>
 <body>
-<div class="ps-header">
-    <div class="school-name"><?= pe($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?></div>
-    <div class="school-motto">"<?= pe($schoolMotto ?? 'In God We Soar') ?>"</div>
-    <div class="ps-title">STAFF PAYSLIP</div>
-    <div class="ps-period"><?= pe($period) ?></div>
-</div>
+<div class="fs-document">
+    <div class="fs-inner-border">
+        <?php include $tplDir . '/payslip_watermark.php'; ?>
 
-<table class="ps-info">
-    <tr><td>Employee Name</td><td><strong><?= pe($employeeName ?? '') ?></strong></td><td>Staff No</td><td><?= pe($staffNo ?? '') ?></td></tr>
-    <tr><td>Department</td><td><?= pe($department ?? '') ?></td><td>Designation</td><td><?= pe($designation ?? '') ?></td></tr>
-    <tr><td>KRA PIN</td><td><?= pe($kraPin ?? '') ?></td><td>Payment Method</td><td><?= pe($paymentMethod ?? 'Bank Transfer') ?></td></tr>
-</table>
+        <div class="fs-content-wrap">
+            <?php include $tplDir . '/payslip_header.php'; ?>
 
-<div class="ps-section-title">Earnings</div>
-<table class="ps-table">
-    <thead><tr><th>Description</th><th class="amt">Amount (KES)</th></tr></thead>
-    <tbody>
-        <tr><td>Basic Salary</td><td class="amt"><?= pm($basicSalary) ?></td></tr>
-        <?php foreach ($allowances as $a): ?>
-        <tr><td><?= pe($a['name'] ?? '') ?></td><td class="amt"><?= pm($a['amount'] ?? 0) ?></td></tr>
-        <?php endforeach; ?>
-        <tr class="total-row"><td>GROSS PAY</td><td class="amt"><?= pm($grossPay) ?></td></tr>
-    </tbody>
-</table>
+            <main class="fs-content">
+                <div class="payslip-container" id="payslipPrintArea">
 
-<div class="ps-section-title">Statutory Deductions</div>
-<div class="ps-statutory">
-    <div class="ps-stat-box"><div class="stat-label">PAYE</div><div class="stat-value"><?= pm($statutory['paye'] ?? 0) ?></div></div>
-    <div class="ps-stat-box"><div class="stat-label">NSSF</div><div class="stat-value"><?= pm($statutory['nssf'] ?? 0) ?></div></div>
-    <div class="ps-stat-box"><div class="stat-label">SHIF (NHIF)</div><div class="stat-value"><?= pm($statutory['nhif_shif'] ?? 0) ?></div></div>
-    <div class="ps-stat-box"><div class="stat-label">Housing Levy</div><div class="stat-value"><?= pm($statutory['housing_levy'] ?? 0) ?></div></div>
-</div>
+                    <table class="ps-grid">
+                        <tr>
+                            <td class="ps-grid-cell left">
+                                <table class="ps-info-table">
+                                    <tr><td class="lbl ps-bold">Employee Name:</td><td><?php echo pe($employeeName) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Staff Number:</td><td><?php echo pe($staffNo) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Position:</td><td><?php echo pe($designation) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Department:</td><td><?php echo pe($department) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">KRA PIN:</td><td><?php echo pe($kraPin) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">NSSF No:</td><td><?php echo pe($nssfNo) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">SHIF No:</td><td><?php echo pe($shifNo) ?></td></tr>
+                                </table>
+                            </td>
+                            <td class="ps-grid-cell right">
+                                <table class="ps-info-table">
+                                    <tr><td class="lbl ps-bold">Bank:</td><td><?php echo pe($bankName) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Account Number:</td><td><?php echo pe($bankAccountNumber) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Payment Mode:</td><td><?php echo pe($paymentMethod) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Payment Ref:</td><td><?php echo pe($paymentReference) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Date Paid:</td><td><?php echo pe($datePaid) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Pay Period:</td><td><?php echo pe($period) ?></td></tr>
+                                    <tr><td class="lbl ps-bold">Status:</td><td><span class="badge-pill <?php echo $badgeClass ?>"><?php echo pe($statusLabel) ?></span></td></tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
 
-<div class="ps-section-title">Other Deductions</div>
-<table class="ps-table">
-    <thead><tr><th>Description</th><th class="amt">Amount (KES)</th></tr></thead>
-    <tbody>
-        <?php if (empty($deductions)): ?>
-        <tr><td colspan="2" style="text-align:center;color:#9ca3af;">No other deductions.</td></tr>
-        <?php else: ?>
-        <?php foreach ($deductions as $d): ?>
-        <tr><td><?= pe($d['name'] ?? '') ?></td><td class="amt"><?= pm($d['amount'] ?? 0) ?></td></tr>
-        <?php endforeach; ?>
-        <?php endif; ?>
-        <tr class="total-row"><td>TOTAL DEDUCTIONS</td><td class="amt"><?= pm($totalDeductions) ?></td></tr>
-    </tbody>
-</table>
+                    <table class="ps-grid ps-mt4">
+                        <tr>
+                            <td class="ps-grid-cell left">
+                                <div class="ps-h6 ps-success"><span class="icn">+</span>EARNINGS</div>
+                                <table class="ps-table">
+                                    <tr>
+                                        <td>Basic Salary</td>
+                                        <td class="amt"><?php echo pm($basicSalary) ?></td>
+                                    </tr>
+                                    <?php foreach ($allowances as $a): ?>
+                                    <tr>
+                                        <td><?php echo pe($a['name'] ?? '') ?></td>
+                                        <td class="amt"><?php echo pm($a['amount'] ?? 0) ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                    <tr class="ctx-success">
+                                        <td class="ps-bold">Gross Salary</td>
+                                        <td class="amt ps-bold"><?php echo pm($grossPay) ?></td>
+                                    </tr>
+                                </table>
+                            </td>
+                            <td class="ps-grid-cell right">
+                                <div class="ps-h6 ps-danger"><span class="icn">&minus;</span>DEDUCTIONS</div>
+                                <table class="ps-table">
+                                    <tr>
+                                        <td>NSSF</td>
+                                        <td class="amt"><?php echo pm($statutory['nssf'] ?? 0) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>SHIF</td>
+                                        <td class="amt"><?php echo pm($statutory['nhif_shif'] ?? 0) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>PAYE Tax</td>
+                                        <td class="amt"><?php echo pm($statutory['paye'] ?? 0) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Employee Housing Levy (1.5%)</td>
+                                        <td class="amt"><?php echo pm($statutory['housing_levy'] ?? 0) ?></td>
+                                    </tr>
+                                    <?php if (count($childrenDeductions) > 0): ?>
+                                    <tr class="ctx-warning">
+                                        <td colspan="2"><strong>Children School Fees Deductions</strong></td>
+                                    </tr>
+                                    <?php foreach ($childrenDeductions as $child): ?>
+                                    <?php
+                                        $childName = trim((string)($child['student_name'] ?? $child['name'] ?? 'Child'));
+                                        $childClass = trim((string)($child['class_name'] ?? ''));
+                                        $childAmount = (float)($child['deducted_amount'] ?? $child['amount'] ?? 0);
+                                    ?>
+                                    <tr>
+                                        <td class="child-name"><span class="ps-small"><?php echo pe($childName) ?><?php echo $childClass !== '' ? ' (' . pe($childClass) . ')' : '' ?></span></td>
+                                        <td class="amt"><?php echo pm($childAmount) ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                    <?php if ($totalChildrenFees > 0): ?>
+                                    <tr class="ctx-warning">
+                                        <td class="ps-bold">Total Children Fees</td>
+                                        <td class="amt ps-bold"><?php echo pm($totalChildrenFees) ?></td>
+                                    </tr>
+                                    <?php endif; ?>
+                                    <?php endif; ?>
+                                    <?php if ($otherDeductions !== null): ?>
+                                    <tr>
+                                        <td>Other Deductions</td>
+                                        <td class="amt"><?php echo pm($otherDeductions) ?></td>
+                                    </tr>
+                                    <?php else: ?>
+                                    <?php foreach ($legacyDeductions as $d): ?>
+                                    <tr>
+                                        <td><?php echo pe($d['name'] ?? '') ?></td>
+                                        <td class="amt"><?php echo pm($d['amount'] ?? 0) ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                    <?php endif; ?>
+                                    <tr class="ctx-danger">
+                                        <td class="ps-bold">Total Deductions</td>
+                                        <td class="amt ps-bold"><?php echo pm($totalDeductions) ?></td>
+                                    </tr>
+                                </table>
 
-<div class="ps-net-pay">
-    <div class="net-label">Net Pay</div>
-    <div class="net-value"><?= pm($netPay) ?></div>
-</div>
+                                <div class="ps-h6 ps-secondary ps-mt3"><span class="icn">&#9642;</span>EMPLOYER CONTRIBUTIONS</div>
+                                <table class="ps-table">
+                                    <tr>
+                                        <td>Employer NSSF (school cost)</td>
+                                        <td class="amt"><?php echo pm($employerNssf) ?></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Employer Housing Levy (school cost)</td>
+                                        <td class="amt"><?php echo pm($employerHousing) ?></td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
 
-<div class="ps-footer">
-    <table>
-        <tr><td><strong>Bank / Account:</strong> <?= pe($bankAccount ?? '—') ?></td></tr>
-    </table>
-</div>
+                    <div class="net-card">
+                        <div class="ps-h5">NET PAY</div>
+                        <div class="ps-h2"><?php echo pm($netPay) ?></div>
+                    </div>
 
-<div class="ps-signatures">
-    <table>
-        <tr>
-            <td><div class="sig-line"></div><div class="sig-name">Accounts Officer</div></td>
-            <td><div class="sig-line"></div><div class="sig-name">Employee Acknowledgement</div></td>
-        </tr>
-    </table>
+                    <div class="gen-note">
+                        <p>This is a computer generated payslip and does not require a signature.</p>
+                        <p>Generated on <?php echo pe($generatedOn) ?></p>
+                    </div>
+                    </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ROOT LEVEL FOOTER -->
+    <?php include $tplDir . '/payslip_page_footer.php'; ?>
 </div>
 </body>
 </html>

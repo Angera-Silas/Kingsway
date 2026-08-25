@@ -19,7 +19,7 @@
                     <h4 class="mb-1"><i class="bi bi-handshake me-2"></i>Parent Meetings</h4>
                     <p class="text-muted mb-0">Schedule and manage parent-teacher meetings</p>
                 </div>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scheduleMeetingModal">
+                <button class="btn btn-primary" id="scheduleMeeting" data-bs-toggle="modal" data-bs-target="#scheduleMeetingModal">
                     <i class="bi bi-plus-lg me-1"></i> Schedule Meeting
                 </button>
             </div>
@@ -134,6 +134,13 @@
                     <div class="mb-3">
                         <label class="form-label">Venue</label>
                         <input type="text" class="form-control" name="venue">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Class parents</label>
+                        <select class="form-select" name="class_id" id="staticMeetingClass" required>
+                            <option value="">Select class</option>
+                        </select>
+                        <small class="text-muted">The meeting will be visible to the selected class teacher and its parents.</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Agenda</label>

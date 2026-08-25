@@ -34,6 +34,33 @@
     </div>
 
     <div class="card-body">
+        <div class="card border-0 bg-light mb-4" id="expectedRegistersCard">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <h5 class="mb-1"><i class="bi bi-clock-history me-2 text-primary"></i>Today’s Attendance Registers</h5>
+                        <small class="text-muted">Session-specific registers for classes and boarding roll calls.</small>
+                    </div>
+                    <input type="date" class="form-control form-control-sm" id="expectedRegistersDate" style="max-width: 155px">
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>Class / Stream</th><th>Session</th><th>Expected</th><th>Marked</th><th>Status</th><th>Responsible</th></tr></thead>
+                        <tbody id="expectedRegistersBody"><tr><td colspan="6" class="text-muted">Loading registers…</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="card border-0 border-start border-4 border-warning shadow-sm mb-4 d-none" id="attendanceSessionConfigCard">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div><h5 class="mb-1"><i class="bi bi-sliders me-2 text-warning"></i>Attendance Session Configuration</h5><small class="text-muted">Choose which classes use academic sessions and which learners are included in boarding roll calls.</small></div>
+                    <button class="btn btn-sm btn-outline-primary" id="refreshSessionConfigBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+                </div>
+                <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Session</th><th>Type</th><th>Audience</th><th>Days</th><th>Time</th><th>Class scope</th><th></th></tr></thead><tbody id="attendanceSessionConfigBody"><tr><td colspan="7" class="text-muted">Loading configuration…</td></tr></tbody></table></div>
+            </div>
+        </div>
+        <div class="modal fade" id="attendanceSessionConfigModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Configure Attendance Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="attendanceSessionConfigForm"><input type="hidden" id="attendanceConfigId"><div class="row g-3"><div class="col-md-6"><label class="form-label">Session Name</label><input class="form-control" id="attendanceConfigName" required></div><div class="col-md-3"><label class="form-label">Type</label><select class="form-select" id="attendanceConfigType"><option value="academic">Academic</option><option value="boarding">Boarding</option><option value="activity">Activity</option></select></div><div class="col-md-3"><label class="form-label">Audience</label><select class="form-select" id="attendanceConfigAudience"><option value="all">All learners</option><option value="day_only">Day learners</option><option value="boarders_only">Boarders</option></select></div><div class="col-md-6"><label class="form-label">Start time</label><input type="time" class="form-control" id="attendanceConfigStart" required></div><div class="col-md-6"><label class="form-label">End time</label><input type="time" class="form-control" id="attendanceConfigEnd" required></div><div class="col-12"><label class="form-label">Applicable days</label><div id="attendanceConfigDays" class="d-flex flex-wrap gap-3"></div></div><div class="col-12" id="attendanceConfigClassesWrap"><label class="form-label">Academic classes using this session</label><div id="attendanceConfigClasses" class="row row-cols-2 row-cols-md-4 g-2"></div></div><div class="col-md-4"><label class="form-label">Status</label><select class="form-select" id="attendanceConfigStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div></form></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveAttendanceSessionConfigBtn">Save configuration</button></div></div></div></div>
         <!-- Filter Row -->
         <div class="row mb-4">
             <div class="col-md-2">
@@ -79,7 +106,7 @@
         </div>
         <div class="row mb-4">
             <div class="col-md-3">
-                <button class="btn btn-primary w-100" id="loadAttendanceBtn">
+                    <button class="btn btn-primary w-100 d-none" id="loadAttendanceBtn">
                     <i class="bi bi-search me-1"></i> Load Attendance
                 </button>
             </div>
@@ -199,7 +226,7 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">&nbsp;</label>
-                        <button class="btn btn-primary w-100" id="loadDailyBtn">Load Register</button>
+                        <button class="btn btn-primary w-100 d-none" id="loadDailyBtn">Load Register</button>
                     </div>
                 </div>
                 <div class="table-responsive">
@@ -231,7 +258,7 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">&nbsp;</label>
-                        <button class="btn btn-primary w-100" id="loadBoardingBtn">Load Summary</button>
+                        <button class="btn btn-primary w-100 d-none" id="loadBoardingBtn">Load Summary</button>
                     </div>
                 </div>
                 <div class="row" id="boardingSummaryCards">

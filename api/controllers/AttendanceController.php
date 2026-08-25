@@ -244,6 +244,16 @@ return $this->serverError('An internal error occurred.');
         return $this->handleApiResponse($this->manager->getSessions($data));
     }
 
+    public function getSessionConfig($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->manager->getSessionConfig($data));
+    }
+
+    public function putSessionConfig($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->manager->putSessionConfig((int) $id, $data));
+    }
+
     /**
      * GET /api/attendance/session-attendance - Get attendance for a specific session
      */
@@ -530,6 +540,61 @@ return $this->serverError('An internal error occurred.');
     public function getRegisterContext($id = null, $data = [], $segments = [])
     {
         return $this->handleApiResponse($this->manager->getRegisterContext($data));
+    }
+
+    /** GET /api/attendance/expected-registers?date=YYYY-MM-DD */
+    public function getExpectedRegisters($id = null, $data = [], $segments = [])
+    {
+        try {
+            $scope = $this->manager->getAccessibleClassScope();
+            if (!empty($scope['restricted'])) {
+                $data['stream_ids'] = $scope['stream_ids'];
+            }
+            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            return $this->success($service->list($data), 'Expected attendance registers retrieved');
+        } catch (\Throwable $e) {
+            error_log('[AttendanceController] expected registers failed: ' . $e->getMessage());
+            return $this->serverError('Expected attendance registers unavailable');
+        }
+    }
+
+    /** Internal worker endpoint for cron/systemd register reminders. */
+    public function postProcessRegisterReminders($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('ATTENDANCE_WORKER_SECRET') ? (string) ATTENDANCE_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            return $this->success($service->process($data['date'] ?? null), 'Attendance registers reconciled');
+        } catch (\Throwable $e) {
+            error_log('[AttendanceController] register worker failed: ' . $e->getMessage());
+            return $this->serverError('Attendance register reconciliation failed');
+        }
+    }
+
+    /** POST /api/attendance/gate-event — trusted gate gateway callback. */
+    public function postGateEvent($id = null, $data = [], $segments = [])
+    {
+        $secret = defined('ATTENDANCE_GATE_SECRET') ? (string) ATTENDANCE_GATE_SECRET : '';
+        $signature = $_SERVER['HTTP_X_KINGSWAY_GATE_SIGNATURE'] ?? '';
+        $payload = json_encode($data, JSON_UNESCAPED_SLASHES);
+        if ($secret === '' || !is_string($signature) || !hash_equals(hash_hmac('sha256', $payload ?: '', $secret), $signature)) {
+            return $this->forbidden('Invalid gate device signature');
+        }
+        try {
+            $service = new \App\API\Services\StaffGateAttendanceService($this->getDb()->getConnection());
+            return $this->success($service->record($data), 'Gate attendance event processed');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\RuntimeException $e) {
+            return $this->forbidden($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[AttendanceController] gate event failed: ' . $e->getMessage());
+            return $this->serverError('Gate attendance event could not be processed');
+        }
     }
 
     /**

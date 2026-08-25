@@ -26,18 +26,27 @@ class ControllerRouter
             $controllerName = array_shift($segments);
 
             // Remaining segments are: [resource, id/value, ...nested]
-            // Strategy: 
-            // 1. If 2+ segments and LAST segment is numeric → standard GET /api/controller/resource/123
-            // 2. Otherwise, join all remaining segments as the resource name (e.g., years/list → years-list)
+            // Strategy:
+            // 1. Extract the first numeric segment as the resource ID. This supports
+            //    both /resource/123 and nested action routes such as
+            //    /resource/123/verify.
+            // 2. Otherwise, join all remaining segments as the resource name
+            //    (e.g. years/list -> years-list).
 
             $id = null;
             $resource = null;
 
             if (!empty($segments)) {
-                // Check if last segment is numeric (ID)
-                $lastSegment = end($segments);
-                if (is_numeric($lastSegment)) {
-                    $id = array_pop($segments); // Remove ID from segments
+                // An ID may be followed by an action (for example, verify or
+                // permissions), so do not require it to be the final segment.
+                // Use the first numeric segment to preserve the existing route
+                // convention while allowing REST-style nested actions.
+                foreach ($segments as $index => $segment) {
+                    if (is_numeric($segment)) {
+                        $id = $segment;
+                        array_splice($segments, $index, 1);
+                        break;
+                    }
                 }
 
                 // Join remaining segments with hyphens to form resource name
