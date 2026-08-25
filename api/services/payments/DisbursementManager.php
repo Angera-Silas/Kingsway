@@ -44,6 +44,55 @@ class DisbursementManager
         $this->financialAccounts = new FinancialAccountService($this->db);
     }
 
+    /** Assign source accounts to one or more unpaid payslips in a payroll run. */
+    public function assignPayrollSourceAccounts(int $payrollId, array $allocations, int $userId): array
+    {
+        if ($payrollId <= 0 || !$allocations) throw new Exception('Payroll and at least one source allocation are required.');
+        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? LIMIT 1');
+        $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        if (!$period) {
+            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? LIMIT 1');
+            $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$period) throw new Exception('Payroll run not found.');
+        if (in_array($period['status'], ['processing','completed','cancelled'], true)) throw new Exception('Source accounts cannot be changed after payroll disbursement has started.');
+        $this->db->beginTransaction();
+        try {
+            $update = $this->db->prepare("UPDATE payslips SET source_financial_account_id=?, updated_at=NOW() WHERE id=? AND payroll_month=? AND payroll_year=? AND payslip_status='approved' AND payment_status IN ('pending','failed')");
+            $changed = 0;
+            foreach ($allocations as $allocation) {
+                $accountId = (int)($allocation['source_financial_account_id'] ?? 0);
+                $payslipIds = array_values(array_filter(array_map('intval', (array)($allocation['payslip_ids'] ?? []))));
+                if ($accountId <= 0 || !$payslipIds) throw new Exception('Each allocation requires a source account and payslip IDs.');
+                foreach ($payslipIds as $payslipId) {
+                    $q = $this->db->prepare("SELECT payment_method FROM payslips WHERE id=? AND payroll_month=? AND payroll_year=? AND payslip_status='approved' AND payment_status IN ('pending','failed') LIMIT 1");
+                    $q->execute([$payslipId,$period['month'],$period['year']]); $method = (string)$q->fetchColumn();
+                    if (!$method) throw new Exception('One or more selected payslips are not eligible for source allocation.');
+                    $channel = in_array(strtolower($method), ['mpesa','mobile_money','mpesa_b2c'], true) ? 'mpesa_b2c' : 'buni_transfer';
+                    $this->financialAccounts->requireFor($accountId, 'payroll', $channel, true, $userId);
+                    $update->execute([$accountId,$payslipId,$period['month'],$period['year']]);
+                    if ($update->rowCount() !== 1) throw new Exception('A selected payslip could not be updated.');
+                    $changed++;
+                }
+            }
+            $this->db->commit();
+            return ['payroll_id'=>$payrollId,'updated'=>$changed];
+        } catch (\Throwable $e) { if ($this->db->inTransaction()) $this->db->rollBack(); throw $e; }
+    }
+
+    public function payrollSourceAllocationRows(int $payrollId): array
+    {
+        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? LIMIT 1');
+        $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        if (!$period) {
+            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? LIMIT 1');
+            $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        }
+        if (!$period) throw new Exception('Payroll run not found.');
+        $q=$this->db->prepare("SELECT ps.id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(p.first_name,' ',p.last_name) staff_name FROM payslips ps JOIN staff s ON s.id=ps.staff_id JOIN persons p ON p.id=s.person_id WHERE ps.payroll_month=? AND ps.payroll_year=? ORDER BY p.last_name,p.first_name");
+        $q->execute([$period['month'],$period['year']]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
+    }
+
     /**
      * Process payroll disbursement — called once a payroll is approved.
      */
@@ -59,13 +108,13 @@ class DisbursementManager
             if (!$payrollRow) {
                 throw new Exception("Payroll not found or not approved");
             }
-            $sourceAccountId = (int) ($data['source_financial_account_id'] ?? $payrollRow['source_financial_account_id'] ?? 0);
-            if ($sourceAccountId <= 0) throw new Exception('A payroll source financial account must be selected.');
+            $fallbackSourceAccountId = (int) ($data['source_financial_account_id'] ?? $payrollRow['source_financial_account_id'] ?? 0);
+            $selectedPayslipIds = array_values(array_filter(array_map('intval', (array)($data['payslip_ids'] ?? []))));
             if ($payrollRow['status'] === 'processing') {
                 throw new Exception("Payroll disbursement already in progress");
             }
 
-            $staffPayments = $this->db->prepare(
+            $paymentSql =
                 "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
                         spp.bank_account AS bank_account_number, spp.bank_name,
                         ps.payment_method
@@ -75,18 +124,32 @@ class DisbursementManager
                  LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
                  WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                    AND ps.payslip_status = 'approved'
-                   AND ps.payment_status IN ('pending', 'failed')"
-            );
-            $staffPayments->execute([$payrollRow['month'], $payrollRow['year']]);
+                   AND ps.payment_status IN ('pending', 'failed')";
+            $paymentParams = [$payrollRow['month'], $payrollRow['year']];
+            if ($selectedPayslipIds) {
+                $paymentSql .= ' AND ps.id IN (' . implode(',', array_fill(0, count($selectedPayslipIds), '?')) . ')';
+                $paymentParams = array_merge($paymentParams, $selectedPayslipIds);
+            }
+            $staffPayments = $this->db->prepare($paymentSql);
+            $staffPayments->execute($paymentParams);
             $staffPayments = $staffPayments->fetchAll(PDO::FETCH_ASSOC);
             foreach ($staffPayments as &$staffPayment) {
-                $staffPayment['_source_financial_account_id'] = $sourceAccountId;
+                $staffPayment['_source_financial_account_id'] = (int)($staffPayment['source_financial_account_id'] ?? $fallbackSourceAccountId);
                 $staffPayment['_source_actor_user_id'] = (int)$approvedBy;
+                if ($staffPayment['_source_financial_account_id'] <= 0) throw new Exception('Every payroll transaction must have a source financial account, or the payroll run must have a default account.');
             }
             unset($staffPayment);
 
             if (empty($staffPayments)) {
                 throw new Exception("No pending payments found for this payroll");
+            }
+
+            // Validate every transaction's selected source before any provider
+            // call begins; mixed-account payrolls must fail atomically at the
+            // validation boundary rather than halfway through the batch.
+            foreach ($staffPayments as $staffPayment) {
+                $channel = in_array(strtolower((string)($staffPayment['payment_method'] ?? '')), ['mpesa','mobile_money','mpesa_b2c'], true) ? 'mpesa_b2c' : 'buni_transfer';
+                $this->financialAccounts->requireFor((int)$staffPayment['_source_financial_account_id'], 'payroll', $channel, true, (int)$approvedBy);
             }
 
             $totalAmount = array_sum(array_column($staffPayments, 'net_salary'));
@@ -392,8 +455,18 @@ class DisbursementManager
                 $params = $decoded['Result']['ResultParameters']['ResultParameter'] ?? [];
                 foreach ($params as $param) {
                     if (($param['Key'] ?? '') === 'AccountBalance') {
-                        $parts = explode('&', (string) $param['Value']);
-                        $latestBalance = (float) ($parts[0] ?? 0);
+                        // Daraja returns AccountBalance as
+                        // AccountType|Currency|TotalBalance|AvailableBalance|...
+                        // Some older fixtures used ampersands, so retain
+                        // compatibility while selecting the documented
+                        // available-balance field when it is present.
+                        $rawBalance = (string) $param['Value'];
+                        $parts = strpos($rawBalance, '|') !== false
+                            ? explode('|', $rawBalance)
+                            : explode('&', $rawBalance);
+                        $latestBalance = count($parts) >= 4
+                            ? (float) $parts[3]
+                            : (float) ($parts[0] ?? 0);
                         break 2;
                     }
                 }

@@ -12,24 +12,19 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <div>
       <h3 class="mb-0"><i class="bi bi-telephone-outbound me-2 text-primary"></i>Parent Contacts</h3>
-      <small class="text-muted">Parent and guardian contact directory for your class</small>
+      <small class="text-muted">Parents and guardians linked to learners in your assigned class</small>
     </div>
     <button class="btn btn-outline-success btn-sm" id="cpExportBtn">
       <i class="bi bi-download me-1"></i> Export CSV
     </button>
   </div>
 
-  <!-- Search & Filter -->
+  <!-- Search within the teacher's class list -->
   <div class="card border-0 shadow-sm mb-4">
     <div class="card-body py-2">
       <div class="row g-2 align-items-center">
-        <div class="col-md-5">
+        <div class="col-md-9">
           <input type="text" class="form-control form-control-sm" id="cpSearch" placeholder="Search student or parent name…">
-        </div>
-        <div class="col-md-4">
-          <select class="form-select form-select-sm" id="cpClassFilter">
-            <option value="self">My Class</option>
-          </select>
         </div>
         <div class="col-md-3">
           <button class="btn btn-primary btn-sm w-100" id="cpSearchBtn">

@@ -105,6 +105,19 @@ const parentPortalController = {
                 self.loadStudentTab(btn.dataset.tab);
             });
         });
+        var planningTabs = document.getElementById('studentDetailTabs');
+        if (planningTabs && !planningTabs.querySelector('[data-tab="learning-plan"]')) {
+            var planningLi = document.createElement('li');
+            planningLi.className = 'nav-item';
+            planningLi.innerHTML = '<button class="nav-link" data-tab="learning-plan"><i class="bi bi-journal-text me-1"></i>Term learning plan</button>';
+            planningTabs.appendChild(planningLi);
+            planningLi.querySelector('button').addEventListener('click', function () {
+                planningTabs.querySelectorAll('.nav-link').forEach(function (b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                self.state.activeDetailTab = 'learning-plan';
+                self.loadStudentTab('learning-plan');
+            });
+        }
         // Pay Now button delegation (rendered dynamically in fee history)
         document.getElementById('studentDetailContent').addEventListener('click', function (e) {
             var btn = e.target.closest('.pay-now-btn');
@@ -354,7 +367,30 @@ const parentPortalController = {
             this.apiFetch('/portfolio/' + id, 'GET')
                 .then(function (resp) { self._portfolioData = resp.data || resp; self.renderPortfolio(self._portfolioData); })
                 .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load portfolio: ' + self.esc(e.message) + '</div>'; });
+        } else if (tab === 'learning-plan') {
+            this.apiFetch('/student-learning-plan/' + id, 'GET')
+                .then(function (resp) { self.renderLearningPlan(resp.data || resp); })
+                .catch(function (e) { content.innerHTML = '<div class="alert alert-danger">Failed to load learning plan: ' + self.esc(e.message) + '</div>'; });
         }
+    },
+
+    renderLearningPlan(data) {
+        var content = document.getElementById('studentDetailContent');
+        var ctx = data.context || {};
+        var schemes = data.schemes || [];
+        var plans = data.lesson_plans || [];
+        var weeks = {};
+        schemes.forEach(function (s) { if (!weeks[s.week_number]) weeks[s.week_number] = []; weeks[s.week_number].push(s); });
+        var html = '<div class="alert alert-success"><strong>' + this.esc(ctx.term_name || 'Current term') + '</strong> · ' + this.esc(ctx.class_name || '') + ' ' + this.esc(ctx.stream_name || '') + '<br><small>Approved schemes and delivered lesson plans for this child’s current stream.</small></div>';
+        Object.keys(weeks).sort(function (a, b) { return Number(a) - Number(b); }).forEach(function (week) {
+            html += '<div class="card border-0 shadow-sm mb-3"><div class="card-header fw-bold">Week ' + week + '</div><div class="card-body">';
+            weeks[week].forEach(function (s) {
+                var related = plans.filter(function (p) { return String(p.scheme_of_work_id) === String(s.id); });
+                html += '<div class="border-bottom pb-2 mb-2"><strong>' + parentPortalController.esc(s.learning_area || '') + '</strong> · ' + parentPortalController.esc(s.title || '') + '<div class="small text-muted">' + parentPortalController.esc(s.strand_name || '') + (s.sub_strand_name ? ' / ' + parentPortalController.esc(s.sub_strand_name) : '') + '</div>' + (related.length ? '<div class="small mt-2">Delivered: ' + related.map(function (p) { return parentPortalController.esc(p.lesson_date + ' · ' + (p.title || 'Lesson')); }).join(', ') + '</div>' : '<div class="small text-muted mt-2">No delivered lesson recorded yet.</div>') + '</div>';
+            });
+            html += '</div></div>';
+        });
+        content.innerHTML = html || '<div class="alert alert-info">No approved scheme rows are available for this term yet.</div>';
     },
 
     renderFeeHistory(data) {
@@ -555,6 +591,11 @@ const parentPortalController = {
 
     renderReportCard(data) {
         var content = document.getElementById('studentDetailContent');
+        if (!data || data.released === false) {
+            content.innerHTML = '<div class="alert alert-info"><i class="bi bi-lock me-2"></i>' +
+                this.esc((data && data.message) || 'The school has not released a report card for this learner yet.') + '</div>';
+            return;
+        }
         var s = data.student || {};
         var term = data.term || {};
         var scores = data.scores || [];
@@ -564,14 +605,18 @@ const parentPortalController = {
         var enr = data.enrollment || {};
         var school = data.school || {};
         var self = this;
+        var official = data.official_release || {};
         var attPct = att.total_days > 0 ? Math.round(100 * att.days_present / att.total_days) : 0;
         // ── Header ──
         var html = '<div class="report-card-container p-3">' +
+            '<div class="alert alert-success py-2"><i class="bi bi-patch-check-fill me-2"></i>Official school release' +
+            (official.version_no ? ' · Version ' + self.esc(official.version_no) : '') +
+            (official.released_at ? ' · ' + self.esc(official.released_at) : '') + '</div>' +
             '<div class="text-center mb-3 border-bottom pb-3">' +
             '<h4 class="fw-bold mb-0">' + self.esc(school.name || 'Kingsway Preparatory School') + '</h4>' +
             '<small class="text-muted">' + self.esc(school.address || '') + ' | ' + self.esc(school.phone || '') + '</small>' +
             '<h5 class="mt-2">School Report Card</h5>' +
-            '<small class="text-muted">' + self.esc(term.name || '') + ' · ' + (data.year || '') + '</small></div>' +
+            '<small class="text-muted">' + self.esc(term.name || '') + ' · ' + self.esc(data.year || term.year_code || '') + '</small></div>' +
             // ── Student Info ──
             '<div class="row mb-3 small"><div class="col-6"><strong>Name:</strong> ' + self.esc(s.first_name + ' ' + s.last_name) + '</div>' +
             '<div class="col-3"><strong>Adm:</strong> ' + self.esc(s.admission_no || '') + '</div>' +
@@ -626,17 +671,14 @@ const parentPortalController = {
             html += '<div class="card bg-light mb-2"><div class="card-body py-2"><small class="text-muted">Head Teacher</small>' +
                 '<p class="mb-0 fst-italic">" ' + self.esc(enr.head_teacher_comments) + ' "</p></div></div>';
         }
-        // ── Print ──
-        html += '<div class="text-center mt-3"><button class="btn btn-outline-primary btn-sm" id="btnPrintReportCard"><i class="bi bi-printer me-1"></i>Print</button></div></div>';
+        // ── Official PDF ──
+        html += '<div class="text-center mt-3"><button class="btn btn-primary btn-sm" id="btnPrintReportCard"' +
+            (official.download_url ? '' : ' disabled') + '><i class="bi bi-file-earmark-pdf me-1"></i>Open official PDF</button></div></div>';
         content.innerHTML = html;
         var printBtn = document.getElementById('btnPrintReportCard');
-        if (printBtn) {
+        if (printBtn && official.download_url) {
             printBtn.addEventListener('click', function () {
-                var printWin = window.open('', '_blank', 'width=800,height=600');
-                printWin.document.write(self.buildReportCardHTML(data));
-                printWin.document.close();
-                printWin.focus();
-                printWin.print();
+                window.open(official.download_url, '_blank', 'noopener');
             });
         }
     },

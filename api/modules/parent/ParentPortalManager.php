@@ -5,8 +5,10 @@ namespace App\API\Modules\parent;
 use App\API\Includes\BaseAPI;
 use App\API\Services\OTPDeliveryService;
 use App\API\Services\NotificationService;
+use App\API\Services\DownloadService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbMpesaExpressService;
+use App\API\Services\payments\FinancialAccountService;
 use PDO;
 use Exception;
 
@@ -598,7 +600,138 @@ class ParentPortalManager extends BaseAPI
             return $access;
         }
 
-        return $this->buildPerformancePayload($studentId, true);
+        try {
+            // A guardian sees the exact immutable snapshot approved and
+            // released by the school—not a live reconstruction from mutable
+            // score tables and never an unapproved report.
+            $stmt = $this->db->prepare(
+                "SELECT id, version_no, report_data_json, pdf_path, pdf_sha256, released_at
+                 FROM report_card_releases
+                 WHERE student_id = ? AND status = 'released'
+                 ORDER BY released_at DESC, version_no DESC
+                 LIMIT 1"
+            );
+            $stmt->execute([$studentId]);
+            $release = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$release) {
+                return $this->successResponse([
+                    'released' => false,
+                    'message' => 'The school has not released a report card for this learner yet.',
+                ], 'Report card not released');
+            }
+            $path = (string) $release['pdf_path'];
+            if (!is_file($path) || !hash_equals((string) $release['pdf_sha256'], (string) hash_file('sha256', $path))) {
+                error_log('[ParentPortalManager] Released report card PDF failed integrity verification: ' . (int) $release['id']);
+                return $this->errorResponse('The released report card is temporarily unavailable.', 503);
+            }
+            $payload = json_decode((string) $release['report_data_json'], true);
+            if (!is_array($payload)) {
+                return $this->errorResponse('The released report card is unavailable.', 500);
+            }
+            $payload['released'] = true;
+            $payload['official_release'] = [
+                'release_id' => (int) $release['id'],
+                'version_no' => (int) $release['version_no'],
+                'released_at' => $release['released_at'],
+                'download_url' => (new DownloadService())->generatedDownloadUrlForAbsolutePath($path),
+            ];
+            $this->db->prepare(
+                "UPDATE report_card_deliveries
+                 SET status='delivered', failure_reason=NULL
+                 WHERE report_card_release_id=? AND parent_id=? AND channel='portal'"
+            )->execute([(int) $release['id'], $this->parentId]);
+            return $this->successResponse($payload, 'Official report card loaded');
+        } catch (Exception $e) {
+            error_log('[ParentPortalManager] official report card: ' . $e->getMessage());
+            return $this->errorResponse('Unable to load the released report card.', 500);
+        }
+    }
+
+    /**
+     * Read-only CBC planning view for a parent's child. Only the child's
+     * current academic-year stream is considered, and draft content never
+     * leaves the staff workflow.
+     */
+    public function getStudentLearningPlan(int $studentId): array
+    {
+        $access = $this->assertAccess($studentId);
+        if ($access !== null) return $access;
+
+        try {
+            $context = $this->db->prepare(
+                "SELECT ay.id AS academic_year_id, ay.year_code, ayt.id AS academic_year_term_id,
+                        t.name AS term_name, sae.academic_year_class_stream_id,
+                        c.name AS class_name, sn.name AS stream_name
+                 FROM student_academic_enrollments sae
+                 JOIN academic_years ay ON ay.id = sae.academic_year_id AND ay.is_current = 1
+                 JOIN academic_year_terms ayt ON ayt.academic_year_id = ay.id AND ayt.status = 'current'
+                 JOIN terms t ON t.id = ayt.term_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 WHERE sae.student_id = ? AND sae.enrollment_status = 'active'
+                 LIMIT 1"
+            );
+            $context->execute([$studentId]);
+            $ctx = $context->fetch(PDO::FETCH_ASSOC);
+            if (!$ctx) return $this->successResponse(['context' => null, 'schemes' => [], 'lesson_plans' => []]);
+
+            $scheme = $this->db->prepare(
+                "SELECT sw.id, sw.status, sw.updated_at,
+                        sw.academic_year_calendar_week_id AS week_id,
+                        ac.week_number, ac.week_start, ac.week_end,
+                        la.name AS learning_area, st.title,
+                        st.strand_id, st.sub_strand_id,
+                        sn.name AS strand_name, ss.name AS sub_strand_name,
+                        st.activities, st.resources, st.assessment_methods
+                 FROM schemes_of_work sw
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = sw.academic_year_class_stream_learning_area_id
+                 JOIN scheme_templates st ON st.id = sw.scheme_template_id
+                 JOIN learning_areas la ON la.id = st.learning_area_id
+                 LEFT JOIN strands sn ON sn.id = st.strand_id
+                 LEFT JOIN sub_strands ss ON ss.id = st.sub_strand_id
+                 JOIN academic_year_calendar ac ON ac.id = sw.academic_year_calendar_week_id
+                 WHERE aysla.academic_year_class_stream_id = ?
+                   AND ac.academic_year_term_id = ?
+                   AND sw.status = 'approved'
+                 ORDER BY ac.week_number, la.name, sw.id"
+            );
+            $scheme->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
+
+            $plans = $this->db->prepare(
+                "SELECT lp.id, lp.scheme_of_work_id, lp.status, lp.updated_at,
+                        d.date AS lesson_date, ac.week_number,
+                        la.name AS learning_area, lt.title,
+                        lt.duration, lt.activities, lt.resources, lt.assessment,
+                        sn.name AS strand_name, ss.name AS sub_strand_name
+                 FROM lesson_plans lp
+                 JOIN schemes_of_work sw ON sw.id = lp.scheme_of_work_id AND sw.status = 'approved'
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = lp.academic_year_class_stream_learning_area_id
+                  AND aysla.academic_year_class_stream_id = ?
+                 JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
+                 JOIN learning_areas la ON la.id = lt.learning_area_id
+                 LEFT JOIN strands sn ON sn.id = lt.strand_id
+                 LEFT JOIN sub_strands ss ON ss.id = lt.sub_strand_id
+                 JOIN academic_year_calendar_days d ON d.id = lp.academic_year_calendar_day_id
+                 JOIN academic_year_calendar ac ON ac.id = d.academic_year_calendar_id
+                 WHERE ac.academic_year_term_id = ?
+                   AND lp.status IN ('approved','delivered')
+                 ORDER BY d.date, lp.id"
+            );
+            $plans->execute([(int) $ctx['academic_year_class_stream_id'], (int) $ctx['academic_year_term_id']]);
+
+            return $this->successResponse([
+                'context' => $ctx,
+                'schemes' => $scheme->fetchAll(PDO::FETCH_ASSOC),
+                'lesson_plans' => $plans->fetchAll(PDO::FETCH_ASSOC),
+            ], 'Learning plans loaded');
+        } catch (Exception $e) {
+            error_log('[ParentPortalManager] ' . $e->getMessage());
+            return $this->errorResponse('Unable to load learning plans', 500);
+        }
     }
 
     /**
@@ -934,12 +1067,14 @@ class ParentPortalManager extends BaseAPI
             }
 
             if ($provider === 'buni') {
+                $buniAccount = (new FinancialAccountService($this->db))->requireFor(0, 'fees', 'buni_ipn');
                 $result = (new KcbMpesaExpressService())->initiate([
                     'phone_number' => $phone,
                     'amount' => $amount,
                     'invoice_number' => $student['admission_no'],
                     'description' => 'School fees',
-                    'callback_url' => rtrim((string) (defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : BASE_URL), '/') . '/api/payments/mpesa-stk-callback',
+                    'org_short_code' => (string)$buniAccount['account_identifier'],
+                    'callback_url' => rtrim((string) (defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : BASE_URL), '/') . '/api/payments/kcb-mpesa-express-callback',
                 ]);
                 if (!empty($result['accepted'])) {
                     return $this->successResponse([

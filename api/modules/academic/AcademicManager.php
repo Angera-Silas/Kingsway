@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\system\MediaManager;
 use App\API\Services\CalendarSyncService;
 use App\API\Services\ExtraChargeService;
+use App\API\Services\TermResultsService;
 use PDO;
 use Exception;
 use Throwable;
@@ -342,20 +343,39 @@ class AcademicManager extends BaseAPI
             if (!empty($data['type_id']))     { $where[] = "a.assessment_type_id=:atid"; $params[':atid'] = (int) $data['type_id']; }
             if (!empty($data['year_id']))     { $where[] = "ayt.academic_year_id=:yid"; $params[':yid'] = (int) $data['year_id']; }
             if (!empty($data['teacher_only']) && $staffId) {
-                $where[] = "(aycs.class_teacher_id = :ctid OR a.assigned_by = :ctid2)";
+                $where[] = "(EXISTS (SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope WHERE tscope.staff_id = :ctid AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id AND tscope.scope_type = 'class_teacher') OR a.assigned_by = :ctid2)";
                 $params[':ctid'] = $staffId;
                 $params[':ctid2'] = $staffId;
             }
+            if (!empty($data['teacher_scope_only']) && $staffId) {
+                $where[] = "EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = :teacher_scope_id
+                      AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id
+                      AND (tscope.scope_type = 'class_teacher'
+                           OR (tscope.learning_area_id = a.learning_area_id
+                               AND tscope.academic_year_term_id = a.academic_year_term_id))
+                )";
+                $params[':teacher_scope_id'] = $staffId;
+            }
             if (!empty($data['subject_teacher_only']) && $staffId) {
-                $where[] = "a.learning_area_id IN (SELECT learning_area_id FROM academic_year_class_learning_area_teachers WHERE staff_id = :stid)";
-                $params[':stid'] = $staffId;
+                $where[] = "EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = :stid_scope
+                      AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id
+                      AND tscope.learning_area_id = a.learning_area_id
+                      AND tscope.academic_year_term_id = a.academic_year_term_id
+                )";
+                $params[':stid_scope'] = $staffId;
             }
 
             $rows = $this->dbQuery(
                 "SELECT a.*,
                         a.assessment_date AS cat_date,
                         a.title AS name,
-                        a.academic_year_class_stream_id AS class_id,
+                        ayc.class_id AS class_id,
+                        aycs.stream_id,
+                        sn.name AS stream_name,
                         a.learning_area_id AS subject_id,
                         CASE a.status
                             WHEN 'pending_submission' THEN 'draft'
@@ -364,10 +384,15 @@ class AcademicManager extends BaseAPI
                             WHEN 'approved' THEN 'completed'
                             ELSE a.status
                         END AS status,
-                        (SELECT COUNT(*) FROM assessment_results xar WHERE xar.assessment_id = a.id) AS student_count,
+                        (SELECT COUNT(*) FROM formative_scores xfs WHERE xfs.assessment_id = a.id) AS student_count,
                         at.name AS type_name, at.name AS type, at.is_formative, at.is_summative,
                         la.name AS subject_name, la.code AS subject_code,
                         c.name AS class_name,
+                        strand.name AS strand_name,
+                        sub.name AS sub_strand_name,
+                        scheme_template.title AS scheme_title,
+                        lesson_template.title AS lesson_title,
+                        tool.tool_name AS assessment_tool_name,
                         t.name AS term_name,
                         CONCAT(p.first_name,' ',p.last_name) AS assigned_by_name
                  FROM assessments a
@@ -376,6 +401,14 @@ class AcademicManager extends BaseAPI
                  LEFT JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
                  LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams sn ON sn.id = aycs.stream_id
+                 LEFT JOIN strands strand ON strand.id = a.strand_id
+                 LEFT JOIN sub_strands sub ON sub.id = a.sub_strand_id
+                 LEFT JOIN schemes_of_work scheme ON scheme.id = a.scheme_of_work_id
+                 LEFT JOIN scheme_templates scheme_template ON scheme_template.id = scheme.scheme_template_id
+                 LEFT JOIN lesson_plans lesson ON lesson.id = a.lesson_plan_id
+                 LEFT JOIN lesson_templates lesson_template ON lesson_template.id = lesson.lesson_template_id
+                 LEFT JOIN assessment_tools tool ON tool.id = a.assessment_tool_id
                  LEFT JOIN academic_year_terms ayt ON ayt.id = a.academic_year_term_id
                  LEFT JOIN terms t ON t.id = ayt.term_id
                  LEFT JOIN staff st ON st.id = a.assigned_by
@@ -385,6 +418,46 @@ class AcademicManager extends BaseAPI
                  LIMIT 500",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
+            if ($rows) {
+                $assessmentIds = array_map('intval', array_column($rows, 'id'));
+                $placeholders = implode(',', array_fill(0, count($assessmentIds), '?'));
+                $outcomeRows = $this->dbQuery(
+                    "SELECT map.assessment_id, outcome.id, outcome.outcome, map.sort_order
+                     FROM assessment_learning_outcomes map
+                     JOIN learning_outcomes outcome ON outcome.id = map.learning_outcome_id
+                     WHERE map.assessment_id IN ($placeholders)
+                     ORDER BY map.assessment_id, map.sort_order, outcome.id",
+                    $assessmentIds
+                )->fetchAll(PDO::FETCH_ASSOC);
+                $rubricRows = $this->dbQuery(
+                    "SELECT map.assessment_id, rubric.id, rubric.criteria_name,
+                            rubric.level_1_descriptor, rubric.level_2_descriptor,
+                            rubric.level_3_descriptor, rubric.level_4_descriptor,
+                            rubric.points_per_level, map.weight, map.sort_order
+                     FROM assessment_rubric_criteria map
+                     JOIN assessment_rubrics rubric ON rubric.id = map.assessment_rubric_id
+                     WHERE map.assessment_id IN ($placeholders)
+                     ORDER BY map.assessment_id, map.sort_order, rubric.id",
+                    $assessmentIds
+                )->fetchAll(PDO::FETCH_ASSOC);
+
+                $outcomesByAssessment = [];
+                foreach ($outcomeRows as $outcome) {
+                    $outcomesByAssessment[(int) $outcome['assessment_id']][] = $outcome;
+                }
+                $rubricsByAssessment = [];
+                foreach ($rubricRows as $rubric) {
+                    $rubricsByAssessment[(int) $rubric['assessment_id']][] = $rubric;
+                }
+                foreach ($rows as &$row) {
+                    $assessmentId = (int) $row['id'];
+                    $row['learning_outcomes'] = $outcomesByAssessment[$assessmentId] ?? [];
+                    $row['learning_outcome_ids'] = array_map('intval', array_column($row['learning_outcomes'], 'id'));
+                    $row['rubric_criteria'] = $rubricsByAssessment[$assessmentId] ?? [];
+                    $row['assessment_rubric_ids'] = array_map('intval', array_column($row['rubric_criteria'], 'id'));
+                }
+                unset($row);
+            }
             return $this->successResponse($rows);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getFormativeAssessments');
@@ -400,12 +473,378 @@ class AcademicManager extends BaseAPI
         switch (strtolower((string) $status)) {
             case 'draft':     return 'pending_submission';
             case 'active':    return 'submitted';
-            case 'completed': return 'approved';
+            case 'completed': return 'pending_approval';
             case 'pending_submission':
             case 'submitted':
             case 'pending_approval':
             case 'approved':  return strtolower((string) $status);
             default:          return 'pending_submission';
+        }
+    }
+
+    /** @return int[] */
+    private function normalizeFormativeIds($values): array
+    {
+        $ids = [];
+        foreach ((array) $values as $value) {
+            if (is_array($value)) {
+                $value = $value['id'] ?? $value['learning_outcome_id'] ?? $value['assessment_rubric_id'] ?? 0;
+            }
+            $id = (int) $value;
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        return array_values($ids);
+    }
+
+    private function teacherHasFormativeScope(
+        int $staffId,
+        int $termId,
+        int $classStreamId,
+        int $learningAreaId
+    ): bool {
+        $allowed = $this->dbQuery(
+            "SELECT 1
+             FROM vw_teacher_effective_stream_learning_areas scope
+             WHERE scope.staff_id = ?
+               AND scope.academic_year_term_id = ?
+               AND scope.academic_year_class_stream_id = ?
+               AND (scope.scope_type = 'class_teacher' OR scope.learning_area_id = ?)
+             LIMIT 1",
+            [$staffId, $termId, $classStreamId, $learningAreaId]
+        )->fetchColumn();
+
+        return (bool) $allowed;
+    }
+
+    /**
+     * Resolve and validate the immutable CBC context behind a formative task.
+     * Lesson/scheme context is authoritative; caller-supplied curriculum IDs
+     * must agree with it and can never widen the authenticated teacher's scope.
+     */
+    private function resolveFormativeContext(
+        array $data,
+        int $staffId,
+        bool $canManageAll,
+        array $existing = []
+    ): array {
+        $termId = (int) ($data['term_id'] ?? $data['academic_year_term_id'] ?? $existing['academic_year_term_id'] ?? 0);
+        if ($termId <= 0) {
+            throw new \InvalidArgumentException('term_id is required');
+        }
+
+        $lessonPlanId = (int) ($data['lesson_plan_id'] ?? $existing['lesson_plan_id'] ?? 0);
+        $schemeId = (int) ($data['scheme_of_work_id'] ?? $data['scheme_id'] ?? $existing['scheme_of_work_id'] ?? 0);
+        $classStreamId = (int) ($data['academic_year_class_stream_id'] ?? $existing['academic_year_class_stream_id'] ?? 0);
+        $streamLearningAreaId = (int) ($data['academic_year_class_stream_learning_area_id'] ?? 0);
+        $learningAreaId = (int) ($data['subject_id'] ?? $data['learning_area_id'] ?? $existing['learning_area_id'] ?? 0);
+        $strandId = (int) ($data['strand_id'] ?? $existing['strand_id'] ?? 0);
+        $subStrandId = (int) ($data['sub_strand_id'] ?? $data['substrand_id'] ?? $existing['sub_strand_id'] ?? 0);
+        $calendarDayId = (int) ($data['academic_year_calendar_day_id'] ?? $existing['academic_year_calendar_day_id'] ?? 0);
+
+        $requestedClassStreamId = (int) ($data['academic_year_class_stream_id'] ?? 0);
+        $requestedStreamLearningAreaId = (int) ($data['academic_year_class_stream_learning_area_id'] ?? 0);
+        $requestedLearningAreaId = (int) ($data['subject_id'] ?? $data['learning_area_id'] ?? 0);
+        $requestedStrandId = (int) ($data['strand_id'] ?? 0);
+        $requestedSubStrandId = (int) ($data['sub_strand_id'] ?? $data['substrand_id'] ?? 0);
+
+        if ($lessonPlanId > 0) {
+            $lesson = $this->dbQuery(
+                "SELECT lp.id, lp.teacher_id, lp.status, lp.scheme_of_work_id,
+                        lp.academic_year_calendar_day_id,
+                        lp.academic_year_class_stream_learning_area_id,
+                        aysla.academic_year_class_stream_id,
+                        aycla.learning_area_id,
+                        lt.strand_id, lt.sub_strand_id,
+                        calendar.academic_year_term_id
+                 FROM lesson_plans lp
+                 JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = lp.academic_year_class_stream_learning_area_id
+                 JOIN academic_year_class_learning_areas aycla
+                   ON aycla.id = aysla.academic_year_class_learning_area_id
+                 LEFT JOIN academic_year_calendar_days calendar_day
+                   ON calendar_day.id = lp.academic_year_calendar_day_id
+                 LEFT JOIN academic_year_calendar calendar
+                   ON calendar.id = calendar_day.academic_year_calendar_id
+                 WHERE lp.id = ? LIMIT 1",
+                [$lessonPlanId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$lesson) {
+                throw new \InvalidArgumentException('lesson_plan_id does not identify a lesson plan');
+            }
+            if (!$canManageAll && (int) $lesson['teacher_id'] !== $staffId) {
+                throw new \InvalidArgumentException('The lesson plan is not assigned to this teacher');
+            }
+            if ($schemeId > 0 && $schemeId !== (int) $lesson['scheme_of_work_id']) {
+                throw new \InvalidArgumentException('The lesson plan does not belong to the supplied scheme of work');
+            }
+            if (!empty($lesson['academic_year_term_id']) && (int) $lesson['academic_year_term_id'] !== $termId) {
+                throw new \InvalidArgumentException('The lesson plan does not belong to the supplied term');
+            }
+            $lessonContext = [
+                'academic_year_class_stream_id' => (int) $lesson['academic_year_class_stream_id'],
+                'academic_year_class_stream_learning_area_id' => (int) $lesson['academic_year_class_stream_learning_area_id'],
+                'learning_area_id' => (int) $lesson['learning_area_id'],
+                'strand_id' => (int) $lesson['strand_id'],
+                'sub_strand_id' => (int) $lesson['sub_strand_id'],
+            ];
+            $requestedContext = [
+                'academic_year_class_stream_id' => $requestedClassStreamId,
+                'academic_year_class_stream_learning_area_id' => $requestedStreamLearningAreaId,
+                'learning_area_id' => $requestedLearningAreaId,
+                'strand_id' => $requestedStrandId,
+                'sub_strand_id' => $requestedSubStrandId,
+            ];
+            foreach ($requestedContext as $field => $requestedValue) {
+                if ($requestedValue > 0 && $requestedValue !== $lessonContext[$field]) {
+                    throw new \InvalidArgumentException("The supplied {$field} conflicts with the lesson plan");
+                }
+            }
+            $schemeId = (int) $lesson['scheme_of_work_id'];
+            $streamLearningAreaId = (int) $lesson['academic_year_class_stream_learning_area_id'];
+            $classStreamId = (int) $lesson['academic_year_class_stream_id'];
+            $learningAreaId = (int) $lesson['learning_area_id'];
+            $strandId = (int) $lesson['strand_id'];
+            $subStrandId = (int) $lesson['sub_strand_id'];
+            $calendarDayId = (int) ($lesson['academic_year_calendar_day_id'] ?? 0);
+        } elseif ($schemeId > 0) {
+            $scheme = $this->dbQuery(
+                "SELECT sw.id, sw.teacher_id, sw.status,
+                        sw.academic_year_class_stream_learning_area_id,
+                        aysla.academic_year_class_stream_id,
+                        aycla.learning_area_id,
+                        st.strand_id, st.sub_strand_id,
+                        calendar.academic_year_term_id
+                 FROM schemes_of_work sw
+                 JOIN scheme_templates st ON st.id = sw.scheme_template_id
+                 JOIN academic_year_class_stream_learning_areas aysla
+                   ON aysla.id = sw.academic_year_class_stream_learning_area_id
+                 JOIN academic_year_class_learning_areas aycla
+                   ON aycla.id = aysla.academic_year_class_learning_area_id
+                 LEFT JOIN academic_year_calendar calendar
+                   ON calendar.id = sw.academic_year_calendar_week_id
+                 WHERE sw.id = ? LIMIT 1",
+                [$schemeId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$scheme) {
+                throw new \InvalidArgumentException('scheme_of_work_id does not identify a scheme of work');
+            }
+            if (!$canManageAll && (int) $scheme['teacher_id'] !== $staffId) {
+                throw new \InvalidArgumentException('The scheme of work is not assigned to this teacher');
+            }
+            if (!empty($scheme['academic_year_term_id']) && (int) $scheme['academic_year_term_id'] !== $termId) {
+                throw new \InvalidArgumentException('The scheme of work does not belong to the supplied term');
+            }
+            $schemeContext = [
+                'academic_year_class_stream_id' => (int) $scheme['academic_year_class_stream_id'],
+                'academic_year_class_stream_learning_area_id' => (int) $scheme['academic_year_class_stream_learning_area_id'],
+                'learning_area_id' => (int) $scheme['learning_area_id'],
+                'strand_id' => (int) $scheme['strand_id'],
+                'sub_strand_id' => (int) $scheme['sub_strand_id'],
+            ];
+            $requestedContext = [
+                'academic_year_class_stream_id' => $requestedClassStreamId,
+                'academic_year_class_stream_learning_area_id' => $requestedStreamLearningAreaId,
+                'learning_area_id' => $requestedLearningAreaId,
+                'strand_id' => $requestedStrandId,
+                'sub_strand_id' => $requestedSubStrandId,
+            ];
+            foreach ($requestedContext as $field => $requestedValue) {
+                if ($requestedValue > 0 && $requestedValue !== $schemeContext[$field]) {
+                    throw new \InvalidArgumentException("The supplied {$field} conflicts with the scheme of work");
+                }
+            }
+            $streamLearningAreaId = (int) $scheme['academic_year_class_stream_learning_area_id'];
+            $classStreamId = (int) $scheme['academic_year_class_stream_id'];
+            $learningAreaId = (int) $scheme['learning_area_id'];
+            $strandId = (int) $scheme['strand_id'];
+            $subStrandId = (int) $scheme['sub_strand_id'];
+        }
+
+        if ($streamLearningAreaId > 0 && $lessonPlanId <= 0 && $schemeId <= 0) {
+            $streamArea = $this->dbQuery(
+                "SELECT aysla.academic_year_class_stream_id, aycla.learning_area_id
+                 FROM academic_year_class_stream_learning_areas aysla
+                 JOIN academic_year_class_learning_areas aycla
+                   ON aycla.id = aysla.academic_year_class_learning_area_id
+                 WHERE aysla.id = ? LIMIT 1",
+                [$streamLearningAreaId]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$streamArea) {
+                throw new \InvalidArgumentException('The stream learning-area context was not found');
+            }
+            $classStreamId = (int) $streamArea['academic_year_class_stream_id'];
+            $learningAreaId = (int) $streamArea['learning_area_id'];
+        }
+
+        if ($classStreamId <= 0 && !empty($data['class_id'])) {
+            $classStreamId = (int) ($this->resolveStreamIdForClass((int) $data['class_id']) ?? 0);
+        }
+        if ($classStreamId <= 0 || $learningAreaId <= 0) {
+            throw new \InvalidArgumentException('An exact class stream and learning area are required');
+        }
+
+        $streamContext = $this->dbQuery(
+            "SELECT ayc.academic_year_id, ayc.class_id
+             FROM academic_year_class_streams aycs
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE aycs.id = ? LIMIT 1",
+            [$classStreamId]
+        )->fetch(PDO::FETCH_ASSOC);
+        $termYear = $this->dbQuery(
+            "SELECT academic_year_id FROM academic_year_terms WHERE id = ? LIMIT 1",
+            [$termId]
+        )->fetchColumn();
+        if (!$streamContext || !$termYear || (int) $streamContext['academic_year_id'] !== (int) $termYear) {
+            throw new \InvalidArgumentException('The term and class stream must belong to the same academic year');
+        }
+        if (!empty($data['class_id']) && (int) $data['class_id'] !== (int) $streamContext['class_id']) {
+            throw new \InvalidArgumentException('The supplied class_id conflicts with the lesson or scheme class');
+        }
+
+        if (!$canManageAll && !$this->teacherHasFormativeScope($staffId, $termId, $classStreamId, $learningAreaId)) {
+            throw new \InvalidArgumentException('The class stream or learning area is outside this teacher\'s assignment');
+        }
+
+        if (($strandId > 0) !== ($subStrandId > 0)) {
+            throw new \InvalidArgumentException('Both strand_id and sub_strand_id are required together');
+        }
+        if ($strandId > 0) {
+            $validCurriculum = $this->dbQuery(
+                "SELECT 1
+                 FROM strands strand
+                 JOIN sub_strands sub ON sub.strand_id = strand.id
+                 WHERE strand.id = ? AND sub.id = ?
+                   AND strand.learning_area_id = ?
+                   AND strand.status = 'active' AND sub.status = 'active'
+                 LIMIT 1",
+                [$strandId, $subStrandId, $learningAreaId]
+            )->fetchColumn();
+            if (!$validCurriculum) {
+                throw new \InvalidArgumentException('The strand and sub-strand are not valid for this learning area');
+            }
+        }
+
+        $outcomeIds = $this->normalizeFormativeIds(
+            $data['learning_outcome_ids'] ?? $data['outcome_ids'] ?? $data['learning_outcomes'] ?? []
+        );
+        if (!$outcomeIds && $lessonPlanId > 0) {
+            $stmt = $this->dbQuery(
+                "SELECT learning_outcome_id FROM lesson_plan_outcomes
+                 WHERE lesson_plan_id = ? ORDER BY sort_order, learning_outcome_id",
+                [$lessonPlanId]
+            );
+            $outcomeIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+        if ($outcomeIds) {
+            if ($subStrandId <= 0) {
+                throw new \InvalidArgumentException('Learning outcomes require a strand and sub-strand');
+            }
+            $placeholders = implode(',', array_fill(0, count($outcomeIds), '?'));
+            $params = array_merge($outcomeIds, [$subStrandId]);
+            $sql = "SELECT COUNT(*) FROM learning_outcomes
+                    WHERE id IN ($placeholders) AND sub_strand_id = ?";
+            if ((int) $this->dbQuery($sql, $params)->fetchColumn() !== count($outcomeIds)) {
+                throw new \InvalidArgumentException('Every learning outcome must belong to the selected sub-strand');
+            }
+            if ($lessonPlanId > 0) {
+                $params = array_merge([$lessonPlanId], $outcomeIds);
+                $sql = "SELECT COUNT(*) FROM lesson_plan_outcomes
+                        WHERE lesson_plan_id = ? AND learning_outcome_id IN ($placeholders)";
+                if ((int) $this->dbQuery($sql, $params)->fetchColumn() !== count($outcomeIds)) {
+                    throw new \InvalidArgumentException('Every learning outcome must be attached to the lesson plan');
+                }
+            }
+        }
+
+        $toolId = (int) ($data['assessment_tool_id'] ?? $data['tool_id'] ?? $existing['assessment_tool_id'] ?? 0);
+        if ($toolId > 0) {
+            $toolAllowed = $this->dbQuery(
+                "SELECT 1 FROM assessment_tools tool
+                 WHERE tool.id = ? AND tool.status = 'active'
+                   AND (tool.learning_area_id = ? OR EXISTS (
+                       SELECT 1 FROM assessment_tool_learning_areas map
+                       WHERE map.assessment_tool_id = tool.id AND map.learning_area_id = ?
+                   )) LIMIT 1",
+                [$toolId, $learningAreaId, $learningAreaId]
+            )->fetchColumn();
+            if (!$toolAllowed) {
+                throw new \InvalidArgumentException('The assessment tool is not configured for this learning area');
+            }
+            if ($lessonPlanId > 0) {
+                $attached = $this->dbQuery(
+                    "SELECT 1 FROM lesson_plan_assessment_tools
+                     WHERE lesson_plan_id = ? AND assessment_tool_id = ? LIMIT 1",
+                    [$lessonPlanId, $toolId]
+                )->fetchColumn();
+                if (!$attached) {
+                    throw new \InvalidArgumentException('The assessment tool is not attached to the lesson plan');
+                }
+            }
+        }
+
+        $rubricIds = $this->normalizeFormativeIds(
+            $data['assessment_rubric_ids'] ?? $data['rubric_ids'] ?? $data['rubrics'] ?? []
+        );
+        if ($rubricIds) {
+            if ($toolId <= 0) {
+                throw new \InvalidArgumentException('Rubric criteria require an assessment tool');
+            }
+            $placeholders = implode(',', array_fill(0, count($rubricIds), '?'));
+            $params = array_merge($rubricIds, [$toolId]);
+            if ((int) $this->dbQuery(
+                "SELECT COUNT(*) FROM assessment_rubrics
+                 WHERE id IN ($placeholders) AND tool_id = ?",
+                $params
+            )->fetchColumn() !== count($rubricIds)) {
+                throw new \InvalidArgumentException('Every rubric criterion must belong to the selected assessment tool');
+            }
+            if ($lessonPlanId > 0) {
+                $params = array_merge([$lessonPlanId], $rubricIds);
+                if ((int) $this->dbQuery(
+                    "SELECT COUNT(*) FROM lesson_plan_assessment_rubrics
+                     WHERE lesson_plan_id = ? AND assessment_rubric_id IN ($placeholders)",
+                    $params
+                )->fetchColumn() !== count($rubricIds)) {
+                    throw new \InvalidArgumentException('Every rubric criterion must be attached to the lesson plan');
+                }
+            }
+        }
+
+        return [
+            'academic_year_term_id' => $termId,
+            'academic_year_class_stream_id' => $classStreamId,
+            'academic_year_class_stream_learning_area_id' => $streamLearningAreaId ?: null,
+            'learning_area_id' => $learningAreaId,
+            'scheme_of_work_id' => $schemeId ?: null,
+            'lesson_plan_id' => $lessonPlanId ?: null,
+            'academic_year_calendar_day_id' => $calendarDayId ?: null,
+            'strand_id' => $strandId ?: null,
+            'sub_strand_id' => $subStrandId ?: null,
+            'assessment_tool_id' => $toolId ?: null,
+            'learning_outcome_ids' => $outcomeIds,
+            'assessment_rubric_ids' => $rubricIds,
+        ];
+    }
+
+    private function replaceFormativeMappings(int $assessmentId, array $context): void
+    {
+        $this->dbQuery('DELETE FROM assessment_learning_outcomes WHERE assessment_id = ?', [$assessmentId]);
+        $insertOutcome = $this->db->prepare(
+            'INSERT INTO assessment_learning_outcomes (assessment_id, learning_outcome_id, sort_order) VALUES (?, ?, ?)'
+        );
+        foreach ($context['learning_outcome_ids'] as $index => $outcomeId) {
+            $insertOutcome->execute([$assessmentId, $outcomeId, $index + 1]);
+        }
+
+        $this->dbQuery('DELETE FROM assessment_rubric_criteria WHERE assessment_id = ?', [$assessmentId]);
+        $insertRubric = $this->db->prepare(
+            'INSERT INTO assessment_rubric_criteria (assessment_id, assessment_rubric_id, sort_order) VALUES (?, ?, ?)'
+        );
+        foreach ($context['assessment_rubric_ids'] as $index => $rubricId) {
+            $insertRubric->execute([$assessmentId, $rubricId, $index + 1]);
         }
     }
 
@@ -436,77 +875,120 @@ class AcademicManager extends BaseAPI
      * assessment_date, class_id, subject_id, max_marks, status) and the legacy
      * my_cats/my_subject_cats form keys (name, type, cat_date).
      */
-    public function putFormativeAssessments(int $id, array $data): array
+    public function putFormativeAssessments(
+        int $id,
+        array $data,
+        int $staffId,
+        bool $canManageAll = false
+    ): array
     {
         try {
             $existing = $this->dbQuery(
-                "SELECT id, academic_year_class_stream_id, learning_area_id, academic_year_term_id, max_marks, status
+                "SELECT id, assigned_by, academic_year_class_stream_id,
+                        academic_year_calendar_day_id, learning_area_id,
+                        academic_year_term_id, strand_id, sub_strand_id,
+                        scheme_of_work_id, lesson_plan_id, assessment_tool_id,
+                        assessment_type_id, title, description, max_marks,
+                        assessment_date, status
                  FROM assessments WHERE id = :id LIMIT 1",
                 [':id' => $id]
             )->fetch(PDO::FETCH_ASSOC);
             if (!$existing) {
                 return $this->errorResponse('Assessment not found', 404);
             }
-
-            $fields = [];
-            $params = [':id' => $id];
-
-            if (isset($data['title']) || isset($data['name'])) {
-                $fields[] = 'title = :title';
-                $params[':title'] = trim((string) ($data['title'] ?? $data['name']));
+            if (!$canManageAll && (int) $existing['assigned_by'] !== $staffId) {
+                return $this->errorResponse('Only the assigning teacher may update this assessment', 403);
+            }
+            if ($existing['status'] === 'approved') {
+                return $this->errorResponse('Approved assessments are locked and must be reopened before editing', 409);
             }
 
-            if (!empty($data['class_id'])) {
-                $streamId = $this->resolveStreamIdForClass((int) $data['class_id'])
-                    ?? $existing['academic_year_class_stream_id'];
-                $fields[] = 'academic_year_class_stream_id = :cid';
-                $params[':cid'] = (int) $streamId;
+            if (!array_key_exists('learning_outcome_ids', $data)) {
+                $data['learning_outcome_ids'] = array_map('intval', $this->dbQuery(
+                    'SELECT learning_outcome_id FROM assessment_learning_outcomes WHERE assessment_id = ? ORDER BY sort_order',
+                    [$id]
+                )->fetchAll(PDO::FETCH_COLUMN));
+            }
+            if (!array_key_exists('assessment_rubric_ids', $data)) {
+                $data['assessment_rubric_ids'] = array_map('intval', $this->dbQuery(
+                    'SELECT assessment_rubric_id FROM assessment_rubric_criteria WHERE assessment_id = ? ORDER BY sort_order',
+                    [$id]
+                )->fetchAll(PDO::FETCH_COLUMN));
             }
 
-            if (isset($data['subject_id']) && $data['subject_id'] !== '') {
-                $fields[] = 'learning_area_id = :sid';
-                $params[':sid'] = (int) $data['subject_id'];
+            $context = $this->resolveFormativeContext($data, $staffId, $canManageAll, $existing);
+            $title = trim((string) ($data['title'] ?? $data['name'] ?? $existing['title']));
+            if ($title === '') {
+                return $this->errorResponse('title is required', 400);
+            }
+            $maxMarks = (float) ($data['max_marks'] ?? $existing['max_marks']);
+            if ($maxMarks <= 0) {
+                return $this->errorResponse('max_marks must be greater than zero', 400);
             }
 
-            $termId = !empty($data['term_id'])
-                ? (int) $data['term_id']
-                : $existing['academic_year_term_id'];
-            if (!empty($data['term_id'])) {
-                $fields[] = 'academic_year_term_id = :tid';
-                $params[':tid'] = (int) $data['term_id'];
+            $typeInput = $data['assessment_type_id'] ?? $data['type'] ?? $existing['assessment_type_id'];
+            $typeId = $this->resolveFormativeTypeId($typeInput);
+            if (!$typeId) {
+                return $this->errorResponse('assessment_type_id must refer to a formative type', 400);
             }
 
-            if (isset($data['max_marks']) && $data['max_marks'] !== '') {
-                $fields[] = 'max_marks = :marks';
-                $params[':marks'] = (float) $data['max_marks'];
+            $status = isset($data['status'])
+                ? $this->mapFormativeStatus((string) $data['status'])
+                : $existing['status'];
+            if ($status === 'approved' && !$canManageAll) {
+                return $this->errorResponse('Teachers must submit formative assessments for approval', 403);
             }
 
-            if (!empty($data['assessment_date']) || !empty($data['cat_date'])) {
-                $fields[] = 'assessment_date = :dt';
-                $params[':dt'] = $data['assessment_date'] ?? $data['cat_date'];
-            }
-
-            $typeId = $this->resolveFormativeTypeId($data['assessment_type_id'] ?? $data['type'] ?? null);
-            if ($typeId) {
-                $fields[] = 'assessment_type_id = :atid';
-                $params[':atid'] = $typeId;
-            }
-
-            if (isset($data['status']) && $data['status'] !== '') {
-                $fields[] = 'status = :st';
-                $params[':st'] = $this->mapFormativeStatus((string) $data['status']);
-            }
-
-            if (!$fields) {
-                return $this->errorResponse('No updateable fields provided', 400);
-            }
-
+            $this->db->beginTransaction();
             $this->dbQuery(
-                "UPDATE assessments SET " . implode(', ', $fields) . " WHERE id = :id",
-                $params
+                "UPDATE assessments SET
+                    academic_year_class_stream_id = :class_stream_id,
+                    academic_year_term_id = :term_id,
+                    academic_year_calendar_day_id = :calendar_day_id,
+                    learning_area_id = :learning_area_id,
+                    strand_id = :strand_id,
+                    sub_strand_id = :sub_strand_id,
+                    scheme_of_work_id = :scheme_id,
+                    lesson_plan_id = :lesson_plan_id,
+                    assessment_type_id = :type_id,
+                    assessment_tool_id = :tool_id,
+                    title = :title,
+                    description = :description,
+                    max_marks = :max_marks,
+                    assessment_date = :assessment_date,
+                    status = :status
+                 WHERE id = :id",
+                [
+                    ':class_stream_id' => $context['academic_year_class_stream_id'],
+                    ':term_id' => $context['academic_year_term_id'],
+                    ':calendar_day_id' => $context['academic_year_calendar_day_id'],
+                    ':learning_area_id' => $context['learning_area_id'],
+                    ':strand_id' => $context['strand_id'],
+                    ':sub_strand_id' => $context['sub_strand_id'],
+                    ':scheme_id' => $context['scheme_of_work_id'],
+                    ':lesson_plan_id' => $context['lesson_plan_id'],
+                    ':type_id' => $typeId,
+                    ':tool_id' => $context['assessment_tool_id'],
+                    ':title' => $title,
+                    ':description' => $data['description'] ?? $existing['description'],
+                    ':max_marks' => $maxMarks,
+                    ':assessment_date' => $data['assessment_date'] ?? $data['cat_date'] ?? $existing['assessment_date'],
+                    ':status' => $status,
+                    ':id' => $id,
+                ]
             );
-            return $this->successResponse(['id' => $id], 'Formative assessment updated');
+            $this->replaceFormativeMappings($id, $context);
+            $this->db->commit();
+            return $this->successResponse(array_merge(['id' => $id], $context), 'Formative assessment updated');
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollback();
+            }
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollback();
+            }
             $this->logError($e, 'AcademicManager::putFormativeAssessments');
             return $this->errorResponse('An internal error occurred.', 500);
         }
@@ -516,12 +998,28 @@ class AcademicManager extends BaseAPI
      * DELETE /api/academic/formative-assessments/{id} - Delete a formative assessment
      * and its dependent result/scores rows.
      */
-    public function deleteFormativeAssessments(int $id): array
+    public function deleteFormativeAssessments(
+        int $id,
+        int $staffId,
+        bool $canManageAll = false
+    ): array
     {
         try {
-            $exists = $this->dbQuery("SELECT id FROM assessments WHERE id = :id LIMIT 1", [':id' => $id])->fetchColumn();
-            if (!$exists) {
+            $assessment = $this->dbQuery(
+                "SELECT id, assigned_by, status FROM assessments WHERE id = :id LIMIT 1",
+                [':id' => $id]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$assessment) {
                 return $this->errorResponse('Assessment not found', 404);
+            }
+            if (!$canManageAll && (int) $assessment['assigned_by'] !== $staffId) {
+                return $this->errorResponse('Only the assigning teacher may delete this assessment', 403);
+            }
+            if (!$canManageAll && $assessment['status'] !== 'pending_submission') {
+                return $this->errorResponse('Only draft assessments can be deleted by a teacher', 409);
+            }
+            if ($assessment['status'] === 'approved') {
+                return $this->errorResponse('Approved assessments cannot be deleted', 409);
             }
             $this->db->beginTransaction();
             $this->dbQuery("DELETE FROM assessment_results WHERE assessment_id = :id", [':id' => $id]);
@@ -570,7 +1068,8 @@ class AcademicManager extends BaseAPI
                         "SELECT aycs.id
                          FROM academic_year_classes ayc
                          JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
-                         WHERE ayc.academic_year_id = ? AND ayc.class_id = ? AND aycs.class_teacher_id IS NULL
+                         WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
+                           AND EXISTS (SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope WHERE tscope.academic_year_class_stream_id = aycs.id)
                          ORDER BY aycs.id LIMIT 1",
                         [$academicYearId, (int) $classParam]
                     )->fetchColumn();
@@ -581,7 +1080,11 @@ class AcademicManager extends BaseAPI
                     "SELECT aycs.id
                      FROM academic_year_class_streams aycs
                      JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                     WHERE ayc.academic_year_id = ? AND aycs.class_teacher_id = ?
+                     WHERE ayc.academic_year_id = ? AND EXISTS (
+                         SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                         WHERE tscope.staff_id = ? AND tscope.academic_year_class_stream_id = aycs.id
+                           AND tscope.scope_type = 'class_teacher'
+                     )
                      ORDER BY aycs.id LIMIT 1",
                     [$academicYearId, $staffId]
                 )->fetchColumn();
@@ -677,9 +1180,13 @@ class AcademicManager extends BaseAPI
                 $params[] = (int) $data['class_id'];
             }
             if (!empty($data['subject_teacher_only']) && $staffId) {
-                $where[] = 'a.learning_area_id IN (
-                    SELECT learning_area_id FROM academic_year_class_learning_area_teachers WHERE staff_id = ?
-                )';
+                $where[] = "EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = ?
+                      AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id
+                      AND tscope.learning_area_id = a.learning_area_id
+                      AND tscope.academic_year_term_id = a.academic_year_term_id
+                )";
                 $params[] = $staffId;
             }
 
@@ -820,7 +1327,11 @@ class AcademicManager extends BaseAPI
             "SELECT ayc.class_id
              FROM academic_year_class_streams aycs
              JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-             WHERE ayc.academic_year_id = ? AND aycs.class_teacher_id = ?
+             WHERE ayc.academic_year_id = ? AND EXISTS (
+                 SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                 WHERE tscope.staff_id = ? AND tscope.academic_year_class_stream_id = aycs.id
+                   AND tscope.scope_type = 'class_teacher'
+             )
              ORDER BY aycs.id LIMIT 1",
             [$academicYearId, $staffId]
         )->fetchColumn();
@@ -849,11 +1360,17 @@ class AcademicManager extends BaseAPI
             $params[] = $subjectId;
         }
         if (!empty($data['class_teacher_only']) && $staffId) {
-            $where[] = 'aycs.class_teacher_id = ?';
+            $where[] = "EXISTS (SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope WHERE tscope.staff_id = ? AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id AND tscope.scope_type = 'class_teacher')";
             $params[] = $staffId;
         }
         if (!empty($data['subject_teacher_only']) && $staffId) {
-            $where[] = 'a.learning_area_id IN (SELECT learning_area_id FROM academic_year_class_learning_area_teachers WHERE staff_id = ?)';
+            $where[] = "EXISTS (
+                SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                WHERE tscope.staff_id = ?
+                  AND tscope.academic_year_class_stream_id = a.academic_year_class_stream_id
+                  AND tscope.learning_area_id = a.learning_area_id
+                  AND tscope.academic_year_term_id = a.academic_year_term_id
+            )";
             $params[] = $staffId;
         }
 
@@ -936,7 +1453,11 @@ class AcademicManager extends BaseAPI
         return $this->dbQuery($sql, $params)->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function postFormativeAssessments(array $data, array $user): array
+    public function postFormativeAssessments(
+        array $data,
+        array $user,
+        bool $canManageAll = false
+    ): array
     {
         try {
             // Canonical contract keys (title/assessment_type_id/term_id) are preferred;
@@ -952,7 +1473,7 @@ class AcademicManager extends BaseAPI
                 )->fetchColumn();
             }
 
-            $required = ['class_id', 'subject_id', 'max_marks'];
+            $required = ['max_marks'];
             foreach ($required as $f) {
                 if (empty($data[$f])) return $this->errorResponse("$f is required", 400);
             }
@@ -968,41 +1489,86 @@ class AcademicManager extends BaseAPI
                 )->fetchColumn();
             }
             $staffId = $staffId ? (int) $staffId : null;
+            if (!$staffId) return $this->errorResponse('A staff identity is required to create an assessment', 403);
 
-            $streamId = $this->resolveStreamIdForClass((int) $data['class_id']);
-            if (!$streamId) return $this->errorResponse('class_id could not be resolved for the current year', 400);
+            $data['term_id'] = (int) $termId;
+            $context = $this->resolveFormativeContext($data, $staffId, $canManageAll);
 
             $status = $this->mapFormativeStatus($data['status'] ?? null);
+            if ($status === 'approved' && !$canManageAll) {
+                return $this->errorResponse('Teachers must submit formative assessments for approval', 403);
+            }
 
+            $maxMarks = (float) $data['max_marks'];
+            if ($maxMarks <= 0) {
+                return $this->errorResponse('max_marks must be greater than zero', 400);
+            }
+
+            $this->db->beginTransaction();
             $this->dbQuery(
                 "INSERT INTO assessments
-                    (academic_year_class_stream_id, learning_area_id, academic_year_term_id, title, max_marks, assessment_date, assigned_by, assessment_type_id, status)
+                    (academic_year_class_stream_id, learning_area_id,
+                     academic_year_term_id, academic_year_calendar_day_id,
+                     strand_id, sub_strand_id, scheme_of_work_id, lesson_plan_id,
+                     assessment_type_id, assessment_tool_id, title, description,
+                     max_marks, assessment_date, assigned_by, status)
                  VALUES
-                    (:cid, :sid, :tid, :title, :marks, :dt, :aby, :atid, :st)",
+                    (:cid, :sid, :tid, :calendar_day_id, :strand_id,
+                     :sub_strand_id, :scheme_id, :lesson_plan_id, :atid,
+                     :tool_id, :title, :description, :marks, :dt, :aby, :st)",
                 [
-                    ':cid'   => $streamId,
-                    ':sid'   => (int) $data['subject_id'],
-                    ':tid'   => (int) $termId,
+                    ':cid'   => $context['academic_year_class_stream_id'],
+                    ':sid'   => $context['learning_area_id'],
+                    ':tid'   => $context['academic_year_term_id'],
+                    ':calendar_day_id' => $context['academic_year_calendar_day_id'],
+                    ':strand_id' => $context['strand_id'],
+                    ':sub_strand_id' => $context['sub_strand_id'],
+                    ':scheme_id' => $context['scheme_of_work_id'],
+                    ':lesson_plan_id' => $context['lesson_plan_id'],
                     ':title' => trim($title),
-                    ':marks' => (float) $data['max_marks'],
+                    ':description' => trim((string) ($data['description'] ?? '')) ?: null,
+                    ':marks' => $maxMarks,
                     ':dt'    => $data['assessment_date'] ?? $data['cat_date'] ?? date('Y-m-d'),
                     ':aby'   => $staffId,
                     ':atid'  => $typeId,
+                    ':tool_id' => $context['assessment_tool_id'],
                     ':st'    => $status,
                 ]
             );
-            return $this->successResponse(['id' => (int) $this->db->lastInsertId()], 'Formative assessment created', 201);
+            $assessmentId = (int) $this->db->lastInsertId();
+            $this->replaceFormativeMappings($assessmentId, $context);
+            $this->db->commit();
+            return $this->successResponse(
+                array_merge(['id' => $assessmentId], $context),
+                'Formative assessment created',
+                201
+            );
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollback();
+            }
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollback();
+            }
             $this->logError($e, 'AcademicManager::postFormativeAssessments');
+            error_log('[AcademicManager] formative assessment create failed: ' . $e->getMessage());
             return $this->errorResponse('An internal error occurred.', 500);
         }
     }
 
-    public function getFormativeAssessmentMarks(int $assessmentId): array
+    public function getFormativeAssessmentMarks(
+        int $assessmentId,
+        int $staffId,
+        bool $canManageAll = false
+    ): array
     {
         try {
             $assessment = $this->dbQuery(
-                "SELECT a.id, a.academic_year_class_stream_id, a.max_marks, a.title,
+                "SELECT a.id, a.assigned_by, a.academic_year_class_stream_id,
+                        a.learning_area_id, a.academic_year_term_id,
+                        a.max_marks, a.title,
                         c.name AS class_name
                  FROM assessments a
                  LEFT JOIN academic_year_class_streams aycs ON aycs.id = a.academic_year_class_stream_id
@@ -1012,10 +1578,24 @@ class AcademicManager extends BaseAPI
                 [':id' => $assessmentId]
             )->fetch(PDO::FETCH_ASSOC);
             if (!$assessment) return $this->errorResponse('Assessment not found', 404);
+            if (
+                !$canManageAll
+                && (int) $assessment['assigned_by'] !== $staffId
+                && !$this->teacherHasFormativeScope(
+                    $staffId,
+                    (int) $assessment['academic_year_term_id'],
+                    (int) $assessment['academic_year_class_stream_id'],
+                    (int) $assessment['learning_area_id']
+                )
+            ) {
+                return $this->errorResponse('This assessment is outside your teaching scope', 403);
+            }
 
             $rows = $this->dbQuery(
                 "SELECT s.id AS student_id, p.first_name, p.last_name, s.admission_no,
-                        fs.score, fs.max_score, fs.percentage, fs.cbc_grade, fs.remarks
+                        fs.score, fs.score AS marks, fs.max_score, fs.percentage,
+                        fs.cbc_grade, fs.cbc_grade AS grade, fs.remarks,
+                        fs.updated_at
                  FROM students s
                  JOIN persons p ON p.id = s.person_id
                  JOIN student_academic_enrollments sae ON sae.student_id = s.id
@@ -1033,14 +1613,40 @@ class AcademicManager extends BaseAPI
         }
     }
 
-    public function postFormativeAssessmentMarks(int $assessmentId, array $data, ?int $userId): array
+    public function postFormativeAssessmentMarks(
+        int $assessmentId,
+        array $data,
+        ?int $userId,
+        int $staffId,
+        bool $canManageAll = false
+    ): array
     {
         try {
             $scores = $data['marks'] ?? $data['scores'] ?? [];
             if (empty($scores)) return $this->errorResponse('marks array is required', 400);
 
-            $asmnt = $this->dbQuery("SELECT max_marks FROM assessments WHERE id=:id LIMIT 1", [':id' => $assessmentId])->fetch(PDO::FETCH_ASSOC);
+            $asmnt = $this->dbQuery(
+                "SELECT id, assigned_by, academic_year_class_stream_id,
+                        academic_year_term_id, learning_area_id, max_marks, status
+                 FROM assessments WHERE id=:id LIMIT 1",
+                [':id' => $assessmentId]
+            )->fetch(PDO::FETCH_ASSOC);
             if (!$asmnt) return $this->errorResponse('Assessment not found', 404);
+            if (
+                !$canManageAll
+                && (int) $asmnt['assigned_by'] !== $staffId
+                && !$this->teacherHasFormativeScope(
+                    $staffId,
+                    (int) $asmnt['academic_year_term_id'],
+                    (int) $asmnt['academic_year_class_stream_id'],
+                    (int) $asmnt['learning_area_id']
+                )
+            ) {
+                return $this->errorResponse('This assessment is outside your teaching scope', 403);
+            }
+            if ($asmnt['status'] === 'approved') {
+                return $this->errorResponse('Approved assessment scores are locked', 409);
+            }
             $maxMarks = (float) $asmnt['max_marks'];
 
             $this->db->beginTransaction();
@@ -1050,10 +1656,27 @@ class AcademicManager extends BaseAPI
                  ON DUPLICATE KEY UPDATE score=:score, max_score=:max, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
             );
             foreach ($scores as $entry) {
+                $studentId = (int) ($entry['student_id'] ?? 0);
+                if ($studentId <= 0) {
+                    throw new \InvalidArgumentException('Every mark requires a student_id');
+                }
+                $isEnrolled = $this->dbQuery(
+                    "SELECT 1 FROM student_academic_enrollments
+                     WHERE student_id = ? AND academic_year_class_stream_id = ?
+                       AND enrollment_status IN ('active','completed') LIMIT 1",
+                    [$studentId, (int) $asmnt['academic_year_class_stream_id']]
+                )->fetchColumn();
+                if (!$isEnrolled) {
+                    throw new \InvalidArgumentException('A submitted learner is not enrolled in the assessment stream');
+                }
+                $score = (float) ($entry['marks_obtained'] ?? $entry['score'] ?? 0);
+                if ($score < 0 || $score > $maxMarks) {
+                    throw new \InvalidArgumentException('Every score must be between zero and the assessment maximum');
+                }
                 $ins->execute([
                     ':aid'   => $assessmentId,
-                    ':sid'   => (int) ($entry['student_id'] ?? 0),
-                    ':score' => min((float) ($entry['marks_obtained'] ?? $entry['score'] ?? 0), $maxMarks),
+                    ':sid'   => $studentId,
+                    ':score' => $score,
                     ':max'   => $maxMarks,
                     ':rmk'   => $entry['remarks'] ?? null,
                     ':eby'   => $userId,
@@ -1061,6 +1684,9 @@ class AcademicManager extends BaseAPI
             }
             $this->db->commit();
             return $this->successResponse(['saved' => count($scores)], 'Marks saved successfully');
+        } catch (\InvalidArgumentException $e) {
+            if ($this->db->inTransaction()) $this->db->rollback();
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) $this->db->rollback();
             $this->logError($e, 'AcademicManager::postFormativeAssessmentMarks');
@@ -1491,15 +2117,18 @@ class AcademicManager extends BaseAPI
     {
         try {
             $laId  = (int) ($data['learning_area_id'] ?? 0);
-            $where = $laId ? 'WHERE learning_area_id=:la' : '';
+            $familyId = (int) ($data['learning_area_family_id'] ?? 0);
+            $where = $laId ? 'WHERE s.learning_area_id=:la' : ($familyId ? 'WHERE la.learning_area_family_id=:laf' : '');
             $rows = $this->dbQuery(
                 "SELECT s.id, s.code, s.name, s.grade_level, s.level_range, s.sort_order,
-                        la.id AS learning_area_id, la.name AS learning_area_name
+                        la.id AS learning_area_id, la.name AS learning_area_name,
+                        la.learning_area_family_id, laf.name AS learning_area_family
                  FROM strands s
                  LEFT JOIN learning_areas la ON la.id = s.learning_area_id
+                 LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                  $where
                  ORDER BY s.grade_level, s.sort_order, s.id",
-                $laId ? [':la' => $laId] : []
+                $laId ? [':la' => $laId] : ($familyId ? [':laf' => $familyId] : [])
             )->fetchAll(PDO::FETCH_ASSOC);
             return $this->successResponse($rows);
         } catch (Exception $e) {
@@ -1598,6 +2227,37 @@ class AcademicManager extends BaseAPI
     // ==================== CBC: COMPUTE TERM SCORES ====================
 
     public function postComputeTermScores(array $data): array
+    {
+        try {
+            $classId = (int) ($data['class_id'] ?? 0);
+            $termId = (int) ($data['term_id'] ?? 0);
+            $subjectId = !empty($data['subject_id']) ? (int) $data['subject_id'] : null;
+            if (!empty($data['assessment_id']) && (!$classId || !$termId)) {
+                $assessment = $this->dbQuery(
+                    'SELECT academic_year_class_stream_id AS class_id,
+                            academic_year_term_id AS term_id, learning_area_id AS subject_id
+                     FROM assessments WHERE id = :id LIMIT 1',
+                    [':id' => (int) $data['assessment_id']]
+                )->fetch(PDO::FETCH_ASSOC);
+                if (!$assessment) return $this->errorResponse('Assessment not found', 404);
+                $classId = $classId ?: (int) $assessment['class_id'];
+                $termId = $termId ?: (int) $assessment['term_id'];
+                $subjectId = $subjectId ?: (int) $assessment['subject_id'];
+            }
+            if (!$classId || !$termId) return $this->errorResponse('class_id and term_id are required', 400);
+            $result = (new TermResultsService($this->db))->compute($classId, $termId, $subjectId);
+            return $this->successResponse($result, "{$result['computed']} learner/learning-area scores recomputed");
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+            return $this->errorResponse($e->getMessage(), $code);
+        } catch (\Throwable $e) {
+            $this->logError($e, 'AcademicManager::postComputeTermScores');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
+    /** @deprecated Superseded by TermResultsService; retained temporarily for migration comparison. */
+    private function postComputeTermScoresLegacy(array $data): array
     {
         try {
             $classId   = (int) ($data['class_id']   ?? 0);
@@ -1745,50 +2405,62 @@ class AcademicManager extends BaseAPI
     public function getReportCardData(int $studentId, int $termId): array
     {
         try {
-            $student = $this->dbQuery(
-                "SELECT v.student_id AS id, v.admission_no,
-                        p.first_name, p.last_name,
-                        v.class_name, v.stream_name
-                 FROM vw_current_enrollments v
-                 JOIN students s ON s.id = v.student_id
-                 JOIN persons p ON p.id = s.person_id
-                 WHERE v.student_id=:id AND v.enrollment_status='active'
-                 LIMIT 1",
-                [':id' => $studentId]
-            )->fetch(PDO::FETCH_ASSOC);
-            if (!$student) return $this->errorResponse('Student not found', 404);
-
             $termWhere  = $termId ? 'WHERE ayt.id=:tid LIMIT 1' : "WHERE ayt.status='current' LIMIT 1";
             $termParams = $termId ? [':tid' => $termId] : [];
             $term = $this->dbQuery(
-                "SELECT ayt.id, t.name, t.code AS term_code, ay.year_code
+                "SELECT ayt.id, ayt.term_id, ayt.academic_year_id,
+                        ayt.opening_date, ayt.closing_date,
+                        t.name, t.code AS term_code, ay.year_code,
+                        CAST(ay.year_code AS UNSIGNED) AS year_value
                    FROM academic_year_terms ayt
                    JOIN terms t ON t.id = ayt.term_id
                    JOIN academic_years ay ON ay.id = ayt.academic_year_id
                    $termWhere",
                 $termParams
             )->fetch(PDO::FETCH_ASSOC);
-            $resolvedTermId = $term ? (int) $term['id'] : $termId;
+            if (!$term) return $this->errorResponse('Academic term not found', 404);
+            $resolvedTermId = (int) $term['term_id'];
+            $academicYearTermId = (int) $term['id'];
+
+            $student = $this->dbQuery(
+                "SELECT s.id, s.admission_no, sae.id AS enrollment_id,
+                        sae.academic_year_class_stream_id AS class_stream_id,
+                        p.first_name, p.middle_name, p.last_name,
+                        c.name AS class_name, st.name AS stream_name
+                 FROM student_academic_enrollments sae
+                 JOIN students s ON s.id = sae.student_id
+                 JOIN persons p ON p.id = s.person_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 JOIN classes c ON c.id = ayc.class_id
+                 LEFT JOIN streams st ON st.id = aycs.stream_id
+                 WHERE sae.student_id = :id AND sae.academic_year_id = :year_id
+                   AND sae.enrollment_status IN ('pending','active','completed')
+                 ORDER BY sae.id DESC LIMIT 1",
+                [':id' => $studentId, ':year_id' => (int) $term['academic_year_id']]
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$student) return $this->errorResponse('Learner was not enrolled in the selected academic year', 404);
 
             $scores = $this->dbQuery(
                 "SELECT tss.*,
                         la.name AS subject_name, la.code AS subject_code
                  FROM term_subject_scores tss
                  JOIN learning_areas la ON la.id = tss.subject_id
-                 WHERE tss.student_id=:sid AND tss.term_id=:tid
+                 WHERE tss.student_id=:sid AND tss.academic_year_term_id=:tid
                  ORDER BY la.name",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
+                [':sid' => $studentId, ':tid' => $academicYearTermId]
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $competencies = $this->dbQuery(
                 "SELECT lc.competency_id, lc.performance_level_id, lc.evidence, lc.teacher_notes,
                         cc.code, cc.name AS competency_name,
-                        plc.code AS level_code, plc.name AS level_name
+                        plc.code AS level_code, plc.name AS level_name,
+                        plc.code AS performance_level, plc.level AS points
                  FROM learner_competencies lc
                  JOIN core_competencies cc ON cc.id = lc.competency_id
                  LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
-                 WHERE lc.student_id=:sid AND lc.term_id=:tid",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
+                 WHERE lc.student_id=:sid AND lc.term_id=:tid AND lc.academic_year=:year_value",
+                [':sid' => $studentId, ':tid' => $resolvedTermId, ':year_value' => (int) $term['year_value']]
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $values = $this->dbQuery(
@@ -1796,22 +2468,53 @@ class AcademicManager extends BaseAPI
                         cv.name AS value_name
                  FROM learner_values_acquisition sv
                  JOIN core_values cv ON cv.id = sv.value_id
-                 WHERE sv.student_id=:sid AND sv.term_id=:tid",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
+                 WHERE sv.student_id=:sid AND sv.term_id=:tid AND sv.academic_year=:year_value",
+                [':sid' => $studentId, ':tid' => $resolvedTermId, ':year_value' => (int) $term['year_value']]
             )->fetchAll(PDO::FETCH_ASSOC);
 
             $attendance = $this->dbQuery(
-                "SELECT
-                    COUNT(*) AS total_days,
-                    SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) AS days_present,
-                    SUM(CASE WHEN status='absent'  THEN 1 ELSE 0 END) AS days_absent,
-                    SUM(CASE WHEN status='late'    THEN 1 ELSE 0 END) AS days_late
-                 FROM student_attendance sa
-                 JOIN student_academic_enrollments sae ON sae.id = sa.student_academic_enrollment_id
-                 WHERE sae.student_id=:sid
-                   AND sae.academic_year_id = (SELECT academic_year_id FROM academic_year_terms WHERE id=:tid)",
-                [':sid' => $studentId, ':tid' => $resolvedTermId]
+                "SELECT COUNT(*) AS total_days,
+                        SUM(day_status='present') AS days_present,
+                        SUM(day_status='absent') AS days_absent,
+                        SUM(day_status='late') AS days_late
+                 FROM (
+                    SELECT sa.date,
+                           CASE WHEN SUM(sa.status='present') > 0 THEN 'present'
+                                WHEN SUM(sa.status='late') > 0 THEN 'late' ELSE 'absent' END AS day_status
+                    FROM student_attendance sa
+                    WHERE sa.student_academic_enrollment_id=:enrollment_id
+                      AND sa.register_type='class'
+                      AND sa.date BETWEEN :opening_date AND :closing_date
+                    GROUP BY sa.date
+                 ) attendance_days",
+                [
+                    ':enrollment_id' => (int) $student['enrollment_id'],
+                    ':opening_date' => $term['opening_date'],
+                    ':closing_date' => $term['closing_date'],
+                ]
             )->fetch(PDO::FETCH_ASSOC);
+
+            $ranking = $this->dbQuery(
+                'SELECT * FROM student_term_rankings WHERE student_id=:sid AND academic_year_term_id=:tid LIMIT 1',
+                [':sid' => $studentId, ':tid' => $academicYearTermId]
+            )->fetch(PDO::FETCH_ASSOC) ?: null;
+            $resultPolicy = $this->dbQuery(
+                "SELECT formative_weight, summative_weight, ranking_method, publish_rank_to_guardians
+                 FROM academic_result_policies
+                 WHERE academic_year_id=:year_id AND status='active' LIMIT 1",
+                [':year_id' => (int) $term['academic_year_id']]
+            )->fetch(PDO::FETCH_ASSOC) ?: null;
+            $expectedAreas = (int) $this->dbQuery(
+                "SELECT COUNT(DISTINCT cla.learning_area_id)
+                 FROM academic_year_class_stream_learning_areas sla
+                 JOIN academic_year_class_learning_areas cla ON cla.id=sla.academic_year_class_learning_area_id
+                 WHERE sla.academic_year_class_stream_id=:stream_id
+                   AND sla.status IN ('planned','active','in_progress','covered')",
+                [':stream_id' => (int) $student['class_stream_id']]
+            )->fetchColumn();
+            $completeAreas = count(array_filter($scores, static function (array $score): bool {
+                return $score['overall_percentage'] !== null;
+            }));
 
             return $this->successResponse([
                 'student'      => $student,
@@ -1820,6 +2523,13 @@ class AcademicManager extends BaseAPI
                 'competencies' => $competencies,
                 'values'       => $values,
                 'attendance'   => $attendance,
+                'ranking'      => $ranking,
+                'result_policy'=> $resultPolicy,
+                'completeness' => [
+                    'expected_learning_areas' => $expectedAreas,
+                    'complete_learning_areas' => $completeAreas,
+                    'release_ready' => $expectedAreas > 0 && $completeAreas === $expectedAreas,
+                ],
             ]);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getReportCardData');
@@ -3426,8 +4136,8 @@ class AcademicManager extends BaseAPI
                 )->fetch(PDO::FETCH_ASSOC);
                 return $row ? $this->successResponse($row) : $this->errorResponse('Learning outcome not found', 404);
             }
-            $conds = [];
-            $params = [];
+            $conds = ['s.status = :active_strand', 'la.status = :active_area'];
+            $params = [':active_strand' => 'active', ':active_area' => 'active'];
             if (!empty($query['sub_strand_id'])) { $conds[] = 'lo.sub_strand_id=:ssid'; $params[':ssid'] = (int) $query['sub_strand_id']; }
             if (!empty($query['strand_id'])) { $conds[] = 's.id=:stid'; $params[':stid'] = (int) $query['strand_id']; }
             if (!empty($query['learning_area_id'])) { $conds[] = 'lo.learning_area_id=:laid'; $params[':laid'] = (int) $query['learning_area_id']; }
@@ -3919,7 +4629,10 @@ class AcademicManager extends BaseAPI
         try {
             $laWhere = '';
             $laParams = [];
-            if (!empty($query['learning_area_id'])) {
+            if (!empty($query['learning_area_family_id'])) {
+                $laWhere = 'WHERE la.learning_area_family_id=:lafid';
+                $laParams[':lafid'] = (int) $query['learning_area_family_id'];
+            } elseif (!empty($query['learning_area_id'])) {
                 $laWhere = 'WHERE la.id=:laid';
                 $laParams[':laid'] = (int) $query['learning_area_id'];
             }
@@ -3991,7 +4704,7 @@ class AcademicManager extends BaseAPI
     public function getPendingModeration(array $query): array
     {
         try {
-            $conds = ["ar.is_submitted=1", "ar.is_approved=0"];
+            $conds = ["ar.is_submitted=1", "a.status IN ('submitted','pending_approval')"];
             $params = [];
             if (!empty($query['class_id'])) { $conds[] = 'a.academic_year_class_stream_id=:cid'; $params[':cid'] = (int) $query['class_id']; }
             if (!empty($query['subject_id'])) { $conds[] = 'a.learning_area_id=:sid'; $params[':sid'] = (int) $query['subject_id']; }
@@ -4015,13 +4728,15 @@ class AcademicManager extends BaseAPI
                  JOIN terms t ON t.id = ayt.term_id
                  $where
                  GROUP BY a.id
+                 HAVING SUM(CASE WHEN ar.is_approved=0 THEN 1 ELSE 0 END) > 0
                  ORDER BY a.assessment_date DESC, a.id",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($assessments as &$ass) {
                 $results = $this->dbQuery(
-                    "SELECT ar.id AS result_id, sae.student_id, ar.marks_obtained, ar.grade, ar.points, ar.is_approved, ar.remarks,
+                    "SELECT ar.id AS result_id, sae.student_id, ar.marks_obtained, ar.entry_status,
+                            ar.grade, ar.points, ar.is_approved, ar.remarks, ar.moderation_note,
                             CONCAT(p.first_name, ' ', p.last_name) AS student_name, s.admission_no
                      FROM assessment_results ar
                      JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
@@ -4065,7 +4780,10 @@ class AcademicManager extends BaseAPI
     {
         try {
             $this->dbQuery(
-                "UPDATE assessment_results SET is_approved=0, remarks=:reason WHERE assessment_id=:aid AND student_id=:sid",
+                "UPDATE assessment_results ar
+                 JOIN student_academic_enrollments sae ON sae.id = ar.student_academic_enrollment_id
+                 SET ar.is_approved=0, ar.remarks=:reason
+                 WHERE ar.assessment_id=:aid AND sae.student_id=:sid",
                 [':aid' => $assessmentId, ':sid' => $studentId, ':reason' => $reason]
             );
             return $this->successResponse(null, 'Result rejected');
@@ -4085,6 +4803,7 @@ class AcademicManager extends BaseAPI
                 $row = $this->dbQuery(
                     "SELECT s.id, s.code AS strand_code, s.grade_level,
                             la.id AS learning_area_id, la.name AS learning_area,
+                            la.learning_area_family_id, laf.name AS learning_area_family,
                             s.name AS strand,
                             (SELECT GROUP_CONCAT(ssx.name ORDER BY ssx.sort_order, ssx.id SEPARATOR '; ')
                                FROM sub_strands ssx WHERE ssx.strand_id = s.id) AS sub_strands,
@@ -4093,7 +4812,8 @@ class AcademicManager extends BaseAPI
                                FROM learning_outcomes lo WHERE lo.strand_id = s.id) AS indicators,
                             (SELECT COUNT(*) FROM learning_outcomes lo WHERE lo.strand_id = s.id) AS outcome_count
                      FROM strands s
-                     JOIN learning_areas la ON la.id = s.learning_area_id
+                JOIN learning_areas la ON la.id = s.learning_area_id
+                LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                      WHERE s.id = :id",
                     [':id' => $id]
                 )->fetch(PDO::FETCH_ASSOC);
@@ -4106,7 +4826,10 @@ class AcademicManager extends BaseAPI
 
             $conds = [];
             $params = [];
-            if (!empty($query['learning_area_id'])) {
+            if (!empty($query['learning_area_family_id'])) {
+                $conds[] = 'la.learning_area_family_id = :lafid';
+                $params[':lafid'] = (int) $query['learning_area_family_id'];
+            } elseif (!empty($query['learning_area_id'])) {
                 $conds[] = 's.learning_area_id = :laid';
                 $params[':laid'] = (int) $query['learning_area_id'];
             } elseif (!empty($query['learning_area'])) {
@@ -4142,9 +4865,24 @@ class AcademicManager extends BaseAPI
                 $params
             )->fetch(PDO::FETCH_ASSOC)['total'];
 
+            $summary = $this->dbQuery(
+                "SELECT COUNT(DISTINCT la.learning_area_family_id) AS learning_areas,
+                        COUNT(DISTINCT s.id) AS strands,
+                        COUNT(DISTINCT ss.id) AS sub_strands,
+                        COUNT(DISTINCT lo.id) AS learning_outcomes
+                 FROM strands s
+                 LEFT JOIN learning_areas la ON la.id = s.learning_area_id
+                 LEFT JOIN sub_strands ss ON ss.strand_id = s.id AND ss.status = 'active'
+                 LEFT JOIN learning_outcomes lo ON lo.strand_id = s.id
+                 LEFT JOIN sub_strand_competencies ssc ON ssc.sub_strand_id = ss.id
+                 $where",
+                $params
+            )->fetch(PDO::FETCH_ASSOC);
+
             $rows = $this->dbQuery(
                 "SELECT s.id, s.code AS strand_code, s.grade_level,
                         la.name AS learning_area, la.id AS learning_area_id,
+                        la.learning_area_family_id, laf.name AS learning_area_family,
                         s.name AS strand,
                         (SELECT GROUP_CONCAT(ssx.name ORDER BY ssx.sort_order, ssx.id SEPARATOR '; ')
                            FROM sub_strands ssx WHERE ssx.strand_id = s.id) AS sub_strands,
@@ -4152,8 +4890,9 @@ class AcademicManager extends BaseAPI
                         (SELECT COUNT(*) FROM learning_outcomes lo WHERE lo.strand_id = s.id) AS outcome_count
                  FROM strands s
                  LEFT JOIN learning_areas la ON la.id = s.learning_area_id
+                 LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
                  $where
-                 ORDER BY s.grade_level, la.name, s.sort_order, s.id
+                 ORDER BY s.grade_level, COALESCE(laf.name, la.name), s.sort_order, s.id
                  LIMIT $limit OFFSET $offset",
                 $params
             )->fetchAll(PDO::FETCH_ASSOC);
@@ -4163,6 +4902,12 @@ class AcademicManager extends BaseAPI
                 'curriculum' => $rows,
                 'pagination' => ['page' => $page, 'limit' => $limit, 'total' => $total],
                 'total' => $total,
+                'summary' => [
+                    'learning_areas' => (int) ($summary['learning_areas'] ?? 0),
+                    'strands' => (int) ($summary['strands'] ?? 0),
+                    'sub_strands' => (int) ($summary['sub_strands'] ?? 0),
+                    'learning_outcomes' => (int) ($summary['learning_outcomes'] ?? 0),
+                ],
             ]);
         } catch (Exception $e) {
             $this->logError($e, 'AcademicManager::getCurriculum');
@@ -4193,17 +4938,19 @@ class AcademicManager extends BaseAPI
                     0 AS lessons_per_week,
                     CONCAT(p.first_name, ' ', p.last_name) AS class_teacher_name,
                     ayc.status AS status
-                 FROM academic_year_class_learning_area_teachers ayclat
-                 JOIN academic_year_class_learning_areas aycla ON aycla.id = ayclat.academic_year_class_learning_area_id
+                 FROM vw_teacher_effective_stream_learning_areas tscope
+                 JOIN academic_year_class_streams aycs ON aycs.id = tscope.academic_year_class_stream_id
+                 JOIN academic_year_class_learning_areas aycla ON aycla.id = (
+                     SELECT sla.academic_year_class_learning_area_id FROM academic_year_class_stream_learning_areas sla WHERE sla.id = tscope.academic_year_class_stream_learning_area_id
+                 )
                  JOIN learning_areas la ON la.id = aycla.learning_area_id
                  JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
                  JOIN classes c ON c.id = ayc.class_id
                  JOIN academic_years ay ON ay.id = ayc.academic_year_id
-                 LEFT JOIN academic_year_class_streams aycs ON aycs.academic_year_class_id = ayc.id
                  LEFT JOIN streams st ON st.id = aycs.stream_id
                  LEFT JOIN staff cts ON cts.id = aycs.class_teacher_id
                  LEFT JOIN persons p ON p.id = cts.person_id
-                 WHERE ayclat.staff_id = :staff AND ay.is_current = 1
+                 WHERE tscope.staff_id = :staff AND ay.is_current = 1
                  GROUP BY c.id, la.id, ayc.id, p.first_name, p.last_name
                  ORDER BY c.name, la.name",
                 [':staff' => $staffId]
@@ -4365,15 +5112,49 @@ class AcademicManager extends BaseAPI
 
     private function queryTeacherSchemes(int $staffId, array $query): array
     {
-        $where = 'sw.teacher_id = :staff';
-        $params = [':staff' => $staffId];
+        $where = 'sw.teacher_id = ?';
+        $params = [$staffId];
+        $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(
+            ['staff_id' => $staffId],
+            !empty($query['academic_year_id']) ? (int) $query['academic_year_id'] : null,
+            !empty($query['term_id']) ? (int) $query['term_id'] : null
+        );
+        $scopeParts = [];
+        $classStreamIds = array_values(array_filter(array_map('intval', (array) ($scope['class_stream_ids'] ?? []))));
+        // Teacher workflows use only canonical stream-learning-area records.
+        // Legacy class-only rows are removed during data cleanup and are never
+        // eligible for an actionable teacher scheme workflow.
+        if ($classStreamIds) {
+            $scopeParts[] = 'sws.id IN (' . implode(',', array_fill(0, count($classStreamIds), '?')) . ')';
+            foreach ($classStreamIds as $id) $params[] = $id;
+        }
+        foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
+            $streamId = (int) ($assignment['stream_id'] ?? 0);
+            $areaId = (int) ($assignment['learning_area_id'] ?? 0);
+            if ($streamId > 0 && $areaId > 0) {
+                $scopeParts[] = '(sws.id = ? AND st.learning_area_id = ?)';
+                $params[] = $streamId;
+                $params[] = $areaId;
+            }
+        }
+        $where .= ' AND sw.academic_year_class_stream_learning_area_id IS NOT NULL';
+        if ($scopeParts) $where .= ' AND (' . implode(' OR ', $scopeParts) . ')';
+        else $where .= ' AND 1 = 0';
+        if (!empty($query['academic_year_id'])) {
+            $where .= ' AND COALESCE(swc.academic_year_id, ayc.academic_year_id) = ?';
+            $params[] = (int) $query['academic_year_id'];
+        }
+        if (!empty($query['term_id'])) {
+            $where .= ' AND ayt.id = ?';
+            $params[] = (int) $query['term_id'];
+        }
         if (!empty($query['subject_id'])) {
-            $where .= ' AND st.learning_area_id = :subject_id';
-            $params[':subject_id'] = (int) $query['subject_id'];
+            $where .= ' AND st.learning_area_id = ?';
+            $params[] = (int) $query['subject_id'];
         }
         if (!empty($query['class_id'])) {
-            $where .= ' AND c.id = :class_id';
-            $params[':class_id'] = (int) $query['class_id'];
+            $where .= ' AND c.id = ?';
+            $params[] = (int) $query['class_id'];
         }
         return $this->dbQuery(
             "SELECT
@@ -4381,17 +5162,33 @@ class AcademicManager extends BaseAPI
                 st.learning_area_id AS subject_id,
                 la.name AS subject_name,
                 c.name AS class_name,
+                c.id AS class_id,
+                sws.id AS academic_year_class_stream_id,
+                sws.stream_id,
+                sn.name AS stream_name,
+                ac.week_number,
+                strand.name AS strand_name,
+                substrand.name AS sub_strand_name,
+                sw.scheme_workbook_id,
+                swb.status AS workbook_status,
                 SUBSTRING(t.code, 2) AS term,
                 t.name AS term_name,
-                sw.status,
-                CASE WHEN sw.status = 'approved' THEN 100 WHEN sw.status = 'draft' THEN 50 ELSE 0 END AS progress,
+                CASE WHEN swb.status = 'submitted' THEN 'pending' ELSE sw.status END AS status,
+                CASE WHEN swb.status = 'submitted' OR sw.status = 'approved' THEN 100 WHEN sw.status = 'draft' THEN 50 ELSE 0 END AS progress,
                 sw.updated_at
              FROM schemes_of_work sw
              JOIN scheme_templates st ON st.id = sw.scheme_template_id
              JOIN learning_areas la ON la.id = st.learning_area_id
              LEFT JOIN academic_year_class_learning_areas aycla ON aycla.id = sw.academic_year_class_learning_area_id
              LEFT JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
-             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN academic_year_class_stream_learning_areas swsla ON swsla.id = sw.academic_year_class_stream_learning_area_id
+             LEFT JOIN academic_year_class_streams sws ON sws.id = swsla.academic_year_class_stream_id
+             LEFT JOIN academic_year_classes swc ON swc.id = sws.academic_year_class_id
+             LEFT JOIN classes c ON c.id = COALESCE(swc.class_id, ayc.class_id)
+             LEFT JOIN streams sn ON sn.id = COALESCE(sws.stream_id, NULL)
+             LEFT JOIN scheme_workbooks swb ON swb.id = sw.scheme_workbook_id
+             LEFT JOIN strands strand ON strand.id = st.strand_id
+             LEFT JOIN sub_strands substrand ON substrand.id = st.sub_strand_id
              LEFT JOIN academic_year_calendar ac ON ac.id = sw.academic_year_calendar_week_id
              LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
              LEFT JOIN terms t ON t.id = ayt.term_id

@@ -135,6 +135,68 @@ class FamilyGroupsManager
     }
 
     /**
+     * Return one row per learner/parent relationship for the logged-in
+     * teacher's assigned class-teacher streams.
+     */
+    public function getClassParentContacts(int $userId): array
+    {
+        try {
+            $stmt = $this->pdo->prepare('SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1');
+            $stmt->execute([$userId]);
+            $staffId = (int) $stmt->fetchColumn();
+            if ($staffId < 1) {
+                return ['success' => true, 'data' => [], 'pagination' => ['total' => 0, 'limit' => 0, 'offset' => 0, 'pages' => 0]];
+            }
+
+            $sql = "
+                SELECT
+                    s.id AS student_id,
+                    CONCAT_WS(' ', student_person.first_name, student_person.middle_name, student_person.last_name) AS student_name,
+                    c.name AS class_name,
+                    streams.name AS stream_name,
+                    parent.id AS parent_id,
+                    CONCAT_WS(' ', parent_person.first_name, parent_person.middle_name, parent_person.last_name) AS parent_name,
+                    parent_person.phone AS parent_phone,
+                    parent_person.email AS parent_email,
+                    sp.relationship,
+                    sp.is_primary_contact,
+                    sp.is_emergency_contact,
+                    NULL AS preferred_contact_method,
+                    NULL AS last_contacted
+                FROM academic_year_class_streams aycs
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+                JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams ON streams.id = aycs.stream_id
+                JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id = aycs.id AND sae.enrollment_status = 'active'
+                JOIN students s ON s.id = sae.student_id
+                JOIN persons student_person ON student_person.id = s.person_id
+                JOIN student_parents sp ON sp.student_id = s.id
+                JOIN parents parent ON parent.id = sp.parent_id
+                JOIN persons parent_person ON parent_person.id = parent.person_id
+                WHERE EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = ?
+                      AND tscope.academic_year_class_stream_id = aycs.id
+                      AND tscope.scope_type = 'class_teacher'
+                )
+                ORDER BY c.name, streams.name, student_name, sp.is_primary_contact DESC, parent_name
+            ";
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$staffId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return [
+                'success' => true,
+                'data' => $rows,
+                'pagination' => ['total' => count($rows), 'limit' => count($rows), 'offset' => 0, 'pages' => $rows ? 1 : 0],
+            ];
+        } catch (Exception $e) {
+            error_log('[FamilyGroupsManager::getClassParentContacts] ' . $e->getMessage());
+            return ['success' => false, 'message' => 'Unable to load class parent contacts'];
+        }
+    }
+
+    /**
      * Search family groups
      * 
      * @param string $searchTerm Search term

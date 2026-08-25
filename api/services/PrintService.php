@@ -765,8 +765,12 @@ final class PrintService
 
         $dompdf->render();
 
+        $pageCount = method_exists($dompdf->getCanvas(), 'get_page_count')
+            ? (int) $dompdf->getCanvas()->get_page_count()
+            : 1;
         if (
             (bool) $options['showPageNumbers']
+            && $pageCount > 1
             && !(bool) $options['cr80']
         ) {
             $this->addDompdfPageNumbers(
@@ -1703,7 +1707,8 @@ final class PrintService
         string $footer,
         string $paperSize,
         string $orientation,
-        string $documentClass = ''
+        string $documentClass = '',
+        string $bodyStyles = ''
     ): string {
         $css = $this->loadPrintStyles();
 
@@ -1731,10 +1736,11 @@ final class PrintService
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>' . $this->escape($title) . '</title>
-    <style>
-        ' . $css . '
-        ' . $dynamicPageCss . '
-    </style>
+        <style>
+            ' . $css . '
+            ' . $dynamicPageCss . '
+            ' . $bodyStyles . '
+        </style>
 </head>
 <body class="' . $this->escape($bodyClass) . '">
     <div class="server-print-document">
@@ -1747,7 +1753,57 @@ final class PrintService
         ' . $footer . '
     </div>
 </body>
-</html>';
+        </html>';
+    }
+
+    /**
+     * Render a dedicated document body inside the shared report shell.
+     * Dedicated templates remain responsible for their body markup and CSS;
+     * the common header/footer are supplied centrally here.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $config
+     */
+    private function renderDedicatedReportTemplate(
+        string $templatePath,
+        array $data,
+        array $config
+    ): string {
+        $variables = array_merge(
+            $this->buildTemplateVariables($config),
+            $data,
+            $config,
+            ['useSharedReportShell' => true]
+        );
+        $templateHtml = $this->renderPhpTemplate($templatePath, $variables);
+
+        if (!preg_match('/<body[^>]*>(.*)<\/body>/is', $templateHtml, $bodyMatch)) {
+            throw new RuntimeException("Dedicated print template body not found: {$templatePath}");
+        }
+
+        preg_match_all('/<style[^>]*>(.*?)<\/style>/is', $templateHtml, $styleMatches);
+        $bodyStyles = implode("\n", $styleMatches[1] ?? []);
+        // Dedicated styles are scoped to their body. Their standalone
+        // document rules must not override the shared report shell.
+        $bodyStyles = preg_replace('/@page\s*\{.*?\}/is', '', $bodyStyles) ?? $bodyStyles;
+        $bodyStyles = preg_replace('/(^|\})\s*\*\s*\{.*?\}/is', '$1', $bodyStyles) ?? $bodyStyles;
+        $bodyStyles = preg_replace('/(^|\})\s*body\s*\{.*?\}/is', '$1', $bodyStyles) ?? $bodyStyles;
+        $bodyHtml = $bodyMatch[1];
+
+        $templateVariables = $this->buildTemplateVariables($config);
+        $header = $this->renderServerPartial('report_header.php', $templateVariables);
+        $footer = $this->renderServerPartial('report_footer.php', $templateVariables);
+
+        return $this->buildReportDocument(
+            (string) ($config['title'] ?? 'School Report'),
+            $header,
+            $bodyHtml,
+            $footer,
+            (string) ($config['paperSize'] ?? 'A4'),
+            (string) ($config['orientation'] ?? 'portrait'),
+            'dedicated-print-body',
+            $bodyStyles
+        );
     }
 
     /**
@@ -2083,7 +2139,6 @@ final class PrintService
         $fontMetrics = $dompdf->getFontMetrics();
         $font = $fontMetrics->getFont('DejaVu Sans', 'normal');
 
-        $pageWidth = $canvas->get_width();
         $pageHeight = $canvas->get_height();
 
         $text = 'Page {PAGE_NUM} of {PAGE_COUNT}';
@@ -2092,15 +2147,9 @@ final class PrintService
             $text .= '   |   Ref: ' . $reportCode;
         }
 
-        $fontSize = 7.5;
-        $textWidth = $fontMetrics->getTextWidth(
-            $text,
-            $font,
-            $fontSize
-        );
-
-        $x = max(20, $pageWidth - $textWidth - 34);
-        $y = $pageHeight - 25;
+        $fontSize = 6.5;
+        $x = 24;
+        $y = $pageHeight - 19;
 
         if (strtolower($orientation) === 'landscape') {
             $y = $pageHeight - 22;
@@ -2927,7 +2976,10 @@ final class PrintService
             'paperSize' => 'A4',
         ], $config);
 
-        $templatePath = $this->printTemplatesPath . 'fee_structure/fee_structure_single.php';
+        // The viewer uses the same canonical server template family as the
+        // dynamic/simple fee-structure print flow. The former public template
+        // was a separate inline-CSS design and caused inconsistent PDFs.
+        $templatePath = $this->templatesPath . 'fee_structure/fee_structure_single.php';
         if (!is_file($templatePath)) {
             throw new RuntimeException("Fee structure template not found: {$templatePath}");
         }
@@ -2939,7 +2991,7 @@ final class PrintService
             'orientation' => 'portrait',
             'paperSize' => 'A4',
             'filename' => $config['filename'],
-            'showPageNumbers' => false,
+            'showPageNumbers' => true,
         ]);
     }
 
@@ -3026,6 +3078,7 @@ final class PrintService
             $variables['gradeId'] = (int) $data['classId'];
         }
         $variables = array_merge($this->buildTemplateVariables($config), $variables, $config);
+        $variables['generatedAt'] = (new \DateTime('now', new \DateTimeZone('Africa/Nairobi')))->format('d M Y H:i');
 
         $html = $this->renderPhpTemplate($templatePath, $variables);
 
@@ -3033,14 +3086,14 @@ final class PrintService
             'orientation' => 'portrait',
             'paperSize' => 'A4',
             'filename' => $config['filename'],
-            'showPageNumbers' => false,
+            'showPageNumbers' => true,
         ]);
     }
 
     /**
      * Query DB for per-grade, per-term, per-student-type amounts and build
-     * the template variable arrays. Handles smart aggregation (grouping
-     * consecutive grades with identical amounts) and level-based section splits.
+     * the template variable arrays. Every class remains an individual printed
+     * row; equal prices must not hide the grade labels from the fee structure.
      */
     private function buildFeeStructureVars(string $academicYear, array $data = []): array
     {
@@ -3118,69 +3171,51 @@ final class PrintService
                     case 'upper_primary':
                         return $lvl === 2 && preg_match('/grade\s*[456]/i', $classMeta[$cid]['name'] ?? '');
                     case 'primary':
-                        return in_array($lvl, [2, 5], true);
+                        return in_array($lvl, [2, 3, 5], true);
                     case 'jss':
-                        return in_array($lvl, [3, 4], true);
+                        return $lvl === 4;
                 }
                 return true;
             });
             $classIds = array_values($classIds);
         }
 
-        $smartGroup = function (array $classIds, string $stCode) use ($pivot, $classMeta): array {
-            $entries = [];
-            foreach ($classIds as $cid) {
-                $entries[] = ['id' => $cid, 'amt' => $pivot[$stCode][$cid] ?? []];
-            }
+        $rowsFor = function (array $ids, string $stCode) use ($pivot, $classMeta): array {
             $rows = [];
-            $i = 0;
-            $n = count($entries);
-            while ($i < $n) {
-                $first = $entries[$i];
-                $j = $i + 1;
-                while ($j < $n && ($entries[$j]['amt'] === $first['amt'])) {
-                    $j++;
-                }
-                if ($j - $i > 1) {
-                    $fromName = $classMeta[$first['id']]['name'] ?? '';
-                    $toName   = $classMeta[$entries[$j - 1]['id']]['name'] ?? '';
-                    $label    = $fromName . ' – ' . $toName;
-                } else {
-                    $label = $classMeta[$first['id']]['name'] ?? '';
-                }
-                $a = $first['amt'];
+            foreach ($ids as $cid) {
+                $amounts = $pivot[$stCode][$cid] ?? [];
                 $rows[] = [
-                    'label' => $label,
-                    'term1' => $a[1] ?? 0,
-                    'term2' => $a[2] ?? 0,
-                    'term3' => $a[3] ?? 0,
-                    'total' => array_sum($a),
+                    'class_id' => $cid,
+                    'label' => $classMeta[$cid]['name'] ?? '',
+                    'term1' => $amounts[1] ?? 0,
+                    'term2' => $amounts[2] ?? 0,
+                    'term3' => $amounts[3] ?? 0,
+                    'total' => array_sum($amounts),
                 ];
-                $i = $j;
             }
             return $rows;
         };
 
-        $dayRows     = $smartGroup($classIds, 'DAY');
-        $boarderRows = $smartGroup($classIds, 'BOARD');
+        $dayRows = $rowsFor($classIds, 'DAY');
+        $boarderRows = $rowsFor($classIds, 'BOARD');
 
         $primaryDay     = [];
         $primaryBoarder = [];
         $juniorDay      = [];
         $juniorBoarder  = [];
         foreach ($dayRows as $r) {
-            $cid = $this->resolveClassIdFromLabel($r['label'], $classMeta);
+            $cid = (int) ($r['class_id'] ?? 0);
             $lvl = $classMeta[$cid]['level_id'] ?? 0;
-            if (in_array($lvl, [3, 4], true)) {
+            if ($lvl === 4) {
                 $juniorDay[] = $r;
             } else {
                 $primaryDay[] = $r;
             }
         }
         foreach ($boarderRows as $r) {
-            $cid = $this->resolveClassIdFromLabel($r['label'], $classMeta);
+            $cid = (int) ($r['class_id'] ?? 0);
             $lvl = $classMeta[$cid]['level_id'] ?? 0;
-            if (in_array($lvl, [3, 4], true)) {
+            if ($lvl === 4) {
                 $juniorBoarder[] = $r;
             } else {
                 $primaryBoarder[] = $r;
@@ -3198,16 +3233,34 @@ final class PrintService
             ];
         }
         if ($juniorDay || $juniorBoarder) {
-            $juniorRows = array_map(fn($r, $type) => [
-                'category' => $r['label'] . ' – ' . strtoupper($type),
-                'term1' => $r['term1'], 'term2' => $r['term2'],
-                'term3' => $r['term3'], 'total' => $r['total'],
-            ], array_merge($juniorDay, $juniorBoarder),
-                array_merge(
-                    array_fill(0, count($juniorDay), 'day scholars'),
-                    array_fill(0, count($juniorBoarder), 'boarders')
-                )
-            );
+            $juniorRows = [];
+            $addJuniorRows = static function (array $rows, string $type) use (&$juniorRows): void {
+                if ($rows !== []) {
+                    $first = $rows[0];
+                    $sameAmounts = count(array_filter($rows, static function ($row) use ($first): bool {
+                        return (float) $row['term1'] === (float) $first['term1']
+                            && (float) $row['term2'] === (float) $first['term2']
+                            && (float) $row['term3'] === (float) $first['term3'];
+                    })) === count($rows);
+                    if ($sameAmounts && count($rows) > 1) {
+                        $juniorRows[] = [
+                            'category' => 'GRADE 7, 8 AND 9 – ' . strtoupper($type),
+                            'term1' => $first['term1'], 'term2' => $first['term2'],
+                            'term3' => $first['term3'], 'total' => $first['total'],
+                        ];
+                        return;
+                    }
+                }
+                foreach ($rows as $row) {
+                    $juniorRows[] = [
+                        'category' => $row['label'] . ' – ' . strtoupper($type),
+                        'term1' => $row['term1'], 'term2' => $row['term2'],
+                        'term3' => $row['term3'], 'total' => $row['total'],
+                    ];
+                }
+            };
+            $addJuniorRows($juniorDay, 'DAY SCHOLARS');
+            $addJuniorRows($juniorBoarder, 'BOARDERS');
             $sections[] = [
                 'title'    => 'JUNIOR SCHOOL',
                 'variant'  => 'junior',
@@ -3221,7 +3274,7 @@ final class PrintService
         $grades = [];
         foreach ($dayRows as $i => $dr) {
             $br = $boarderRows[$i] ?? null;
-            $cid = $this->resolveClassIdFromLabel($dr['label'], $classMeta);
+            $cid = (int) ($dr['class_id'] ?? 0);
             $meta = $cid !== null ? ($classMeta[$cid] ?? []) : [];
             $grades[] = [
                 'id'         => $cid,
@@ -3247,12 +3300,16 @@ final class PrintService
             'otherCharges'    => $this->fetchExtraChargesForPrint($db, $yearId, $data),
             'paymentMpesa'    => $data['paymentMpesa'] ?? ($sConfig['mpesa'] ?? []),
             'paymentBank'     => $data['paymentBank']  ?? ($sConfig['bank']  ?? []),
+            'paymentMethods'  => $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? []),
             'importantNotes'  => $data['importantNotes'] ?? [
                 'Cash payment is not accepted.',
+                'Parent Portal: Log in, select your child, choose School Fees, select Pay Now and follow the STK prompt on your phone.',
+                'KCB Mobile App: Open the KCB Mobile App and navigate to Lipa Karo under the Pay Your Bills section. In Field 1, School Name, search for and select KINGSWAY PREPARATORY SCHOOL. For School Bank Account Number, select KINGSWAY PREPARATORY SCHOOL with value 1130991288. Enter the student admission number, student name and amount, then pay.',
+                'M-Pesa App or SIM Toolkit: choose Lipa na M-Pesa, Pay Bill, enter Paybill 600986, use the learner admission number as the account number, enter the amount and confirm.',
                 'Fee slip must be presented at school and acknowledged by receipt.',
                 'Fees once paid are non-refundable.',
             ],
-            'generatedAt'     => date('d M Y H:i'),
+            'generatedAt'     => (new \DateTime('now', new \DateTimeZone('Africa/Nairobi')))->format('d M Y H:i'),
         ];
     }
 
@@ -3276,16 +3333,57 @@ final class PrintService
             return $data['otherCharges'];
         }
         try {
+            $scope = strtolower((string) ($data['scope'] ?? 'all'));
+            $classId = 0;
+            if (strpos($scope, 'class_') === 0) {
+                $classId = (int) substr($scope, 6);
+            } elseif ($scope === 'class') {
+                $classId = (int) ($data['classId'] ?? 0);
+            }
+            $studentType = strtolower((string) ($data['studentType'] ?? $data['student_type'] ?? 'both'));
+            $typeCodes = $studentType === 'day' ? ['DAY'] : ($studentType === 'boarder' ? ['BOARD', 'WEEKLY'] : ['DAY', 'BOARD', 'WEEKLY']);
+            $typePlaceholders = implode(',', array_fill(0, count($typeCodes), '?'));
+            $scopeSql = " AND (
+                ec.target_scope IN ('all_students', 'new_admissions', 'existing_students')
+                OR (ec.target_scope = 'specific_class' AND ? > 0 AND EXISTS (
+                    SELECT 1 FROM extra_charge_classes xcc WHERE xcc.extra_charge_id = ec.id AND xcc.class_id = ?
+                ))
+                OR (ec.target_scope = 'boarders' AND EXISTS (
+                    SELECT 1 FROM student_types stx WHERE stx.code IN ('BOARD','WEEKLY') AND stx.code IN ($typePlaceholders)
+                ))
+                OR (ec.target_scope = 'day_students' AND EXISTS (
+                    SELECT 1 FROM student_types stx WHERE stx.code = 'DAY' AND stx.code IN ($typePlaceholders)
+                ))
+                OR EXISTS (
+                    SELECT 1 FROM extra_charge_student_types xst
+                    JOIN student_types stc ON stc.id = xst.student_type_id
+                    WHERE xst.extra_charge_id = ec.id AND stc.code IN ($typePlaceholders)
+                )
+            )";
             $stmt = $db->prepare(
-                "SELECT ec.name, ec.amount
+                "SELECT ec.name, ec.amount, ec.pricing_tiers
                  FROM extra_charges ec
                  WHERE ec.academic_year_id = ? AND ec.status = 'active'
                    AND ec.visible_on_fee_structure = 1
+                   $scopeSql
                  ORDER BY ec.display_order, ec.name"
             );
-            $stmt->execute([$yearId]);
+            $stmt->execute(array_merge([$yearId, $classId, $classId], $typeCodes, $typeCodes, $typeCodes));
             $charges = [];
             foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $tiers = json_decode((string) ($row['pricing_tiers'] ?? ''), true);
+                if (is_array($tiers) && $tiers) {
+                    foreach ($tiers as $tier) {
+                        if (!is_array($tier) || !isset($tier['amount'])) {
+                            continue;
+                        }
+                        $charges[] = [
+                            'name' => $tier['label'] ?? $row['name'],
+                            'amount' => (float) $tier['amount'],
+                        ];
+                    }
+                    continue;
+                }
                 $charges[] = ['name' => $row['name'], 'amount' => (float) $row['amount']];
             }
             return $charges;
@@ -3311,6 +3409,7 @@ final class PrintService
             'otherCharges'     => [],
             'paymentMpesa'     => [],
             'paymentBank'      => [],
+            'paymentMethods'   => [],
             'importantNotes'   => [],
         ];
     }
@@ -3320,17 +3419,25 @@ final class PrintService
         $db = $this->getDb();
         try {
             $stmt = $db->query(
-                "SELECT school_name, address, phone, email, motto, logo_path, website FROM school_profile LIMIT 1"
+                "SELECT school_name, address, phone, alternative_phone, email, motto, logo_url, website, postal_code, city FROM school_profile LIMIT 1"
             );
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             $cfg = [];
             if ($row) {
                 $cfg['school_name']    = $row['school_name'] ?? '';
-                $cfg['school_address'] = $row['address'] ?? '';
-                $cfg['school_phone']   = $row['phone'] ?? '';
+                $postalCode = trim((string) ($row['postal_code'] ?? ''));
+                $city = 'LONDIANI';
+                $cfg['school_address'] = $postalCode !== ''
+                    ? 'P.O BOX 203 – ' . $postalCode . ', ' . ($city !== '' ? $city : 'LONDIANI')
+                    : ($row['address'] ?? '');
+                $phones = array_values(array_filter([
+                    trim((string) ($row['phone'] ?? '')),
+                    trim((string) ($row['alternative_phone'] ?? '')),
+                ]));
+                $cfg['school_phone']   = implode(' / ', $phones);
                 $cfg['school_email']   = $row['email'] ?? '';
                 $cfg['school_motto']   = $row['motto'] ?? '';
-                $cfg['school_logo']    = $row['logo_path'] ?? '';
+                $cfg['school_logo']    = $row['logo_url'] ?? '';
                 $cfg['school_website'] = $row['website'] ?? '';
             }
             // Get headteacher from staff table
@@ -3342,25 +3449,70 @@ final class PrintService
             }
 
             // Read payment accounts from the proper financial accounts table
+            $paymentMethods = [];
             $mpesa = ['paybill' => '', 'account' => ''];
             $bank  = ['bank' => '', 'account_name' => '', 'account_no' => ''];
             try {
                 $acctStmt = $db->query(
-                    "SELECT sfa.account_name, sfa.account_identifier, sfa.bank_name, fak.code AS kind_code
-                     FROM school_financial_accounts sfa
-                     JOIN financial_account_kinds fak ON fak.id = sfa.account_kind_id
-                     WHERE sfa.status = 'active' AND sfa.is_primary = 1
-                     ORDER BY fak.code"
+                    "SELECT r.id, r.display_name, r.account_identifier, r.collection_product,
+                            r.purpose, p.code AS provider_code, sfa.bank_name,
+                            sfa.account_name AS settlement_account_name,
+                            sfa.account_identifier AS settlement_account_identifier,
+                            CASE
+                                WHEN p.code = 'mpesa_daraja' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
+                                WHEN p.code = 'kcb_buni' AND r.collection_product = 'buni' THEN 'kcb_mobile'
+                                WHEN r.collection_product = 'bank_collection' THEN 'bank'
+                                ELSE 'technical'
+                            END AS kind_code,
+                            r.display_title, r.display_reference_label AS reference_label,
+                            r.display_reference_value AS reference_value, r.display_instructions AS instructions
+                     FROM payment_collection_routes r
+                     JOIN payment_providers p ON p.id = r.provider_id
+                     JOIN school_financial_accounts sfa ON sfa.id = COALESCE(r.settlement_financial_account_id, r.financial_account_id)
+                     WHERE sfa.status = 'active' AND r.active = 1 AND r.show_on_fee_structure = 1
+                       AND r.purpose = 'fees'
+                     ORDER BY r.display_order, r.display_name"
                 );
                 while ($acct = $acctStmt->fetch(PDO::FETCH_ASSOC)) {
                     $kind = $acct['kind_code'] ?? '';
-                    if ($kind === 'mobile_money') {
-                        $mpesa['paybill'] = $acct['account_identifier'] ?? '';
-                        $mpesa['account'] = $cfg['mpesa_account'] ?? '';
+                    if ($kind === 'mpesa') {
+                        $method = [
+                            'type' => 'mpesa',
+                            'title' => $acct['display_title'] ?: 'LIPA NA M-PESA',
+                            'paybill' => $acct['account_identifier'] ?? '',
+                            'reference_label' => $acct['reference_label'] ?: 'ACCOUNT NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
+                        $mpesa = $method;
+                        $paymentMethods[] = $method;
+                    } elseif ($kind === 'kcb_mobile') {
+                        $paymentMethods[] = [
+                            'type' => 'kcb_mobile',
+                            'title' => $acct['display_title'] ?: 'KCB MOBILE APP - LIPA KARO',
+                            'bank_name' => $acct['bank_name'] ?? 'KCB Bank',
+                            // The bank account's internal label (for example
+                            // "KCB School Fees Account") is staff-facing.
+                            // Parents must see the legal school account name.
+                            'account_name' => strtoupper(trim((string)($cfg['school_name'] ?: ($acct['settlement_account_name'] ?? '')))),
+                            'account_no' => $acct['settlement_account_identifier'] ?: ($acct['account_identifier'] ?? ''),
+                            'reference_label' => $acct['reference_label'] ?: 'ADMISSION NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
                     } elseif ($kind === 'bank') {
-                        $bank['bank']        = $acct['bank_name'] ?? '';
-                        $bank['account_name'] = $acct['account_name'] ?? '';
-                        $bank['account_no']   = $acct['account_identifier'] ?? '';
+                        $method = [
+                            'type' => 'bank',
+                            'title' => $acct['display_title'] ?: 'BANK PAYMENT',
+                            'bank_name' => $acct['bank_name'] ?? '',
+                            'account_name' => strtoupper(trim((string)($cfg['school_name'] ?: ($acct['settlement_account_name'] ?? '')))),
+                            'account_no' => $acct['settlement_account_identifier'] ?: ($acct['account_identifier'] ?? ''),
+                            'reference_label' => $acct['reference_label'] ?: 'ADMISSION NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
+                        $bank = $method;
+                        $paymentMethods[] = $method;
                     }
                 }
             } catch (\Exception $e) {
@@ -3383,6 +3535,7 @@ final class PrintService
                 'headteacher_name' => $cfg['principal_name'] ?? '',
                 'mpesa'           => $mpesa,
                 'bank'            => $bank,
+                'paymentMethods'  => $paymentMethods,
             ];
         } catch (\Exception $e) {
             return [
@@ -3454,6 +3607,7 @@ final class PrintService
     public function printPayslip(array $data, array $config = []): string
     {
         $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Staff Payslip',
             'filename' => 'payslip_' . date('Ymd_His'),
             'orientation' => 'portrait',
             'paperSize' => 'A4',
@@ -3464,7 +3618,16 @@ final class PrintService
             throw new RuntimeException("Payslip template not found: {$templatePath}");
         }
 
-        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        // Payslips are complete standalone documents. The template owns its
+        // page rules, school header, watermark, content and footer; wrapping
+        // it in renderDedicatedReportTemplate() would inject the generic
+        // report header/footer and strip the template's own page styling.
+        $variables = array_merge(
+            $this->buildTemplateVariables($config),
+            $config,
+            $data,
+            ['useSharedReportShell' => false]
+        );
         $html = $this->renderPhpTemplate($templatePath, $variables);
 
         return $this->generatePDF($html, [
@@ -3478,9 +3641,170 @@ final class PrintService
     /**
      * Generate a student fee statement PDF.
      */
+    public function prepareStudentFeeStatement(int $studentId, $academicYear = null): array
+    {
+        $db = $this->getDb();
+        $yearStmt = $db->prepare(
+            "SELECT id, year_code FROM academic_years
+             WHERE id = ? OR year_code = ? OR YEAR(start_date) = ?
+             ORDER BY is_current DESC, id DESC LIMIT 1"
+        );
+        $yearStmt->execute([$academicYear, $academicYear, $academicYear]);
+        $year = $yearStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$year) {
+            $yearStmt = $db->query("SELECT id, year_code FROM academic_years ORDER BY is_current DESC, id DESC LIMIT 1");
+            $year = $yearStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+        $yearId = (int) ($year['id'] ?? 0);
+
+        $studentStmt = $db->prepare(
+            "SELECT s.id, s.admission_no,
+                    p.first_name, p.last_name,
+                    c.name AS class_name, st.name AS stream_name,
+                    sty.name AS student_type
+             FROM students s
+             JOIN persons p ON p.id = s.person_id
+             LEFT JOIN student_types sty ON sty.id = s.student_type_id
+             LEFT JOIN student_academic_enrollments sae
+               ON sae.student_id = s.id AND sae.academic_year_id = ?
+               AND sae.enrollment_status = 'active'
+             LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             LEFT JOIN classes c ON c.id = ayc.class_id
+             LEFT JOIN streams st ON st.id = aycs.stream_id
+             WHERE s.id = ? LIMIT 1"
+        );
+        $studentStmt->execute([$yearId, $studentId]);
+        $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$student) {
+            throw new RuntimeException('Student not found.');
+        }
+
+        $obligationStmt = $db->prepare(
+            "SELECT sfo.id, sfo.amount_due, sfo.status AS obligation_status,
+                    sfo.due_date, sfo.is_sponsored, sfo.sponsored_waiver_amount,
+                    t.name AS term_name, t.code AS term_code,
+                    COALESCE(v.amount_paid, 0) AS amount_paid,
+                    COALESCE(v.amount_waived, 0) AS amount_waived,
+                    COALESCE(v.balance, sfo.amount_due) AS balance,
+                    COALESCE(v.payment_status, sfo.status) AS payment_status,
+                    COALESCE(fc.name, 'School Fees') AS fee_item
+             FROM student_fee_obligations sfo
+             JOIN student_academic_enrollments sae ON sae.id = sfo.student_academic_enrollment_id
+             JOIN academic_year_terms ayt ON ayt.id = sfo.academic_year_term_id
+             JOIN terms t ON t.id = ayt.term_id
+             LEFT JOIN academic_year_fee_schedules ayfs ON ayfs.id = sfo.academic_year_fee_schedule_id
+             LEFT JOIN fee_catalog fc ON fc.id = ayfs.fee_catalog_id
+             LEFT JOIN vw_student_fee_balances v
+               ON v.student_academic_enrollment_id = sfo.student_academic_enrollment_id
+              AND v.academic_year_term_id = sfo.academic_year_term_id
+             WHERE sae.student_id = ? AND sfo.academic_year_id = ?
+             ORDER BY CAST(SUBSTRING(t.code, 2) AS UNSIGNED), sfo.id"
+        );
+        $obligationStmt->execute([$studentId, $yearId]);
+        $obligations = $obligationStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $feeLines = [];
+        $termTotals = [];
+        foreach ($obligations as $row) {
+            $status = strtolower((string) ($row['payment_status'] ?? $row['obligation_status'] ?? 'pending'));
+            $status = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
+            $feeLines[] = [
+                'term' => $row['term_name'] ?? $row['term_code'] ?? '',
+                'item' => $row['fee_item'] ?? 'School Fees',
+                'amount_due' => (float) $row['amount_due'],
+                'amount_paid' => (float) $row['amount_paid'],
+                'waived' => (float) $row['amount_waived'],
+                'balance' => (float) $row['balance'],
+                'status' => $status,
+            ];
+            $termKey = (string) ($row['term_name'] ?? $row['term_code'] ?? $row['id']);
+            if (!isset($termTotals[$termKey])) {
+                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
+            }
+            $termTotals[$termKey]['due'] += (float) $row['amount_due'];
+            $termTotals[$termKey]['paid'] = max($termTotals[$termKey]['paid'], (float) $row['amount_paid']);
+            $termTotals[$termKey]['waived'] = max($termTotals[$termKey]['waived'], (float) $row['amount_waived']);
+            $termTotals[$termKey]['balance'] = max($termTotals[$termKey]['balance'], (float) $row['balance']);
+        }
+
+        // Extra charges are intentionally stored separately from tuition
+        // obligations. Include the generated, student-specific occurrences
+        // so class/type/student-bound charges reach the statement as well.
+        $extraStmt = $db->prepare(
+            "SELECT eco.amount_due, eco.amount_paid, eco.status,
+                    eco.academic_year_term_id, t.name AS term_name,
+                    ec.name AS fee_item
+             FROM extra_charge_student_obligations eco
+             JOIN student_academic_enrollments sae ON sae.id = eco.student_academic_enrollment_id
+             JOIN extra_charge_schedules ecs ON ecs.id = eco.schedule_id
+             JOIN extra_charges ec ON ec.id = ecs.extra_charge_id
+             LEFT JOIN terms t ON t.id = (
+                 SELECT ayt.term_id FROM academic_year_terms ayt
+                 WHERE ayt.id = eco.academic_year_term_id LIMIT 1
+             )
+             WHERE sae.student_id = ? AND ec.academic_year_id = ?
+               AND eco.status <> 'cancelled'
+             ORDER BY eco.academic_year_term_id, eco.id"
+        );
+        $extraStmt->execute([$studentId, $yearId]);
+        foreach ($extraStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $amountDue = (float) $row['amount_due'];
+            $amountPaid = (float) $row['amount_paid'];
+            $waived = strtolower((string) $row['status']) === 'waived' ? $amountDue : 0.0;
+            $balance = max(0.0, $amountDue - $amountPaid - $waived);
+            $status = strtolower((string) $row['status']);
+            $displayStatus = $status === 'paid' ? 'Paid' : ($status === 'partial' ? 'Partial' : ($status === 'waived' ? 'Waived' : 'Unpaid'));
+            $feeLines[] = [
+                'term' => $row['term_name'] ?? 'Other Charges',
+                'item' => $row['fee_item'] ?? 'Additional Charge',
+                'amount_due' => $amountDue,
+                'amount_paid' => $amountPaid,
+                'waived' => $waived,
+                'balance' => $balance,
+                'status' => $displayStatus,
+            ];
+            $termKey = (string) ($row['term_name'] ?? 'Other Charges');
+            if (!isset($termTotals[$termKey])) {
+                $termTotals[$termKey] = ['due' => 0.0, 'paid' => 0.0, 'waived' => 0.0, 'balance' => 0.0];
+            }
+            $termTotals[$termKey]['due'] += $amountDue;
+            $termTotals[$termKey]['paid'] += $amountPaid;
+            $termTotals[$termKey]['waived'] += $waived;
+            $termTotals[$termKey]['balance'] += $balance;
+        }
+
+        $paymentStmt = $db->prepare(
+            "SELECT receipt_no, amount AS amount_paid, payment_date, method AS payment_method,
+                    reference, status
+             FROM payments
+             WHERE student_id = ? AND payment_date BETWEEN
+                   (SELECT start_date FROM academic_years WHERE id = ?)
+                   AND (SELECT end_date FROM academic_years WHERE id = ?)
+                   AND status IN ('confirmed','completed','success')
+             ORDER BY payment_date DESC, id DESC"
+        );
+        $paymentStmt->execute([$studentId, $yearId, $yearId]);
+        $payments = $paymentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'student' => $student,
+            'academicYear' => $year['year_code'] ?? (string) $academicYear,
+            'feeLines' => $feeLines,
+            'payments' => $payments,
+            'summary' => [
+                'total_billed' => array_sum(array_column($termTotals, 'due')),
+                'total_paid' => array_sum(array_column($termTotals, 'paid')),
+                'total_waived' => array_sum(array_column($termTotals, 'waived')),
+                'total_balance' => array_sum(array_column($termTotals, 'balance')),
+            ],
+        ];
+    }
+
     public function printFeeStatement(array $data, array $config = []): string
     {
         $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Student Fee Statement',
             'filename' => 'fee_statement_' . date('Ymd_His'),
             'orientation' => 'portrait',
             'paperSize' => 'A4',
@@ -3491,8 +3815,15 @@ final class PrintService
             throw new RuntimeException("Fee statement template not found: {$templatePath}");
         }
 
-        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
-        $html = $this->renderPhpTemplate($templatePath, $variables);
+        // Prepared statement data is authoritative; do not let default report
+        // config (including empty summary arrays) overwrite database totals.
+        if (empty($config['signatureSection'])) {
+            $config['signatureSection'] = $data['signatureSection'] ?? [
+                ['label' => 'Accounts Office', 'dateLine' => true],
+                ['label' => 'Parent / Guardian', 'dateLine' => true],
+            ];
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
 
         return $this->generatePDF($html, [
             'orientation' => 'portrait',
@@ -3508,6 +3839,7 @@ final class PrintService
     public function printReceiptTemplate(array $data, array $config = []): string
     {
         $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Official Receipt',
             'filename' => 'receipt_' . date('Ymd_His'),
             'orientation' => 'portrait',
             'paperSize' => 'A4',
@@ -3518,8 +3850,14 @@ final class PrintService
             throw new RuntimeException("Receipt template not found: {$templatePath}");
         }
 
-        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
-        $html = $this->renderPhpTemplate($templatePath, $variables);
+        if (empty($config['signatureSection'])) {
+            $config['signatureSection'] = $data['signatureSection'] ?? [
+                ['label' => 'Received By', 'name' => $data['receivedBy'] ?? '', 'dateLine' => true],
+                ['label' => 'Accounts Officer', 'dateLine' => true],
+                ['label' => 'Authorized Signatory', 'dateLine' => true],
+            ];
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
 
         return $this->generatePDF($html, [
             'orientation' => 'portrait',
@@ -3535,6 +3873,7 @@ final class PrintService
     public function printInvoice(array $data, array $config = []): string
     {
         $config = array_merge($this->defaultReportConfig(), [
+            'title' => 'Invoice',
             'filename' => 'invoice_' . date('Ymd_His'),
             'orientation' => 'portrait',
             'paperSize' => 'A4',
@@ -3545,8 +3884,13 @@ final class PrintService
             throw new RuntimeException("Invoice template not found: {$templatePath}");
         }
 
-        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
-        $html = $this->renderPhpTemplate($templatePath, $variables);
+        if (empty($config['signatureSection'])) {
+            $config['signatureSection'] = $data['signatureSection'] ?? [
+                ['label' => 'Authorized Signatory', 'dateLine' => true],
+                ['label' => 'Received By', 'dateLine' => true],
+            ];
+        }
+        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
 
         return $this->generatePDF($html, [
             'orientation' => 'portrait',

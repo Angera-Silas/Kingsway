@@ -37,7 +37,7 @@ LEFT JOIN (
     FROM student_fee_obligations sfo
     LEFT JOIN fee_discounts_waivers fdw
       ON fdw.student_fee_obligation_id = sfo.id
-     AND fdw.status = 'approved'
+     AND fdw.status = 'active'
     GROUP BY sfo.student_academic_enrollment_id, sfo.academic_year_term_id
 ) dw ON dw.student_academic_enrollment_id = sae.id
     AND dw.academic_year_term_id = ayt.id

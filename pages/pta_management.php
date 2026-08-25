@@ -78,10 +78,9 @@
 <div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="bi bi-people-cog me-2"></i>Add Record</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId">
-        <div class="mb-3"><label class="form-label">Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" required></div>
-        <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="recordDescription" rows="3"></textarea></div>
-        <div class="mb-3"><label class="form-label">Date</label><input type="date" class="form-control" id="recordDate"></div>
-        <div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option><option value="pending">Pending</option></select></div>
+        <div class="mb-3"><label class="form-label">Parent / Guardian <span class="text-danger">*</span></label><select class="form-select" id="recordParent" required><option value="">Loading parents...</option></select></div>
+        <div class="mb-3"><label class="form-label">PTA Role</label><select class="form-select" id="recordRole"><option>Member</option><option>Chairperson</option><option>Vice Chairperson</option><option>Secretary</option><option>Treasurer</option></select></div>
+        <div class="mb-3"><label class="form-label">Membership Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option><option value="pending">Pending</option></select></div>
     </form></div>
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="PTAManagementController.saveRecord()"><i class="bi bi-check-lg me-1"></i> Save</button></div>
 </div></div></div>

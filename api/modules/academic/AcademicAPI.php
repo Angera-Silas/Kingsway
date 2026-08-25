@@ -9,6 +9,8 @@ use App\API\Modules\academic\CurriculumPlanningWorkflow;
 use App\API\Modules\academic\AcademicYearTransitionWorkflow;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\AssessmentResultsService;
+use App\API\Services\CbcGradingService;
 use App\API\Services\CalendarSyncService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
@@ -27,6 +29,11 @@ class AcademicAPI extends BaseAPI
     private $termTransitionService;
 
     private const STAFF_TYPE_TEACHING = 3;
+
+    private function assessmentResultsService(): AssessmentResultsService
+    {
+        return new AssessmentResultsService($this->db, (int) $this->getCurrentUserId());
+    }
 
     public function __construct()
     {
@@ -56,6 +63,56 @@ class AcademicAPI extends BaseAPI
         $staffId = $stmt->fetchColumn();
 
         return $staffId ? (int) $staffId : null;
+    }
+
+    /** Teaching pages must use the authenticated staff member, never a
+     * teacher_id supplied by the browser. Leadership may review the wider
+     * academic register; teachers receive their exact blended scope. */
+    private function isAcademicLeader(): bool
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) return false;
+        $stmt = $this->db->prepare(
+            "SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ?"
+        );
+        $stmt->execute([(int) $userId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $role) {
+            if (preg_match('/admin|director|headteacher|deputy/i', (string) $role)) return true;
+        }
+        return false;
+    }
+
+    private function addTeacherLessonPlanScope(array &$where, array &$bindings, array $params): void
+    {
+        $staffId = $this->getCurrentStaffId();
+        if (!$staffId) {
+            $where[] = '1 = 0';
+            return;
+        }
+        $where[] = 'lp.teacher_id = ?';
+        $bindings[] = $staffId;
+        $yearId = !empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : null;
+        $termId = !empty($params['term_id']) ? (int) $params['term_id'] : null;
+        $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(
+            ['user_id' => $this->getCurrentUserId()], $yearId, $termId
+        );
+        $parts = [];
+        $classStreams = array_values(array_filter(array_map('intval', (array) ($scope['class_stream_ids'] ?? []))));
+        if ($classStreams) {
+            $parts[] = 'ays.id IN (' . implode(',', array_fill(0, count($classStreams), '?')) . ')';
+            $bindings = array_merge($bindings, $classStreams);
+        }
+        foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
+            $streamId = (int) ($assignment['stream_id'] ?? 0);
+            $areaId = (int) ($assignment['learning_area_id'] ?? 0);
+            if ($streamId > 0 && $areaId > 0) {
+                $parts[] = '(ays.id = ? AND lt.learning_area_id = ?)';
+                $bindings[] = $streamId;
+                $bindings[] = $areaId;
+            }
+        }
+        if (!$parts) $where[] = '1 = 0';
+        else $where[] = '(' . implode(' OR ', $parts) . ')';
     }
 
     // ========================================================================
@@ -734,6 +791,9 @@ class AcademicAPI extends BaseAPI
                     'fields' => $missing
                 ], 400);
             }
+            if (empty($data['learning_outcome_ids']) || empty($data['experiences']) || empty($data['activities_items'])) {
+                return errorResponse('A lesson requires selected outcomes, learning experiences, and at least one atomic activity', 400);
+            }
 
             $sql = "INSERT INTO learning_areas (name, code, description, status) VALUES (?, ?, ?, ?)";
             $stmt = $this->db->prepare($sql);
@@ -1233,6 +1293,53 @@ class AcademicAPI extends BaseAPI
                 $where[] = '1=1';
             }
 
+            if (($params['_meeting_scope'] ?? 'all') === 'class') {
+                $userId = (int) ($params['_meeting_scope_user_id'] ?? 0);
+                $where[] = "EXISTS (
+                    SELECT 1
+                    FROM parent_meeting_targets pmt
+                    WHERE pmt.meeting_id = pm.id
+                      AND (
+                        (pmt.target_type = 'class' AND pmt.target_id IN (
+                            SELECT ayc.class_id
+                            FROM academic_year_class_streams aycs
+                            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                            JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+                            JOIN vw_teacher_effective_stream_learning_areas tscope ON tscope.academic_year_class_stream_id = aycs.id AND tscope.scope_type = 'class_teacher'
+                            JOIN staff scoped_staff ON scoped_staff.id = tscope.staff_id
+                            JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
+                            WHERE scoped_user.id = ?
+                        ))
+                        OR (pmt.target_type = 'student' AND pmt.target_id IN (
+                            SELECT sae.student_id
+                            FROM student_academic_enrollments sae
+                            JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                            JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+                            JOIN vw_teacher_effective_stream_learning_areas tscope ON tscope.academic_year_class_stream_id = aycs.id AND tscope.scope_type = 'class_teacher'
+                            JOIN staff scoped_staff ON scoped_staff.id = tscope.staff_id
+                            JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
+                            WHERE scoped_user.id = ? AND sae.enrollment_status = 'active'
+                        ))
+                        OR (pmt.target_type = 'parent' AND pmt.target_id IN (
+                            SELECT sp.parent_id
+                            FROM student_parents sp
+                            JOIN student_academic_enrollments sae ON sae.student_id = sp.student_id AND sae.enrollment_status = 'active'
+                            JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                            JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                            JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+                            JOIN vw_teacher_effective_stream_learning_areas tscope ON tscope.academic_year_class_stream_id = aycs.id AND tscope.scope_type = 'class_teacher'
+                            JOIN staff scoped_staff ON scoped_staff.id = tscope.staff_id
+                            JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
+                            WHERE scoped_user.id = ?
+                        ))
+                      )
+                )";
+                $bindings[] = $userId;
+                $bindings[] = $userId;
+                $bindings[] = $userId;
+            }
+
             $sql = "
                 SELECT
                     pm.id,
@@ -1257,7 +1364,10 @@ class AcademicAPI extends BaseAPI
                     pm.created_at,
                     pm.updated_at,
                     CAST(NULL AS CHAR) AS organizer,
-                    CAST(NULL AS CHAR) AS class_name,
+                    COALESCE((SELECT GROUP_CONCAT(DISTINCT target_class.name ORDER BY target_class.name SEPARATOR ', ')
+                              FROM parent_meeting_targets class_target
+                              JOIN classes target_class ON target_class.id = class_target.target_id
+                              WHERE class_target.meeting_id = pm.id AND class_target.target_type = 'class'), '—') AS class_name,
                     CAST(NULL AS CHAR) AS parent_name,
                     CAST(NULL AS CHAR) AS student_name
                 FROM school_events pm
@@ -1296,6 +1406,21 @@ class AcademicAPI extends BaseAPI
             $studentId = !empty($data['student_id']) ? (int) $data['student_id'] : null;
             $purpose = $data['purpose'] ?? $title;
 
+            if (($data['_meeting_scope'] ?? 'all') === 'class') {
+                $scopeStmt = $this->db->prepare("SELECT 1
+                    FROM academic_year_class_streams aycs
+                    JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    JOIN academic_years ay ON ay.id = ayc.academic_year_id AND ay.is_current = 1
+                    JOIN vw_teacher_effective_stream_learning_areas tscope ON tscope.academic_year_class_stream_id = aycs.id AND tscope.scope_type = 'class_teacher'
+                    JOIN staff scoped_staff ON scoped_staff.id = tscope.staff_id
+                    JOIN users scoped_user ON scoped_user.person_id = scoped_staff.person_id
+                    WHERE scoped_user.id = ? AND ayc.class_id = ? LIMIT 1");
+                $scopeStmt->execute([(int) ($data['_meeting_scope_user_id'] ?? 0), $classId]);
+                if (!$classId || !$scopeStmt->fetchColumn()) {
+                    return errorResponse('You may only arrange meetings for your assigned class.');
+                }
+            }
+
             if (empty($meetingDate)) {
                 return errorResponse('Meeting date is required');
             }
@@ -1319,6 +1444,11 @@ class AcademicAPI extends BaseAPI
             ]);
 
             $meetingId = $nextEventId;
+            $targetStmt = $this->db->prepare("INSERT IGNORE INTO parent_meeting_targets (meeting_id, target_type, target_id, created_by) VALUES (?, ?, ?, ?)");
+            if ($classId) $targetStmt->execute([$meetingId, 'class', $classId, $userId]);
+            if ($studentId) $targetStmt->execute([$meetingId, 'student', $studentId, $userId]);
+            if ($parentId) $targetStmt->execute([$meetingId, 'parent', $parentId, $userId]);
+
             $this->queueParentMeetingInvitations($meetingId, [
                 'title' => $title,
                 'meeting_date' => $meetingDate,
@@ -1565,7 +1695,7 @@ class AcademicAPI extends BaseAPI
             $where = ["1=1"];
             $bindings = [];
 
-            if (!empty($params['teacher_id'])) {
+            if (!empty($params['teacher_id']) && $this->isAcademicLeader()) {
                 $where[] = "lp.teacher_id = ?";
                 $bindings[] = $params['teacher_id'];
             }
@@ -1576,7 +1706,7 @@ class AcademicAPI extends BaseAPI
             }
 
             if (!empty($params['stream_id'])) {
-                $where[] = "EXISTS (SELECT 1 FROM academic_year_class_streams aycs WHERE aycs.academic_year_class_id = ayc.id AND aycs.stream_id = ?)";
+                $where[] = "ays.stream_id = ?";
                 $bindings[] = $params['stream_id'];
             }
 
@@ -1611,13 +1741,28 @@ class AcademicAPI extends BaseAPI
                 $bindings[] = $params['academic_year_id'];
             }
 
+            // "mine" is explicit and remains teacher-scoped even when the
+            // teacher also holds a leadership role. Without this switch a
+            // Headteacher + Subject Teacher would receive the all-school
+            // register from the personal lesson-plan page.
+            $mineOnly = !empty($params['mine']) || (($params['scope'] ?? '') === 'mine');
+            if ($mineOnly || !$this->isAcademicLeader()) {
+                // Ignore browser-provided teacher_id/class filters for
+                // teaching staff. The authenticated staff identity and the
+                // canonical stream-learning-area scope are authoritative.
+                $this->addTeacherLessonPlanScope($where, $bindings, $params);
+            }
+
             $whereClause = implode(' AND ', $where);
 
             $joins = "
                 FROM lesson_plans lp
                 JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
+                LEFT JOIN academic_year_class_stream_learning_areas aysla ON aysla.id = lp.academic_year_class_stream_learning_area_id
+                LEFT JOIN academic_year_class_streams ays ON ays.id = aysla.academic_year_class_stream_id
+                LEFT JOIN streams sn ON sn.id = ays.stream_id
                 LEFT JOIN academic_year_class_learning_areas acla ON acla.id = lp.academic_year_class_learning_area_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = acla.academic_year_class_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = COALESCE(ays.academic_year_class_id, acla.academic_year_class_id)
                 LEFT JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN academic_year_calendar_days aycd ON aycd.id = lp.academic_year_calendar_day_id
                 LEFT JOIN academic_year_calendar aycal ON aycal.id = aycd.academic_year_calendar_id
@@ -1637,6 +1782,7 @@ class AcademicAPI extends BaseAPI
             $sql = "
                 SELECT 
                     lp.*,
+                    lp.scheme_of_work_id,
                     lt.title AS title,
                     lt.title AS topic,
                     lt.learning_area_id,
@@ -1650,9 +1796,15 @@ class AcademicAPI extends BaseAPI
                     lt.assessment,
                     lt.homework,
                     ayc.class_id,
+                    ays.id AS academic_year_class_stream_id,
+                    ays.stream_id,
+                    aysla.id AS academic_year_class_stream_learning_area_id,
                     c.name AS class_name,
                     aycd.date AS lesson_date,
                     aycd.date AS date,
+                    aycal.week_number,
+                    aycal.week_start,
+                    aycal.week_end,
                     ayt.id AS term_id,
                     ayc.academic_year_id,
                     CONCAT(tp.first_name, ' ', tp.last_name) AS teacher_name,
@@ -1691,32 +1843,91 @@ class AcademicAPI extends BaseAPI
     {
         try {
             $normalized = $data;
-            $normalized['title'] = $data['title'] ?? $data['topic'] ?? null;
+            $normalized['title'] = trim((string) ($data['title'] ?? $data['topic'] ?? ''));
             $normalized['learning_area_id'] = $data['learning_area_id'] ?? $data['subject_id'] ?? null;
             $normalized['class_id'] = $data['class_id'] ?? null;
-            $normalized['date'] = $data['date'] ?? $data['lesson_date'] ?? null;
+            $normalized['stream_id'] = $data['stream_id'] ?? $data['academic_year_class_stream_id'] ?? null;
+            $normalized['date'] = trim((string) ($data['date'] ?? $data['lesson_date'] ?? ''));
+            $actorStaffId = $this->getCurrentStaffId();
+            if ($actorStaffId) {
+                // Authoring always belongs to the authenticated staff member,
+                // including a Headteacher who is also assigned to teach. The
+                // leadership review workspace is the separate path for
+                // another teacher's plan.
+                $data['teacher_id'] = $actorStaffId;
+            }
 
-            $required = ['title', 'learning_area_id', 'class_id', 'date'];
+            // Class, stream and learning area are authoritative properties of
+            // the selected approved scheme. They must be resolved below from
+            // its canonical stream-learning-area link, not supplied by a
+            // browser hidden field.
+            $required = ['title', 'date'];
             $missing = $this->validateRequired($normalized, $required);
+            if (empty($data['scheme_of_work_id'])) {
+                $missing[] = 'scheme_of_work_id';
+            }
             if (!empty($missing)) {
                 return errorResponse([
                     'status' => 'error',
-                    'message' => 'Missing required fields',
+                    'message' => 'Missing required fields: ' . implode(', ', $missing),
                     'fields' => $missing
                 ], 400);
             }
 
             $this->db->beginTransaction();
 
+            // Lesson plans are delivery records for an approved weekly scheme.
+            // Resolve the entire academic context from that row; do not trust
+            // class/subject/date values supplied by the browser.
+            $schemeContext = $this->resolveApprovedSchemeLessonContext(
+                (int) $data['scheme_of_work_id'],
+                (string) $normalized['date'],
+                (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()),
+                $this->isAcademicLeader()
+            );
+            if (!$schemeContext) {
+                $this->db->rollBack();
+                return errorResponse('Select an approved scheme row and a calendar day within that scheme week', 400);
+            }
+            $normalized['class_id'] = (int) $schemeContext['class_id'];
+            $normalized['learning_area_id'] = (int) $schemeContext['learning_area_id'];
+            $normalized['stream_id'] = (int) $schemeContext['stream_id'];
+            $data['learning_area_id'] = $normalized['learning_area_id'];
+            $data['strand_id'] = $schemeContext['strand_id'] !== null ? (int) $schemeContext['strand_id'] : null;
+            $data['sub_strand_id'] = $schemeContext['sub_strand_id'] !== null ? (int) $schemeContext['sub_strand_id'] : null;
+            $streamLearningAreaId = (int) $schemeContext['stream_learning_area_id'];
+
+            $aycsId = $this->resolveAcademicYearClassStreamId(
+                (int) $normalized['class_id'],
+                $normalized['stream_id'],
+                !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : null
+            );
+            if ($aycsId <= 0 && empty($normalized['stream_id'])) {
+                $aycsId = $this->resolveSingleTeacherStreamId((int) $normalized['class_id'], (int) $normalized['learning_area_id'], (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()));
+            }
+            $streamLearningAreaId = $streamLearningAreaId ?: ($aycsId > 0
+                ? $this->resolveStreamLearningAreaId($aycsId, (int) $normalized['learning_area_id'])
+                : 0);
+            if ($streamLearningAreaId <= 0) {
+                $this->db->rollBack();
+                return errorResponse('Select a valid class stream and learning area configured for that stream', 400);
+            }
+            if (!$this->teacherCanUseStreamLearningArea($streamLearningAreaId, (int) ($data['teacher_id'] ?? $this->getCurrentStaffId()))) {
+                $this->db->rollBack();
+                return errorResponse('You are not assigned to this stream and learning area', 403);
+            }
+
             $activities = $data['activities'] ?? $data['content'] ?? null;
             if (!empty($data['objectives'])) {
                 $activities = $activities ? $data['objectives'] . "\n\n" . $activities : $data['objectives'];
             }
 
-            $status = 'draft';
-            if (($data['status'] ?? '') === 'approved') {
-                $status = 'approved';
-            }
+            // Scheme approval is the academic control point. A lesson plan
+            // created from that approved scheme may be published directly by
+            // its assigned author; it does not enter a second approval queue.
+            $status = in_array((string) ($data['status'] ?? ''), ['published', 'approved'], true)
+                ? 'approved'
+                : 'draft';
 
             // Create the lesson template holding the lesson content
             $stmt = $this->db->prepare("
@@ -1741,10 +1952,10 @@ class AcademicAPI extends BaseAPI
                 $data['sub_strand_id'] ?? $data['topic_id'] ?? null,
                 $normalized['title'],
                 $data['duration'] ?? 40,
-                $activities,
-                $data['resources'] ?? null,
-                $data['assessment'] ?? null,
-                $data['homework'] ?? null,
+                null,
+                null,
+                null,
+                null,
                 $data['created_by'] ?? $this->getCurrentUserId(),
                 $status === 'approved' ? 'approved' : 'draft'
             ]);
@@ -1759,32 +1970,33 @@ class AcademicAPI extends BaseAPI
             }
 
             // Resolve the calendar day for the lesson date
-            $calendarDayId = $this->resolveCalendarDayId($normalized['date']);
+            $calendarDayId = (int) ($schemeContext['calendar_day_id'] ?? 0);
             if (!$calendarDayId) {
                 $this->db->rollBack();
                 return errorResponse('The selected date is not part of the active academic year calendar', 400);
             }
 
-            $approvedBy = null;
-            if ($status === 'approved') {
-                $approvedBy = $data['approved_by'] ?? $this->getCurrentStaffId();
-            }
+            $approvedBy = $status === 'approved' ? $this->getCurrentStaffId() : null;
 
             $sql = "
                 INSERT INTO lesson_plans (
                     lesson_template_id,
+                    scheme_of_work_id,
                     academic_year_class_learning_area_id,
+                    academic_year_class_stream_learning_area_id,
                     academic_year_calendar_day_id,
                     teacher_id,
                     status,
                     approved_by
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $templateId,
+                (int) $data['scheme_of_work_id'],
                 $ayclaId,
+                $streamLearningAreaId,
                 $calendarDayId,
                 $data['teacher_id'] ?? $this->getCurrentStaffId(),
                 $status,
@@ -1792,6 +2004,11 @@ class AcademicAPI extends BaseAPI
             ]);
 
             $planId = $this->db->lastInsertId();
+
+            // New lesson content is normalized by lesson plan, not stored as
+            // resource/assessment text blobs. Legacy template columns above
+            // are retained only so older records remain readable.
+            $this->syncLessonPlanAtomicContent((int) $planId, $data, (int) ($data['sub_strand_id'] ?? 0));
 
             $this->db->commit();
             $this->logAction('create', $planId, "Created lesson plan: {$normalized['title']}");
@@ -1806,6 +2023,131 @@ class AcademicAPI extends BaseAPI
                 $this->db->rollBack();
             }
             return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Persist the atomic lesson-delivery graph. Every selected curriculum
+     * item is validated against the lesson's exact sub-strand before it is
+     * attached. Custom teacher entries remain atomic rows rather than being
+     * concatenated into a textarea.
+     */
+    private function syncLessonPlanAtomicContent($lessonPlanId, array $data, $subStrandId)
+    {
+        $id = (int) $lessonPlanId;
+        $subStrandId = (int) $subStrandId;
+        if ($id <= 0 || $subStrandId <= 0) {
+            throw new Exception('A lesson plan must identify an exact sub-strand');
+        }
+
+        $delete = [
+            'lesson_plan_outcomes', 'lesson_plan_experiences',
+            'lesson_plan_activities', 'lesson_plan_resources',
+            'lesson_plan_assessment_tools', 'lesson_plan_competencies',
+            'lesson_plan_rubrics', 'lesson_plan_inquiry_questions',
+            'lesson_plan_coverage_items', 'lesson_plan_assessment_rubrics'
+        ];
+        foreach ($delete as $table) {
+            $this->db->prepare("DELETE FROM {$table} WHERE lesson_plan_id = ?")->execute([$id]);
+        }
+
+        $outcomeIds = array_values(array_unique(array_filter(array_map('intval', (array) ($data['learning_outcome_ids'] ?? $data['outcome_ids'] ?? [])))));
+        if ($outcomeIds) {
+            $in = implode(',', array_fill(0, count($outcomeIds), '?'));
+            $check = $this->db->prepare("SELECT id FROM learning_outcomes WHERE id IN ($in) AND sub_strand_id = ?");
+            $check->execute(array_merge($outcomeIds, [$subStrandId]));
+            $valid = array_map('intval', $check->fetchAll(PDO::FETCH_COLUMN));
+            if (count($valid) !== count($outcomeIds)) throw new Exception('A selected learning outcome does not belong to the lesson sub-strand');
+            $stmt = $this->db->prepare('INSERT INTO lesson_plan_outcomes (lesson_plan_id, learning_outcome_id, sort_order) VALUES (?, ?, ?)');
+            foreach ($outcomeIds as $order => $outcomeId) $stmt->execute([$id, $outcomeId, $order + 1]);
+        }
+
+        $experienceStmt = $this->db->prepare('INSERT INTO lesson_plan_experiences (lesson_plan_id, suggested_experience_id, experience_text, is_custom, sort_order) VALUES (?, ?, ?, ?, ?)');
+        foreach ((array) ($data['experiences'] ?? []) as $order => $item) {
+            $item = is_array($item) ? $item : ['text' => $item];
+            $text = trim((string) ($item['text'] ?? $item['experience_text'] ?? ''));
+            if ($text === '') continue;
+            $suggestedId = (int) ($item['id'] ?? $item['suggested_experience_id'] ?? 0);
+            if ($suggestedId) {
+                $check = $this->db->prepare('SELECT 1 FROM sub_strand_suggested_experiences WHERE id = ? AND sub_strand_id = ?');
+                $check->execute([$suggestedId, $subStrandId]);
+                if (!$check->fetchColumn()) throw new Exception('A selected learning experience does not belong to the lesson sub-strand');
+            }
+            $experienceStmt->execute([$id, $suggestedId ?: null, $text, $suggestedId ? 0 : 1, $order + 1]);
+        }
+
+        $activityStmt = $this->db->prepare('INSERT INTO lesson_plan_activities (lesson_plan_id, activity_text, activity_stage, sort_order) VALUES (?, ?, ?, ?)');
+        foreach ((array) ($data['activities_items'] ?? $data['activity_items'] ?? []) as $order => $item) {
+            $item = is_array($item) ? $item : ['text' => $item];
+            $text = trim((string) ($item['text'] ?? $item['activity_text'] ?? ''));
+            if ($text !== '') $activityStmt->execute([$id, $text, $item['stage'] ?? 'development', $order + 1]);
+        }
+
+        $resourceStmt = $this->db->prepare('INSERT INTO lesson_plan_resources (lesson_plan_id, sub_strand_resource_id, resource_name, resource_type, resource_url, is_custom, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        foreach ((array) ($data['resources_items'] ?? $data['resource_items'] ?? []) as $order => $item) {
+            $item = is_array($item) ? $item : ['name' => $item];
+            $name = trim((string) ($item['name'] ?? $item['resource_name'] ?? ''));
+            if ($name === '') continue;
+            $masterId = (int) ($item['id'] ?? $item['sub_strand_resource_id'] ?? 0);
+            if ($masterId) {
+                $check = $this->db->prepare('SELECT resource_name, resource_type, resource_url FROM sub_strand_resources WHERE id = ? AND sub_strand_id = ? AND status = \'active\'');
+                $check->execute([$masterId, $subStrandId]);
+                $master = $check->fetch(PDO::FETCH_ASSOC);
+                if (!$master) throw new Exception('A selected resource does not belong to the lesson sub-strand');
+                $name = $master['resource_name'];
+                $type = $master['resource_type'];
+                $url = $master['resource_url'];
+            } else {
+                $type = trim((string) ($item['type'] ?? $item['resource_type'] ?? '')) ?: null;
+                $url = trim((string) ($item['url'] ?? $item['resource_url'] ?? '')) ?: null;
+            }
+            $resourceStmt->execute([$id, $masterId ?: null, $name, $type, $url, $masterId ? 0 : 1, $order + 1]);
+        }
+
+        $toolStmt = $this->db->prepare('INSERT INTO lesson_plan_assessment_tools (lesson_plan_id, assessment_tool_id, sort_order) VALUES (?, ?, ?)');
+        foreach (array_values(array_unique(array_filter(array_map('intval', (array) ($data['assessment_tool_ids'] ?? $data['tool_ids'] ?? []))))) as $order => $toolId) {
+            $check = $this->db->prepare("SELECT 1 FROM assessment_tools WHERE id = ? AND status = 'active'");
+            $check->execute([$toolId]);
+            if (!$check->fetchColumn()) throw new Exception('An assessment tool is not active');
+            $toolStmt->execute([$id, $toolId, $order + 1]);
+        }
+
+        $competencyStmt = $this->db->prepare('INSERT INTO lesson_plan_competencies (lesson_plan_id, competency_id) VALUES (?, ?)');
+        foreach (array_values(array_unique(array_filter(array_map('intval', (array) ($data['competency_ids'] ?? []))))) as $competencyId) {
+            $check = $this->db->prepare('SELECT 1 FROM sub_strand_competencies WHERE sub_strand_id = ? AND competency_id = ?');
+            $check->execute([$subStrandId, $competencyId]);
+            if (!$check->fetchColumn()) throw new Exception('A selected competency is not configured for the lesson sub-strand');
+            $competencyStmt->execute([$id, $competencyId]);
+        }
+
+        $rubricStmt = $this->db->prepare('INSERT INTO lesson_plan_rubrics (lesson_plan_id, sub_strand_rubric_id) VALUES (?, ?)');
+        foreach (array_values(array_unique(array_filter(array_map('intval', (array) ($data['rubric_ids'] ?? []))))) as $rubricId) {
+            $check = $this->db->prepare('SELECT 1 FROM sub_strand_rubrics WHERE id = ? AND sub_strand_id = ?');
+            $check->execute([$rubricId, $subStrandId]);
+            if (!$check->fetchColumn()) throw new Exception('A selected rubric is not configured for the lesson sub-strand');
+            $rubricStmt->execute([$id, $rubricId]);
+        }
+
+        $assessmentRubricStmt = $this->db->prepare('INSERT INTO lesson_plan_assessment_rubrics (lesson_plan_id, assessment_rubric_id) VALUES (?, ?)');
+        foreach (array_values(array_unique(array_filter(array_map('intval', (array) ($data['assessment_rubric_ids'] ?? []))))) as $assessmentRubricId) {
+            $check = $this->db->prepare('SELECT 1 FROM assessment_rubrics ar WHERE ar.id=? AND EXISTS (SELECT 1 FROM lesson_plan_assessment_tools lpat WHERE lpat.lesson_plan_id=? AND lpat.assessment_tool_id=ar.tool_id)');
+            $check->execute([$assessmentRubricId, $id]);
+            if (!$check->fetchColumn()) throw new Exception('A selected assessment rubric does not belong to a tool attached to this lesson');
+            $assessmentRubricStmt->execute([$id, $assessmentRubricId]);
+        }
+
+        $questionStmt = $this->db->prepare('INSERT INTO lesson_plan_inquiry_questions (lesson_plan_id, question_text, is_custom, sort_order) VALUES (?, ?, ?, ?)');
+        foreach ((array) ($data['inquiry_questions'] ?? $data['questions'] ?? []) as $order => $item) {
+            $item = is_array($item) ? $item : ['text' => $item];
+            $text = trim((string) ($item['text'] ?? $item['question_text'] ?? ''));
+            if ($text !== '') $questionStmt->execute([$id, $text, empty($item['id']) ? 1 : 0, $order + 1]);
+        }
+
+        $coverageStmt = $this->db->prepare('INSERT INTO lesson_plan_coverage_items (lesson_plan_id, coverage_text, expected, delivered, deviation_reason, reflection, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        foreach ((array) ($data['coverage_items'] ?? []) as $order => $item) {
+            $item = is_array($item) ? $item : ['text' => $item];
+            $text = trim((string) ($item['text'] ?? $item['coverage_text'] ?? ''));
+            if ($text !== '') $coverageStmt->execute([$id, $text, array_key_exists('expected', $item) ? (int) !!$item['expected'] : 1, (int) !!($item['delivered'] ?? false), $item['deviation_reason'] ?? null, $item['reflection'] ?? null, $order + 1]);
         }
     }
 
@@ -1827,6 +2169,50 @@ class AcademicAPI extends BaseAPI
         return (int) ($stmt->fetchColumn() ?: 0);
     }
 
+    private function resolveStreamLearningAreaId($academicYearClassStreamId, $learningAreaId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT aysla.id
+             FROM academic_year_class_stream_learning_areas aysla
+             JOIN academic_year_class_learning_areas aycla ON aycla.id = aysla.academic_year_class_learning_area_id
+             WHERE aysla.academic_year_class_stream_id = ? AND aycla.learning_area_id = ?
+               AND aysla.status <> 'skipped'
+             LIMIT 1"
+        );
+        $stmt->execute([(int) $academicYearClassStreamId, (int) $learningAreaId]);
+        return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /** Exact academic assignment check used by teacher-owned authoring operations. */
+    private function teacherCanUseStreamLearningArea($streamLearningAreaId, $teacherId)
+    {
+        if (!$streamLearningAreaId || !$teacherId) {
+            return false;
+        }
+        $stmt = $this->db->prepare(
+            "SELECT 1 FROM vw_teacher_effective_stream_learning_areas
+             WHERE staff_id = ? AND academic_year_class_stream_learning_area_id = ?
+             LIMIT 1"
+        );
+        $stmt->execute([(int) $teacherId, (int) $streamLearningAreaId]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    private function resolveSingleTeacherStreamId($classId, $learningAreaId, $teacherId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT ts.academic_year_class_stream_id
+             FROM vw_teacher_effective_stream_learning_areas ts
+             JOIN academic_year_class_streams aycs ON aycs.id = ts.academic_year_class_stream_id
+             JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+             WHERE ts.staff_id = ? AND ts.learning_area_id = ? AND ayc.class_id = ?
+             LIMIT 2"
+        );
+        $stmt->execute([(int) $teacherId, (int) $learningAreaId, (int) $classId]);
+        $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        return count($ids) === 1 ? (int) $ids[0] : 0;
+    }
+
     /**
      * Resolve the academic_year_calendar_days row for a given date.
      */
@@ -1841,6 +2227,79 @@ class AcademicAPI extends BaseAPI
         ");
         $stmt->execute([$date]);
         return (int) ($stmt->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Resolve and validate the only legal source for a new lesson plan.
+     * A lesson date must be an actual day in the scheme's calendar week and
+     * the scheme must belong to the exact stream-learning-area assignment.
+     */
+    private function resolveApprovedSchemeLessonContext(int $schemeId, string $date, int $teacherId, bool $leader = false): ?array
+    {
+        if ($schemeId <= 0 || $date === '' || $teacherId <= 0) {
+            return null;
+        }
+        $sql = "SELECT sw.id AS scheme_id,
+                       sw.teacher_id,
+                       sw.academic_year_class_stream_learning_area_id AS stream_learning_area_id,
+                       sw.academic_year_calendar_week_id AS week_id,
+                       sw.status AS scheme_status,
+                       st.learning_area_id,
+                       st.strand_id,
+                       st.sub_strand_id,
+                       aysla.academic_year_class_stream_id,
+                       aycs.stream_id,
+                       ayc.class_id,
+                       aycal.academic_year_term_id,
+                       ayt.academic_year_id,
+                       d.id AS calendar_day_id
+                FROM schemes_of_work sw
+                JOIN scheme_templates st ON st.id = sw.scheme_template_id
+                JOIN academic_year_class_stream_learning_areas aysla
+                  ON aysla.id = sw.academic_year_class_stream_learning_area_id
+                 AND aysla.status <> 'skipped'
+                JOIN academic_year_class_streams aycs ON aycs.id = aysla.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN academic_year_calendar aycal ON aycal.id = sw.academic_year_calendar_week_id
+                JOIN academic_year_terms ayt ON ayt.id = aycal.academic_year_term_id
+                JOIN academic_year_calendar_days d
+                  ON d.academic_year_calendar_id = aycal.id AND d.date = ?
+                WHERE sw.id = ?
+                  AND sw.status = 'approved'
+                  AND aycs.status = 'active'
+                LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$date, $schemeId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+
+        // Teachers are always bound to the active year/term. Leaders may
+        // review historical material but still cannot create against an
+        // unconfigured stream-learning-area context.
+        if (!$leader) {
+            $current = $this->db->query(
+                "SELECT ayt.id, ayt.academic_year_id
+                 FROM academic_year_terms ayt
+                 JOIN academic_years ay ON ay.id = ayt.academic_year_id
+                 WHERE ay.is_current = 1 AND ayt.status = 'current'
+                 ORDER BY ayt.id DESC LIMIT 1"
+            )->fetch(PDO::FETCH_ASSOC);
+            if (!$current || (int) $current['id'] !== (int) $row['academic_year_term_id']) {
+                return null;
+            }
+            if ((int) $row['teacher_id'] !== $teacherId || !$this->teacherCanUseStreamLearningArea((int) $row['stream_learning_area_id'], $teacherId)) {
+                return null;
+            }
+        }
+        $row['learning_area_id'] = (int) $row['learning_area_id'];
+        $row['class_id'] = (int) $row['class_id'];
+        $row['stream_learning_area_id'] = (int) $row['stream_learning_area_id'];
+        $row['academic_year_class_stream_id'] = (int) $row['academic_year_class_stream_id'];
+        $row['stream_id'] = (int) $row['stream_id'];
+        $row['calendar_day_id'] = (int) $row['calendar_day_id'];
+        return $row;
     }
 
     public function getCurriculumUnits($params = [])
@@ -2070,7 +2529,7 @@ class AcademicAPI extends BaseAPI
             $sql = "
                 SELECT id, name, code, description, status
                 FROM school_levels
-                WHERE status = 'active'
+                WHERE la.status = 'active'
                 ORDER BY id ASC
             ";
 
@@ -2598,6 +3057,42 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $filters['status'];
             }
 
+            // Leaders may review school-wide schemes, but a teacher-authoring
+            // view can request only the authenticated leader's own schemes.
+            if (!empty($filters['teacher_id']) && $this->isAcademicLeader()) {
+                $where[] = 'sw.teacher_id = ?';
+                $bindings[] = (int) $filters['teacher_id'];
+            }
+
+            if (!$this->isAcademicLeader()) {
+                $staffId = $this->getCurrentStaffId();
+                $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(
+                    ['user_id' => $this->getCurrentUserId()],
+                    $this->resolveCurrentAcademicYearId(),
+                    null
+                );
+                $where[] = 'sw.teacher_id = ?';
+                $bindings[] = (int) $staffId;
+                $where[] = 'ayt.id = ?';
+                $currentTermId = $this->db->query(
+                    "SELECT id FROM academic_year_terms
+                     WHERE academic_year_id = " . (int) $this->resolveCurrentAcademicYearId() . " AND status = 'current'
+                     ORDER BY id DESC LIMIT 1"
+                )->fetchColumn();
+                $bindings[] = (int) $currentTermId;
+                $parts = [];
+                foreach ((array) ($scope['class_stream_ids'] ?? []) as $stream) {
+                    $parts[] = 'ays.id = ?';
+                    $bindings[] = (int) $stream;
+                }
+                foreach ((array) ($scope['subject_assignments'] ?? []) as $assignment) {
+                    $parts[] = '(ays.id = ? AND st.learning_area_id = ?)';
+                    $bindings[] = (int) ($assignment['stream_id'] ?? 0);
+                    $bindings[] = (int) ($assignment['learning_area_id'] ?? 0);
+                }
+                $where[] = $parts ? '(' . implode(' OR ', $parts) . ')' : '1 = 0';
+            }
+
             $sql = "
                 SELECT 
                     sw.id,
@@ -2607,31 +3102,52 @@ return errorResponse($e->getMessage(), 400);
                     la.name as subject_name,
                     la.name as learning_area_name,
                     ayc.class_id as class_id,
+                    ays.id as academic_year_class_stream_id,
+                    ays.stream_id,
+                    aysla.id as academic_year_class_stream_learning_area_id,
                     c.name as class_name,
+                    sn.name as stream_name,
                     sw.teacher_id,
                     CONCAT(sp.first_name, ' ', sp.last_name) as teacher_name,
                     ayt.id as term_id,
                     SUBSTRING(t.code, 2) as term_number,
                     ac.week_number,
+                    ac.week_start,
+                    ac.week_end,
+                    st.strand_id,
+                    st.sub_strand_id,
+                    strand.name as strand_name,
+                    substrand.name as sub_strand_name,
                     ac.week_number as topic_count,
                     st.title,
                     st.activities,
                     st.resources,
                     st.assessment_methods,
+                    sw.scheme_workbook_id,
+                    swb.title AS workbook_title,
+                    swb.status AS workbook_status,
+                    swb.revision_number,
+                    swb.parent_workbook_id,
                     sw.status,
                     sw.approved_by,
                     ayc.academic_year_id
                 FROM schemes_of_work sw
                 JOIN scheme_templates st ON st.id = sw.scheme_template_id
                 LEFT JOIN learning_areas la ON la.id = st.learning_area_id
+                LEFT JOIN strands strand ON strand.id = st.strand_id
+                LEFT JOIN sub_strands substrand ON substrand.id = st.sub_strand_id
+                LEFT JOIN academic_year_class_stream_learning_areas aysla ON aysla.id = sw.academic_year_class_stream_learning_area_id
+                LEFT JOIN academic_year_class_streams ays ON ays.id = aysla.academic_year_class_stream_id
+                LEFT JOIN streams sn ON sn.id = ays.stream_id
                 LEFT JOIN academic_year_class_learning_areas aycla ON aycla.id = sw.academic_year_class_learning_area_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = aycla.academic_year_class_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = COALESCE(ays.academic_year_class_id, aycla.academic_year_class_id)
                 LEFT JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN academic_year_calendar ac ON ac.id = sw.academic_year_calendar_week_id
                 LEFT JOIN academic_year_terms ayt ON ayt.id = ac.academic_year_term_id
                 LEFT JOIN terms t ON t.id = ayt.term_id
                 LEFT JOIN staff s ON s.id = sw.teacher_id
                 LEFT JOIN persons sp ON sp.id = s.person_id
+                LEFT JOIN scheme_workbooks swb ON swb.id = sw.scheme_workbook_id
                 WHERE " . implode(' AND ', $where) . "
                 ORDER BY ayt.id, ac.week_number, sw.id
             ";
@@ -2666,11 +3182,228 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
+    /** Current, exact teacher planning context for the weekly scheme builder. */
+    public function getTeacherPlanningContext()
+    {
+        try {
+            $yearId = $this->resolveCurrentAcademicYearId();
+            $term = $this->db->prepare("SELECT ayt.id, t.name AS term_name, ay.year_code FROM academic_year_terms ayt JOIN terms t ON t.id=ayt.term_id JOIN academic_years ay ON ay.id=ayt.academic_year_id WHERE ayt.academic_year_id=? AND ayt.status='current' LIMIT 1");
+            $term->execute([$yearId]);
+            $termRow = $term->fetch(PDO::FETCH_ASSOC);
+            if (!$termRow) return errorResponse('No current academic term is configured', 409);
+            $scope = (new \App\API\Services\TeacherScopeService($this->db))->forUser(['user_id' => $this->getCurrentUserId()], $yearId, (int) $termRow['id']);
+            $classStreams = array_values(array_filter(array_map('intval', (array) ($scope['class_stream_ids'] ?? []))));
+            $subjectPairs = [];
+            foreach ((array) ($scope['subject_assignments'] ?? []) as $a) {
+                $subjectPairs[(int) ($a['stream_id'] ?? 0) . ':' . (int) ($a['learning_area_id'] ?? 0)] = true;
+            }
+            $streamIds = array_values(array_unique(array_merge($classStreams, array_map(function ($a) { return (int) ($a['stream_id'] ?? 0); }, (array) ($scope['subject_assignments'] ?? [])))));
+            $streams = [];
+            if ($streamIds) {
+                $in = implode(',', array_fill(0, count($streamIds), '?'));
+                $stmt = $this->db->prepare("SELECT DISTINCT ays.id AS academic_year_class_stream_id, ays.stream_id, ayc.class_id, c.name AS class_name, sn.name AS stream_name, aysla.id AS stream_learning_area_id, ayla.learning_area_id, la.name AS learning_area_name FROM academic_year_class_streams ays JOIN academic_year_classes ayc ON ayc.id=ays.academic_year_class_id JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams sn ON sn.id=ays.stream_id JOIN academic_year_class_stream_learning_areas aysla ON aysla.academic_year_class_stream_id=ays.id AND aysla.status <> 'skipped' JOIN academic_year_class_learning_areas ayla ON ayla.id=aysla.academic_year_class_learning_area_id JOIN learning_areas la ON la.id=ayla.learning_area_id WHERE ays.id IN ($in) AND ayc.academic_year_id=? ORDER BY c.name, sn.name, la.name");
+                $stmt->execute(array_merge($streamIds, [$yearId]));
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $sid = (int) $row['academic_year_class_stream_id'];
+                    $area = (int) $row['learning_area_id'];
+                    if (!in_array($sid, $classStreams, true) && empty($subjectPairs[$sid . ':' . $area])) continue;
+                    if (!isset($streams[$sid])) $streams[$sid] = ['academic_year_class_stream_id'=>$sid,'stream_id'=>(int)$row['stream_id'],'class_id'=>(int)$row['class_id'],'class_name'=>$row['class_name'],'stream_name'=>$row['stream_name'],'learning_areas'=>[]];
+                    $streams[$sid]['learning_areas'][] = ['id'=>$area,'name'=>$row['learning_area_name'],'stream_learning_area_id'=>(int)$row['stream_learning_area_id']];
+                }
+            }
+            $weeksStmt = $this->db->prepare("SELECT id, week_number, week_start, week_end, week_purpose, reserved_reason, (week_purpose='reserved') AS is_reserved FROM academic_year_calendar WHERE academic_year_term_id=? ORDER BY week_number");
+            $weeksStmt->execute([(int) $termRow['id']]);
+            $areas = [];
+            $scopeGrades = [];
+            foreach ($streams as $stream) {
+                $grade = trim((string)$stream['class_name']);
+                foreach ($stream['learning_areas'] as $area) {
+                    $areaId = (int)$area['id'];
+                    $areas[$areaId] = true;
+                    $scopeGrades[(int)$stream['academic_year_class_stream_id'] . ':' . $areaId] = $grade;
+                }
+            }
+            $curriculum = [];
+            if ($areas) {
+                $ids = array_keys($areas); $in = implode(',', array_fill(0, count($ids), '?'));
+                $stmt = $this->db->prepare("SELECT s.id AS strand_id,s.name AS strand_name,s.variant AS strand_variant,s.source_document AS strand_source_document,s.learning_area_id,s.grade_level,ss.id AS sub_strand_id,ss.name AS sub_strand_name,ss.variant AS sub_strand_variant,ss.source_document AS sub_strand_source_document FROM strands s LEFT JOIN sub_strands ss ON ss.strand_id=s.id AND ss.status='active' WHERE s.learning_area_id IN ($in) AND s.status='active' ORDER BY s.sort_order,s.id,ss.sort_order,ss.id");
+                $stmt->execute($ids);
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) foreach ($scopeGrades as $scopeKey => $grade) {
+                    [, $areaId] = array_map('intval', explode(':', $scopeKey, 2));
+                    if ($areaId === (int)$row['learning_area_id'] && $grade === (string)$row['grade_level']) {
+                        $curriculum[$scopeKey][] = $row;
+                    }
+                }
+
+                // Return the normalized KICD planning material with the
+                // strand tree. Teachers should select an authorised
+                // curriculum item and receive its approved outcomes,
+                // suggested experiences and inquiry questions immediately.
+                $subIds = [];
+                foreach ($curriculum as $curriculumRows) foreach ($curriculumRows as $row) if (!empty($row['sub_strand_id'])) $subIds[] = (int)$row['sub_strand_id'];
+                if ($subIds) {
+                    $subIds = array_values(array_unique($subIds));
+                    $subIn = implode(',', array_fill(0, count($subIds), '?'));
+                    $metadata = [];
+                    $meta = $this->db->prepare("SELECT id AS item_id, sub_strand_id, outcome AS value, 'outcome' AS type FROM learning_outcomes WHERE sub_strand_id IN ($subIn) UNION ALL SELECT id AS item_id, sub_strand_id, experience AS value, 'experience' AS type FROM sub_strand_suggested_experiences WHERE sub_strand_id IN ($subIn) UNION ALL SELECT id AS item_id, sub_strand_id, question AS value, 'question' AS type FROM sub_strand_key_inquiry_questions WHERE sub_strand_id IN ($subIn) ORDER BY sub_strand_id, type, value");
+                    $meta->execute(array_merge($subIds, $subIds, $subIds));
+                    foreach ($meta->fetchAll(PDO::FETCH_ASSOC) as $item) $metadata[(int)$item['sub_strand_id']][$item['type']][] = ['id'=>(int)$item['item_id'],'text'=>$item['value']];
+                    foreach ($curriculum as $areaId => &$curriculumRows) foreach ($curriculumRows as &$row) {
+                        $values = $metadata[(int)$row['sub_strand_id']] ?? [];
+                        $row['learning_outcomes'] = array_values(array_unique(array_column($values['outcome'] ?? [], 'text')));
+                        $row['learning_outcome_ids'] = array_column($values['outcome'] ?? [], 'id');
+                        $row['suggested_experiences'] = array_values(array_unique(array_column($values['experience'] ?? [], 'text')));
+                        $row['suggested_experience_ids'] = array_column($values['experience'] ?? [], 'id');
+                        $row['key_inquiry_questions'] = array_values(array_unique(array_column($values['question'] ?? [], 'text')));
+
+                        $resource = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id");
+                        $resource->execute([(int)$row['sub_strand_id']]);
+                        $row['resources'] = $resource->fetchAll(PDO::FETCH_ASSOC);
+                        $competency = $this->db->prepare("SELECT cc.id, cc.code, cc.name, ssc.weight FROM sub_strand_competencies ssc JOIN core_competencies cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order, cc.id");
+                        $competency->execute([(int)$row['sub_strand_id']]);
+                        $row['competencies'] = $competency->fetchAll(PDO::FETCH_ASSOC);
+                        $rubric = $this->db->prepare("SELECT id, level_number, level_label, descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order, level_number");
+                        $rubric->execute([(int)$row['sub_strand_id']]);
+                        $row['rubrics'] = $rubric->fetchAll(PDO::FETCH_ASSOC);
+                        $tools = $this->db->prepare("SELECT DISTINCT at.id, at.tool_name AS name, at.tool_code, at.description, at.assessment_type_id FROM assessment_tools at LEFT JOIN sub_strand_assessment_tools ssat ON ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=? WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY (ssat.is_recommended IS NULL), ssat.sort_order, at.tool_name");
+                        $tools->execute([(int)$row['sub_strand_id'], (int)$row['learning_area_id'], (int)$row['learning_area_id']]);
+                        $row['assessment_tools'] = $tools->fetchAll(PDO::FETCH_ASSOC);
+                        $toolIds = array_values(array_filter(array_map('intval', array_column($row['assessment_tools'], 'id'))));
+                        $row['assessment_rubrics'] = [];
+                        if ($toolIds) {
+                            $toolIn = implode(',', array_fill(0, count($toolIds), '?'));
+                            $assessmentRubrics = $this->db->prepare("SELECT id, tool_id, criteria_name, level_1_descriptor, level_2_descriptor, level_3_descriptor, level_4_descriptor FROM assessment_rubrics WHERE tool_id IN ($toolIn) ORDER BY tool_id, sort_order, id");
+                            $assessmentRubrics->execute($toolIds);
+                            $row['assessment_rubrics'] = $assessmentRubrics->fetchAll(PDO::FETCH_ASSOC);
+                        }
+                    }
+                    unset($curriculumRows, $row);
+                }
+            }
+            $draftsStmt=$this->db->prepare("SELECT id,academic_year_class_stream_learning_area_id,title,payload,updated_at FROM scheme_workbooks WHERE academic_year_term_id=? AND teacher_id=? AND status='draft'"); $draftsStmt->execute([(int)$termRow['id'],(int)$this->getCurrentStaffId()]); $drafts=$draftsStmt->fetchAll(PDO::FETCH_ASSOC); foreach($drafts as &$draft)$draft['payload']=json_decode((string)$draft['payload'],true) ?: [];
+            return successResponse(['academic_year_id'=>$yearId,'academic_year_term_id'=>(int)$termRow['id'],'year_code'=>$termRow['year_code'],'term_name'=>$termRow['term_name'],'streams'=>array_values($streams),'weeks'=>$weeksStmt->fetchAll(PDO::FETCH_ASSOC),'curriculum'=>$curriculum,'drafts'=>$drafts]);
+        } catch (Exception $e) { return $this->handleException($e); }
+    }
+
+    /** Exact approved scheme row plus atomic choices for lesson delivery. */
+    public function getLessonPlanningContext($schemeId)
+    {
+        try {
+            $schemeId = (int) $schemeId;
+            $stmt = $this->db->prepare("SELECT sw.id, sw.scheme_workbook_id, sw.status, sw.teacher_id, sw.academic_year_class_stream_learning_area_id AS stream_learning_area_id, sw.academic_year_calendar_week_id AS calendar_week_id, st.learning_area_id, st.strand_id, st.sub_strand_id, st.title, s.name AS strand_name, ss.name AS sub_strand_name, s.variant AS strand_variant, s.source_document AS strand_source_document, ss.variant AS sub_strand_variant, ss.source_document AS sub_strand_source_document, ac.week_number, ac.week_start, ac.week_end, ayc.class_id AS class_id, ays.stream_id AS stream_id, la.name AS learning_area_name, c.name AS class_name, sn.name AS stream_name FROM schemes_of_work sw JOIN scheme_templates st ON st.id=sw.scheme_template_id JOIN strands s ON s.id=st.strand_id JOIN sub_strands ss ON ss.id=st.sub_strand_id JOIN learning_areas la ON la.id=st.learning_area_id LEFT JOIN academic_year_class_stream_learning_areas aysla ON aysla.id=sw.academic_year_class_stream_learning_area_id LEFT JOIN academic_year_class_streams ays ON ays.id=aysla.academic_year_class_stream_id LEFT JOIN academic_year_classes ayc ON ayc.id=ays.academic_year_class_id LEFT JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams sn ON sn.id=ays.stream_id JOIN academic_year_calendar ac ON ac.id=sw.academic_year_calendar_week_id WHERE sw.id=? AND sw.status='approved' LIMIT 1");
+            $stmt->execute([$schemeId]);
+            $scheme = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$scheme) return errorResponse('Approved scheme row not found', 404);
+            if (!$this->isAcademicLeader() && (int)$scheme['teacher_id'] !== (int)$this->getCurrentStaffId()) return errorResponse('You are not assigned to this scheme row', 403);
+            $sub = (int)$scheme['sub_strand_id'];
+            $out = $this->db->prepare('SELECT id, outcome AS text FROM learning_outcomes WHERE sub_strand_id=? ORDER BY id'); $out->execute([$sub]);
+            $exp = $this->db->prepare('SELECT id, experience AS text FROM sub_strand_suggested_experiences WHERE sub_strand_id=? ORDER BY sort_order,id'); $exp->execute([$sub]);
+            $q = $this->db->prepare('SELECT id, question AS text FROM sub_strand_key_inquiry_questions WHERE sub_strand_id=? ORDER BY sort_order,id'); $q->execute([$sub]);
+            $res = $this->db->prepare("SELECT id, resource_name AS name, resource_type AS type, resource_url AS url, description FROM sub_strand_resources WHERE sub_strand_id=? AND status='active' ORDER BY id"); $res->execute([$sub]);
+            $comp = $this->db->prepare("SELECT cc.id,cc.code,cc.name,ssc.weight FROM sub_strand_competencies ssc JOIN core_competencies cc ON cc.id=ssc.competency_id WHERE ssc.sub_strand_id=? AND cc.status='active' ORDER BY cc.sort_order,cc.id"); $comp->execute([$sub]);
+            $rub = $this->db->prepare('SELECT id,level_number,level_label,descriptor FROM sub_strand_rubrics WHERE sub_strand_id=? ORDER BY sort_order,level_number'); $rub->execute([$sub]);
+            $tools = $this->db->prepare("SELECT DISTINCT at.id,at.tool_name AS name,at.tool_code,at.description,at.assessment_type_id FROM assessment_tools at WHERE at.status='active' AND (at.learning_area_id=? OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=?)) ORDER BY at.tool_name"); $tools->execute([(int)$scheme['learning_area_id'], (int)$scheme['learning_area_id']]);
+            $days = $this->db->prepare('SELECT id,date,title FROM academic_year_calendar_days WHERE academic_year_calendar_id=? ORDER BY date'); $days->execute([(int)$scheme['calendar_week_id']]);
+            $toolRows = $tools->fetchAll(PDO::FETCH_ASSOC);
+            $toolIds = array_values(array_filter(array_map('intval', array_column($toolRows, 'id'))));
+            $assessmentRubrics = [];
+            if ($toolIds) { $in = implode(',', array_fill(0, count($toolIds), '?')); $ar = $this->db->prepare("SELECT id,tool_id,criteria_name,level_1_descriptor,level_2_descriptor,level_3_descriptor,level_4_descriptor FROM assessment_rubrics WHERE tool_id IN ($in) ORDER BY tool_id,sort_order,id"); $ar->execute($toolIds); $assessmentRubrics = $ar->fetchAll(PDO::FETCH_ASSOC); }
+            // A scheme row may have been created from a workbook item. Return
+            // the exact choices saved on that item so lesson-plan creation
+            // opens with the teacher's scheme selections already checked.
+            $selected = ['outcome_ids'=>[], 'outcomes'=>[], 'experience_ids'=>[], 'experiences'=>[], 'inquiry_question_ids'=>[], 'competency_ids'=>[], 'tool_ids'=>[], 'rubric_ids'=>[], 'assessment_rubric_ids'=>[]];
+            if (!empty($scheme['scheme_workbook_id'])) {
+                $item = $this->db->prepare("SELECT swi.id FROM scheme_workbook_items swi JOIN scheme_workbook_weeks sww ON sww.id=swi.workbook_week_id WHERE sww.workbook_id=? AND sww.academic_year_calendar_week_id=? AND swi.strand_id=? AND swi.sub_strand_id=? AND swi.title=? ORDER BY swi.id LIMIT 1");
+                $item->execute([(int)$scheme['scheme_workbook_id'], (int)$scheme['calendar_week_id'], (int)$scheme['strand_id'], (int)$scheme['sub_strand_id'], (string)$scheme['title']]);
+                $itemId = (int)($item->fetchColumn() ?: 0);
+                if ($itemId) {
+                    $readIds = function (string $table, string $column) use ($itemId): array {
+                        // Several normalized junction tables use a composite
+                        // primary key and intentionally have no surrogate id.
+                        $stmt = $this->db->prepare("SELECT {$column} FROM {$table} WHERE workbook_item_id=? ORDER BY sort_order");
+                        $stmt->execute([$itemId]);
+                        return array_values(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN)));
+                    };
+                    $selected['outcome_ids'] = $readIds('scheme_workbook_item_outcomes', 'learning_outcome_id');
+                    $selected['experience_ids'] = $readIds('scheme_workbook_item_experiences', 'suggested_experience_id');
+                    $savedOutcomes = $this->db->prepare('SELECT learning_outcome_id AS id, outcome_text AS text FROM scheme_workbook_item_outcomes WHERE workbook_item_id=? ORDER BY sort_order');
+                    $savedOutcomes->execute([$itemId]);
+                    $selected['outcomes'] = $savedOutcomes->fetchAll(PDO::FETCH_ASSOC);
+                    $savedExperiences = $this->db->prepare('SELECT suggested_experience_id AS id, experience_text AS text FROM scheme_workbook_item_experiences WHERE workbook_item_id=? ORDER BY sort_order');
+                    $savedExperiences->execute([$itemId]);
+                    $selected['experiences'] = $savedExperiences->fetchAll(PDO::FETCH_ASSOC);
+                    $selected['inquiry_question_ids'] = $readIds('scheme_workbook_item_questions', 'id');
+                    $selected['competency_ids'] = $readIds('scheme_workbook_item_competencies', 'competency_id');
+                    $selected['tool_ids'] = $readIds('scheme_workbook_item_assessment_tools', 'assessment_tool_id');
+                    $selected['rubric_ids'] = $readIds('scheme_workbook_item_sub_strand_rubrics', 'sub_strand_rubric_id');
+                    $selected['assessment_rubric_ids'] = $readIds('scheme_workbook_item_assessment_rubrics', 'assessment_rubric_id');
+                }
+            }
+            $scheme['selected'] = $selected;
+            $scheme['choices'] = ['outcomes'=>$out->fetchAll(PDO::FETCH_ASSOC),'experiences'=>$exp->fetchAll(PDO::FETCH_ASSOC),'inquiry_questions'=>$q->fetchAll(PDO::FETCH_ASSOC),'resources'=>$res->fetchAll(PDO::FETCH_ASSOC),'competencies'=>$comp->fetchAll(PDO::FETCH_ASSOC),'rubrics'=>$rub->fetchAll(PDO::FETCH_ASSOC),'assessment_tools'=>$toolRows,'assessment_rubrics'=>$assessmentRubrics,'calendar_days'=>$days->fetchAll(PDO::FETCH_ASSOC)];
+            return successResponse($scheme);
+        } catch (Exception $e) { return $this->handleException($e); }
+    }
+
+    /** Administrative queue for legacy content that cannot be safely guessed. */
+    public function getLegacyContentReconciliation()
+    {
+        if (!$this->isAcademicLeader()) return errorResponse('Academic leadership access required', 403);
+        $stmt = $this->db->query("SELECT q.*, sw.academic_year_class_learning_area_id, sw.academic_year_calendar_week_id, sw.teacher_id, st.learning_area_id, st.title FROM academic_content_reconciliation_queue q LEFT JOIN schemes_of_work sw ON q.content_type='scheme_of_work' AND sw.id=q.content_id LEFT JOIN scheme_templates st ON st.id=sw.scheme_template_id WHERE q.status IN ('manual_required','legacy_unresolved','open') ORDER BY q.status='manual_required' DESC, q.id");
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($items as &$item) {
+            $item['candidates'] = [];
+            $item['available_weeks'] = [];
+            if ($item['content_type'] === 'scheme_of_work' && !empty($item['academic_year_class_learning_area_id'])) {
+                $c = $this->db->prepare("SELECT aysla.id AS stream_learning_area_id, ays.id AS academic_year_class_stream_id, c.name AS class_name, sn.name AS stream_name, ac.id AS calendar_week_id, ac.week_number, ac.week_start, ac.week_end FROM schemes_of_work sw JOIN academic_year_class_learning_areas aycla ON aycla.id=sw.academic_year_class_learning_area_id JOIN academic_year_class_stream_learning_areas aysla ON aysla.academic_year_class_learning_area_id=aycla.id AND aysla.status <> 'skipped' JOIN academic_year_class_streams ays ON ays.id=aysla.academic_year_class_stream_id JOIN academic_year_classes ayc ON ayc.id=ays.academic_year_class_id JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams sn ON sn.id=ays.stream_id LEFT JOIN academic_year_calendar ac ON ac.id=sw.academic_year_calendar_week_id LEFT JOIN vw_teacher_effective_stream_learning_areas ts ON ts.academic_year_class_stream_learning_area_id=aysla.id AND ts.staff_id=sw.teacher_id WHERE sw.id=?");
+                $c->execute([(int)$item['content_id']]); $item['candidates']=$c->fetchAll(PDO::FETCH_ASSOC);
+                $w = $this->db->prepare("SELECT ac.id, ac.week_number, ac.week_start, ac.week_end FROM schemes_of_work sw JOIN academic_year_class_learning_areas aycla ON aycla.id=sw.academic_year_class_learning_area_id JOIN academic_year_classes ayc ON ayc.id=aycla.academic_year_class_id JOIN academic_year_terms ayt ON ayt.academic_year_id=ayc.academic_year_id JOIN academic_year_calendar ac ON ac.academic_year_term_id=ayt.id WHERE sw.id=? ORDER BY ayt.id, ac.week_number");
+                $w->execute([(int)$item['content_id']]); $item['available_weeks']=$w->fetchAll(PDO::FETCH_ASSOC);
+            }
+        }
+        return successResponse(['items'=>$items]);
+    }
+
+    /** Resolve one legacy item using an administrator-selected canonical context. */
+    public function resolveLegacyAcademicContent(array $data)
+    {
+        if (!$this->isAcademicLeader()) return errorResponse('Academic leadership access required', 403);
+        $queueId=(int)($data['queue_id']??0); $streamArea=(int)($data['stream_learning_area_id']??0); $week=(int)($data['calendar_week_id']??0); $schemeId=(int)($data['scheme_of_work_id']??0);
+        if (!$queueId || !$streamArea) return errorResponse('queue_id and stream_learning_area_id are required',400);
+        $q=$this->db->prepare("SELECT * FROM academic_content_reconciliation_queue WHERE id=? AND status IN ('open','manual_required','legacy_unresolved')"); $q->execute([$queueId]); $row=$q->fetch(PDO::FETCH_ASSOC); if(!$row)return errorResponse('Reconciliation item not found',404);
+        if ($row['content_type']==='scheme_of_work' && !$week) return errorResponse('calendar_week_id is required for a scheme',400);
+        if ($row['content_type']==='lesson_plan' && (!$schemeId || !$week)) return errorResponse('scheme_of_work_id and calendar_week_id are required for a lesson',400);
+        $this->db->beginTransaction();
+        try {
+            if ($row['content_type']==='scheme_of_work') {
+                $check=$this->db->prepare("SELECT 1 FROM academic_year_class_stream_learning_areas aysla JOIN schemes_of_work sw ON sw.id=? WHERE aysla.id=? AND aysla.academic_year_class_learning_area_id=sw.academic_year_class_learning_area_id"); $check->execute([(int)$row['content_id'],$streamArea]); if(!$check->fetchColumn()) throw new Exception('Selected stream-learning-area is not valid for this scheme');
+                $this->db->prepare("UPDATE schemes_of_work SET academic_year_class_stream_learning_area_id=?, academic_year_calendar_week_id=? WHERE id=?")->execute([$streamArea,$week,(int)$row['content_id']]);
+            } else {
+                $check=$this->db->prepare("SELECT 1 FROM schemes_of_work sw JOIN lesson_plans lp ON lp.id=? WHERE sw.id=? AND sw.academic_year_class_stream_learning_area_id=? AND sw.academic_year_calendar_week_id=?"); $check->execute([(int)$row['content_id'],$schemeId,$streamArea,$week]); if(!$check->fetchColumn()) throw new Exception('Selected scheme does not match the lesson context');
+                $this->db->prepare("UPDATE lesson_plans SET scheme_of_work_id=?, academic_year_class_stream_learning_area_id=? WHERE id=?")->execute([$schemeId,$streamArea,(int)$row['content_id']]);
+            }
+            $this->db->prepare("UPDATE academic_content_reconciliation_queue SET status='resolved', resolution_type='manual', resolved_by=?, resolved_at=NOW() WHERE id=?")->execute([$this->getCurrentStaffId(),$queueId]);
+            $this->db->commit(); return successResponse(['queue_id'=>$queueId,'status'=>'resolved']);
+        } catch (Exception $e) { if($this->db->inTransaction())$this->db->rollBack(); return errorResponse($e->getMessage(),400); }
+    }
+
     public function createSchemeOfWork($data)
     {
         try {
             $data = $this->normalizeSchemeOfWorkPayload($data);
+            $leader = $this->isAcademicLeader();
+            if (!$leader && $this->getCurrentStaffId()) {
+                $data['teacher_id'] = $this->getCurrentStaffId();
+                $data['academic_year_id'] = $this->resolveCurrentAcademicYearId();
+                $currentTerm = $this->db->query(
+                    "SELECT id FROM academic_year_terms
+                     WHERE academic_year_id = " . (int) $data['academic_year_id'] . " AND status = 'current'
+                     ORDER BY id DESC LIMIT 1"
+                )->fetchColumn();
+                $data['term_id'] = (int) ($currentTerm ?: 0);
+            }
             $required = ['learning_area_id', 'class_id', 'teacher_id', 'term_id', 'week_number', 'title'];
+            if (!$leader) $required[] = 'stream_id';
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse([
@@ -2680,27 +3413,42 @@ return errorResponse($e->getMessage(), 400);
                 ], 400);
             }
 
+            // Templates are uniquely keyed by learning area/strand/sub-strand/title.
+            // Reuse the canonical template; the week-specific planning content
+            // belongs to the scheme/workbook row, not a duplicate template.
             $templateId = $this->ensureSchemeTemplate($data);
 
             $academicYearId = !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : $this->resolveCurrentAcademicYearId();
             $ayClassId = $this->resolveAcademicYearClassId($data['class_id'], $academicYearId);
             $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $data['learning_area_id']) : null;
+            $aycsId = !empty($data['stream_id'])
+                ? $this->resolveAcademicYearClassStreamId($data['class_id'], $data['stream_id'], $academicYearId)
+                : $this->resolveSingleTeacherStreamId((int) $data['class_id'], (int) $data['learning_area_id'], (int) $data['teacher_id']);
+            $streamLearningAreaId = $aycsId > 0 ? $this->resolveStreamLearningAreaId($aycsId, $data['learning_area_id']) : 0;
+            if (!$streamLearningAreaId || !$this->teacherCanUseStreamLearningArea($streamLearningAreaId, (int) $data['teacher_id'])) {
+                return errorResponse('The teacher is not assigned to this stream and learning area', 403);
+            }
             $weekId = $this->resolveCalendarWeekId($data['term_id'], $data['week_number']);
+            if (!$weekId) {
+                return errorResponse('The selected week is not configured in the current academic calendar', 400);
+            }
 
             $sql = "
                 INSERT INTO schemes_of_work (
                     scheme_template_id,
                     academic_year_class_learning_area_id,
+                    academic_year_class_stream_learning_area_id,
                     academic_year_calendar_week_id,
                     teacher_id,
                     status
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $templateId,
                 $ayclaId,
+                $streamLearningAreaId,
                 $weekId,
                 $data['teacher_id'],
                 $this->normalizeSchemeStatus($data['status'] ?? 'draft'),
@@ -2718,16 +3466,248 @@ return errorResponse($e->getMessage(), 400);
         }
     }
 
+    /** Create a complete multi-week scheme atomically. */
+    public function createSchemeOfWorkBatch($data)
+    {
+        try {
+            $entries = is_array($data['weeks'] ?? null) ? $data['weeks'] : [];
+            $workbookId = (int)($data['workbook_id'] ?? 0);
+            $classId = (int)($data['class_id'] ?? 0); $streamId = (int)($data['stream_id'] ?? 0); $areaId = (int)($data['learning_area_id'] ?? 0);
+            $staffId = $this->getCurrentStaffId();
+            if (!$classId || !$streamId || !$areaId || !$staffId || !$entries) return errorResponse('Stream, learning area and at least one planned week are required',400);
+            if (!$this->isAcademicLeader()) {
+                $yearId=$this->resolveCurrentAcademicYearId();
+                $termId=(int)($this->db->query("SELECT id FROM academic_year_terms WHERE academic_year_id=".(int)$yearId." AND status='current' ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
+                $data['academic_year_id']=$yearId; $data['term_id']=$termId; $data['teacher_id']=$staffId;
+            } else { $yearId=(int)($data['academic_year_id']??$this->resolveCurrentAcademicYearId()); $termId=(int)($data['term_id']??0); }
+            if (!$termId) return errorResponse('No current academic term is configured',409);
+            $aycsId=$this->resolveAcademicYearClassStreamId($classId,$streamId,$yearId); $streamAreaId=$this->resolveStreamLearningAreaId($aycsId,$areaId);
+            if (!$streamAreaId || !$this->teacherCanUseStreamLearningArea($streamAreaId,$staffId)) return errorResponse('You are not assigned to this stream and learning area',403);
+            $ayClassId=$this->resolveAcademicYearClassId($classId,$yearId); $ayclaId=$this->resolveClassLearningAreaId($ayClassId,$areaId);
+            if (!$ayclaId) return errorResponse('The selected learning area is not configured for this class',400);
+            $this->db->beginTransaction(); $created=[];
+            foreach ($entries as $entry) {
+                $weekNumber=(int)($entry['week_number']??0); $weekId=$this->resolveCalendarWeekId($termId,$weekNumber);
+                if (!$weekId) throw new Exception("Week {$weekNumber} is not configured in the current academic calendar");
+                $reserved=$this->db->prepare("SELECT week_purpose, reserved_reason FROM academic_year_calendar WHERE id=?"); $reserved->execute([$weekId]); $weekMeta=$reserved->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (($weekMeta['week_purpose'] ?? 'instructional') === 'reserved') continue;
+                foreach ((array)($entry['items']??[]) as $item) {
+                    $strandId=(int)($item['strand_id']??0); $subId=(int)($item['sub_strand_id']??0);
+                    $valid=$this->db->prepare("SELECT 1 FROM strands s JOIN sub_strands ss ON ss.strand_id=s.id WHERE s.id=? AND ss.id=? AND s.learning_area_id=? AND s.status='active' AND ss.status='active'"); $valid->execute([$strandId,$subId,$areaId]); if(!$valid->fetchColumn()) throw new Exception('A selected strand or sub-strand is not configured for this learning area');
+                    $title=trim((string)($item['title']??'')); if($title==='') throw new Exception("A title is required for Week {$weekNumber}");
+                    $outcomeTexts = array_map(function ($row) { return trim((string)($row['text'] ?? $row['outcome'] ?? '')); }, (array)($item['outcomes'] ?? []));
+                    $experienceTexts = array_map(function ($row) { return trim((string)($row['text'] ?? $row['experience'] ?? '')); }, (array)($item['experiences'] ?? []));
+                    $template=$this->ensureSchemeTemplate(['learning_area_id'=>$areaId,'strand_id'=>$strandId,'sub_strand_id'=>$subId,'title'=>$title,'learning_outcomes'=>implode("\n",array_filter($outcomeTexts)),'activities'=>implode("\n",array_filter($experienceTexts)),'resources'=>$item['resources']??'','assessment_methods'=>$item['assessment_methods']??'','created_by'=>$staffId]);
+                    $ins=$this->db->prepare("INSERT INTO schemes_of_work (scheme_template_id,scheme_workbook_id,academic_year_class_learning_area_id,academic_year_class_stream_learning_area_id,academic_year_calendar_week_id,teacher_id,status) VALUES (?,?,?,?,?,?,'draft')"); $ins->execute([$template,$workbookId ?: null,$ayclaId,$streamAreaId,$weekId,$staffId]); $created[]=(int)$this->db->lastInsertId();
+                }
+            }
+            $this->db->commit(); return successResponse(['created_ids'=>$created,'created_count'=>count($created)],'Multi-week scheme draft saved');
+        } catch (Exception $e) { if($this->db->inTransaction())$this->db->rollBack(); return errorResponse($e->getMessage(),400); }
+    }
+
+    private function syncSchemeWorkbookPlanningItems(int $workbookId, int $termId, array $weeks): void
+    {
+        $this->db->prepare("DELETE swi FROM scheme_workbook_items swi JOIN scheme_workbook_weeks sww ON sww.id=swi.workbook_week_id WHERE sww.workbook_id=?")->execute([$workbookId]);
+        $this->db->prepare("DELETE FROM scheme_workbook_weeks WHERE workbook_id=?")->execute([$workbookId]);
+        $weekStmt = $this->db->prepare("SELECT id, week_purpose FROM academic_year_calendar WHERE academic_year_term_id=? AND week_number=? LIMIT 1");
+        $weekInsert = $this->db->prepare("INSERT INTO scheme_workbook_weeks (workbook_id,academic_year_calendar_week_id,week_number,sort_order) VALUES (?,?,?,?)");
+        $itemInsert = $this->db->prepare("INSERT INTO scheme_workbook_items (workbook_week_id,strand_id,sub_strand_id,title,sort_order) VALUES (?,?,?,?,?)");
+        $outcomeInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_outcomes (workbook_item_id,learning_outcome_id,outcome_text,is_custom,sort_order) VALUES (?,?,?,?,?)");
+        $experienceInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_experiences (workbook_item_id,suggested_experience_id,experience_text,is_custom,sort_order) VALUES (?,?,?,?,?)");
+        $questionInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_questions (workbook_item_id,question_text,is_custom,sort_order) VALUES (?,?,?,?)");
+        $competencyInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_competencies (workbook_item_id,competency_id,sort_order) VALUES (?,?,?)");
+        $toolInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_assessment_tools (workbook_item_id,assessment_tool_id,sort_order) VALUES (?,?,?)");
+        $subRubricInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_sub_strand_rubrics (workbook_item_id,sub_strand_rubric_id,sort_order) VALUES (?,?,?)");
+        $assessmentRubricInsert = $this->db->prepare("INSERT INTO scheme_workbook_item_assessment_rubrics (workbook_item_id,assessment_rubric_id,sort_order) VALUES (?,?,?)");
+        foreach ($weeks as $weekOrder => $week) {
+            $weekNumber = (int)($week['week_number'] ?? 0);
+            if (!$weekNumber) continue;
+            $weekStmt->execute([$termId, $weekNumber]);
+            $calendarWeek = $weekStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $calendarWeekId = (int)($calendarWeek['id'] ?? 0);
+            if (!$calendarWeekId) continue;
+            $weekInsert->execute([$workbookId, $calendarWeekId, $weekNumber, $weekOrder + 1]);
+            $weekId = (int)$this->db->lastInsertId();
+            if (($calendarWeek['week_purpose'] ?? 'instructional') === 'reserved') continue;
+            foreach ((array)($week['items'] ?? []) as $itemOrder => $item) {
+                $strandId = (int)($item['strand_id'] ?? 0); $subStrandId = (int)($item['sub_strand_id'] ?? 0);
+                if (!$strandId || !$subStrandId) continue;
+                $itemInsert->execute([$weekId, $strandId, $subStrandId, trim((string)($item['title'] ?? '')) ?: null, $itemOrder + 1]);
+                $itemId = (int)$this->db->lastInsertId();
+                $outcomes = is_array($item['outcomes'] ?? null) ? $item['outcomes'] : (trim((string)($item['learning_outcomes'] ?? '')) !== '' ? [['text' => trim((string)$item['learning_outcomes']), 'custom' => true]] : []);
+                foreach ($outcomes as $order => $outcome) {
+                    $text = trim((string)($outcome['text'] ?? $outcome['outcome'] ?? '')); if ($text === '') continue;
+                    $outcomeId = !empty($outcome['learning_outcome_id']) ? (int)$outcome['learning_outcome_id'] : 0;
+                    if ($outcomeId) { $check = $this->db->prepare("SELECT 1 FROM learning_outcomes WHERE id=? AND sub_strand_id=?"); $check->execute([$outcomeId, $subStrandId]); if (!$check->fetchColumn()) throw new Exception('A selected learning outcome does not belong to the selected sub-strand'); }
+                    $outcomeInsert->execute([$itemId, $outcomeId ?: null, $text, !empty($outcome['custom']) ? 1 : 0, $order + 1]);
+                }
+                $experiences = is_array($item['experiences'] ?? null) ? $item['experiences'] : (trim((string)($item['activities'] ?? '')) !== '' ? [['text' => trim((string)$item['activities']), 'custom' => true]] : []);
+                foreach ($experiences as $order => $experience) {
+                    $text = trim((string)($experience['text'] ?? $experience['experience'] ?? '')); if ($text === '') continue;
+                    $experienceId = !empty($experience['suggested_experience_id']) ? (int)$experience['suggested_experience_id'] : 0;
+                    if ($experienceId) { $check = $this->db->prepare("SELECT 1 FROM sub_strand_suggested_experiences WHERE id=? AND sub_strand_id=?"); $check->execute([$experienceId, $subStrandId]); if (!$check->fetchColumn()) throw new Exception('A selected learning experience does not belong to the selected sub-strand'); }
+                    $experienceInsert->execute([$itemId, $experienceId ?: null, $text, !empty($experience['custom']) ? 1 : 0, $order + 1]);
+                }
+                foreach ((array)($item['questions'] ?? []) as $order => $question) {
+                    $questionIsArray = is_array($question);
+                    $text = trim((string)($questionIsArray ? ($question['text'] ?? $question['question'] ?? '') : $question)); if ($text === '') continue;
+                    $questionInsert->execute([$itemId, $text, $questionIsArray && !empty($question['custom']) ? 1 : 0, $order + 1]);
+                }
+                // These are canonical mappings, not free-text assessment prose.
+                // Every selected ID is checked against the exact sub-strand.
+                foreach (array_values(array_unique(array_filter(array_map('intval', (array)($item['competency_ids'] ?? []))))) as $order => $competencyId) {
+                    $check = $this->db->prepare('SELECT 1 FROM sub_strand_competencies WHERE sub_strand_id=? AND competency_id=?');
+                    $check->execute([$subStrandId, $competencyId]);
+                    if (!$check->fetchColumn()) throw new Exception('A selected competency does not belong to the selected sub-strand');
+                    $competencyInsert->execute([$itemId, $competencyId, $order + 1]);
+                }
+                $selectedTools = [];
+                foreach (array_values(array_unique(array_filter(array_map('intval', (array)($item['assessment_tool_ids'] ?? []))))) as $order => $toolId) {
+                    $check = $this->db->prepare("SELECT 1 FROM assessment_tools at WHERE at.id=? AND at.status='active' AND (at.learning_area_id=(SELECT learning_area_id FROM strands WHERE id=?) OR EXISTS (SELECT 1 FROM assessment_tool_learning_areas atla JOIN strands st ON st.id=? WHERE atla.assessment_tool_id=at.id AND atla.learning_area_id=st.learning_area_id) OR EXISTS (SELECT 1 FROM sub_strand_assessment_tools ssat WHERE ssat.assessment_tool_id=at.id AND ssat.sub_strand_id=?))");
+                    $check->execute([$toolId, $strandId, $strandId, $subStrandId]);
+                    if (!$check->fetchColumn()) throw new Exception('A selected assessment tool is not valid for the selected learning area');
+                    $selectedTools[$toolId] = true;
+                    $toolInsert->execute([$itemId, $toolId, $order + 1]);
+                }
+                foreach (array_values(array_unique(array_filter(array_map('intval', (array)($item['rubric_ids'] ?? []))))) as $order => $rubricId) {
+                    $check = $this->db->prepare('SELECT 1 FROM sub_strand_rubrics WHERE id=? AND sub_strand_id=?');
+                    $check->execute([$rubricId, $subStrandId]);
+                    if (!$check->fetchColumn()) throw new Exception('A selected CBC rubric does not belong to the selected sub-strand');
+                    $subRubricInsert->execute([$itemId, $rubricId, $order + 1]);
+                }
+                foreach (array_values(array_unique(array_filter(array_map('intval', (array)($item['assessment_rubric_ids'] ?? []))))) as $order => $rubricId) {
+                    $check = $this->db->prepare('SELECT 1 FROM assessment_rubrics WHERE id=? AND tool_id IN (SELECT assessment_tool_id FROM scheme_workbook_item_assessment_tools WHERE workbook_item_id=?)');
+                    $check->execute([$rubricId, $itemId]);
+                    if (!$check->fetchColumn()) throw new Exception('A selected assessment rubric is not attached to a selected assessment tool');
+                    $assessmentRubricInsert->execute([$itemId, $rubricId, $order + 1]);
+                }
+            }
+        }
+    }
+
+    public function saveSchemeWorkbook($data)
+    {
+        try {
+            $staff=$this->getCurrentStaffId(); $year=$this->resolveCurrentAcademicYearId(); $term=(int)($this->db->query("SELECT id FROM academic_year_terms WHERE academic_year_id=".(int)$year." AND status='current' ORDER BY id DESC LIMIT 1")->fetchColumn() ?: 0);
+            $streamArea=(int)($data['stream_learning_area_id']??0); $payload=$data['weeks']??[];
+            if(!$staff||!$streamArea||!is_array($payload)) return errorResponse('Planning context and weekly payload are required',400);
+            if(!$this->teacherCanUseStreamLearningArea($streamArea,$staff)) return errorResponse('You are not assigned to this stream-learning-area',403);
+            $check=$this->db->prepare("SELECT 1 FROM academic_year_class_stream_learning_areas WHERE id=? AND status <> 'skipped'"); $check->execute([$streamArea]); if(!$check->fetchColumn()) return errorResponse('Invalid stream-learning-area context',400);
+            $this->db->beginTransaction();
+            $id=(int)($data['workbook_id']??0);
+            if($id){$stmt=$this->db->prepare("UPDATE scheme_workbooks SET payload=?, title=?, updated_at=NOW() WHERE id=? AND teacher_id=? AND academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND status='draft'");$stmt->execute([json_encode($payload),$data['title']??null,$id,$staff,$term,$streamArea]);if(!$stmt->rowCount()){if($this->db->inTransaction())$this->db->rollBack();return errorResponse('Only an editable draft workbook can be changed',409);}}
+            else{$stmt=$this->db->prepare("SELECT id FROM scheme_workbooks WHERE academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND teacher_id=? AND status='draft' LIMIT 1");$stmt->execute([$term,$streamArea,$staff]);$id=(int)($stmt->fetchColumn()?:0);if($id){$this->db->prepare("UPDATE scheme_workbooks SET payload=?,title=?,updated_at=NOW() WHERE id=?")->execute([json_encode($payload),$data['title']??null,$id]);}else{$this->db->prepare("INSERT INTO scheme_workbooks (academic_year_id,academic_year_term_id,academic_year_class_stream_learning_area_id,teacher_id,title,payload,status) VALUES (?,?,?,?,?,?, 'draft')")->execute([$year,$term,$streamArea,$staff,$data['title']??null,json_encode($payload)]);$id=(int)$this->db->lastInsertId();}}
+            $this->syncSchemeWorkbookPlanningItems($id, $term, is_array($payload) ? $payload : []);
+            $this->db->commit();
+            return successResponse(['workbook_id'=>$id,'status'=>'draft'],'Scheme progress saved');
+        } catch(Exception $e){if($this->db->inTransaction())$this->db->rollBack();return $this->handleException($e);}
+    }
+
+    public function submitSchemeWorkbook($data)
+    {
+        $staff=$this->getCurrentStaffId(); $id=(int)($data['workbook_id']??0); if(!$staff||!$id)return errorResponse('workbook_id is required',400);
+        $stmt=$this->db->prepare("SELECT * FROM scheme_workbooks WHERE id=? AND teacher_id=? AND status='draft'");$stmt->execute([$id,$staff]);$book=$stmt->fetch(PDO::FETCH_ASSOC);if(!$book)return errorResponse('Draft workbook not found',404);
+        $payload=json_decode((string)$book['payload'],true);$weeks=is_array($payload)?$payload:[];$normalizedWeeks=[];$has=false;
+        $reservedWeeksStmt=$this->db->prepare("SELECT week_number FROM academic_year_calendar WHERE academic_year_term_id=? AND week_purpose='reserved'");$reservedWeeksStmt->execute([(int)$book['academic_year_term_id']]);$reservedWeeks=array_fill_keys(array_map('intval',$reservedWeeksStmt->fetchAll(PDO::FETCH_COLUMN)),true);
+        foreach($weeks as $week){$weekNumber=(int)($week['week_number']??0);if(isset($reservedWeeks[$weekNumber])){$normalizedWeeks[]=['week_number'=>$weekNumber,'reserved'=>true,'items'=>[]];continue;}$planned=[];foreach((array)($week['items']??[]) as $item){$empty=!($item['strand_id']??0)&&!($item['sub_strand_id']??0)&&trim((string)($item['title']??''))==='';if($empty)continue;if(!$item['strand_id']||!$item['sub_strand_id']||trim((string)($item['title']??''))===''||empty($item['outcomes'])||empty($item['experiences']))return errorResponse("Complete Week {$weekNumber}: every started instructional row needs a title, selected outcomes and selected learning experiences",400);$planned[]=$item;$has=true;}if($planned)$normalizedWeeks[]=['week_number'=>$weekNumber,'items'=>$planned];}
+        if(!$has)return errorResponse('Add at least one curriculum item before submitting',400);
+        $result=$this->createSchemeOfWorkBatch(['class_id'=>$data['class_id']??0,'stream_id'=>$data['stream_id']??0,'learning_area_id'=>$data['learning_area_id']??0,'weeks'=>$normalizedWeeks,'workbook_id'=>$id]);
+        if(($result['status']??'')==='success'){
+            $this->db->prepare("UPDATE scheme_workbooks SET status='submitted',submitted_at=NOW(),updated_at=NOW() WHERE id=? AND status='draft'")->execute([$id]);
+            $this->db->prepare("INSERT INTO scheme_workbook_revision_audit (workbook_id,action,actor_staff_id,reason) VALUES (?,'submitted',?,?)")->execute([$id,$staff,'Teacher submitted workbook for academic review']);
+        }
+        return $result;
+    }
+
+    public function getSchemeWorkbook(int $schemeId)
+    {
+        $staff=$this->getCurrentStaffId();
+        $leader = $this->isAcademicLeader();
+        $stmt=$this->db->prepare("SELECT swb.*, sw.academic_year_class_stream_learning_area_id, sw.academic_year_calendar_week_id FROM schemes_of_work sw JOIN scheme_workbooks swb ON swb.id=sw.scheme_workbook_id WHERE sw.id=? AND (swb.teacher_id=? OR ?=1) LIMIT 1");
+        $stmt->execute([$schemeId,$staff,$leader ? 1 : 0]); $row=$stmt->fetch(PDO::FETCH_ASSOC);
+        if(!$row)return errorResponse('This scheme is not linked to an editable teacher workbook',404);
+        $row['payload']=json_decode((string)$row['payload'],true) ?: [];
+        return successResponse($row);
+    }
+
+    private function createSchemeWorkbookRevision(int $workbookId, int $actorStaffId, string $reason, bool $leaderReopen = false)
+    {
+        $stmt = $this->db->prepare('SELECT * FROM scheme_workbooks WHERE id=? LIMIT 1');
+        $stmt->execute([$workbookId]);
+        $source = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$source) return errorResponse('Scheme workbook not found', 404);
+        if (!in_array($source['status'], ['approved', 'submitted'], true)) return errorResponse('Only submitted or approved workbooks can be revised', 409);
+        if (!$leaderReopen && (int)$source['teacher_id'] !== (int)$this->getCurrentStaffId()) return errorResponse('You may only request a revision for your own workbook', 403);
+        if ($leaderReopen && !$this->isAcademicLeader()) return errorResponse('Academic leadership access required', 403);
+        $existingDraft = $this->db->prepare("SELECT id, revision_number FROM scheme_workbooks WHERE parent_workbook_id=? AND status='draft' LIMIT 1");
+        $existingDraft->execute([(int)$source['id']]);
+        if ($existing = $existingDraft->fetch(PDO::FETCH_ASSOC)) return successResponse(['workbook_id'=>(int)$existing['id'],'parent_workbook_id'=>(int)$source['id'],'revision_number'=>(int)$existing['revision_number'],'status'=>'draft'],'An editable revision already exists');
+
+        $this->db->beginTransaction();
+        try {
+            $next = $this->db->prepare('SELECT COALESCE(MAX(revision_number),0)+1 FROM scheme_workbooks WHERE academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND teacher_id=?');
+            $next->execute([(int)$source['academic_year_term_id'], (int)$source['academic_year_class_stream_learning_area_id'], (int)$source['teacher_id']]);
+            $revision = (int)$next->fetchColumn();
+            $insert = $this->db->prepare("INSERT INTO scheme_workbooks (parent_workbook_id,academic_year_id,academic_year_term_id,academic_year_class_stream_learning_area_id,teacher_id,title,payload,status,revision_number,revision_reason,revision_requested_by,revision_requested_at) VALUES (?,?,?,?,?,?,?,'draft',?,?,?,NOW())");
+            $insert->execute([(int)$source['id'], (int)$source['academic_year_id'], (int)$source['academic_year_term_id'], (int)$source['academic_year_class_stream_learning_area_id'], (int)$source['teacher_id'], $source['title'], $source['payload'], $revision, $reason ?: null, $actorStaffId]);
+            $newId = (int)$this->db->lastInsertId();
+            $payload = json_decode((string)$source['payload'], true);
+            $this->syncSchemeWorkbookPlanningItems($newId, (int)$source['academic_year_term_id'], is_array($payload) ? $payload : []);
+            $audit = $this->db->prepare('INSERT INTO scheme_workbook_revision_audit (workbook_id,parent_workbook_id,action,actor_staff_id,reason) VALUES (?,?,?,?,?)');
+            $audit->execute([$newId, (int)$source['id'], $leaderReopen ? 'revision_reopened' : 'revision_requested', $actorStaffId, $reason ?: null]);
+            $audit->execute([$newId, (int)$source['id'], 'revision_created', $actorStaffId, $reason ?: null]);
+            $this->db->commit();
+            return successResponse(['workbook_id'=>$newId,'parent_workbook_id'=>(int)$source['id'],'revision_number'=>$revision,'status'=>'draft'],'Revision created as a new editable draft');
+        } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return $this->handleException($e); }
+    }
+
+    public function requestSchemeWorkbookRevision(int $workbookId, array $data = [])
+    {
+        $reason = trim((string)($data['reason'] ?? 'Additional outcomes, assessment mappings or planning changes required'));
+        return $this->createSchemeWorkbookRevision($workbookId, (int)$this->getCurrentStaffId(), $reason, false);
+    }
+
+    public function reopenSchemeWorkbookRevision(int $workbookId, array $data = [])
+    {
+        $reason = trim((string)($data['reason'] ?? 'Reopened by academic leadership for revision'));
+        return $this->createSchemeWorkbookRevision($workbookId, (int)$this->getCurrentStaffId(), $reason, true);
+    }
+
+    public function approveSchemeWorkbook(int $workbookId, array $data = [])
+    {
+        if (!$workbookId || !$this->isAcademicLeader()) return errorResponse('Academic leadership access is required to approve a workbook', 403);
+        $staff = (int)$this->getCurrentStaffId();
+        $source = $this->db->prepare("SELECT id,status FROM scheme_workbooks WHERE id=? LIMIT 1");
+        $source->execute([$workbookId]);
+        $book = $source->fetch(PDO::FETCH_ASSOC);
+        if (!$book) return errorResponse('Scheme workbook not found', 404);
+        if ($book['status'] === 'approved') return successResponse(['workbook_id'=>$workbookId,'status'=>'approved'], 'Workbook is already approved');
+        if ($book['status'] !== 'submitted') return errorResponse('Only a submitted workbook can be approved', 409);
+        $rows = $this->db->prepare("SELECT id FROM schemes_of_work WHERE scheme_workbook_id=?");
+        $rows->execute([$workbookId]);
+        $ids = array_map('intval', $rows->fetchAll(PDO::FETCH_COLUMN));
+        if (!$ids) return errorResponse('The workbook has no submitted scheme rows', 409);
+        try {
+            $this->db->beginTransaction();
+            $this->db->prepare("UPDATE schemes_of_work SET status='approved', approved_by=? WHERE scheme_workbook_id=? AND status IN ('draft','submitted','pending')")->execute([$staff,$workbookId]);
+            $this->db->prepare("UPDATE scheme_workbooks SET status='approved', approved_by=?, updated_at=NOW() WHERE id=? AND status='submitted'")->execute([$staff,$workbookId]);
+            $this->db->prepare("INSERT INTO scheme_workbook_revision_audit (workbook_id,action,actor_staff_id,reason) VALUES (?,'approved',?,?)")->execute([$workbookId,$staff,'Complete workbook approved as one official version']);
+            $this->db->commit();
+            return successResponse(['workbook_id'=>$workbookId,'status'=>'approved','approved_rows'=>count($ids)], 'Complete scheme workbook approved');
+        } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return $this->handleException($e); }
+    }
+
     public function generateSchemeOfWork($data)
     {
         try {
             $learningAreaId = (int)($data['learning_area_id'] ?? 0);
             $classId = (int)($data['class_id'] ?? 0);
+            $streamId = (int)($data['stream_id'] ?? 0);
 
-            if (!$learningAreaId || !$classId) {
+            if (!$learningAreaId || !$classId || !$streamId) {
                 return errorResponse([
                     'status' => 'error',
-                    'message' => 'learning_area_id and class_id are required'
+                    'message' => 'learning_area_id, class_id and stream_id are required'
                 ], 400);
             }
 
@@ -2755,6 +3735,15 @@ return errorResponse($e->getMessage(), 400);
                     $teacherId = (int) ($staffStmt->fetchColumn() ?: 0);
                 }
             }
+
+            $requestedTeacherId = (int)($data['teacher_id'] ?? 0);
+            if ($requestedTeacherId) {
+                if (!$this->isAcademicLeader() && $requestedTeacherId !== (int)$teacherId) {
+                    return errorResponse('Teachers may only generate schemes for their own assignment', 403);
+                }
+                $teacherId = $requestedTeacherId;
+            }
+            if (!$teacherId) return errorResponse('A responsible teacher assignment is required', 400);
 
             // Resolve term
             $termId = (int)($data['term_id'] ?? 0);
@@ -2823,20 +3812,36 @@ return errorResponse($e->getMessage(), 400);
             }
             $ayClassId = $this->resolveAcademicYearClassId($classId, $academicYearId);
             $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $learningAreaId) : null;
+            $aycsId = $this->resolveAcademicYearClassStreamId($classId, $streamId, $academicYearId);
+            $streamLearningAreaId = $aycsId > 0 ? $this->resolveStreamLearningAreaId($aycsId, $learningAreaId) : 0;
+            if (!$streamLearningAreaId || !$this->teacherCanUseStreamLearningArea($streamLearningAreaId, (int) $teacherId)) {
+                return errorResponse('The teacher is not assigned to this stream and learning area', 403);
+            }
 
-            // Existing top week number for this term to continue numbering
-            $weekStmt = $this->db->prepare(
-                "SELECT COALESCE(MAX(week_number), 0) + 1 FROM academic_year_calendar
-                 WHERE academic_year_term_id = ?"
-            );
-            $weekStmt->execute([(int) $termId]);
-            $startWeek = (int) ($weekStmt->fetchColumn() ?: 1);
-            if ($startWeek < 1) $startWeek = 1;
+            $existingWorkbook = $this->db->prepare("SELECT id,status FROM scheme_workbooks WHERE academic_year_term_id=? AND academic_year_class_stream_learning_area_id=? AND teacher_id=? ORDER BY revision_number DESC, id DESC LIMIT 1");
+            $existingWorkbook->execute([$termId, $streamLearningAreaId, $teacherId]);
+            if ($existing = $existingWorkbook->fetch(PDO::FETCH_ASSOC)) {
+                return errorResponse($existing['status'] === 'draft' ? 'An editable workbook already exists. Continue it from My Schemes of Work.' : 'A submitted or approved workbook already exists. Request a revision before generating another one.', 409);
+            }
+
+            // Generate only against configured instructional weeks. Reserved
+            // exam/closure weeks are never silently used for curriculum rows.
+            $weekStmt = $this->db->prepare("SELECT week_number FROM academic_year_calendar WHERE academic_year_term_id=? AND week_purpose='instructional' ORDER BY week_number");
+            $weekStmt->execute([(int)$termId]);
+            $instructionalWeeks = array_map('intval', $weekStmt->fetchAll(PDO::FETCH_COLUMN));
+            if (!$instructionalWeeks) return errorResponse('No instructional weeks are configured for the current term', 409);
+            $weekCursor = 0;
 
             $created = [];
             $inserted = 0;
             $skipped = 0;
+            $generatedWeeks = [];
             $this->db->beginTransaction();
+
+            $workbookTitle = $area['name'] . ' · ' . ($classId ? 'Class stream' : 'Stream') . ' auto-generated draft';
+            $workbookInsert = $this->db->prepare("INSERT INTO scheme_workbooks (academic_year_id,academic_year_term_id,academic_year_class_stream_learning_area_id,teacher_id,title,payload,status) VALUES (?,?,?,?,?,?,'draft')");
+            $workbookInsert->execute([(int)$academicYearId, (int)$termId, (int)$streamLearningAreaId, (int)$teacherId, $workbookTitle, json_encode([])]);
+            $workbookId = (int)$this->db->lastInsertId();
 
             foreach ($strands as $strand) {
                 $subSql = "SELECT id, name, description, variant FROM sub_strands WHERE strand_id = ? AND status = 'active'";
@@ -2860,6 +3865,9 @@ return errorResponse($e->getMessage(), 400);
                     );
                     $outcomeStmt->execute([(int) $sub['id']]);
                     $outcomes = $outcomeStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $experienceStmt = $this->db->prepare("SELECT experience FROM sub_strand_suggested_experiences WHERE sub_strand_id=? ORDER BY sort_order, id");
+                    $experienceStmt->execute([(int)$sub['id']]);
+                    $experiences = $experienceStmt->fetchAll(PDO::FETCH_COLUMN);
 
                     $title = $area['name'] . ': ' . $strand['name'];
                     if ($sub['name'] && $sub['name'] !== $strand['name']) {
@@ -2874,17 +3882,21 @@ return errorResponse($e->getMessage(), 400);
                         'strand_id' => (int) $strand['id'],
                         'sub_strand_id' => (int) $sub['id'],
                         'title' => $title,
+                        'learning_outcomes' => implode("\n", array_filter(array_map(static function ($row) { return trim((string)($row['outcome'] ?? '')); }, $outcomes))),
+                        'activities' => implode("\n", array_filter(array_map('trim', $experiences))),
                         'created_by' => $userId,
                     ]);
 
-                    $weekId = $this->resolveCalendarWeekId($termId, $startWeek);
+                    $weekNumber = $instructionalWeeks[min($weekCursor, count($instructionalWeeks) - 1)];
+                    $weekId = $this->resolveCalendarWeekId($termId, $weekNumber);
+                    $weekCursor++;
 
                     $dupStmt = $this->db->prepare(
                         "SELECT id FROM schemes_of_work
-                         WHERE scheme_template_id = ? AND (academic_year_class_learning_area_id <=> ?) AND (academic_year_calendar_week_id <=> ?)
+                        WHERE scheme_template_id = ? AND (academic_year_class_stream_learning_area_id <=> ?) AND (academic_year_calendar_week_id <=> ?)
                          LIMIT 1"
                     );
-                    $dupStmt->execute([$templateId, $ayclaId, $weekId]);
+                    $dupStmt->execute([$templateId, $streamLearningAreaId, $weekId]);
                     if ($dupStmt->fetchColumn()) {
                         $skipped++;
                         continue;
@@ -2892,15 +3904,20 @@ return errorResponse($e->getMessage(), 400);
 
                     $insertStmt = $this->db->prepare(
                         "INSERT INTO schemes_of_work (
-                            scheme_template_id, academic_year_class_learning_area_id, academic_year_calendar_week_id, teacher_id, status
-                        ) VALUES (?, ?, ?, ?, 'draft')"
+                            scheme_template_id, scheme_workbook_id, academic_year_class_learning_area_id, academic_year_class_stream_learning_area_id, academic_year_calendar_week_id, teacher_id, status
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'draft')"
                     );
-                    $insertStmt->execute([$templateId, $ayclaId, $weekId, $teacherId ?: null]);
+                    $insertStmt->execute([$templateId, $workbookId, $ayclaId, $streamLearningAreaId, $weekId, $teacherId ?: null]);
                     $created[] = (int) $this->db->lastInsertId();
                     $inserted++;
-                    $startWeek++;
+                    $generatedWeeks[$weekNumber]['week_number'] = $weekNumber;
+                    $generatedWeeks[$weekNumber]['items'][] = ['strand_id'=>(int)$strand['id'],'sub_strand_id'=>(int)$sub['id'],'title'=>$title,'outcomes'=>array_map(static function($row){return ['text'=>(string)($row['outcome'] ?? '')];}, $outcomes),'experiences'=>array_map(static function($value){return ['text'=>(string)$value];}, $experiences)];
                 }
             }
+
+            $workbookPayload = array_values($generatedWeeks);
+            $this->db->prepare("UPDATE scheme_workbooks SET payload=?,updated_at=NOW() WHERE id=?")->execute([json_encode($workbookPayload), $workbookId]);
+            $this->syncSchemeWorkbookPlanningItems($workbookId, (int)$termId, $workbookPayload);
 
             $this->db->commit();
 
@@ -2914,6 +3931,7 @@ return errorResponse($e->getMessage(), 400);
                 'message' => $summary,
                 'data' => [
                     'created_ids' => $created,
+                    'workbook_id' => $workbookId,
                     'created_count' => $inserted,
                     'skipped_count' => $skipped,
                 ]
@@ -2936,7 +3954,7 @@ return errorResponse($e->getMessage(), 400);
             $data = $this->normalizeSchemeOfWorkPayload($data, false);
 
             $stmt = $this->db->prepare("
-                SELECT sw.scheme_template_id, sw.academic_year_class_learning_area_id, sw.academic_year_calendar_week_id,
+                SELECT sw.scheme_template_id, sw.academic_year_class_learning_area_id, sw.academic_year_class_stream_learning_area_id, sw.academic_year_calendar_week_id, sw.teacher_id,
                        st.learning_area_id, st.learning_area_id AS subject_id
                 FROM schemes_of_work sw
                 JOIN scheme_templates st ON st.id = sw.scheme_template_id
@@ -2946,6 +3964,9 @@ return errorResponse($e->getMessage(), 400);
             $existing = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$existing) {
                 return errorResponse('Scheme of work not found', 404);
+            }
+            if ((int) $existing['teacher_id'] !== (int) $this->getCurrentStaffId()) {
+                return errorResponse('Only the assigned teacher can edit this scheme of work', 403);
             }
 
             $fields = [];
@@ -2966,6 +3987,15 @@ return errorResponse($e->getMessage(), 400);
                 $ayclaId = $ayClassId > 0 ? $this->resolveClassLearningAreaId($ayClassId, $learningAreaId) : null;
                 $fields[] = 'academic_year_class_learning_area_id = ?';
                 $values[] = $ayclaId;
+                if (!empty($data['stream_id'])) {
+                    $aycsId = $this->resolveAcademicYearClassStreamId($data['class_id'], $data['stream_id'], $academicYearId);
+                    $streamLearningAreaId = $aycsId > 0 ? $this->resolveStreamLearningAreaId($aycsId, $learningAreaId) : 0;
+                    if (!$streamLearningAreaId || !$this->teacherCanUseStreamLearningArea($streamLearningAreaId, (int) $this->getCurrentStaffId())) {
+                        return errorResponse('You are not assigned to the selected stream and learning area', 403);
+                    }
+                    $fields[] = 'academic_year_class_stream_learning_area_id = ?';
+                    $values[] = $streamLearningAreaId;
+                }
             }
             if (array_key_exists('term_id', $data) || array_key_exists('week_number', $data)) {
                 $termId = !empty($data['term_id']) ? (int) $data['term_id'] : 0;
@@ -3009,6 +4039,13 @@ return errorResponse($e->getMessage(), 400);
                 return errorResponse('Scheme of work ID is required', 400);
             }
 
+            // Workbook-backed schemes are approved as one complete term version;
+            // never allow an individual weekly row to become official by itself.
+            $workbookLookup = $this->db->prepare('SELECT scheme_workbook_id FROM schemes_of_work WHERE id=?');
+            $workbookLookup->execute([(int)$id]);
+            $linkedWorkbookId = (int)($workbookLookup->fetchColumn() ?: 0);
+            if ($linkedWorkbookId) return $this->approveSchemeWorkbook($linkedWorkbookId, $data);
+
             $stmt = $this->db->prepare("
                 UPDATE schemes_of_work
                 SET status = 'approved', approved_by = ?
@@ -3016,6 +4053,18 @@ return errorResponse($e->getMessage(), 400);
             ");
             $approvedBy = $data['approved_by'] ?? $this->getCurrentStaffId();
             $stmt->execute([$approvedBy, $id]);
+
+            $workbook = $this->db->prepare('SELECT scheme_workbook_id FROM schemes_of_work WHERE id=?');
+            $workbook->execute([(int)$id]);
+            $workbookId = (int)($workbook->fetchColumn() ?: 0);
+            if ($workbookId) {
+                $pending = $this->db->prepare("SELECT COUNT(*) FROM schemes_of_work WHERE scheme_workbook_id=? AND status <> 'approved'");
+                $pending->execute([$workbookId]);
+                if ((int)$pending->fetchColumn() === 0) {
+                    $this->db->prepare("UPDATE scheme_workbooks SET status='approved', approved_by=?, updated_at=NOW() WHERE id=? AND status='submitted'")->execute([$approvedBy, $workbookId]);
+                    $this->db->prepare("INSERT INTO scheme_workbook_revision_audit (workbook_id,action,actor_staff_id,reason) VALUES (?,'approved',?,?)")->execute([$workbookId, $approvedBy, 'All submitted scheme rows approved']);
+                }
+            }
 
             return successResponse(['id' => (int) $id, 'message' => 'Scheme of work approved']);
         } catch (Exception $e) {
@@ -3028,6 +4077,14 @@ return errorResponse($e->getMessage(), 400);
         try {
             if (!$id) {
                 return errorResponse('Scheme of work ID is required', 400);
+            }
+
+            $workbookLookup = $this->db->prepare('SELECT scheme_workbook_id FROM schemes_of_work WHERE id=?');
+            $workbookLookup->execute([(int)$id]);
+            $linkedWorkbookId = (int)($workbookLookup->fetchColumn() ?: 0);
+            if ($linkedWorkbookId) {
+                if (!$this->isAcademicLeader()) return errorResponse('Academic leadership access required', 403);
+                return $this->createSchemeWorkbookRevision($linkedWorkbookId, (int)$this->getCurrentStaffId(), trim((string)($data['reason'] ?? 'Changes requested by academic leadership')), true);
             }
 
             $stmt = $this->db->prepare("
@@ -3202,8 +4259,13 @@ return errorResponse($e->getMessage(), 400);
         );
         $stmt->execute([$learningAreaId, $strandId, $subStrandId, $title]);
         $existing = $stmt->fetchColumn();
-        if ($existing) {
+        if ($existing && empty($data['force_new_template'])) {
             return (int) $existing;
+        }
+
+        $activities = trim((string) ($data['activities'] ?? ''));
+        if (!empty($data['learning_outcomes'])) {
+            $activities = "Specific learning outcomes:\n" . trim((string) $data['learning_outcomes']) . ($activities !== '' ? "\n\nLearning experiences:\n" . $activities : '');
         }
 
         $stmt = $this->db->prepare(
@@ -3217,7 +4279,7 @@ return errorResponse($e->getMessage(), 400);
             $strandId,
             $subStrandId,
             $title,
-            $data['activities'] ?? null,
+            $activities !== '' ? $activities : null,
             $data['resources'] ?? null,
             $data['assessment_methods'] ?? null,
             $data['created_by'] ?? $this->getCurrentUserId(),
@@ -3729,7 +4791,8 @@ return errorResponse($e->getMessage(), 400);
                 $bindings[] = $params['academic_year_id'];
             }
             if (!empty($params['class_id'])) {
-                $where[] = "es.academic_year_class_stream_id = ?";
+                $where[] = "(es.academic_year_class_stream_id = ? OR ayc.class_id = ?)";
+                $bindings[] = $params['class_id'];
                 $bindings[] = $params['class_id'];
             }
             if (!empty($params['subject_id'])) {
@@ -3751,7 +4814,13 @@ return errorResponse($e->getMessage(), 400);
             $whereClause = implode(' AND ', $where);
 
             // Get total count
-            $countSql = "SELECT COUNT(*) FROM exam_schedules es WHERE {$whereClause}";
+            $fromSql = "
+                FROM exam_schedules es
+                LEFT JOIN academic_year_terms ayt ON ayt.id = es.academic_year_term_id
+                LEFT JOIN academic_year_class_streams aycs ON aycs.id = es.academic_year_class_stream_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+            ";
+            $countSql = "SELECT COUNT(*) {$fromSql} WHERE {$whereClause}";
             $stmt = $this->db->prepare($countSql);
             $stmt->execute($bindings);
             $total = (int) $stmt->fetchColumn();
@@ -3763,7 +4832,7 @@ return errorResponse($e->getMessage(), 400);
                     SUM(CASE WHEN es.status = 'upcoming' OR es.status = 'scheduled' THEN 1 ELSE 0 END) as upcoming,
                     SUM(CASE WHEN es.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
                     SUM(CASE WHEN es.status = 'completed' THEN 1 ELSE 0 END) as completed
-                FROM exam_schedules es
+                {$fromSql}
                 WHERE {$whereClause}
             ";
             $stmt = $this->db->prepare($summarySql);
@@ -3774,10 +4843,12 @@ return errorResponse($e->getMessage(), 400);
             $sql = "
                 SELECT 
                     es.id,
+                    es.assessment_id,
                     es.academic_year_term_id AS term_id,
                     ayt.academic_year_id,
                     es.academic_year_class_stream_id AS class_id,
                     c.name AS class_name,
+                    st.name AS stream_name,
                     es.learning_area_id AS subject_id,
                     COALESCE(la.name, '') AS subject_name,
                     es.exam_name,
@@ -3795,6 +4866,12 @@ return errorResponse($e->getMessage(), 400);
                     CONCAT(sup_p.first_name, ' ', sup_p.last_name) AS supervisor_name,
                     es.notes,
                     es.status,
+                    a.title AS assessment_title,
+                    a.max_marks,
+                    a.assessment_type_id,
+                    a.status AS assessment_status,
+                    a.assigned_by,
+                    at.name AS assessment_type_name,
                     es.created_at,
                     es.updated_at
                 FROM exam_schedules es
@@ -3802,7 +4879,10 @@ return errorResponse($e->getMessage(), 400);
                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = es.academic_year_class_stream_id
                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                 LEFT JOIN classes c ON ayc.class_id = c.id
+                LEFT JOIN streams st ON st.id = aycs.stream_id
                 LEFT JOIN learning_areas la ON es.learning_area_id = la.id
+                LEFT JOIN assessments a ON a.id = es.assessment_id
+                LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
                 LEFT JOIN rooms r ON es.room_id = r.id
                 LEFT JOIN staff inv ON es.invigilator_id = inv.id
                 LEFT JOIN persons inv_p ON inv_p.id = inv.person_id
@@ -4412,6 +5492,7 @@ return errorResponse($e->getMessage(), 400);
             $sql = "
                 SELECT 
                     lp.*,
+                    lp.scheme_of_work_id,
                     lt.title AS title,
                     lt.title AS topic,
                     lt.learning_area_id,
@@ -4435,8 +5516,10 @@ return errorResponse($e->getMessage(), 400);
                 FROM lesson_plans lp
                 JOIN lesson_templates lt ON lt.id = lp.lesson_template_id
                 LEFT JOIN learning_areas la ON la.id = lt.learning_area_id
+                LEFT JOIN academic_year_class_stream_learning_areas aysla ON aysla.id = lp.academic_year_class_stream_learning_area_id
+                LEFT JOIN academic_year_class_streams ays ON ays.id = aysla.academic_year_class_stream_id
                 LEFT JOIN academic_year_class_learning_areas acla ON acla.id = lp.academic_year_class_learning_area_id
-                LEFT JOIN academic_year_classes ayc ON ayc.id = acla.academic_year_class_id
+                LEFT JOIN academic_year_classes ayc ON ayc.id = COALESCE(ays.academic_year_class_id, acla.academic_year_class_id)
                 LEFT JOIN classes c ON c.id = ayc.class_id
                 LEFT JOIN academic_year_calendar_days aycd ON aycd.id = lp.academic_year_calendar_day_id
                 LEFT JOIN academic_year_calendar aycal ON aycal.id = aycd.academic_year_calendar_id
@@ -4455,11 +5538,104 @@ return errorResponse($e->getMessage(), 400);
             if (!$plan) {
                 return errorResponse('Lesson plan not found');
             }
+            if (!$this->isAcademicLeader()) {
+                $staffId = $this->getCurrentStaffId();
+                if ((int) ($plan['teacher_id'] ?? 0) !== (int) $staffId ||
+                    !$this->teacherCanUseStreamLearningArea((int) ($plan['academic_year_class_stream_learning_area_id'] ?? 0), (int) $staffId)) {
+                    return errorResponse('You are not allowed to view this lesson plan', 403);
+                }
+            }
+
+            $plan['atomic_content'] = $this->getLessonPlanAtomicContent((int) $id);
 
             return successResponse($plan);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    private function getLessonPlanAtomicContent($lessonPlanId)
+    {
+        $id = (int) $lessonPlanId;
+        $read = function ($sql) use ($id) {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        };
+        return [
+            'outcomes' => $read('SELECT lpo.learning_outcome_id AS id, lo.outcome AS text, lpo.teacher_note FROM lesson_plan_outcomes lpo JOIN learning_outcomes lo ON lo.id = lpo.learning_outcome_id WHERE lpo.lesson_plan_id = ? ORDER BY lpo.sort_order'),
+            'experiences' => $read('SELECT suggested_experience_id AS id, experience_text AS text, is_custom, sort_order FROM lesson_plan_experiences WHERE lesson_plan_id = ? ORDER BY sort_order'),
+            'activities' => $read('SELECT id, activity_text AS text, activity_stage AS stage, sort_order FROM lesson_plan_activities WHERE lesson_plan_id = ? ORDER BY sort_order'),
+            'resources' => $read('SELECT sub_strand_resource_id AS id, resource_name AS name, resource_type AS type, resource_url AS url, is_custom, sort_order FROM lesson_plan_resources WHERE lesson_plan_id = ? ORDER BY sort_order'),
+            'assessment_tools' => $read('SELECT lpat.assessment_tool_id AS id, at.tool_name AS name, lpat.sort_order FROM lesson_plan_assessment_tools lpat JOIN assessment_tools at ON at.id = lpat.assessment_tool_id WHERE lpat.lesson_plan_id = ? ORDER BY lpat.sort_order'),
+            'assessment_rubrics' => $read('SELECT lpar.assessment_rubric_id AS id, ar.tool_id, ar.criteria_name, ar.level_1_descriptor, ar.level_2_descriptor, ar.level_3_descriptor, ar.level_4_descriptor FROM lesson_plan_assessment_rubrics lpar JOIN assessment_rubrics ar ON ar.id = lpar.assessment_rubric_id WHERE lpar.lesson_plan_id = ? ORDER BY ar.tool_id, ar.sort_order, ar.id'),
+            'competencies' => $read('SELECT lpc.competency_id AS id, cc.code, cc.name FROM lesson_plan_competencies lpc JOIN core_competencies cc ON cc.id = lpc.competency_id WHERE lpc.lesson_plan_id = ? ORDER BY cc.sort_order, cc.id'),
+            'rubrics' => $read('SELECT lpr.sub_strand_rubric_id AS id, r.level_number, r.level_label, r.descriptor FROM lesson_plan_rubrics lpr JOIN sub_strand_rubrics r ON r.id = lpr.sub_strand_rubric_id WHERE lpr.lesson_plan_id = ? ORDER BY r.sort_order, r.level_number'),
+            'inquiry_questions' => $read('SELECT id, question_text AS text, is_custom, sort_order FROM lesson_plan_inquiry_questions WHERE lesson_plan_id = ? ORDER BY sort_order'),
+            'coverage' => $read('SELECT id, coverage_text AS text, expected, delivered, deviation_reason, reflection, sort_order FROM lesson_plan_coverage_items WHERE lesson_plan_id = ? ORDER BY sort_order'),
+            'learner_evidence' => $read('SELECT id, student_academic_enrollment_id, learning_outcome_id, assessment_tool_id, competency_id, sub_strand_rubric_id, assessment_rubric_id, performance_level_id, attainment_status, score, evidence_note, teacher_note, assessed_by, assessed_at FROM lesson_plan_learner_evidence WHERE lesson_plan_id = ? ORDER BY student_academic_enrollment_id, learning_outcome_id'),
+            'learner_evidence_questions' => $read('SELECT q.id, q.learner_evidence_id, q.lesson_plan_inquiry_question_id, q.question_text, q.response_text, q.response_status, q.score, q.teacher_note FROM lesson_plan_learner_evidence_questions q JOIN lesson_plan_learner_evidence e ON e.id=q.learner_evidence_id WHERE e.lesson_plan_id = ? ORDER BY e.student_academic_enrollment_id, e.learning_outcome_id, q.id'),
+            'learner_evidence_resources' => $read('SELECT r.learner_evidence_id, r.lesson_plan_resource_id, r.used, r.learner_note FROM lesson_plan_learner_evidence_resources r JOIN lesson_plan_learner_evidence e ON e.id=r.learner_evidence_id WHERE e.lesson_plan_id = ? ORDER BY e.student_academic_enrollment_id, e.learning_outcome_id, r.lesson_plan_resource_id')
+        ];
+    }
+
+    /** Record learner-by-outcome evidence for a delivered lesson. */
+    public function saveLessonPlanLearnerEvidence($lessonPlanId, array $data)
+    {
+        try {
+            $planId = (int) $lessonPlanId;
+            $stmt = $this->db->prepare('SELECT teacher_id, academic_year_class_stream_learning_area_id FROM lesson_plans WHERE id=?');
+            $stmt->execute([$planId]); $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$plan) return errorResponse('Lesson plan not found', 404);
+            if (!$this->isAcademicLeader() && (int)$plan['teacher_id'] !== (int)$this->getCurrentStaffId()) return errorResponse('Only the assigned teacher can record this evidence', 403);
+            $rows = (array) ($data['evidence'] ?? $data['rows'] ?? []);
+            if (!$rows) return errorResponse('At least one learner evidence row is required', 400);
+            $this->db->beginTransaction();
+            $outcomeCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_outcomes WHERE lesson_plan_id=? AND learning_outcome_id=?');
+            $enrollmentCheck = $this->db->prepare('SELECT 1 FROM student_academic_enrollments sae JOIN academic_year_class_stream_learning_areas aysla ON aysla.academic_year_class_stream_id=sae.academic_year_class_stream_id WHERE sae.id=? AND aysla.id=? AND sae.enrollment_status IN (\'active\',\'completed\')');
+            $toolCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_assessment_tools WHERE lesson_plan_id=? AND assessment_tool_id=?');
+            $competencyCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_competencies WHERE lesson_plan_id=? AND competency_id=?');
+            $rubricCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_rubrics WHERE lesson_plan_id=? AND sub_strand_rubric_id=?');
+            $assessmentRubricCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_assessment_rubrics WHERE lesson_plan_id=? AND assessment_rubric_id=?');
+            $questionCheck = $this->db->prepare('SELECT question_text FROM lesson_plan_inquiry_questions WHERE id=? AND lesson_plan_id=?');
+            $resourceCheck = $this->db->prepare('SELECT 1 FROM lesson_plan_resources WHERE id=? AND lesson_plan_id=?');
+            $upsert = $this->db->prepare("INSERT INTO lesson_plan_learner_evidence (lesson_plan_id,student_academic_enrollment_id,learning_outcome_id,assessment_tool_id,competency_id,sub_strand_rubric_id,assessment_rubric_id,performance_level_id,attainment_status,score,evidence_note,teacher_note,assessed_by,assessed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW()) ON DUPLICATE KEY UPDATE assessment_tool_id=VALUES(assessment_tool_id), competency_id=VALUES(competency_id), sub_strand_rubric_id=VALUES(sub_strand_rubric_id), assessment_rubric_id=VALUES(assessment_rubric_id), performance_level_id=VALUES(performance_level_id), attainment_status=VALUES(attainment_status), score=VALUES(score), evidence_note=VALUES(evidence_note), teacher_note=VALUES(teacher_note), assessed_by=VALUES(assessed_by), assessed_at=NOW()");
+            $evidenceIdStmt = $this->db->prepare('SELECT id FROM lesson_plan_learner_evidence WHERE lesson_plan_id=? AND student_academic_enrollment_id=? AND learning_outcome_id=?');
+            $questionUpsert = $this->db->prepare("INSERT INTO lesson_plan_learner_evidence_questions (learner_evidence_id,lesson_plan_inquiry_question_id,question_text,response_text,response_status,score,teacher_note) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE question_text=VALUES(question_text),response_text=VALUES(response_text),response_status=VALUES(response_status),score=VALUES(score),teacher_note=VALUES(teacher_note)");
+            $resourceUpsert = $this->db->prepare("INSERT INTO lesson_plan_learner_evidence_resources (learner_evidence_id,lesson_plan_resource_id,used,learner_note) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE used=VALUES(used),learner_note=VALUES(learner_note)");
+            foreach ($rows as $row) {
+                $enrollmentId = (int)($row['student_academic_enrollment_id'] ?? 0); $outcomeId = (int)($row['learning_outcome_id'] ?? 0);
+                if (!$enrollmentId || !$outcomeId) throw new Exception('Each evidence row requires a learner enrollment and learning outcome');
+                $outcomeCheck->execute([$planId, $outcomeId]); if (!$outcomeCheck->fetchColumn()) throw new Exception('The outcome is not part of this lesson plan');
+                $enrollmentCheck->execute([$enrollmentId, (int)$plan['academic_year_class_stream_learning_area_id']]); if (!$enrollmentCheck->fetchColumn()) throw new Exception('The learner is not enrolled in this lesson stream');
+                $toolId = (int)($row['assessment_tool_id'] ?? 0); if ($toolId) { $toolCheck->execute([$planId, $toolId]); if (!$toolCheck->fetchColumn()) throw new Exception('The assessment tool is not attached to this lesson'); }
+                $competencyId = (int)($row['competency_id'] ?? 0); if ($competencyId) { $competencyCheck->execute([$planId, $competencyId]); if (!$competencyCheck->fetchColumn()) throw new Exception('The competency is not attached to this lesson'); }
+                $rubricId = (int)($row['sub_strand_rubric_id'] ?? 0); if ($rubricId) { $rubricCheck->execute([$planId, $rubricId]); if (!$rubricCheck->fetchColumn()) throw new Exception('The rubric is not attached to this lesson'); }
+                $assessmentRubricId = (int)($row['assessment_rubric_id'] ?? 0); if ($assessmentRubricId) { $assessmentRubricCheck->execute([$planId, $assessmentRubricId]); if (!$assessmentRubricCheck->fetchColumn()) throw new Exception('The assessment rubric is not attached to this lesson'); }
+                $status = $row['attainment_status'] ?? 'not_assessed';
+                if (!in_array($status, ['not_assessed','achieved','partially_achieved','not_achieved','not_applicable'], true)) throw new Exception('Invalid learner attainment status');
+                $upsert->execute([$planId,$enrollmentId,$outcomeId,$toolId ?: null,$competencyId ?: null,$rubricId ?: null,$assessmentRubricId ?: null,(int)($row['performance_level_id']??0) ?: null,$status,$row['score']??null,$row['evidence_note']??null,$row['teacher_note']??null,$this->getCurrentStaffId()]);
+                $evidenceIdStmt->execute([$planId, $enrollmentId, $outcomeId]);
+                $evidenceId = (int) $evidenceIdStmt->fetchColumn();
+                foreach ((array) ($row['questions'] ?? []) as $question) {
+                    $questionId = (int) ($question['lesson_plan_inquiry_question_id'] ?? $question['question_id'] ?? 0);
+                    if (!$questionId) throw new Exception('Each learner question response must reference a question asked in this lesson');
+                    $questionCheck->execute([$questionId, $planId]); $questionText = $questionCheck->fetchColumn();
+                    if (!$questionText) throw new Exception('The learner question is not part of this lesson');
+                    $responseStatus = $question['response_status'] ?? 'not_answered';
+                    if (!in_array($responseStatus, ['not_answered','correct','partially_correct','incorrect','not_applicable'], true)) throw new Exception('Invalid learner question response status');
+                    $questionUpsert->execute([$evidenceId,$questionId,$questionText,$question['response_text']??null,$responseStatus,$question['score']??null,$question['teacher_note']??null]);
+                }
+                foreach ((array) ($row['resources'] ?? []) as $resource) {
+                    $resourceId = (int) ($resource['lesson_plan_resource_id'] ?? $resource['resource_id'] ?? 0);
+                    if (!$resourceId) throw new Exception('Each learner resource record must reference a resource used in this lesson');
+                    $resourceCheck->execute([$resourceId, $planId]); if (!$resourceCheck->fetchColumn()) throw new Exception('The learner resource is not attached to this lesson');
+                    $resourceUpsert->execute([$evidenceId,$resourceId,empty($resource['used']) ? 0 : 1,$resource['learner_note']??null]);
+                }
+            }
+            $this->db->commit();
+            return successResponse(['status'=>'success','message'=>'Learner evidence saved','lesson_plan_id'=>$planId]);
+        } catch (Exception $e) { if($this->db->inTransaction())$this->db->rollBack(); return $this->handleException($e); }
     }
 
     public function updateLessonPlan($id, $data)
@@ -4468,23 +5644,34 @@ return errorResponse($e->getMessage(), 400);
             $this->db->beginTransaction();
 
             // Check if plan exists
-            $stmt = $this->db->prepare("SELECT id, status, lesson_template_id, academic_year_class_learning_area_id, academic_year_calendar_day_id FROM lesson_plans WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT id, status, lesson_template_id, scheme_of_work_id, academic_year_class_learning_area_id, academic_year_class_stream_learning_area_id, academic_year_calendar_day_id, teacher_id FROM lesson_plans WHERE id = ?");
             $stmt->execute([$id]);
             $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$plan) {
                 return errorResponse('Lesson plan not found');
             }
-
-            // Prevent editing approved plans
-            if ($plan['status'] === 'approved' && !isset($data['allow_edit_approved'])) {
-                return errorResponse('Cannot edit approved lesson plan');
+            if (empty($plan['scheme_of_work_id'])) {
+                return errorResponse('This legacy lesson plan has no scheme-of-work link and must be reconciled before editing', 409);
             }
+            if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
+                return errorResponse('Only the assigned teacher can edit this lesson plan', 403);
+            }
+
+            // Lesson plans are author-published delivery records, not reviewed
+            // academic documents. The assigned author may update a published
+            // plan as delivery details, reflections and evidence evolve.
 
             $title = $data['title'] ?? $data['topic'] ?? null;
             $learningAreaId = $data['learning_area_id'] ?? $data['subject_id'] ?? null;
             $classId = $data['class_id'] ?? null;
             $date = $data['date'] ?? $data['lesson_date'] ?? null;
+
+            if ($date !== null) {
+                if (!$this->resolveApprovedSchemeLessonContext((int) $plan['scheme_of_work_id'], (string) $date, (int) $plan['teacher_id'], $this->isAcademicLeader())) {
+                    return errorResponse('The lesson date must remain inside the approved scheme week', 400);
+                }
+            }
 
             // Update the linked lesson template (content)
             $templateUpdates = [];
@@ -4534,6 +5721,15 @@ return errorResponse($e->getMessage(), 400);
                     $planUpdates[] = 'academic_year_class_learning_area_id = ?';
                     $planParams[] = $ayclaId;
                 }
+                if (!empty($data['stream_id'])) {
+                    $aycsId = $this->resolveAcademicYearClassStreamId((int) $classId, $data['stream_id'], !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : null);
+                    $streamLearningAreaId = $aycsId > 0 ? $this->resolveStreamLearningAreaId($aycsId, (int) $learningAreaId) : 0;
+                    if (!$streamLearningAreaId || !$this->teacherCanUseStreamLearningArea($streamLearningAreaId, (int) $this->getCurrentStaffId())) {
+                        return errorResponse('You are not assigned to the selected stream and learning area', 403);
+                    }
+                    $planUpdates[] = 'academic_year_class_stream_learning_area_id = ?';
+                    $planParams[] = $streamLearningAreaId;
+                }
             }
             if ($date !== null) {
                 $calendarDayId = $this->resolveCalendarDayId($date);
@@ -4542,10 +5738,24 @@ return errorResponse($e->getMessage(), 400);
                     $planParams[] = $calendarDayId;
                 }
             }
+            if (in_array((string) ($data['status'] ?? ''), ['published', 'approved'], true)
+                && $plan['status'] === 'draft') {
+                $planUpdates[] = 'status = ?';
+                $planParams[] = 'approved';
+                $planUpdates[] = 'approved_by = ?';
+                $planParams[] = $this->getCurrentStaffId();
+            }
             if (!empty($planUpdates)) {
                 $planParams[] = $id;
                 $stmt = $this->db->prepare("UPDATE lesson_plans SET " . implode(', ', $planUpdates) . " WHERE id = ?");
                 $stmt->execute($planParams);
+            }
+
+            if (array_key_exists('learning_outcome_ids', $data) || array_key_exists('resources_items', $data) || array_key_exists('assessment_tool_ids', $data) || array_key_exists('activities_items', $data) || array_key_exists('coverage_items', $data)) {
+                $subStrandStmt = $this->db->prepare('SELECT sub_strand_id FROM lesson_templates WHERE id = ?');
+                $subStrandStmt->execute([(int) $plan['lesson_template_id']]);
+                $subStrandId = (int) $subStrandStmt->fetchColumn();
+                $this->syncLessonPlanAtomicContent((int) $id, $data, $subStrandId);
             }
 
             $this->db->commit();
@@ -4569,12 +5779,15 @@ return errorResponse($e->getMessage(), 400);
             $this->db->beginTransaction();
 
             // Check if plan exists and status
-            $stmt = $this->db->prepare("SELECT status FROM lesson_plans WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT status, teacher_id FROM lesson_plans WHERE id = ?");
             $stmt->execute([$id]);
             $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$plan) {
                 return errorResponse('Lesson plan not found');
+            }
+            if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
+                return errorResponse('Only the assigned teacher can archive this lesson plan', 403);
             }
 
             // Prevent deleting approved plans
@@ -4604,6 +5817,9 @@ return errorResponse($e->getMessage(), 400);
     public function approveLessonPlan($id, $data)
     {
         try {
+            if (!$this->isAcademicLeader()) {
+                return errorResponse('Only an academic leader can approve lesson plans', 403);
+            }
             $this->db->beginTransaction();
 
             // Check if plan exists
@@ -4646,6 +5862,9 @@ return errorResponse($e->getMessage(), 400);
     public function rejectLessonPlan($id, $data = [])
     {
         try {
+            if (!$this->isAcademicLeader()) {
+                return errorResponse('Only an academic leader can reject lesson plans', 403);
+            }
             $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
@@ -4680,14 +5899,15 @@ return errorResponse($e->getMessage(), 400);
     }
 
     /**
-     * Submit a draft lesson plan for review.
+     * Backward-compatible endpoint. Lesson plans are published by the author
+     * after their scheme is approved; they are not submitted for review.
      */
     public function submitLessonPlan($id, $data = [])
     {
         try {
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT id, status, teacher_id FROM lesson_plans WHERE id = ?");
             $stmt->execute([$id]);
             $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -4695,17 +5915,22 @@ return errorResponse($e->getMessage(), 400);
                 return errorResponse('Lesson plan not found');
             }
 
-            if (!in_array($plan['status'], ['draft'])) {
-                return errorResponse('Only draft lesson plans can be submitted for review');
+            if ((int) $plan['teacher_id'] !== (int) $this->getCurrentStaffId()) {
+                return errorResponse('Only the assigned teacher can submit this lesson plan', 403);
             }
 
-            // The new schema has no 'submitted' status; drafts are the review queue.
+            if ($plan['status'] !== 'draft') {
+                return errorResponse('Only draft lesson plans can be published');
+            }
+
+            $update = $this->db->prepare("UPDATE lesson_plans SET status = 'approved', approved_by = ? WHERE id = ?");
+            $update->execute([$this->getCurrentStaffId(), $id]);
             $this->db->commit();
-            $this->logAction('update', $id, "Submitted lesson plan for review");
+            $this->logAction('update', $id, "Published lesson plan");
 
             return successResponse([
                 'status' => 'success',
-                'message' => 'Lesson plan submitted for review'
+                'message' => 'Lesson plan published successfully'
             ]);
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
@@ -5932,8 +7157,7 @@ return errorResponse($e->getMessage(), 400);
         try {
             $assessmentId = (int) ($data['assessment_id'] ?? 0);
             $marks = $data['marks'] ?? [];
-            $isFinal = (bool) ($data['is_final'] ?? true);
-            $responderId = (int) ($data['marked_by'] ?? $this->user_id ?? 1);
+            $isFinal = (bool) ($data['is_final'] ?? false);
 
             if ($assessmentId <= 0) {
                 return errorResponse([
@@ -5948,120 +7172,59 @@ return errorResponse($e->getMessage(), 400);
                 ], 400);
             }
 
-            $assessmentStmt = $this->db->prepare("SELECT id, max_marks FROM assessments WHERE id = ? LIMIT 1");
-            $assessmentStmt->execute([$assessmentId]);
-            $assessment = $assessmentStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$assessment) {
-                return errorResponse([
-                    'status' => 'error',
-                    'message' => 'Assessment not found'
-                ], 404);
+            $result = $this->assessmentResultsService()->save(
+                $assessmentId,
+                $marks,
+                $isFinal,
+                (string) ($data['reason'] ?? '')
+            );
+            return successResponse(
+                $result,
+                $isFinal ? 'Assessment results submitted for moderation' : 'Assessment draft saved'
+            );
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+            return $this->errorResponse($e->getMessage(), $code);
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /** Exact published exam, roster and existing marks for teacher entry. */
+    public function getExamResultEntry(int $examScheduleId): array
+    {
+        try {
+            return successResponse($this->assessmentResultsService()->examEntryContext($examScheduleId));
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+            return $this->errorResponse($e->getMessage(), $code);
+        } catch (\Throwable $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function moderateAssessmentResults(array $data): array
+    {
+        try {
+            $assessmentId = (int) ($data['assessment_id'] ?? 0);
+            if ($assessmentId <= 0) {
+                return $this->errorResponse('assessment_id is required', 400);
             }
-            $maxMarks = max(1.0, (float) ($assessment['max_marks'] ?? 100));
-
-            $this->db->beginTransaction();
-
-            $upsert = $this->db->prepare("
-                INSERT INTO assessment_results (
-                    assessment_id,
-                    student_academic_enrollment_id,
-                    marks_obtained,
-                    grade,
-                    points,
-                    remarks,
-                    submitted_at,
-                    is_submitted,
-                    is_approved,
-                    responder_type,
-                    responder_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher', ?)
-                ON DUPLICATE KEY UPDATE
-                    marks_obtained = VALUES(marks_obtained),
-                    grade = VALUES(grade),
-                    points = VALUES(points),
-                    remarks = VALUES(remarks),
-                    submitted_at = VALUES(submitted_at),
-                    is_submitted = VALUES(is_submitted),
-                    responder_type = 'teacher',
-                    responder_id = VALUES(responder_id)
-            ");
-
-            $saved = 0;
-            foreach ($marks as $row) {
-                $studentId = (int) ($row['student_id'] ?? 0);
-                if ($studentId <= 0) {
-                    continue;
-                }
-
-                $enrollmentId = $this->resolveStudentEnrollmentId($studentId);
-                if ($enrollmentId <= 0) {
-                    continue;
-                }
-
-                $rawScore = $row['score_obtained'] ?? $row['marks_obtained'] ?? $row['marks'] ?? $row['score'] ?? null;
-                if ($rawScore === null || $rawScore === '') {
-                    continue;
-                }
-
-                $score = (float) $rawScore;
-                if ($score < 0) {
-                    $score = 0;
-                }
-                if ($score > $maxMarks) {
-                    $score = $maxMarks;
-                }
-
-                $percentage = $maxMarks > 0 ? ($score / $maxMarks) * 100 : 0;
-                $grade = $this->deriveGradeFromPercentage($percentage);
-                $points = $grade === 'EE' ? 4.0 : ($grade === 'ME' ? 3.0 : ($grade === 'AE' ? 2.0 : 1.0));
-                $submittedAt = $isFinal ? date('Y-m-d H:i:s') : null;
-                $isSubmitted = $isFinal ? 1 : 0;
-
-                $upsert->execute([
-                    $assessmentId,
-                    $enrollmentId,
-                    $score,
-                    $grade,
-                    $points,
-                    $row['remarks'] ?? '',
-                    $submittedAt,
-                    $isSubmitted,
-                    0,
-                    $responderId,
-                ]);
-
-                $saved++;
-            }
-
-            $assessmentStatus = $isFinal ? 'submitted' : 'pending_submission';
-            $statusStmt = $this->db->prepare("UPDATE assessments SET status = ? WHERE id = ?");
-            $statusStmt->execute([$assessmentStatus, $assessmentId]);
-
-            $summaryStmt = $this->db->prepare("
-                SELECT
-                    COUNT(*) AS total_rows,
-                    SUM(CASE WHEN is_submitted = 1 THEN 1 ELSE 0 END) AS submitted_rows
-                FROM assessment_results
-                WHERE assessment_id = ?
-            ");
-            $summaryStmt->execute([$assessmentId]);
-            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: ['total_rows' => 0, 'submitted_rows' => 0];
-
-            $this->db->commit();
-
-            return successResponse([
-                'assessment_id' => $assessmentId,
-                'saved_count' => $saved,
-                'summary' => [
-                    'total_rows' => (int) ($summary['total_rows'] ?? 0),
-                    'submitted_rows' => (int) ($summary['submitted_rows'] ?? 0),
-                ],
-                'status' => $assessmentStatus,
-            ], $isFinal ? 'Assessment results submitted successfully' : 'Assessment draft saved successfully');
-        } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
+            $studentId = isset($data['student_id']) && (int) $data['student_id'] > 0
+                ? (int) $data['student_id']
+                : null;
+            $approve = strtolower((string) ($data['action'] ?? 'approve')) === 'approve';
+            $result = $this->assessmentResultsService()->moderate(
+                $assessmentId,
+                $approve,
+                $studentId,
+                (string) ($data['reason'] ?? $data['remarks'] ?? '')
+            );
+            return successResponse($result, $approve ? 'Results approved' : 'Results returned to the teacher');
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+            return $this->errorResponse($e->getMessage(), $code);
+        } catch (\Throwable $e) {
             return $this->handleException($e);
         }
     }
@@ -6114,11 +7277,26 @@ return errorResponse($e->getMessage(), 400);
      * Accepts either a stream id (used directly) or a classes.id resolved
      * through the most recent academic year.
      */
-    private function resolveAcademicYearClassStreamId($classId)
+    private function resolveAcademicYearClassStreamId($classId, $streamId = null, $academicYearId = null)
     {
         $classId = (int) $classId;
         if ($classId <= 0) {
             return 0;
+        }
+        if ($streamId !== null && (int) $streamId > 0) {
+            $sql = "SELECT aycs.id
+                    FROM academic_year_class_streams aycs
+                    JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                    WHERE ayc.class_id = ? AND aycs.stream_id = ? AND aycs.status = 'active'";
+            $params = [$classId, (int) $streamId];
+            if ($academicYearId) {
+                $sql .= " AND ayc.academic_year_id = ?";
+                $params[] = (int) $academicYearId;
+            }
+            $sql .= " ORDER BY ayc.academic_year_id DESC, aycs.id DESC LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            return (int) ($stmt->fetchColumn() ?: 0);
         }
         $stmt = $this->db->prepare("SELECT id FROM academic_year_class_streams WHERE id = ? LIMIT 1");
         $stmt->execute([$classId]);
@@ -6244,7 +7422,11 @@ return errorResponse($e->getMessage(), 400);
             }
 
             $whereClause = implode(' AND ', $where);
-            $currentYearId = $this->resolveCurrentAcademicYearId();
+            // Reports must honour the selected academic context. Fall back to
+            // the active year only when the caller did not provide one.
+            $currentYearId = !empty($params['year_id'])
+                ? (int) $params['year_id']
+                : (!empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : $this->resolveCurrentAcademicYearId());
 
             $countSql = "
                 SELECT COUNT(*) AS total
@@ -6406,7 +7588,11 @@ return errorResponse($e->getMessage(), 400);
             }
 
             $whereClause = implode(' AND ', $where);
-            $currentYearId = $this->resolveCurrentAcademicYearId();
+            // Use the report's selected academic year; do not silently use the
+            // current year when an historical year was requested.
+            $currentYearId = !empty($params['year_id'])
+                ? (int) $params['year_id']
+                : (!empty($params['academic_year_id']) ? (int) $params['academic_year_id'] : $this->resolveCurrentAcademicYearId());
 
             $scoreJoins = "
                 JOIN students s ON s.id = tss.student_id
@@ -7046,7 +8232,9 @@ return errorResponse($e->getMessage(), 400);
                         student_id,
                         COALESCE(SUM(balance), 0) AS balance
                     FROM vw_student_fee_balances
-                    WHERE academic_year_id = ?
+                    WHERE academic_year_term_id IN (
+                        SELECT id FROM academic_year_terms WHERE academic_year_id = ?
+                    )
                     GROUP BY student_id
                 ) fee_summary ON fee_summary.student_id = s.id
             ";
@@ -7095,6 +8283,32 @@ return errorResponse($e->getMessage(), 400);
                 $baseWhere[] = "(ayc.class_id = ? OR aycs.id = ?)";
                 $cid = (int) $params['class_id'];
                 array_push($bindings, $cid, $cid);
+            }
+
+            // Class teachers may only view performance for their assigned
+            // class streams.  Ownership is resolved through the shared scope projection.
+            if (!empty($params['class_teacher_only'])) {
+                $staffId = $this->getCurrentStaffId();
+                if (!$staffId) {
+                    return successResponse(['view_mode' => 'students', 'rows' => [], 'summary' => [
+                        'total_students' => 0, 'average_score' => 0, 'top_student' => '-', 'best_group' => '-'
+                    ]]);
+                }
+                $baseWhere[] = 'EXISTS (
+                    SELECT 1 FROM academic_year_class_streams scoped_aycs
+                    JOIN academic_year_classes scoped_ayc ON scoped_ayc.id = scoped_aycs.academic_year_class_id
+                    WHERE scoped_aycs.id = aycs.id
+                      AND EXISTS (
+                          SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                          WHERE tscope.staff_id = ?
+                            AND tscope.academic_year_class_stream_id = scoped_aycs.id
+                            AND tscope.scope_type = \'class_teacher\'
+                      )
+                      AND scoped_aycs.status = \'active\'
+                      AND scoped_ayc.academic_year_id = ?
+                )';
+                $bindings[] = $staffId;
+                $bindings[] = $yearId;
             }
 
             if (!empty($params['stream_id'])) {
@@ -7500,18 +8714,11 @@ return errorResponse($e->getMessage(), 400);
         if ($percentage === null || $percentage === '') {
             return null;
         }
-
-        $value = (float) $percentage;
-        if ($value >= 80) {
-            return 'EE';
+        try {
+            return (new CbcGradingService($this->db))->grade((float) $percentage, 100)['grade_code'];
+        } catch (\Throwable $e) {
+            return null;
         }
-        if ($value >= 50) {
-            return 'ME';
-        }
-        if ($value >= 25) {
-            return 'AE';
-        }
-        return 'BE';
     }
 
     /**
@@ -8390,11 +9597,11 @@ return errorResponse($e->getMessage(), 400);
     {
         try {
             $sql = "
-                SELECT 
-                    *
-                FROM learning_areas
-                WHERE status = 'active'
-                ORDER BY name
+                SELECT la.*, laf.name AS learning_area_family, laf.code AS learning_area_family_code
+                FROM learning_areas la
+                LEFT JOIN learning_area_families laf ON laf.id = la.learning_area_family_id
+                WHERE la.status = 'active'
+                    ORDER BY la.name
             ";
 
             $stmt = $this->db->prepare($sql);

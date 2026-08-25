@@ -1882,10 +1882,10 @@ class StaffAPI extends BaseAPI {
 
     public function assignClass($id, $data) {
         try {
-            if (empty($data['class_id'])) {
+            if (empty($data['class_id']) || empty($data['stream_id'])) {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'Class ID is required'
+                    'message' => 'Class ID and stream ID are required'
                 ], 400);
             }
 
@@ -1893,9 +1893,9 @@ class StaffAPI extends BaseAPI {
                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                     JOIN academic_years ay ON ay.id = ayc.academic_year_id
                     SET aycs.class_teacher_id = ?
-                    WHERE ayc.class_id = ? AND ay.status = 'active'";
+                    WHERE ayc.class_id = ? AND aycs.stream_id = ? AND ay.status = 'active'";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $data['class_id']]);
+            $stmt->execute([$id, $data['class_id'], $data['stream_id']]);
 
             return $this->response([
                 'status' => 'success',
@@ -1909,10 +1909,10 @@ class StaffAPI extends BaseAPI {
 
     public function assignSubject($id, $data) {
         try {
-            if (empty($data['subject_id']) || empty($data['class_id'])) {
+            if (empty($data['subject_id']) || empty($data['class_id']) || empty($data['stream_id'])) {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'Subject ID and Class ID are required'
+                    'message' => 'Subject ID, Class ID and Stream ID are required'
                 ], 400);
             }
 
@@ -1930,10 +1930,10 @@ class StaffAPI extends BaseAPI {
             $stmt = $this->db->prepare(
                 "SELECT aycs.id FROM academic_year_class_streams aycs
                  JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                 WHERE ayc.academic_year_id = ? AND ayc.class_id = ?
+                 WHERE ayc.academic_year_id = ? AND ayc.class_id = ? AND aycs.stream_id = ?
                  ORDER BY aycs.id LIMIT 1"
             );
-            $stmt->execute([$ayId, $data['class_id']]);
+            $stmt->execute([$ayId, $data['class_id'], $data['stream_id']]);
             $classStreamId = (int) $stmt->fetchColumn();
             if ($classStreamId <= 0) {
                 return $this->response([
@@ -1965,11 +1965,21 @@ class StaffAPI extends BaseAPI {
             if ($learningAreaId <= 0) {
                 $learningAreaId = (int) $data['subject_id'];
             }
+            $contextId = (int)$this->db->query(
+                "SELECT sla.id
+                 FROM academic_year_class_stream_learning_areas sla
+                 JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                 WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
+                [$classStreamId, $learningAreaId]
+            )->fetchColumn();
+            if ($contextId <= 0) {
+                return $this->response(['status' => 'error', 'message' => 'Learning area is not configured for the selected class stream'], 400);
+            }
             $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-            $sql = "INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
-                    VALUES (?, ?, ?, 1, ?, ?, ?, 'scheduled')";
+            $sql = "INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'scheduled')";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$entryId, $classStreamId, $termId, $timeSlotId, $learningAreaId, $id]);
+            $stmt->execute([$entryId, $classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
 
             return $this->response([
                 'status' => 'success',

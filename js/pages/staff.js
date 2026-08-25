@@ -1619,6 +1619,7 @@ const staffManagementController = {
     try {
       const response = await window.API.staff.getPayslip(staffId, { month, year });
       const payslip = response?.data || response || {};
+      this.currentPayslip = payslip;
 
       content.innerHTML = `
         <div class="border p-4">
@@ -1672,16 +1673,39 @@ const staffManagementController = {
   },
 
   printPayslip: function () {
-    const content = document.getElementById("payslipContent");
-    if (!content) return;
-    const win = window.open("", "_blank");
-    win.document.write("<html><head><title>Payslip</title>");
-    win.document.write('<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">');
-    win.document.write("</head><body class='p-4'>");
-    win.document.write(content.innerHTML);
-    win.document.write("</body></html>");
-    win.document.close();
-    win.onload = function () { PrintManager.printElement(content.id, { title: 'Staff Document' }); win.close(); };
+    const payslip = this.currentPayslip;
+    if (!payslip || !window.PrintManager?.printDedicatedPayslip) return;
+    const amount = (value) => Number.parseFloat(value) || 0;
+    return window.PrintManager.printDedicatedPayslip({
+      title: "Staff Payslip",
+      period: `${this.getMonthName(payslip.payroll_month || payslip.month)} ${payslip.payroll_year || payslip.year || ""}`,
+      employeeName: `${payslip.first_name || ""} ${payslip.last_name || ""}`.trim() || payslip.staff_name,
+      staffNo: payslip.staff_no,
+      department: payslip.department_name || payslip.department,
+      designation: payslip.position || payslip.designation,
+      kraPin: payslip.kra_pin,
+      basicSalary: amount(payslip.basic_salary || payslip.salary),
+      allowances: [{ name: "Allowances", amount: amount(payslip.allowances_total || payslip.allowances || payslip.other_allowances) }],
+      deductions: [
+        { name: "Other deductions", amount: amount(payslip.other_deductions) },
+        { name: "Children Fee Deductions", amount: amount(payslip.children_fee_deduction) },
+      ].filter((item) => item.amount > 0),
+      statutory: {
+        paye: amount(payslip.paye || payslip.tax),
+        nssf: amount(payslip.nssf_deduction || payslip.nssf),
+        nhif_shif: amount(payslip.nhif_deduction || payslip.nhif || payslip.shif),
+        housing_levy: amount(payslip.housing_levy),
+      },
+      grossPay: amount(payslip.gross_pay || payslip.gross_salary),
+      totalDeductions: amount(payslip.total_deductions),
+      netPay: amount(payslip.net_pay || payslip.net_salary),
+      bankAccount: payslip.bank_account || payslip.bank_account_number || "",
+      filename: `payslip_${payslip.staff_no || payslip.staff_id || "staff"}`,
+      signatureSection: [
+        { label: "Accounts Officer", dateLine: true },
+        { label: "Employee Acknowledgement", dateLine: true },
+      ],
+    });
   },
 
   generatePayslip: async function (staffId) {

@@ -14,6 +14,7 @@ const ModerationController = {
     async init() {
         await window.AuthContext?.ready?.();
         if (!AuthContext.isAuthenticated()) return;
+        await window.GradingScale?.preload?.();
         await this.loadReferences();
         this.setupFilters();
     },
@@ -122,8 +123,8 @@ const ModerationController = {
                     <td>${i + 1}</td>
                     <td>${this.esc(r.student_name)}</td>
                     <td>${this.esc(r.admission_no || '')}</td>
-                    <td><strong>${r.marks_obtained}</strong></td>
-                    <td><span class="badge ${r.grade === 'EE' ? 'bg-primary' : r.grade === 'ME' ? 'bg-success' : r.grade === 'AE' ? 'bg-warning' : 'bg-danger'}">${r.grade || '-'}</span></td>
+                    <td><strong>${r.entry_status === 'present' ? r.marks_obtained : this.esc(r.entry_status || '-')}</strong></td>
+                    <td><span class="badge ${GradingScale.band(r.grade) === 'EE' ? 'bg-primary' : GradingScale.band(r.grade) === 'ME' ? 'bg-success' : GradingScale.band(r.grade) === 'AE' ? 'bg-warning text-dark' : 'bg-danger'}">${r.grade || '-'}</span></td>
                     <td>${r.points || '-'}</td>
                     <td>${approved ? '<span class="badge bg-success">Approved</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
                     <td>
@@ -144,7 +145,11 @@ const ModerationController = {
         } catch (e) { window.showNotification?.(e.message || 'Failed to approve', 'error'); }
     },
     async rejectResult(assessmentId, studentId) {
-        const reason = await window.promptAction('Input', 'Reason for rejection (optional):');
+        const reason = await window.promptAction('Input', 'Reason for returning this assessment to the teacher:');
+        if (!String(reason || '').trim()) {
+            window.showNotification?.('A moderation reason is required', 'warning');
+            return;
+        }
         try {
             await this.callAPI('/academic/reject-assessment', 'POST', { assessment_id: assessmentId, student_id: studentId, reason: reason || '' });
             window.showNotification?.('Result rejected', 'warning');

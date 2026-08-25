@@ -25,8 +25,8 @@ class UniformPaymentService
         $ref='U-'.$sale['admission_no'].'-'.$saleId.'-'.strtoupper(bin2hex(random_bytes(3))); $status=in_array($channel,['cash','bank_transfer','cheque'],true)?'manual_review':'pending';
         $i=$this->db->prepare("INSERT INTO uniform_payment_intents (sale_id,student_id,financial_account_id,channel,amount,idempotency_reference,status,request_payload,created_by) VALUES (?,?,?,?,?,?,?,?,?)"); $i->execute([$saleId,$sale['student_id'],(int)$account['id'],$channel,$amount,$ref,$status,json_encode($data),$userId]); $id=(int)$this->db->lastInsertId();
         $this->db->prepare("INSERT INTO payment_routing_references (reference,normalized_reference,purpose,student_id,uniform_sale_id,expires_at) VALUES (?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 30 DAY))")->execute([$ref,(new ReferenceNormalizer())->reference($ref),'uniforms',$sale['student_id'],$saleId]);
-        if ($channel==='daraja_mpesa') { $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??$data['phone_number']??'',$amount,'Uniform purchase'); $this->updateProvider($id,$result,$result['data']['checkout_request_id']??null); }
-        elseif ($channel==='buni_mpesa') { $base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:''); $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??$data['phone_number']??'','amount'=>$amount,'invoice_number'=>$ref,'description'=>'Uniform purchase','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']); $this->updateProvider($id,$result,$result['checkout_request_id']??$result['message_id']??null); }
+        if ($channel==='daraja_mpesa') { $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??$data['phone_number']??'',$amount,'Uniform purchase',(int)$account['id']); $this->updateProvider($id,$result,$result['data']['checkout_request_id']??null); }
+        elseif ($channel==='buni_mpesa') { $base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:''); $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??$data['phone_number']??'','amount'=>$amount,'invoice_number'=>$ref,'org_short_code'=>(string)$account['account_identifier'],'description'=>'Uniform purchase','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']); $this->updateProvider($id,$result,$result['checkout_request_id']??$result['message_id']??null); }
         return $this->get($id);
     }
 
@@ -69,11 +69,11 @@ class UniformPaymentService
                 ->execute([$ref,(new ReferenceNormalizer())->reference($ref),'uniforms',$studentId]);
             $this->db->commit();
             if($channel==='daraja_mpesa'){
-                $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??'',$amount,'Uniform accumulated balance');
+                $result=(new MpesaPaymentService())->initiateSTKPush($ref,$data['phone']??'',$amount,'Uniform accumulated balance',(int)$account['id']);
                 $this->updateProvider($intentId,$result,$result['data']['checkout_request_id']??null);
             }else{
                 $base=defined('KCB_CALLBACK_BASE_URL')?KCB_CALLBACK_BASE_URL:(defined('BASE_URL')?BASE_URL:'');
-                $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??'','amount'=>$amount,'invoice_number'=>$ref,'description'=>'Uniform accumulated balance','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']);
+                $result=(new KcbMpesaExpressService())->initiate(['phone_number'=>$data['phone']??'','amount'=>$amount,'invoice_number'=>$ref,'org_short_code'=>(string)$account['account_identifier'],'description'=>'Uniform accumulated balance','callback_url'=>rtrim($base,'/').'/api/payments/kcb-mpesa-express-callback']);
                 $this->updateProvider($intentId,$result,$result['checkout_request_id']??$result['message_id']??null);
             }
             return $this->get($intentId);
@@ -82,6 +82,7 @@ class UniformPaymentService
 
     public function reconcileReference(string $reference,float $amount,string $provider,string $providerReference, ?int $financialAccountId = null): bool
     {
+        $reference = (new ReferenceNormalizer())->reference($reference);
         $s=$this->db->prepare("SELECT i.* FROM uniform_payment_intents i JOIN payment_routing_references r ON r.reference=? AND r.purpose='uniforms' WHERE i.idempotency_reference=? LIMIT 1"); $s->execute([$reference,$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
         if (!$intent) { $r=$this->db->prepare("SELECT r.uniform_sale_id FROM payment_routing_references r WHERE r.reference=? AND r.purpose='uniforms' AND r.status IN ('active','consumed') AND (r.expires_at IS NULL OR r.expires_at>=NOW())"); $r->execute([$reference]); $saleId=(int)$r->fetchColumn(); if(!$saleId||!$financialAccountId)return false; $sale=$this->sale($saleId); if(!$sale)return false; $this->record($sale,$amount,$provider,$providerReference,0,$financialAccountId); return true; }
         if ($intent['status']==='confirmed') return true; if (abs((float)$intent['amount']-$amount)>0.01) return false;

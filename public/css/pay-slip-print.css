@@ -1,0 +1,300 @@
+/* Precise A4 Dompdf Single-Page Print Layout - Vertical Fill & Auto Wrapping */
+/* Payslip — standalone A4 document. The template is rendered as a complete
+   document, so these page and body rules intentionally remain active. */
+@page {
+    size: 210mm 297mm;
+    margin: 0;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 210mm;
+    height: 297mm;
+    background: #ffffff;
+    color: #0f172a;
+    font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 9.5pt; color: #212529;
+    font-size: 2.7mm;
+    line-height: 1.15;
+}
+
+/* Page Outer Container */
+.fs-document {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+/* Outer Navy Rounded Border Shell */
+.fs-inner-border {
+    position: relative;
+    width: 205mm;
+    height: 290mm;
+    background: #fffdf5;
+    padding: 2.5mm 3mm 0mm 3mm;
+    overflow: hidden;
+}
+
+/* Watermark */
+.fs-watermark {
+    position: absolute;
+    z-index: 1;
+    top: 90mm;
+    left: 50%;
+    margin-left: -38mm;
+    width: 96mm;
+    height: 96mm;
+    opacity: 0.1;
+    pointer-events: none;
+}
+.fs-watermark img {
+    width: 96mm;
+    height: 96mm;
+}
+
+.fs-content-wrap {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+}
+
+/* Corner Accent Overlay */
+.fs-corner-accent-overlay {
+    position: absolute;
+    top: -2.5mm;
+    right: -3mm;
+    width: 32mm;
+    height: 32mm;
+    z-index: 5;
+    pointer-events: none;
+}
+.fs-corner-accent-overlay img {
+    width: 32mm;
+    height: 32mm;
+    display: block;
+}
+
+/* Header Section */
+.fs-header-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    position: relative;
+    z-index: 2;
+}
+.fs-header-logo-cell {
+    width: 22%;
+    vertical-align: middle;
+    text-align: left;
+}
+.fs-header-logo-cell img {
+    width: 34mm;
+    height: 34mm;
+    object-fit: contain;
+}
+.fs-header-details-cell {
+    width: 78%;
+    vertical-align: middle;
+    text-align: center;
+    padding-right: 12mm;
+}
+
+.fs-school-name {
+    font-size: 5.6mm;
+    font-weight: 900;
+    color: #062653;
+    letter-spacing: 0.15mm;
+    text-transform: uppercase;
+    font-family: 'Arial Black', Arial, sans-serif;
+    white-space: nowrap;
+}
+.fs-school-meta {
+    font-size: 2.95mm;
+    font-weight: 700;
+    margin-top: 0.6mm;
+    color: #111111;
+    white-space: nowrap;
+}
+.fs-motto {
+    margin-top: 0.6mm;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 4.8mm;
+    color: #07552f;
+    font-style: italic;
+    font-weight: bold;
+}
+
+/* Gold Header Divider with Center Diamond */
+.fs-gold-rule-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2mm 0 0 0;
+}
+.fs-gold-rule-line {
+    border-bottom: 0.55mm solid #c9941d;
+    width: 48%;
+}
+.fs-gold-rule-diamond {
+    width: 4%;
+    text-align: center;
+    height: 3.2mm;
+    line-height: 0;
+}
+.fs-gold-rule-diamond span {
+    display: inline-block;
+    width: 2.2mm;
+    height: 2.2mm;
+    background: #c9941d;
+    transform: rotate(45deg);
+}
+.fs-gold-rule-svg {
+    display: block;
+    width: 100%;
+    height: 3.2mm;
+    margin: 1.2mm 0 0;
+}
+.fs-gold-rule-svg line {
+    stroke: #c9941d;
+    stroke-width: 0.55;
+}
+.fs-gold-rule-svg polygon {
+    fill: #c9941d;
+}
+
+/* Title Block & Centered Subtitle Ribbon */
+.fs-title-block {
+    text-align: center;
+    margin-bottom: 2mm;
+    margin-top: 1mm;
+}
+.fs-title-block h1 {
+    margin: 0;
+    font-size: 6.8mm;
+    color: #062653;
+    font-weight: 900;
+    letter-spacing: 0.3mm;
+    text-transform: uppercase;
+    font-family: 'Arial Black', Arial, sans-serif;
+}
+
+.fs-ribbon-wrapper {
+    width: 70%;
+    margin: 1.2mm auto 0 auto;
+    text-align: center;
+}
+.fs-ribbon-img {
+    width: 100%;
+    height: 6.8mm;
+    display: block;
+}
+
+/* Main Fee Sections */
+.fs-fee-section {
+    margin-bottom: 8mm;
+}
+
+/* Edge-to-Edge Rounded-Corner Footer */
+.fs-footer-dome-fixed {
+    position: absolute;
+    bottom: 0 !important;
+    left: -2mm !important;
+    right: -2mm !important;
+    width: 214mm !important;
+    height: 20mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    z-index: 100;
+}
+
+.fs-footer-dome-svg {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.fs-footer-dome-text {
+    position: absolute;
+    bottom: 3.5mm;
+    left: 0;
+    right: 0;
+    width: 100%;
+    text-align: center;
+    color: #ffffff;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 3.8mm;
+    font-style: italic;
+    font-weight: normal;
+    z-index: 101;
+}
+
+
+/* ---- utility classes mirroring the modal markup ---- */
+.ps-h2 { font-size: 19pt; font-weight: 500; margin: 0; color: #212529; }
+.ps-h5 { font-size: 12pt; font-weight: 500; margin: 0 0 4pt; color: #212529; }
+.ps-h6 { font-size: 9.5pt; font-weight: 500; margin: 0 0 4pt; color: #212529; }
+.ps-text-center { text-align: center; }
+.ps-muted { color: #6c757d; }
+.ps-success { color: #198754; }
+.ps-danger { color: #dc3545; }
+.ps-secondary { color: #6c757d; }
+.ps-bold { font-weight: 700; }
+.ps-small { font-size: 8.25pt; }
+.ps-mt3 { margin-top: 10pt; }
+.ps-mt4 { margin-top: 14pt; }
+
+.icn { display: inline-block; width: 9pt; margin-right: 2.5pt; font-weight: 700; text-align: center; }
+
+/* ---- title block (.text-center.mb-4 > h5.mt-3 + p.text-muted) ---- */
+.ps-title-block { text-align: center; margin-bottom: 14pt; }
+.ps-title-block .ps-h5 { margin-top: 10pt; }
+.ps-title-block p { margin: 0; }
+
+/* ---- two-column rows (.row > .col-md-6) ---- */
+.ps-grid { width: 100%; border-collapse: collapse; }
+.ps-grid-cell { width: 50%; vertical-align: top; padding: 0; }
+.ps-grid-cell.left { padding-right: 5pt; }
+.ps-grid-cell.right { padding-left: 5pt; }
+.ps-grid-spacer-row td { height: 14pt; }
+
+/* ---- info tables (.table.table-sm.table-borderless) ---- */
+.ps-info-table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+.ps-info-table td { padding: 2pt 2pt; vertical-align: top; }
+.ps-info-table td.lbl { width: 42%; white-space: nowrap; }
+
+/* ---- earnings / deductions tables (.table.table-sm) ---- */
+.ps-table { width: 100%; border-collapse: collapse; }
+.ps-table td { padding: 2.5pt 4pt; border-bottom: 0.75pt solid #dee2e6; }
+.ps-table td.amt { text-align: right; white-space: nowrap; }
+.ps-table tr.ctx-success td { background: #d1e7dd; }
+.ps-table tr.ctx-warning td { background: #fff3cd; }
+.ps-table tr.ctx-danger td { background: #f8d7da; }
+.ps-table td.child-name { padding-left: 12pt; }
+
+/* ---- status badge pill (.status-badge) ---- */
+.badge-pill { display: inline-block; padding: 1.5pt 7pt; border-radius: 7pt; font-size: 7pt; font-weight: 700; letter-spacing: 0.4pt; }
+.b-pending { background: #f9f5ea; color: #9a7d2e; }
+.b-processing { background: #ebeef4; color: #3a5a8c; }
+.b-paid { background: #e8f2ed; color: #1a7a4c; }
+.b-cancelled { background: #faefee; color: #c0392b; }
+
+/* ---- net pay card (.card.bg-success.text-white.mt-4 > .card-body.py-3) ---- */
+.net-card { background: #198754; color: #ffffff; text-align: center; padding: 10pt; border-radius: 1.5mm; margin-top: 14pt; }
+.net-card .ps-h5 { color: #ffffff; margin-bottom: 2.5pt; }
+.net-card .ps-h2 { color: #ffffff; }
+
+/* ---- generated note (.mt-4.text-center.text-muted.small) ---- */
+.gen-note { margin-top: 14pt; text-align: center; color: #6c757d; font-size: 8.25pt; }
+.gen-note p { margin: 0 0 2pt; }

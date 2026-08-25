@@ -25,6 +25,8 @@ class CORSMiddleware
                     'https://127.0.0.1',
                     'https://localhost:8080',
                     'https://127.0.0.1:8080',
+                    // ngrok tunnels used for external demos/testing
+                    'https://privately-amazing-glider.ngrok-free.app',
                 ];
             }
         }

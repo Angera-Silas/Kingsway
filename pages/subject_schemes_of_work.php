@@ -1,12 +1,8 @@
 <?php
-/**
- * Subject Schemes of Work Page
- * Purpose: Subject Teacher-specific view of schemes for their assigned subjects
- * Features: Subject-specific scheme management, curriculum coverage tracking
- * Block 4: Teaching Delivery
- * Role: Subject Teacher (8)
- */
-
+// Canonical teacher schemes page. Class-teacher and subject-teacher schemes
+// are one capability and must not produce two different UIs or menu entries.
+require __DIR__ . '/my_schemes_of_work.php';
+return;
 ?>
 
 <div class="card shadow-sm">

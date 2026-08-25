@@ -1,10 +1,10 @@
 <?php
 /**
- * Create Assessment - School Admin Assessment Creation
- * Role: School Administrator (4)
- * Purpose: Create assessments for all classes and subjects
- * Full access to all classes and subjects for assessment creation
+ * @deprecated Formative creation is part of the scoped teacher workspace;
+ * summative assessments originate from a published exam timetable.
  */
+require __DIR__ . '/my_cats.php';
+return;
 ?>
 <div class="container-fluid py-4">
     <div class="row">

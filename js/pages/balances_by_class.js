@@ -73,6 +73,7 @@ const BalancesByClassController = {
 
     const applyBtn = document.getElementById('applyFiltersBtn');
     if (applyBtn) applyBtn.addEventListener('click', () => this.onFiltersChange());
+    if (applyBtn) applyBtn.classList.add('d-none');
 
     const classSelect = document.getElementById('classSelect');
     if (classSelect) classSelect.addEventListener('change', () => this.onFiltersChange());

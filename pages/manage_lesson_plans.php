@@ -92,7 +92,7 @@
             <i class="bi bi-journal-text me-2"></i>Lesson Plans Management
         </h2>
         <small class="opacity-75">
-            Create, review, and approve lesson plans
+            Create and monitor lesson plans generated from approved schemes of work
         </small>
     </div>
     <button class="btn btn-light btn-sm" id="btnCreateLessonPlan" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal" data-permission="lesson_plans_create">
@@ -113,13 +113,13 @@
     <div class="col-md-3">
         <div class="stat-card">
             <div class="stat-number" id="lpApprovedCount">0</div>
-            <small>Approved</small>
+            <small>Published</small>
         </div>
     </div>
     <div class="col-md-3">
         <div class="stat-card">
             <div class="stat-number" id="lpPendingCount">0</div>
-            <small>Pending Review</small>
+            <small>Monitoring</small>
         </div>
     </div>
     <div class="col-md-3">
@@ -146,8 +146,7 @@
             <select id="lpFilterStatus" class="form-select">
                 <option value="">All Statuses</option>
                 <option value="draft">Draft</option>
-                <option value="submitted">Submitted</option>
-                <option value="approved">Approved</option>
+                <option value="approved">Published</option>
                 <option value="completed">Completed</option>
             </select>
         </div>
@@ -178,12 +177,12 @@
     </li>
     <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#pending" data-filter="submitted">
-            <i class="bi bi-hourglass-split me-1"></i>Pending Review
+            <i class="bi bi-activity me-1"></i>Monitoring
         </a>
     </li>
     <li class="nav-item">
         <a class="nav-link" data-bs-toggle="tab" href="#approved" data-filter="approved">
-            <i class="bi bi-check-circle me-1"></i>Approved
+            <i class="bi bi-check-circle me-1"></i>Published
         </a>
     </li>
 </ul>

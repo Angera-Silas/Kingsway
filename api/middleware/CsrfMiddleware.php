@@ -34,6 +34,8 @@ class CsrfMiddleware
         'payments/kcb-validation',
         'payments/kcb-transfer-callback',
         'payments/kcb-notification',
+        'payments/kcb-account-notification',
+        'payments/kcb-till-notification',
         'payments/bank-webhook',
         'parent-portal/login',
         'parent-portal/login-otp-request',
@@ -71,6 +73,9 @@ class CsrfMiddleware
         'communications/sms-opt-out-callback',
         'communications/sms-subscription-callback',
         'communications/process-outbox',
+        'attendance/gate-event',
+        // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
+        'attendance/process-register-reminders',
     ];
 
     public static function handle(): void

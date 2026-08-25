@@ -56,6 +56,21 @@
     color: var(--acad-primary-dark);
 }
 
+#classTeacherSummaryCards .stat-card { border: 1px solid rgba(15, 23, 42, .08); }
+#classTeacherSummaryCards .stat-number { color: #123b5d; }
+#classTeacherSummaryCards small { color: #17324d; font-weight: 700; }
+#classTeacherSummaryCards .text-muted { color: #36566e !important; }
+#timetableCard.class-teacher-timetable .table-responsive { overflow-x: auto; }
+#timetableCard.class-teacher-timetable table { min-width: 1180px; table-layout: fixed; }
+#timetableCard.class-teacher-timetable th,
+#timetableCard.class-teacher-timetable td { font-size: .72rem; vertical-align: middle; }
+#timetableCard.class-teacher-timetable .class-stream-cell { width: 112px; white-space: nowrap; }
+#timetableCard.class-teacher-timetable .lesson-copy { font-size: .68rem; line-height: 1.12; }
+#timetableCard.class-teacher-timetable .break-merged { min-width: 40px; width: 40px; padding: .3rem .1rem; }
+#timetableCard.class-teacher-timetable .break-merged strong { display: inline-flex; flex-direction: column; align-items: center; row-gap: .06rem; font-size: .8rem; font-weight: 800; line-height: 1; letter-spacing: .08em; }
+#timetableCard.class-teacher-timetable .break-merged .vertical-word-gap { height: .35rem; }
+#timetableCard.class-teacher-timetable th.break-time-header { min-width: 40px !important; width: 40px !important; padding-left: .1rem; padding-right: .1rem; white-space: nowrap; }
+
 .btn-academic {
     background: var(--acad-primary);
     color: #fff;
@@ -104,14 +119,12 @@
     </div>
     <div class="btn-group flex-wrap">
         <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#generateTimetableModal"
-                data-permission="schedules_create"
                 data-role="deputy_head_academic,headteacher,admin">
             <i class="bi bi-gear me-1"></i>Generate
         </button>
-        <button class="btn btn-light btn-sm" onclick="timetableController.enterEditMode()"
-                data-permission="schedules_create"
-                data-role="deputy_head_academic,admin">
-            <i class="bi bi-pencil me-1"></i>Edit
+        <button id="matrixDraftBtn" class="btn btn-warning btn-sm" onclick="timetableController.openMatrixDraft()"
+                data-role="school_admin,deputy_head_academic,headteacher,class_teacher,admin">
+            <i class="bi bi-grid-3x3-gap me-1"></i>Matrix Draft
         </button>
         <button class="btn btn-light btn-sm" onclick="timetableController.exportTimetable()"
                 data-permission="schedules_view"
@@ -121,6 +134,14 @@
         <button class="btn btn-light btn-sm" onclick="timetableController.printMyTimetable()"
                 data-role="subject_teacher,class_teacher,intern">
             <i class="bi bi-printer me-1"></i>Print
+        </button>
+        <button class="btn btn-light btn-sm" onclick="timetableController.printMasterTimetable()"
+                data-permission="schedules_view" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
+            <i class="bi bi-printer-fill me-1"></i>Print Master
+        </button>
+        <button id="reviewTimetableDraftsBtn" class="btn btn-light btn-sm" onclick="timetableController.openDraftReview()"
+                data-role="school_admin,deputy_head_academic,headteacher,admin,director">
+            <i class="bi bi-clipboard-check me-1"></i>Review Drafts
         </button>
         <button class="btn btn-light btn-sm" onclick="timetableController.showConflictReportModal()"
                 data-role="subject_teacher,class_teacher,hod,intern">
@@ -132,7 +153,7 @@
 <!-- =======================================================
  STATISTICS
 ======================================================= -->
-<div class="row g-3 mb-4">
+<div id="timetableManagementStats" class="row g-3 mb-4">
     <div class="col-md-3">
         <div class="stat-card">
             <div class="stat-number" id="ttTotalLessons">--</div>
@@ -159,15 +180,39 @@
     </div>
 </div>
 
+<!-- Lower-primary class-teacher summary. Populated only for the assigned
+     class-teacher view; leadership and subject-teacher views use the cards above. -->
+<div id="classTeacherSummaryCards" class="row g-3 mb-4 d-none">
+    <div class="col-sm-6 col-xl-3"><div class="stat-card bg-primary-subtle"><div class="stat-number" id="ttAssignedStreams">0</div><small>Assigned Streams</small><div class="text-muted small mt-1">Streams you coordinate</div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="stat-card bg-success-subtle"><div class="stat-number" id="ttClassLearningAreas">0</div><small>Learning Areas</small><div class="text-muted small mt-1">Areas available for planning</div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="stat-card bg-warning-subtle"><div class="stat-number" id="ttTimetableCompletion">0%</div><small>Timetable Completion</small><div class="text-muted small mt-1">Across your assigned streams</div></div></div>
+    <div class="col-sm-6 col-xl-3"><div class="stat-card bg-info-subtle"><div class="stat-number" id="ttClassDraftStatus">Not started</div><small>Draft Status</small><div class="text-muted small mt-1">Submit for academic review</div></div></div>
+</div>
+
 <!-- =======================================================
  FILTER BAR
 ======================================================= -->
 <div class="academic-card p-3 mb-4">
     <div class="row g-3">
+        <div class="col-md-3" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
+            <label class="form-label fw-semibold">View Scope</label>
+            <select class="form-select" id="viewScopeFilter">
+                <option value="master">Master Timetable</option>
+                <option value="level">School Level</option>
+                <option value="class_stream">Class / Stream</option>
+                <option value="teacher">Teacher</option>
+            </select>
+        </div>
         <div class="col-md-3">
-            <label class="form-label fw-semibold">Select Class</label>
+            <label class="form-label fw-semibold" id="classFilterLabel">Class / Stream</label>
             <select class="form-select" id="classFilter">
-                <option value="">All Classes</option>
+                <option value="">Select a class stream</option>
+            </select>
+        </div>
+        <div class="col-md-3" data-role="school_admin,deputy_head_academic,headteacher,admin,director">
+            <label class="form-label fw-semibold">School Level</label>
+            <select class="form-select" id="schoolLevelFilter">
+                <option value="">Select school level</option>
             </select>
         </div>
         <div class="col-md-3" data-role="deputy_head_academic,headteacher,hod,admin">
@@ -187,7 +232,6 @@
             <select class="form-select" id="viewTypeFilter">
                 <option value="weekly">Weekly View</option>
                 <option value="daily">Daily View</option>
-                <option value="monthly">Monthly View</option>
             </select>
         </div>
     </div>
@@ -196,7 +240,7 @@
 <!-- =======================================================
  QUICK ACTIONS (Academic leadership only)
 ======================================================= -->
-<div class="academic-card p-3 mb-4" data-role="deputy_head_academic,headteacher,admin">
+<div id="timetableQuickActions" class="academic-card p-3 mb-4" data-role="deputy_head_academic,headteacher,admin">
     <div class="d-flex align-items-center flex-wrap gap-2">
         <i class="bi bi-lightning-fill text-warning me-1"></i>
         <strong>Quick Actions:</strong>
@@ -226,14 +270,7 @@
         <div class="table-responsive">
             <table class="table table-bordered table-academic">
                 <thead>
-                    <tr>
-                        <th scope="col">Time</th>
-                        <th scope="col">Monday</th>
-                        <th scope="col">Tuesday</th>
-                        <th scope="col">Wednesday</th>
-                        <th scope="col">Thursday</th>
-                        <th scope="col">Friday</th>
-                    </tr>
+                    <tr id="timetableHeader"><th scope="col">Day</th></tr>
                 </thead>
                 <tbody>
                     <tr>

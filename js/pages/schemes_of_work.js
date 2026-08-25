@@ -16,6 +16,7 @@ const SchemesOfWorkController = (() => {
     summary: { total: 0, approved: 0, pending: 0, overdue: 0 },
     currentAcademicYear: null,
     currentTerm: null,
+    staff: [],
   };
 
   const filters = {
@@ -179,6 +180,28 @@ const SchemesOfWorkController = (() => {
     });
   }
 
+  async function loadGenerateStreams(classId) {
+    const select = document.getElementById('genStream');
+    if (!select) return;
+    select.innerHTML = '<option value="">Loading streams…</option>';
+    if (!classId) { select.innerHTML = '<option value="">Select a class first</option>'; return; }
+    try {
+      const response = await window.API.academic.listStreams({ class_id: classId });
+      const streams = unwrapPayload(response) || [];
+      select.innerHTML = '<option value="">Select stream</option>' + (Array.isArray(streams) ? streams.map((stream) => `<option value="${escapeHtml(stream.id)}">${escapeHtml(stream.stream_name || stream.name || 'Stream')}</option>`).join('') : '');
+    } catch (error) { select.innerHTML = '<option value="">Unable to load streams</option>'; showError(error.message || 'Unable to load class streams'); }
+  }
+
+  async function loadGenerateTeachers() {
+    const select = document.getElementById('genTeacher');
+    if (!select) return;
+    try {
+      const response = await window.API.apiCall('/staff/staff', 'GET', null, { limit: 1000 }, { checkPermission: false });
+      state.staff = response?.staff || response?.data?.staff || response?.data || response || [];
+      if (Array.isArray(state.staff)) select.innerHTML = '<option value="">Select teacher</option>' + state.staff.map((staff) => `<option value="${escapeHtml(staff.id)}">${escapeHtml(`${staff.first_name || ''} ${staff.last_name || ''}`.trim() || staff.name || 'Staff member')}</option>`).join('');
+    } catch (error) { select.innerHTML = '<option value="">Unable to load teachers</option>'; }
+  }
+
   async function loadSchemes(page = 1) {
     try {
       state.pagination.page = page;
@@ -199,11 +222,11 @@ const SchemesOfWorkController = (() => {
       );
 
       const payload = unwrapPayload(resp) || {};
-      state.schemes = payload.schemes || payload.data || [];
+      state.schemes = groupWorkbookRows(payload.schemes || payload.data || []);
       if (!Array.isArray(state.schemes)) state.schemes = [];
 
       state.pagination = payload.pagination || state.pagination;
-      state.summary = payload.summary || computeSummary(state.schemes);
+      state.summary = computeSummary(state.schemes);
 
       renderSummary();
       renderTable();
@@ -218,9 +241,41 @@ const SchemesOfWorkController = (() => {
     return {
       total: schemes.length,
       approved: schemes.filter((s) => s.status === "approved").length,
-      pending: schemes.filter((s) => s.status === "pending").length,
+      pending: schemes.filter((s) => ["pending", "submitted", "draft"].includes(String(s.status || "").toLowerCase())).length,
       overdue: schemes.filter((s) => s.status === "overdue").length,
     };
+  }
+
+  // A scheme is reviewed as one term workbook. Weekly rows are implementation
+  // details and must never become nine separate approval records in this view.
+  function groupWorkbookRows(rows) {
+    const groups = new Map();
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const key = row.scheme_workbook_id
+        ? `workbook:${row.scheme_workbook_id}`
+        : [row.subject_id || row.learning_area_id || row.subject_name,
+          row.class_id || row.class_name,
+          row.stream_id || row.stream_name || '',
+          row.teacher_id || row.teacher_name || '',
+          row.term_id || row.term || ''].join('|');
+      if (!groups.has(key)) groups.set(key, { ...row, weekly_rows: [], week_numbers: [], topic_count: 0 });
+      const group = groups.get(key);
+      group.weekly_rows.push(row);
+      if (row.week_number != null && !group.week_numbers.includes(Number(row.week_number))) group.week_numbers.push(Number(row.week_number));
+      group.topic_count += Number(row.topic_count || 1);
+      if (String(row.status || '').toLowerCase() === 'approved') group.status = 'approved';
+      if (row.workbook_status) group.workbook_status = row.workbook_status;
+      if (row.revision_number) group.revision_number = row.revision_number;
+      if (row.parent_workbook_id) group.parent_workbook_id = row.parent_workbook_id;
+      if (row.updated_at && (!group.updated_at || String(row.updated_at) > String(group.updated_at))) group.updated_at = row.updated_at;
+    });
+    return [...groups.values()].map((group) => {
+      group.week_numbers.sort((a, b) => a - b);
+      group.topic_count = group.weekly_rows.length;
+      if (group.workbook_status) group.status = group.workbook_status;
+      group.term = group.term || group.term_number || group.term_name || '';
+      return group;
+    });
   }
 
   // ---- Rendering ----
@@ -251,14 +306,14 @@ const SchemesOfWorkController = (() => {
     tbody.innerHTML = state.schemes
       .map((s) => {
         const subjectName = s.subject_name || s.subject || "-";
-        const className = s.class_name || s.class || "-";
+        const className = (s.class_name || s.class || "-") + (s.stream_name ? ` · ${s.stream_name}` : '');
         const teacherName =
           s.teacher_name ||
           `${s.first_name || ""} ${s.last_name || ""}`.trim() ||
           "-";
-        const term = s.term ? `Term ${s.term}` : "-";
+        const term = s.term_name || s.term_number ? `Term ${s.term_name || s.term_number}` : (s.term ? `Term ${s.term}` : "-");
         const topicCount = s.topic_count || 0;
-        const status = s.status || "pending";
+        const status = s.workbook_status || s.status || "pending";
         const lastUpdated = s.updated_at || s.last_updated || "-";
 
         return `
@@ -267,20 +322,15 @@ const SchemesOfWorkController = (() => {
             <td>${escapeHtml(className)}</td>
             <td>${escapeHtml(teacherName)}</td>
             <td>${escapeHtml(term)}</td>
-            <td>${topicCount}</td>
+            <td><span class="badge bg-light text-dark border">${topicCount} week${topicCount === 1 ? '' : 's'}</span></td>
             <td><span class="badge bg-${statusBadge(status)}">${formatStatus(status)}</span></td>
             <td>${escapeHtml(lastUpdated)}</td>
             <td>
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-info" onclick="SchemesOfWorkController.viewScheme(${s.id})" title="View">
+                <button class="btn btn-outline-info" onclick="SchemesOfWorkController.viewScheme(${s.id}, ${s.scheme_workbook_id || 0})" title="Review complete workbook">
                   <i class="bi bi-eye"></i>
                 </button>
-                <button class="btn btn-outline-primary" onclick="SchemesOfWorkController.editScheme(${s.id})" title="Edit">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-outline-danger" onclick="SchemesOfWorkController.deleteScheme(${s.id})" title="Delete">
-                  <i class="bi bi-trash"></i>
-                </button>
+                ${s.workbook_status === 'submitted' && s.scheme_workbook_id ? `<button class="btn btn-outline-success" onclick="SchemesOfWorkController.approveWorkbook(${s.scheme_workbook_id})" title="Approve complete workbook"><i class="bi bi-check2-circle"></i></button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -305,87 +355,21 @@ const SchemesOfWorkController = (() => {
     container.innerHTML = html;
   }
 
-  // ---- CRUD Actions ----
-
-  function openSchemeModal(schemeId = null) {
-    const modalEl = document.getElementById("schemeModal");
-    const form = document.getElementById("schemeForm");
-    if (!modalEl || !form) return;
-
-    form.reset();
-    document.getElementById("schemeId").value = "";
-    document.getElementById("schemeModalTitle").textContent =
-      "Upload Scheme of Work";
-
-    if (schemeId) {
-      const record = state.schemes.find((s) => s.id == schemeId);
-      if (record) {
-        document.getElementById("schemeId").value = record.id;
-        document.getElementById("schemeModalTitle").textContent =
-          "Edit Scheme of Work";
-        document.getElementById("schemeSubject").value =
-          record.subject_id || "";
-        document.getElementById("schemeClass").value = record.class_id || "";
-        document.getElementById("schemeTerm").value = record.term || "";
-        document.getElementById("schemeTitle").value = record.title || "";
-        document.getElementById("schemeTopics").value = record.topics || "";
-        document.getElementById("schemeNotes").value = record.notes || "";
-      }
-    }
-
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
-  }
-
-  async function saveScheme() {
-    const schemeId = document.getElementById("schemeId").value;
-
-    const payload = {
-      subject_id: document.getElementById("schemeSubject").value,
-      class_id: document.getElementById("schemeClass").value,
-      term: document.getElementById("schemeTerm").value,
-      academic_year_id: document.getElementById("schemeYear").value,
-      title: document.getElementById("schemeTitle").value,
-      topics: document.getElementById("schemeTopics").value,
-      notes: document.getElementById("schemeNotes").value,
-    };
-
-    if (
-      !payload.subject_id ||
-      !payload.class_id ||
-      !payload.term ||
-      !payload.title
-    ) {
-      showError("Please fill in all required fields");
-      return;
-    }
-
-    try {
-      if (schemeId) {
-        await window.API.apiCall(
-          `/academic/schemes-of-work/${schemeId}`,
-          "PUT",
-          payload,
-        );
-        showSuccess("Scheme updated successfully");
-      } else {
-        await window.API.apiCall("/academic/schemes-of-work", "POST", payload);
-        showSuccess("Scheme uploaded successfully");
-      }
-
-      bootstrap.Modal.getInstance(
-        document.getElementById("schemeModal"),
-      ).hide();
-      await loadSchemes(state.pagination.page);
-    } catch (error) {
-      console.error("Error saving scheme:", error);
-      showError(error.message || "Failed to save scheme");
-    }
-  }
-
-  function viewScheme(schemeId) {
+  // ---- Workbook review actions ----
+  async function viewScheme(schemeId, workbookId = 0) {
     const record = state.schemes.find((s) => s.id == schemeId);
     if (!record) return;
+
+    let workbook = null;
+    if (workbookId || record.scheme_workbook_id) {
+      try {
+        const response = await window.API.academic.getSchemeWorkbook(record.id);
+        workbook = unwrapPayload(response) || {};
+      } catch (error) {
+        showError(error.message || 'Unable to load the complete workbook');
+        return;
+      }
+    }
 
     const el = (id, val) => {
       const e = document.getElementById(id);
@@ -401,7 +385,7 @@ const SchemesOfWorkController = (() => {
         "-",
     );
     el("viewTerm", record.term ? `Term ${record.term}` : "-");
-    el("viewTopicCount", record.topic_count || 0);
+    el("viewTopicCount", workbook?.payload ? workbook.payload.reduce((n, w) => n + (w.items || []).length, 0) : record.topic_count || 0);
 
     const statusEl = document.getElementById("viewStatus");
     if (statusEl) {
@@ -409,10 +393,17 @@ const SchemesOfWorkController = (() => {
     }
 
     const topicsEl = document.getElementById("viewTopics");
-    if (topicsEl) topicsEl.textContent = record.topics || "No topics listed";
+    if (topicsEl) {
+      const listText = (value, fallback) => {
+        if (Array.isArray(value)) return value.map((item) => typeof item === 'object' ? (item.text || item.outcome || item.experience || item.name || '') : item).filter(Boolean).join('; ') || fallback;
+        return value || fallback;
+      };
+      const weeks = workbook?.payload || [];
+      topicsEl.innerHTML = weeks.length ? `<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Week</th><th>Strand / Sub-strand</th><th>Focus</th><th>Outcomes</th><th>Experiences</th></tr></thead><tbody>${weeks.flatMap((week) => (week.items || []).map((item) => `<tr><td>Week ${escapeHtml(week.week_number)}</td><td>${escapeHtml((item.strand_name || item.strand_id || '—') + ' / ' + (item.sub_strand_name || item.sub_strand_id || '—'))}</td><td>${escapeHtml(item.title || '—')}</td><td>${escapeHtml(listText(item.learning_outcomes || item.outcomes, 'Selected curriculum outcomes'))}</td><td>${escapeHtml(listText(item.activities || item.experiences, 'Selected learning experiences'))}</td></tr>`)).join('')}</tbody></table></div>` : escapeHtml(record.topics || "No topics listed");
+    }
 
     const notesEl = document.getElementById("viewNotes");
-    if (notesEl) notesEl.textContent = record.notes || "No notes";
+    if (notesEl) notesEl.textContent = workbook?.revision_number ? `Revision ${workbook.revision_number}. ${workbook.revision_reason || ''}` : (record.notes || "No notes");
 
     const fileSection = document.getElementById("viewFileSection");
     if (fileSection && record.file_url) {
@@ -424,6 +415,9 @@ const SchemesOfWorkController = (() => {
 
     // Store current scheme ID for approval actions
     state.currentViewId = schemeId;
+    state.currentWorkbookId = workbook?.id || workbookId || record.scheme_workbook_id || 0;
+    const approveButton = document.getElementById('approveSchemeBtn');
+    if (approveButton) approveButton.style.display = state.currentWorkbookId && (record.workbook_status === 'submitted' || workbook?.status === 'submitted') ? '' : 'none';
 
     const modal = new bootstrap.Modal(
       document.getElementById("viewSchemeModal"),
@@ -431,13 +425,22 @@ const SchemesOfWorkController = (() => {
     modal.show();
   }
 
+  async function approveWorkbook(workbookId) {
+    if (!workbookId) return;
+    if (!(await window.confirmAction('Approve complete workbook', 'Approve this complete scheme as the official version? The teacher will no longer be able to edit it.'))) return;
+    try {
+      await window.API.academic.approveSchemeWorkbook(workbookId);
+      showSuccess('Complete scheme workbook approved and locked.');
+      bootstrap.Modal.getInstance(document.getElementById('viewSchemeModal'))?.hide();
+      await loadSchemes(state.pagination.page);
+    } catch (error) { showError(error.message || 'Failed to approve workbook'); }
+  }
+
   async function approveScheme() {
     if (!state.currentViewId) return;
     try {
-      await window.API.apiCall(
-        `/academic/schemes-of-work/approve/${state.currentViewId}`,
-        "PUT",
-      );
+      if (state.currentWorkbookId) return approveWorkbook(state.currentWorkbookId);
+      await window.API.apiCall(`/academic/schemes-of-work/approve/${state.currentViewId}`, "PUT");
       showSuccess("Scheme approved successfully");
       bootstrap.Modal.getInstance(
         document.getElementById("viewSchemeModal"),
@@ -454,11 +457,7 @@ const SchemesOfWorkController = (() => {
     if (reason === null) return;
 
     try {
-      await window.API.apiCall(
-        `/academic/schemes-of-work/reject/${state.currentViewId}`,
-        "PUT",
-        { reason },
-      );
+      await window.API.apiCall(`/academic/schemes-of-work/reject/${state.currentViewId}`, "PUT", { reason });
       showSuccess("Scheme rejected");
       bootstrap.Modal.getInstance(
         document.getElementById("viewSchemeModal"),
@@ -515,7 +514,7 @@ const SchemesOfWorkController = (() => {
 
   // ---- Auto-Generate from CBC Curriculum ----
 
-  function openGenerateModal() {
+  async function openGenerateModal() {
     const modalEl = document.getElementById("generateSchemeModal");
     if (!modalEl) return;
 
@@ -534,10 +533,19 @@ const SchemesOfWorkController = (() => {
 
     emptySelect("genStrand", "All Strands");
     emptySelect("genSubStrand", "All Sub-Strands");
+    const term = document.getElementById('genTerm');
+    if (term) term.value = state.currentTerm || '';
+    const termLabel = document.getElementById('genTermLabel');
+    if (termLabel) termLabel.textContent = state.currentTerm ? `Current term · ${state.currentTerm}` : 'No current term configured';
+    const stream = document.getElementById('genStream');
+    if (stream) stream.innerHTML = '<option value="">Select a class first</option>';
+    const leadership = (window.AuthContext?.getRoles?.() || []).some((role) => /admin|director|headteacher|deputy/i.test(String(role)));
+    const teacherField = document.getElementById('genTeacherField');
+    if (teacherField) teacherField.classList.toggle('d-none', !leadership);
+    if (leadership) await loadGenerateTeachers();
 
     populateGenerateClass();
-    populateGenerateTerm();
-    loadLearningAreasForGenerate();
+    await loadLearningAreasForGenerate();
 
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
@@ -546,6 +554,7 @@ const SchemesOfWorkController = (() => {
   function populateGenerateClass() {
     const select = document.getElementById("genClass");
     if (!select) return;
+    select.innerHTML = '<option value="">Select Class</option>';
     state.classes.forEach((cls) => {
       const opt = document.createElement("option");
       opt.value = cls.id;
@@ -573,6 +582,7 @@ const SchemesOfWorkController = (() => {
     if (!select) return;
 
     try {
+      select.innerHTML = '<option value="">Select Subject</option>';
       const resp = await window.API.academic.listLearningAreas();
       const payload = unwrapPayload(resp) || {};
       const areas = Array.isArray(payload) ? payload : payload.data || [];
@@ -655,21 +665,26 @@ const SchemesOfWorkController = (() => {
 
   async function generateSchemes() {
     const classId = document.getElementById("genClass")?.value;
+    const streamId = document.getElementById("genStream")?.value;
     const learningAreaId = document.getElementById("genLearningArea")?.value;
     const termId = document.getElementById("genTerm")?.value;
     const strandId = document.getElementById("genStrand")?.value;
     const subStrandId = document.getElementById("genSubStrand")?.value;
 
-    if (!classId || !learningAreaId || !termId) {
-      showError("Please select class, subject and term");
+    const teacherId = document.getElementById('genTeacher')?.value;
+    const leadership = (window.AuthContext?.getRoles?.() || []).some((role) => /admin|director|headteacher|deputy/i.test(String(role)));
+    if (!classId || !streamId || !learningAreaId || !termId || (leadership && !teacherId)) {
+      showError(leadership ? "Please select class, stream, learning area, current term and responsible teacher" : "Please select class, stream, learning area and current term");
       return;
     }
 
     const payload = {
       class_id: parseInt(classId, 10),
+      stream_id: parseInt(streamId, 10),
       learning_area_id: parseInt(learningAreaId, 10),
       term_id: parseInt(termId, 10),
     };
+    if (teacherId) payload.teacher_id = parseInt(teacherId, 10);
     if (strandId) payload.strand_id = parseInt(strandId, 10);
     if (subStrandId) payload.sub_strand_ids = [parseInt(subStrandId, 10)];
 
@@ -710,12 +725,10 @@ const SchemesOfWorkController = (() => {
 
   function attachEventListeners() {
     document
-      .getElementById("uploadSchemeBtn")
-      ?.addEventListener("click", () => openSchemeModal());
-
-    document
       .getElementById("generateSchemeBtn")
       ?.addEventListener("click", () => openGenerateModal());
+
+    document.getElementById('genClass')?.addEventListener('change', (event) => loadGenerateStreams(event.target.value));
 
     document
       .getElementById("confirmGenerateBtn")
@@ -728,10 +741,6 @@ const SchemesOfWorkController = (() => {
     document
       .getElementById("genStrand")
       ?.addEventListener("change", (e) => loadSubStrandsForGenerate(e.target.value));
-
-    document
-      .getElementById("saveSchemeBtn")
-      ?.addEventListener("click", () => saveScheme());
 
     document
       .getElementById("exportSchemesBtn")
@@ -814,7 +823,7 @@ const SchemesOfWorkController = (() => {
     refresh: loadSchemes,
     loadPage: loadSchemes,
     viewScheme,
-    editScheme: openSchemeModal,
+    approveWorkbook,
     deleteScheme,
     openGenerateModal,
     generateSchemes,

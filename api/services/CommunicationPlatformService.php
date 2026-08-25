@@ -33,7 +33,7 @@ class CommunicationPlatformService
         array $options = []
     ): array {
         $stmt = $this->db->prepare(
-            "SELECT DISTINCT u.id AS user_id, p.email, p.phone
+            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
                FROM student_parents sp
                JOIN parents pr ON pr.id = sp.parent_id AND pr.status = 'active'
                JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
@@ -92,6 +92,31 @@ class CommunicationPlatformService
         ], $options);
     }
 
+    public function queueRenderedForStudentParents(
+        int $studentId,
+        string $channel,
+        string $subject,
+        string $body,
+        array $options = []
+    ): array {
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT pr.id AS parent_id, u.id AS user_id, p.email, p.phone
+               FROM student_parents sp
+               JOIN parents pr ON pr.id = sp.parent_id AND pr.status = 'active'
+               LEFT JOIN users u ON u.person_id = pr.person_id AND u.status = 'active'
+               JOIN persons p ON p.id = pr.person_id
+              WHERE sp.student_id = ?"
+        );
+        $stmt->execute([$studentId]);
+        return $this->queueRenderedForContacts(
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+            $channel,
+            $subject,
+            $body,
+            $options
+        );
+    }
+
     public function queueProviderTemplateForContacts(array $contacts, string $providerTemplateId, array $variables, array $options = []): array
     {
         $code = 'whatsapp.provider.' . sha1($providerTemplateId);
@@ -132,13 +157,17 @@ class CommunicationPlatformService
         $scheduledAt = $options['scheduled_at'] ?? null;
         $status = $scheduledAt ? 'scheduled' : 'queued';
         $communicationId = $this->insertCommunication($channel, $template, $status, $scheduledAt, $options);
+        $this->attachFiles($communicationId, $channel, (array) ($options['attachments'] ?? []));
         $created = 0;
+        $recipientOutcomes = [];
 
         foreach ($contacts as $contact) {
             $userId = !empty($contact['user_id']) ? (int) $contact['user_id'] : null;
             $address = $channel === 'email' ? trim((string) ($contact['email'] ?? '')) : trim((string) ($contact['phone'] ?? ''));
             if ($address === '' || !$this->isAllowed($userId, $channel, (string) ($options['purpose'] ?? 'transactional'))) {
-                $this->audit($communicationId, null, 'recipient_skipped', $template, ['user_id' => $userId, 'reason' => $address === '' ? 'missing_address' : 'consent_or_preference']);
+                $reason = $address === '' ? 'missing_address' : 'consent_or_preference';
+                $this->audit($communicationId, null, 'recipient_skipped', $template, ['user_id' => $userId, 'reason' => $reason]);
+                $recipientOutcomes[] = ['parent_id' => $contact['parent_id'] ?? null, 'user_id' => $userId, 'status' => 'skipped', 'reason' => $reason];
                 continue;
             }
 
@@ -151,6 +180,7 @@ class CommunicationPlatformService
             $endpoint->execute([$recipientId, $channel, $address]);
             $endpointId = (int) $this->db->lastInsertId();
             $this->audit($communicationId, $endpointId, 'queued', $template, ['user_id' => $userId, 'address' => $address]);
+            $recipientOutcomes[] = ['parent_id' => $contact['parent_id'] ?? null, 'user_id' => $userId, 'status' => 'queued', 'reason' => null];
             $created++;
         }
 
@@ -159,7 +189,12 @@ class CommunicationPlatformService
                 ->execute(['No eligible recipient endpoint was found.', $communicationId]);
         }
 
-        return ['communication_id' => $communicationId, 'recipient_count' => $created, 'status' => $created ? $status : 'failed'];
+        return [
+            'communication_id' => $communicationId,
+            'recipient_count' => $created,
+            'status' => $created ? $status : 'failed',
+            'recipients' => $recipientOutcomes,
+        ];
     }
 
     private function resolveTemplate(string $code, string $channel, array $variables): array
@@ -206,8 +241,10 @@ class CommunicationPlatformService
     {
         $stmt = $this->db->prepare(
             "INSERT INTO communications
-                (sender_id, subject, body, type, status, priority, template_id, template_channel_id, scheduled_at, reminder_at, sender_signature, thread_id, business_event_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                (sender_id, subject, body, type, status, priority, template_id, template_channel_id,
+                 academic_year_id, academic_year_term_id, scheduled_at, reminder_at,
+                 sender_signature, thread_id, business_event_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $options['sender_id'] ?? 1,
@@ -218,6 +255,8 @@ class CommunicationPlatformService
             $options['priority'] ?? 'medium',
             $options['legacy_template_id'] ?? null,
             $template['template_channel_id'] ?? null,
+            $options['academic_year_id'] ?? null,
+            $options['academic_year_term_id'] ?? null,
             $scheduledAt,
             $options['reminder_at'] ?? null,
             $options['sender_signature'] ?? null,
@@ -225,6 +264,39 @@ class CommunicationPlatformService
             $options['business_event_id'] ?? null,
         ]);
         return (int) $this->db->lastInsertId();
+    }
+
+    private function attachFiles(int $communicationId, string $channel, array $attachments): void
+    {
+        if (!in_array($channel, ['email', 'whatsapp'], true)) return;
+        $insert = $this->db->prepare(
+            'INSERT INTO communication_attachments
+                (communication_id, file_name, file_path, mime_type, file_size, public_url)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $link = $this->db->prepare(
+            "INSERT INTO communication_attachment_channels (attachment_id, channel, status)
+             VALUES (?, ?, 'ready')"
+        );
+        foreach ($attachments as $attachment) {
+            $path = (string) ($attachment['file_path'] ?? '');
+            if ($path === '' || !is_file($path)) {
+                throw new \InvalidArgumentException('A communication attachment file is missing');
+            }
+            $publicUrl = $attachment['public_url'] ?? null;
+            if ($channel === 'whatsapp' && (!$publicUrl || strpos((string) $publicUrl, 'https://') !== 0)) {
+                throw new \InvalidArgumentException('WhatsApp report attachments require a public HTTPS URL');
+            }
+            $insert->execute([
+                $communicationId,
+                $attachment['file_name'] ?? basename($path),
+                $path,
+                $attachment['mime_type'] ?? 'application/pdf',
+                filesize($path) ?: null,
+                $publicUrl,
+            ]);
+            $link->execute([(int) $this->db->lastInsertId(), $channel]);
+        }
     }
 
     private function isAllowed(?int $userId, string $channel, string $purpose): bool

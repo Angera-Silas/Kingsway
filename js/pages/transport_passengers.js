@@ -99,6 +99,7 @@ const TransportPassengersController = {
       this.loadSummary();
       this.loadPassengers();
     });
+    this.ui.applyFiltersBtn?.classList.add('d-none');
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
     this.ui.refreshBtn?.addEventListener("click", () => {
       this.loadSummary();

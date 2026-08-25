@@ -11,6 +11,15 @@
 ?>
 
 <div>
+    <style>
+        #timetableGridWrap { overflow-x: auto; }
+        #timetableGrid { min-width: 1100px; }
+        #timetableGrid th, #timetableGrid td { vertical-align: middle; }
+        #timetableGrid .teacher-lesson { font-size: .72rem; line-height: 1.15; }
+        #timetableGrid .break-cell { min-width: 40px; width: 40px; padding: .3rem .1rem; }
+        #timetableGrid .break-cell strong { display: inline-flex; flex-direction: column; align-items: center; row-gap: .06rem; font-size: .8rem; line-height: 1; letter-spacing: .08em; }
+        #timetableGrid .break-cell .word-gap { height: .35rem; }
+    </style>
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
@@ -20,7 +29,7 @@
                     <p class="text-muted mb-0">View and manage class and teacher timetables</p>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal" data-permission="schedules_create">
+                    <button id="generateTimetableButton" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal" data-permission="schedules_create">
                         <i class="bi bi-magic me-1"></i> Generate
                     </button>
                     <button class="btn btn-outline-secondary" id="printTimetable">
@@ -35,7 +44,7 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="row g-3 align-items-end">
-                <div class="col-md-3">
+                <div class="col-md-3" id="viewTypeField">
                     <label class="form-label">View Type</label>
                     <select class="form-select" id="viewType">
                         <option value="class">By Class</option>
@@ -43,26 +52,36 @@
                         <option value="room">By Room</option>
                     </select>
                 </div>
-                <div class="col-md-3" id="classSelector">
+                <div class="col-md-3 d-none" id="teacherDayField" data-teacher-only>
+                    <label class="form-label">Day</label>
+                    <select class="form-select" id="teacherDay">
+                        <option>Monday</option>
+                        <option>Tuesday</option>
+                        <option>Wednesday</option>
+                        <option>Thursday</option>
+                        <option>Friday</option>
+                    </select>
+                </div>
+                <div class="col-md-3" id="classSelector" data-management-only>
                     <label class="form-label">Select Class</label>
                     <select class="form-select" id="selectClass">
                         <option value="">Choose class...</option>
                     </select>
                 </div>
-                <div class="col-md-3 d-none" id="teacherSelector">
+                <div class="col-md-3 d-none" id="teacherSelector" data-management-only>
                     <label class="form-label">Select Teacher</label>
                     <select class="form-select" id="selectTeacher">
                         <option value="">Choose teacher...</option>
                     </select>
                 </div>
-                <div class="col-md-3 d-none" id="roomSelector">
+                <div class="col-md-3 d-none" id="roomSelector" data-management-only>
                     <label class="form-label">Select Room</label>
                     <select class="form-select" id="selectRoom">
                         <option value="">Choose room...</option>
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <button class="btn btn-primary w-100" id="loadTimetable">
+                <div class="col-md-3" id="loadTimetableField">
+                    <button class="btn btn-primary w-100" id="loadTimetable" data-management-only>
                         <i class="bi bi-eye me-1"></i> View Timetable
                     </button>
                 </div>
@@ -76,7 +95,7 @@
             <h5 class="mb-0" id="timetableTitle">Select a class/teacher to view timetable</h5>
         </div>
         <div class="card-body">
-            <div class="table-responsive">
+            <div id="timetableGridWrap" class="table-responsive">
                 <table class="table table-bordered" id="timetableGrid">
                     <thead>
                         <tr>

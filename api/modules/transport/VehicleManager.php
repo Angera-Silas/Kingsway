@@ -14,27 +14,33 @@ class VehicleManager
     // CRUD for vehicles
     public function createVehicle($data)
     {
-        $sql = "INSERT INTO transport_vehicles (registration_number, model, capacity, insurance_expiry, status) VALUES (?, ?, ?, ?, ?)";
+        $registration = strtoupper(trim((string)($data['registration_number'] ?? $data['registration_no'] ?? $data['plate_number'] ?? '')));
+        $capacity = (int)($data['capacity'] ?? 0);
+        if ($registration === '' || $capacity < 1) throw new \InvalidArgumentException('registration_number and a capacity of at least 1 are required');
+        $exists = $this->db->prepare('SELECT id FROM transport_vehicles WHERE registration_number=? LIMIT 1'); $exists->execute([$registration]);
+        if ($exists->fetchColumn()) throw new \InvalidArgumentException('A vehicle with this registration already exists');
+        $sql = "INSERT INTO transport_vehicles (registration_number, type, model, make, year, capacity, insurance_expiry, service_due_date, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $data['registration_number'],
-            $data['model'],
-            $data['capacity'],
-            $data['insurance_expiry'],
+            $registration, $data['type'] ?? 'School Bus', $data['model'] ?? null, $data['make'] ?? null,
+            $data['year'] ?? null, $capacity, $data['insurance_expiry'] ?? null, $data['service_due_date'] ?? null,
             $data['status'] ?? 'active'
         ]);
         return $this->db->lastInsertId();
     }
     public function updateVehicle($id, $data)
     {
-        $sql = "UPDATE transport_vehicles SET registration_number=?, model=?, capacity=?, insurance_expiry=?, status=? WHERE id=?";
+        $registration = strtoupper(trim((string)($data['registration_number'] ?? $data['registration_no'] ?? '')));
+        $capacity = (int)($data['capacity'] ?? 0);
+        if ($registration === '' || $capacity < 1) throw new \InvalidArgumentException('registration_number and a capacity of at least 1 are required');
+        $exists = $this->db->prepare('SELECT id FROM transport_vehicles WHERE registration_number=? AND id<>? LIMIT 1'); $exists->execute([$registration, $id]);
+        if ($exists->fetchColumn()) throw new \InvalidArgumentException('A vehicle with this registration already exists');
+        $sql = "UPDATE transport_vehicles SET registration_number=?, type=?, model=?, make=?, year=?, capacity=?, insurance_expiry=?, service_due_date=?, status=? WHERE id=?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $data['registration_number'],
-            $data['model'],
-            $data['capacity'],
-            $data['insurance_expiry'],
-            $data['status'],
+            $registration, $data['type'] ?? 'School Bus', $data['model'] ?? null, $data['make'] ?? null,
+            $data['year'] ?? null, $capacity, $data['insurance_expiry'] ?? null, $data['service_due_date'] ?? null,
+            $data['status'] ?? 'active',
             $id
         ]);
         return $stmt->rowCount() > 0;

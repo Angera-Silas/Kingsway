@@ -7,15 +7,23 @@ const BoardingRollCall = {
   selectedDate: "",
   attendanceMarked: {},
   loadedRegister: null,
+  isAdministrativeView: false,
   elements: {},
 
   init: async function () {
     this.cacheElements();
     this.bindEvents();
+    this.isAdministrativeView = this.isAdministratorOrDirector();
+    if (this.isAdministrativeView) {
+      document.getElementById('adminDashboard')?.style.removeProperty('display');
+      const description = document.querySelector('.text-muted.mb-0');
+      if (description) description.textContent = 'School-wide boarding attendance oversight and register access';
+    }
 
     const today = this.toDateInputValue(new Date());
     if (this.elements.rollCallDate) {
       this.elements.rollCallDate.value = today;
+      this.elements.rollCallDate.max = today;
     }
     this.selectedDate = today;
     this.updateHeader();
@@ -27,6 +35,11 @@ const BoardingRollCall = {
     ]);
 
     await this.loadBoardingSummary();
+    // The register is context-driven: once the authorised dormitory and
+    // today's applicable session are known, open the register immediately.
+    if (!this.isAdministrativeView && this.selectedDormitory && this.selectedSession) {
+      await this.loadStudents({ skipSchoolDayCheck: true });
+    }
   },
 
   cacheElements: function () {
@@ -54,8 +67,15 @@ const BoardingRollCall = {
       statSickBay: document.getElementById("statSickBay"),
       summaryCard: document.getElementById("summaryCard"),
       summaryContent: document.getElementById("summaryContent"),
+      adminDashboard: document.getElementById("adminDashboard"),
+      adminSummaryBody: document.getElementById("adminSummaryBody"),
       historyLink: document.getElementById("viewAttendanceHistoryLink"),
     };
+  },
+
+  isAdministratorOrDirector: function () {
+    const roles = (window.AuthContext?.getRoles?.() || []).map(role => String(role).toLowerCase().replace(/[_-]+/g, ' '));
+    return roles.some(role => role.includes('school administrator') || role === 'director' || role === 'system administrator');
   },
 
   bindEvents: function () {
@@ -64,6 +84,7 @@ const BoardingRollCall = {
       this.resetRegisterView();
       this.updateHeader();
       await this.loadBoardingSummary();
+      if (this.selectedDormitory && this.selectedSession) await this.loadStudents({ skipSchoolDayCheck: true });
     });
 
     this.elements.sessionSelect?.addEventListener("change", async (event) => {
@@ -71,18 +92,20 @@ const BoardingRollCall = {
       this.resetRegisterView();
       this.updateHeader();
       await this.loadBoardingSummary();
+      if (this.selectedDormitory && this.selectedSession) await this.loadStudents({ skipSchoolDayCheck: true });
     });
 
     this.elements.rollCallDate?.addEventListener("change", async (event) => {
+      const today = this.toDateInputValue(new Date());
+      if (event.target.value !== today) {
+        event.target.value = today;
+        this.notify("Boarding attendance can only be marked for today.", "warning");
+      }
       this.selectedDate = event.target.value;
       this.resetRegisterView();
       this.updateHeader();
       await this.loadSessions();
       await this.loadBoardingSummary();
-    });
-
-    this.elements.loadStudentsBtn?.addEventListener("click", () => {
-      this.loadStudents();
     });
 
     this.elements.refreshBtn?.addEventListener("click", () => {
@@ -180,6 +203,11 @@ const BoardingRollCall = {
       this.elements.dormitorySelect.value = this.selectedDormitory;
     }
 
+    if (!this.selectedDormitory && this.dormitories.length > 0) {
+      this.selectedDormitory = String(this.dormitories[0].id);
+      this.elements.dormitorySelect.value = this.selectedDormitory;
+    }
+
     this.updateHeader();
   },
 
@@ -203,6 +231,11 @@ const BoardingRollCall = {
     });
 
     if (!this.selectedSession && this.sessions.length === 1) {
+      this.selectedSession = String(this.sessions[0].id);
+      this.elements.sessionSelect.value = this.selectedSession;
+    }
+
+    if (!this.selectedSession && this.sessions.length > 0) {
       this.selectedSession = String(this.sessions[0].id);
       this.elements.sessionSelect.value = this.selectedSession;
     }
@@ -634,23 +667,53 @@ const BoardingRollCall = {
 
       let rows = Array.isArray(response?.summary) ? response.summary : [];
 
-      if (this.selectedDormitory) {
+      if (this.selectedDormitory && !this.isAdministrativeView) {
         rows = rows.filter(
           (row) => String(row.dormitory_id) === String(this.selectedDormitory),
         );
       }
 
-      if (this.selectedSession) {
+      if (this.selectedSession && !this.isAdministrativeView) {
         rows = rows.filter(
           (row) => String(row.session_id) === String(this.selectedSession),
         );
       }
 
-      this.renderSummary(rows);
+      if (this.isAdministrativeView) this.renderAdminDashboard(rows);
+      this.renderSummary(this.isAdministrativeView ? [] : rows);
     } catch (error) {
       console.error("Failed to load boarding summary:", error);
       this.renderSummary([]);
     }
+  },
+
+  renderAdminDashboard: function (rows) {
+    const totals = rows.reduce((sum, row) => {
+      const total = Number(row.total_students || 0);
+      const present = Number(row.present || 0);
+      const absent = Number(row.absent || 0);
+      const permission = Number(row.on_permission || 0);
+      const sick = Number(row.sick_bay || 0);
+      const marked = present + absent + permission + sick;
+      sum.expected += total; sum.marked += marked; sum.present += present;
+      sum.exceptions += absent + sick; sum.pending += Math.max(0, total - marked);
+      return sum;
+    }, { expected: 0, marked: 0, present: 0, exceptions: 0, pending: 0 });
+    const set = (id, value) => { const element = document.getElementById(id); if (element) element.textContent = value; };
+    set('adminExpected', totals.expected); set('adminMarked', totals.marked); set('adminPresent', totals.present);
+    set('adminExceptions', totals.exceptions); set('adminPending', totals.pending); set('adminDashboardDate', this.formatDate(this.selectedDate));
+    if (!this.elements.adminSummaryBody) return;
+    this.elements.adminSummaryBody.innerHTML = rows.map(row => {
+      const total = Number(row.total_students || 0), present = Number(row.present || 0), absent = Number(row.absent || 0), permission = Number(row.on_permission || 0), sick = Number(row.sick_bay || 0);
+      const marked = present + absent + permission + sick, pending = Math.max(0, total - marked), complete = total > 0 && pending === 0;
+      return '<tr><td>' + this.escapeHtml(row.dormitory_name || '-') + '</td><td>' + this.escapeHtml(row.session_name || '-') + '</td><td>' + this.escapeHtml(row.responsible_name || 'Unassigned') + '</td><td>' + total + '</td><td>' + marked + '</td><td class="text-success fw-semibold">' + present + '</td><td class="text-warning fw-semibold">' + pending + '</td><td><span class="badge text-bg-' + (complete ? 'success' : 'warning') + '">' + (complete ? 'Complete' : 'Pending') + '</span></td><td><button class="btn btn-sm btn-outline-primary" data-dormitory="' + Number(row.dormitory_id) + '" data-session="' + Number(row.session_id) + '">Open</button></td></tr>';
+    }).join('') || '<tr><td colspan="9" class="text-center text-muted py-3">No boarding registers configured for today.</td></tr>';
+    this.elements.adminSummaryBody.querySelectorAll('button[data-dormitory]').forEach(button => button.addEventListener('click', async () => {
+      this.selectedDormitory = button.dataset.dormitory; this.selectedSession = button.dataset.session;
+      if (this.elements.dormitorySelect) this.elements.dormitorySelect.value = this.selectedDormitory;
+      if (this.elements.sessionSelect) this.elements.sessionSelect.value = this.selectedSession;
+      await this.loadStudents({ skipSchoolDayCheck: true });
+    }));
   },
 
   renderSummary: function (rows) {

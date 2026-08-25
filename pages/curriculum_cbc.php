@@ -52,7 +52,7 @@
         <div class="col-md-3">
             <div class="card border-warning">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Competencies</h6>
+                        <h6 class="text-muted mb-2">Learning Outcomes</h6>
                     <h3 class="text-warning mb-0" id="totalCompetencies">0</h3>
                 </div>
             </div>

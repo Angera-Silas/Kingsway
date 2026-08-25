@@ -325,6 +325,7 @@ const classResultsController = (() => {
 
     function bindEvents() {
         document.getElementById('loadResultsBtn')?.addEventListener('click', loadResults);
+        document.getElementById('loadResultsBtn')?.classList.add('d-none');
         document.getElementById('exportBtn')?.addEventListener('click', exportResults);
         document.getElementById('printBtn')?.addEventListener('click', printResults);
         

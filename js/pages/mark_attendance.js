@@ -27,6 +27,18 @@ const MarkAttendanceController = {
     this.ui.attendanceDate.value = this.state.selectedDate;
 
     const user = window.AuthContext?.getUser() || {};
+    const role = String(user.role || user.role_name || '').toLowerCase();
+    const roles = Array.isArray(user.roles) ? user.roles.map(r => String(r.name || r).toLowerCase()) : [];
+    const isTransportUser = ['driver', 'transport officer', 'transport manager', 'school administrator', 'director', 'admin'].some(r => role.includes(r) || roles.some(u => u.includes(r)));
+    const isTeacher = role.includes('teacher') || roles.some(r => r.includes('teacher'));
+    if (!isTransportUser && isTeacher) {
+      window.location.href = `${window.APP_BASE || ''}/home.php?route=class_mark_attendance`;
+      return;
+    }
+    if (!isTransportUser) {
+      this.showForbidden();
+      return;
+    }
     this.ui.driverName.value = user.full_name || user.name || "Driver";
 
     await this.loadMeta();

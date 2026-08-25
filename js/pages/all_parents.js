@@ -45,55 +45,41 @@ const AllParentsController = {
     try {
       this.showTableLoading();
 
-      const [parentsRes, classesRes] = await Promise.all([
-        window.API.students.get
-          ? window.API.students.getAll
-            ? window.API.students.getAll()
-            : window.API.students.get()
-          : window.API.academic.getCustom({ action: "parents" }),
+      const [parentsResponse, classesResponse] = await Promise.all([
+        window.API.students.getParentsList({ limit: 1000, offset: 0 }),
         window.API.academic.listClasses(),
       ]);
 
-      // Try dedicated parents endpoint first
-      let parentData = [];
-      const pRes = await window.API.academic
-        .getCustom({ action: "parents" })
-        .catch(() => null);
-      if (pRes?.length) {
-        parentData = pRes;
-      } else if (parentsRes) {
-        // Extract unique parents from student data
-        const parentMap = {};
-        (parentsRes || []).forEach((s) => {
-          const pKey = (s.parent_name || s.guardian_name || "").trim();
-          if (pKey && !parentMap[pKey]) {
-            parentMap[pKey] = {
-              id: s.parent_id || s.guardian_id || s.id,
-              name: pKey,
-              phone: s.parent_phone || s.guardian_phone || "",
-              email: s.parent_email || s.guardian_email || "",
-              children: [],
-              class_ids: [],
-              fee_status: "unknown",
-            };
-          }
-          if (pKey && parentMap[pKey]) {
-            parentMap[pKey].children.push({
-              id: s.id,
-              name: `${s.first_name || ""} ${s.last_name || ""}`.trim(),
-              class_name: s.class_name || "",
-            });
-            if (s.class_id) parentMap[pKey].class_ids.push(s.class_id);
-          }
-        });
-        parentData = Object.values(parentMap);
-      }
+      // apiCall() normally unwraps the outer response envelope. Normalize
+      // both the unwrapped and legacy nested shapes, and never call forEach
+      // on an error object.
+      const parentPayload = parentsResponse?.data && !Array.isArray(parentsResponse.data)
+        ? parentsResponse.data
+        : parentsResponse;
+      const parentRows = Array.isArray(parentPayload)
+        ? parentPayload
+        : (parentPayload?.data || parentPayload?.parents || []);
+      const parentData = parentRows.map((p) => ({
+        ...p,
+        name: p.name || p.full_name || `${p.first_name || ""} ${p.last_name || ""}`.trim(),
+        phone: p.phone || p.phone_1 || "",
+        email: p.email || "",
+        children: Array.isArray(p.children) ? p.children : [],
+        class_ids: Array.isArray(p.class_ids) ? p.class_ids : [],
+        fee_status: p.fee_status || (Number(p.total_fee_balance || 0) > 0 ? "owing" : "clear"),
+      }));
 
       this.state.allParents = parentData;
       this.state.parents = [...parentData];
 
-      if (classesRes) {
-        this.state.classes = classesRes || [];
+      const classPayload = classesResponse?.data && !Array.isArray(classesResponse.data)
+        ? classesResponse.data
+        : classesResponse;
+      const classRows = Array.isArray(classPayload)
+        ? classPayload
+        : (classPayload?.classes || classPayload?.data || []);
+      if (classRows.length) {
+        this.state.classes = classRows;
         this.populateClassFilter();
       }
 

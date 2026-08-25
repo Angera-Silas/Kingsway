@@ -7,30 +7,58 @@
  */
 ?>
 
-<div class="card shadow">
-    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-        <h2 class="mb-0"><i class="bi bi-file-earmark-text"></i> Detailed Payslip</h2>
+<div class="payroll-self-service" id="payrollSelfService">
+    <div class="payroll-hero mb-4">
         <div>
-            <button class="btn btn-light" onclick="detailedPayslipController.downloadPayslip()">
+            <span class="payroll-eyebrow">MY HR · PAYROLL</span>
+            <h2 class="mb-1"><i class="bi bi-wallet2 me-2"></i>My Payslips</h2>
+            <p class="mb-0 opacity-75">Your earnings, deductions, payment status and annual tax records in one place.</p>
+        </div>
+        <div>
+            <button class="btn btn-light btn-sm" onclick="detailedPayslipController.downloadP9()">
+                <i class="bi bi-file-earmark-pdf me-1"></i> P9 Form
+            </button>
+            <button class="btn btn-outline-light btn-sm" onclick="detailedPayslipController.downloadPayslip()" disabled id="downloadPayslipButton">
                 <i class="bi bi-download"></i> Download PDF
             </button>
-            <button class="btn btn-outline-light" onclick="detailedPayslipController.printPayslip()">
+            <button class="btn btn-outline-light btn-sm" onclick="detailedPayslipController.printPayslip()" disabled id="printPayslipButton">
                 <i class="bi bi-printer"></i> Print
             </button>
         </div>
     </div>
+    <div class="row g-3 mb-4" id="payrollSummaryCards">
+        <div class="col-6 col-xl-3"><div class="payroll-stat"><span>Latest net pay</span><strong id="latestNetPay">KES 0.00</strong><small id="latestPayPeriod">No payslip yet</small></div></div>
+        <div class="col-6 col-xl-3"><div class="payroll-stat"><span>Paid this year</span><strong id="paidTotal">KES 0.00</strong><small id="paidCount">0 paid payslips</small></div></div>
+        <div class="col-6 col-xl-3"><div class="payroll-stat"><span>Pending payslips</span><strong id="pendingCount">0</strong><small>Awaiting payroll processing/payment</small></div></div>
+        <div class="col-6 col-xl-3"><div class="payroll-stat"><span>Gross earnings</span><strong id="grossTotal">KES 0.00</strong><small id="averageNet">Average net: KES 0.00</small></div></div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-7"><div class="card h-100 payroll-panel"><div class="card-body"><div class="d-flex justify-content-between align-items-center mb-3"><div><h5 class="mb-1">Earnings trend</h5><small class="text-muted">Gross and net pay for the selected year</small></div><select id="payrollYear" class="form-select form-select-sm payroll-year-select" aria-label="Payroll year"></select></div><div id="earningsChart" class="earnings-chart" aria-label="Earnings chart"></div></div></div></div>
+        <div class="col-lg-5"><div class="card h-100 payroll-panel"><div class="card-body"><h5 class="mb-1">Annual overview</h5><small class="text-muted">Your payroll records for the selected year</small><div id="annualBreakdown" class="annual-breakdown mt-3"></div></div></div></div>
+    </div>
+
+    <div class="card shadow payroll-panel">
+    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+        <div><h4 class="mb-0"><i class="bi bi-file-earmark-text me-2"></i>Payslip history</h4><small class="opacity-75">Select a month to view the full statement.</small></div>
+        <div class="d-flex gap-2"><button class="btn btn-light btn-sm" onclick="detailedPayslipController.loadHistory()"><i class="bi bi-arrow-clockwise"></i></button></div>
+    </div>
     <div class="card-body">
-        <!-- Selection Form -->
+        <div class="table-responsive">
+            <table class="table align-middle payroll-history-table mb-0"><thead><tr><th>Pay period</th><th>Gross pay</th><th>Deductions</th><th>Net pay</th><th>Status</th><th class="text-end">Action</th></tr></thead><tbody id="payrollHistoryBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading your payroll history…</td></tr></tbody></table>
+        </div>
+    </div>
+    </div>
+
+    <div class="card shadow payroll-panel mt-4" id="payslipViewerPanel">
+    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+        <h4 class="mb-0"><i class="bi bi-receipt me-2"></i>Detailed payslip</h4>
+        <span class="badge bg-light text-success" id="selectedPayslipStatus">Select a payslip above</span>
+    </div>
+    <div class="card-body">
+        <!-- Period selection remains, but is scoped to the logged-in employee. -->
         <div class="row mb-4">
-            <div class="col-md-4">
-                <label class="form-label">Staff Member</label>
-                <select id="staffSelect" class="form-select" onchange="detailedPayslipController.onStaffChange()">
-                    <option value="">-- Select Staff --</option>
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Month</label>
-                <select id="payrollMonth" class="form-select">
+            <div class="col-md-5"><label class="form-label">Month</label><select id="payrollMonth" class="form-select">
                     <option value="1">January</option>
                     <option value="2">February</option>
                     <option value="3">March</option>
@@ -44,15 +72,9 @@
                     <option value="11">November</option>
                     <option value="12">December</option>
                 </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Year</label>
-                <input type="number" id="payrollYear" class="form-control" value="<?php echo date('Y'); ?>" min="2020"
-                    max="2030">
-            </div>
-            <div class="col-md-2 d-flex align-items-end">
+            </div><div class="col-md-3 d-flex align-items-end">
                 <button class="btn btn-success w-100" onclick="detailedPayslipController.generatePayslip()">
-                    <i class="bi bi-file-earmark-text"></i> Generate
+                    <i class="bi bi-file-earmark-text"></i> View payslip
                 </button>
             </div>
         </div>
@@ -61,11 +83,21 @@
         <div id="payslipContainer">
             <div class="text-center text-muted py-5">
                 <i class="bi bi-file-earmark-text" style="font-size: 4rem;"></i>
-                <p class="mt-3">Select a staff member and click "Generate" to view payslip</p>
+                <p class="mt-3">Choose a pay period above or select a payslip from your history.</p>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+    .payroll-hero { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.5rem; border-radius:18px; color:#fff; background:linear-gradient(135deg,#06351c,#198754); box-shadow:0 12px 28px rgba(13,79,42,.18); }
+    .payroll-eyebrow { font-size:.72rem; letter-spacing:.12em; opacity:.8; }
+    .payroll-stat { height:100%; padding:1.1rem; border:1px solid rgba(13,79,42,.1); border-radius:14px; background:#fff; box-shadow:0 5px 16px rgba(13,79,42,.06); }
+    .payroll-stat span,.payroll-stat small { display:block; color:#6c757d; font-size:.82rem; }.payroll-stat strong { display:block; color:#0d4f2a; font-size:1.35rem; margin:.25rem 0; }
+    .payroll-panel { border:1px solid rgba(13,79,42,.1); border-radius:16px; overflow:hidden; }.payroll-year-select { width:auto; min-width:100px; }
+    .earnings-chart { min-height:220px; display:flex; align-items:end; gap:10px; padding:20px 4px 0; border-bottom:1px solid #dee2e6; }.chart-column { flex:1; height:190px; display:flex; align-items:end; justify-content:center; gap:3px; position:relative; }.chart-bar { width:42%; min-height:3px; border-radius:5px 5px 0 0; background:#198754; }.chart-bar.net { background:#f9c80e; }.chart-label { position:absolute; bottom:-25px; font-size:.68rem; color:#6c757d; }.annual-breakdown .breakdown-row { display:flex; justify-content:space-between; padding:.7rem 0; border-bottom:1px solid #edf0ed; }.annual-breakdown .breakdown-row:last-child { border-bottom:0; }.status-badge { border-radius:20px; padding:.35rem .65rem; font-size:.72rem; text-transform:capitalize; }.status-paid { color:#146c43; background:#d1e7dd; }.status-pending { color:#997404; background:#fff3cd; }.status-draft { color:#6c757d; background:#e9ecef; }.status-failed,.status-cancelled { color:#b02a37; background:#f8d7da; }
+    @media (max-width: 700px) { .payroll-hero { display:block; }.payroll-hero > div:last-child { margin-top:1rem; }.payroll-hero button { margin-bottom:.35rem; } }
+</style>
 
 <!-- Payslip Template (Hidden, used for rendering) -->
 <template id="payslipTemplate">
@@ -497,7 +529,6 @@
         .btn,
         .form-control,
         .form-select,
-        #staffSelect,
         #payrollMonth,
         #payrollYear,
         .row.mb-4:first-child,

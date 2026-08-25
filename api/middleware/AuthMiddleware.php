@@ -53,6 +53,8 @@ class AuthMiddleware
             'payments/kcb-validation',
             'payments/kcb-transfer-callback',
             'payments/kcb-notification',
+            'payments/kcb-account-notification',
+            'payments/kcb-till-notification',
             'payments/bank-webhook',
             // Parent portal auth endpoints (use their own session tokens, not staff JWT)
             'parent-portal/login',
@@ -93,6 +95,10 @@ class AuthMiddleware
             'website/events',
             'website/gallery',
             'website/downloads',
+            // Public fee structures and academic calendars are generated on
+            // demand and return short-lived encrypted download URLs.
+            'website/printable-downloads',
+            'website/printable-download',
             'website/jobs',
             'website/settings',
             'website/content',
@@ -124,6 +130,9 @@ class AuthMiddleware
             'communications/sms-opt-out-callback',
             'communications/sms-subscription-callback',
             'communications/process-outbox',
+            'attendance/gate-event',
+            // Protected by ATTENDANCE_WORKER_SECRET rather than staff JWT.
+            'attendance/process-register-reminders',
         ];
 
         // Check if current request is to a public endpoint

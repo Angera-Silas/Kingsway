@@ -13,6 +13,9 @@ const viewAttendanceController = {
   boardingData: [],
   permissionsData: [],
   canAccessBoarding: true,
+  isTeacherView: false,
+  isAttendanceConfigurator: false,
+  sessionConfig: [],
   charts: {
     trend: null,
     status: null,
@@ -34,18 +37,130 @@ const viewAttendanceController = {
       return;
     }
 
+    const user = window.AuthContext?.getUser?.() || {};
+    const storedRoles = window.AuthContext?.getRoles?.() || [];
+    const roleNames = [user.role, user.role_name, ...(user.roles || []), ...(user.role_names || []), ...storedRoles]
+      .map(role => role && typeof role === 'object' ? (role.name || role.role_name || '') : role)
+      .map(role => String(role || '').toLowerCase());
+    this.isTeacherView = roleNames.some(role => role.includes('class teacher') || role.includes('subject teacher') || role === 'teacher');
+    this.isAttendanceConfigurator = roleNames.some(role => role.includes('school administrator') || role === 'director' || role === 'system administrator' || role.includes('headteacher'));
+    if (this.isTeacherView) this.configureTeacherView();
+
     this.setDefaultDates();
+    if (this.isTeacherView) this.configureTeacherView();
     this.bindEvents();
 
-    await Promise.all([
-      this.configureSharedActions(),
-      this.loadClasses(),
-      this.loadSessions(),
-      this.loadDormitories(),
-    ]);
+    const tasks = [this.configureSharedActions(), this.loadClasses()];
+    if (!this.isTeacherView) tasks.push(this.loadSessions(), this.loadDormitories(), this.loadExpectedRegisters());
+    await Promise.all(tasks);
+    if (this.isAttendanceConfigurator) await this.loadSessionConfiguration();
 
     this.handleAttendanceTypeChange();
-    await Promise.all([this.loadAttendance(), this.loadPermissions()]);
+    if (this.isTeacherView) {
+      // Teachers need the daily register only; the management summary query
+      // and its extra tabs are not part of their workflow.
+      await this.loadDailyRegister();
+    } else {
+      await Promise.all([this.loadAttendance(), this.loadPermissions()]);
+    }
+  },
+
+  configureTeacherView: function () {
+    document.getElementById('expectedRegistersCard')?.classList.add('d-none');
+    document.getElementById('boardingTabItem')?.classList.add('d-none');
+    document.getElementById('attendanceType')?.closest('.col-md-2')?.classList.add('d-none');
+    ['sessionSelect', 'dateFrom', 'dateTo', 'statusFilter'].forEach(id => document.getElementById(id)?.closest('.col-md-2')?.classList.add('d-none'));
+    const type = document.getElementById('attendanceType');
+    if (type) { type.value = 'academic'; type.disabled = true; }
+    const classSelect = document.getElementById('classSelect');
+    if (classSelect) {
+      classSelect.disabled = true;
+      classSelect.addEventListener('change', () => this.toggleTeacherSessionColumn());
+      const label = classSelect.closest('.col-md-2')?.querySelector('label');
+      if (label) label.textContent = 'My Class / Stream';
+    }
+    document.getElementById('attendanceTabs')?.querySelectorAll('.nav-item').forEach(item => {
+      const button = item.querySelector('button');
+      if (button && button.id !== 'daily-tab') item.classList.add('d-none');
+    });
+    document.getElementById('summary-tab')?.closest('.nav-item')?.classList.add('d-none');
+    document.getElementById('daily-tab')?.classList.add('active');
+    document.getElementById('summary')?.classList.remove('show', 'active');
+    document.getElementById('daily')?.classList.add('show', 'active');
+    const today = this.toDateInputValue(new Date());
+    ['dateFrom', 'dateTo'].forEach(id => { const input = document.getElementById(id); if (input) input.value = today; });
+    const loadButton = document.getElementById('loadAttendanceBtn');
+    if (loadButton) loadButton.innerHTML = '<i class="bi bi-check2-square me-1"></i> Refresh Today\'s Register';
+  },
+
+  toggleTeacherSessionColumn: function () {
+    if (!this.isTeacherView) return;
+    const label = document.getElementById('classSelect')?.selectedOptions[0]?.textContent || '';
+    this.hideTeacherSession = /playgroup|pp1|pp2|pre.?primary|grade\s*[1-3]\b/i.test(label);
+    document.querySelector('#dailyTable thead th:nth-child(4)')?.classList.toggle('d-none', this.hideTeacherSession);
+  },
+
+  loadExpectedRegisters: async function () {
+    const dateInput = document.getElementById("expectedRegistersDate");
+    const body = document.getElementById("expectedRegistersBody");
+    if (!dateInput || !body) return;
+    if (!dateInput.value) dateInput.value = this.toDateInputValue(new Date());
+    dateInput.addEventListener("change", () => this.loadExpectedRegisters());
+    try {
+      const response = await window.API.apiCall(`/attendance/expected-registers?date=${encodeURIComponent(dateInput.value)}`, "GET");
+      const data = response?.data || response || {};
+      const rows = (Array.isArray(data.registers) ? data.registers : [])
+        .filter((row) => String(row.status || '').toLowerCase() !== 'not_required');
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6" class="text-muted">No attendance registers are required for this date.</td></tr>';
+        return;
+      }
+      const labels = {scheduled: "Scheduled", open: "Open", overdue: "Overdue", not_marked: "Not marked", completed: "Completed", not_required: "Not required", closed: "Closed"};
+      const classes = {scheduled: "secondary", open: "primary", overdue: "warning", not_marked: "danger", completed: "success", not_required: "secondary", closed: "dark"};
+      body.innerHTML = rows.map((row) => {
+        const status = row.status || "scheduled";
+        return `<tr><td>${this.escapeHtml(row.stream_name || "—")}</td><td>${this.escapeHtml(row.session_name || row.session_code || "—")}</td><td>${this.escapeHtml(row.expected_count ?? 0)}</td><td>${this.escapeHtml(row.marked_count ?? 0)}</td><td><span class="badge text-bg-${classes[status] || "secondary"}">${this.escapeHtml(labels[status] || status)}</span></td><td>${this.escapeHtml(row.teacher_name || (row.register_type === "boarding" ? "Boarding team" : "Unassigned"))}</td></tr>`;
+      }).join("");
+    } catch (error) {
+      body.innerHTML = '<tr><td colspan="6" class="text-danger">Attendance registers could not be loaded.</td></tr>';
+      console.error("Failed to load expected attendance registers", error);
+    }
+  },
+
+  loadSessionConfiguration: async function () {
+    const card = document.getElementById('attendanceSessionConfigCard');
+    const body = document.getElementById('attendanceSessionConfigBody');
+    if (!card || !body || !this.isAttendanceConfigurator) return;
+    card.classList.remove('d-none');
+    try {
+      const response = await window.API.attendance.getSessionConfig();
+      const payload = response?.data ?? response ?? {};
+      this.sessionConfig = Array.isArray(payload) ? payload : (Array.isArray(payload.data) ? payload.data : []);
+      body.innerHTML = this.sessionConfig.map(session => `<tr><td><strong>${this.escapeHtml(session.name)}</strong><div class="small text-muted">${this.escapeHtml(session.code)}</div></td><td>${this.escapeHtml(session.type)}</td><td>${this.escapeHtml(session.applies_to)}</td><td>${this.escapeHtml((JSON.parse(session.applicable_days || '[]') || []).join(', '))}</td><td>${this.escapeHtml(session.start_time)}–${this.escapeHtml(session.end_time)}</td><td>${session.type === 'academic' ? (session.class_ids?.length || 0) + ' classes' : 'Audience based'}</td><td><button class="btn btn-sm btn-outline-primary" data-edit-attendance-session="${Number(session.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="7" class="text-muted">No attendance sessions configured.</td></tr>';
+      body.querySelectorAll('[data-edit-attendance-session]').forEach(button => button.addEventListener('click', () => this.openSessionConfig(Number(button.dataset.editAttendanceSession))));
+    } catch (error) { body.innerHTML = '<tr><td colspan="7" class="text-danger">Session configuration could not be loaded.</td></tr>'; console.error(error); }
+  },
+
+  openSessionConfig: function (id) {
+    const session = this.sessionConfig.find(row => Number(row.id) === id); if (!session) return;
+    document.getElementById('attendanceConfigId').value = session.id;
+    document.getElementById('attendanceConfigName').value = session.name || '';
+    document.getElementById('attendanceConfigType').value = session.type || 'academic';
+    document.getElementById('attendanceConfigAudience').value = session.applies_to || 'all';
+    document.getElementById('attendanceConfigStart').value = String(session.start_time || '').slice(0, 5);
+    document.getElementById('attendanceConfigEnd').value = String(session.end_time || '').slice(0, 5);
+    document.getElementById('attendanceConfigStatus').value = session.status || 'active';
+    const days = new Set(JSON.parse(session.applicable_days || '[]') || []);
+    document.getElementById('attendanceConfigDays').innerHTML = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => `<label class="form-check"><input class="form-check-input attendance-config-day" type="checkbox" value="${day}" ${days.has(day) ? 'checked' : ''}>${day}</label>`).join('');
+    document.getElementById('attendanceConfigClasses').innerHTML = this.classes.map(cls => `<label class="form-check col"><input class="form-check-input attendance-config-class" type="checkbox" value="${Number(cls.id)}" ${(session.class_ids || []).includes(Number(cls.id)) ? 'checked' : ''}>${this.escapeHtml(cls.name)}</label>`).join('');
+    document.getElementById('attendanceConfigClassesWrap').classList.toggle('d-none', session.type !== 'academic');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('attendanceSessionConfigModal')).show();
+  },
+
+  saveSessionConfiguration: async function () {
+    const id = Number(document.getElementById('attendanceConfigId').value);
+    const data = { name: document.getElementById('attendanceConfigName').value, type: document.getElementById('attendanceConfigType').value, applies_to: document.getElementById('attendanceConfigAudience').value, start_time: document.getElementById('attendanceConfigStart').value, end_time: document.getElementById('attendanceConfigEnd').value, status: document.getElementById('attendanceConfigStatus').value, applicable_days: [...document.querySelectorAll('.attendance-config-day:checked')].map(input => input.value), class_ids: [...document.querySelectorAll('.attendance-config-class:checked')].map(input => Number(input.value)) };
+    try { await window.API.attendance.updateSessionConfig(id, data); bootstrap.Modal.getInstance(document.getElementById('attendanceSessionConfigModal'))?.hide(); await this.loadSessionConfiguration(); await this.loadExpectedRegisters(); this.notify('Attendance session configuration saved', 'success'); } catch (error) { this.notify(error.message || 'Unable to save attendance session configuration', 'error'); }
   },
 
   setDefaultDates: function () {
@@ -74,6 +189,8 @@ const viewAttendanceController = {
   },
 
   bindEvents: function () {
+    document.getElementById('refreshSessionConfigBtn')?.addEventListener('click', () => this.loadSessionConfiguration());
+    document.getElementById('saveAttendanceSessionConfigBtn')?.addEventListener('click', () => this.saveSessionConfiguration());
     const attendanceType = document.getElementById("attendanceType");
     if (attendanceType) {
       attendanceType.addEventListener("change", () =>
@@ -111,11 +228,20 @@ const viewAttendanceController = {
     if (loadDailyBtn) {
       loadDailyBtn.addEventListener("click", () => this.loadDailyRegister());
     }
+    ["classSelect", "sessionSelect", "dateFrom", "dateTo", "statusFilter"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", () => this.loadAttendance());
+    });
+    ["dailyDate", "dailySessionSelect"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", () => this.loadDailyRegister());
+    });
 
     const loadBoardingBtn = document.getElementById("loadBoardingBtn");
     if (loadBoardingBtn) {
       loadBoardingBtn.addEventListener("click", () => this.loadBoardingSummary());
     }
+    ["boardingDate", "boardingSessionSelect", "dormitorySelect"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", () => this.loadBoardingSummary());
+    });
 
     const refreshPermissionsBtn = document.getElementById(
       "refreshPermissionsBtn",
@@ -236,9 +362,14 @@ const viewAttendanceController = {
 
   loadClasses: async function () {
     try {
-      const classes = await window.API.apiCall("/attendance/classes", "GET");
-      this.classes = Array.isArray(classes) ? classes : [];
+      const response = await window.API.apiCall("/attendance/classes", "GET");
+      const classes = response?.data?.data || response?.data || response || [];
+      this.classes = Array.isArray(classes) ? classes : (classes.classes || classes.rows || []);
       this.renderClassDropdown();
+      if (this.isTeacherView && this.classes.length === 1) {
+        document.getElementById('classSelect').value = String(this.classes[0].stream_id);
+      }
+      this.toggleTeacherSessionColumn();
     } catch (error) {
       this.notify(error.message || "Failed to load classes", "error");
     }
@@ -549,7 +680,7 @@ const viewAttendanceController = {
               <td>${this.escapeHtml(row.admission_no || "-")}</td>
               <td>${this.escapeHtml(`${row.first_name || ""} ${row.last_name || ""}`.trim() || "-")}</td>
               <td>${this.renderStudentType(row.student_type_code, row.student_type)}</td>
-              <td>${this.escapeHtml(row.session_name || "-")}</td>
+              ${this.hideTeacherSession ? '' : `<td>${this.escapeHtml(row.session_name || "-")}</td>`}
               <td>${this.renderStatusBadge(row.status)}</td>
               <td>${this.escapeHtml(row.marked_at || "-")}</td>
               <td>${this.escapeHtml(row.notes || "-")}</td>
@@ -774,7 +905,10 @@ const viewAttendanceController = {
   },
 
   renderCharts: function (trendRows, summary) {
-    if (typeof Chart === "undefined") {
+    // Charts belong to the administrative analytics view. The class-teacher
+    // register is intentionally a compact table and must not initialise
+    // responsive canvases inside hidden Bootstrap tabs.
+    if (this.isTeacherView || typeof Chart === "undefined") {
       return;
     }
 
@@ -788,7 +922,7 @@ const viewAttendanceController = {
       this.charts.status.destroy();
     }
 
-    if (trendCanvas) {
+    if (trendCanvas && trendCanvas.clientWidth > 0 && trendCanvas.clientHeight > 0) {
       this.charts.trend = new Chart(trendCanvas.getContext("2d"), {
         type: "line",
         data: {
@@ -840,7 +974,7 @@ const viewAttendanceController = {
       });
     }
 
-    if (statusCanvas) {
+    if (statusCanvas && statusCanvas.clientWidth > 0 && statusCanvas.clientHeight > 0) {
       this.charts.status = new Chart(statusCanvas.getContext("2d"), {
         type: "doughnut",
         data: {

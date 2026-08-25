@@ -485,13 +485,40 @@ class CommunicationsManager extends FileLifecycleBase
             $endpointStmt->execute([(int) $this->db->lastInsertId(), $type, $address]);
         }
     }
-    public function getCommunication($id)
+    public function getCommunication($id, array $filters = [])
     {
         $sql = "SELECT * FROM communications WHERE id = :id";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([':id' => $id]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row !== false && !$this->communicationVisibleTo($row, $filters)) {
+            return null;
+        }
         return $row === false ? null : $this->decorateRow($row);
+    }
+
+    private function communicationVisibleTo(array $row, array $filters): bool
+    {
+        $visibility = $filters['visibility'] ?? 'all';
+        if ($visibility === 'all') return true;
+        $userId = (int) ($filters['visibility_user_id'] ?? 0);
+        if ($visibility === 'self_or_tagged') {
+            if ($userId < 1) return false;
+            $stmt = $this->db->prepare('SELECT 1 FROM communication_recipients WHERE communication_id = ? AND recipient_id = ? LIMIT 1');
+            $stmt->execute([(int) $row['id'], $userId]);
+            return (int) $row['sender_id'] === $userId || (bool) $stmt->fetchColumn();
+        }
+        if ($visibility === 'teacher_parent') {
+            $stmt = $this->db->prepare("SELECT 1 FROM user_roles WHERE user_id = ? AND role_id IN (7,8,9) LIMIT 1");
+            $stmt->execute([(int) ($row['sender_id'] ?? 0)]);
+            $signature = strtolower((string) ($row['sender_signature'] ?? ''));
+            if (!(bool) $stmt->fetchColumn()) return false;
+            if (strpos($signature, 'parent') !== false || strpos($signature, 'selected_students') !== false || strpos($signature, 'selected_class') !== false) return true;
+            $recipientStmt = $this->db->prepare('SELECT 1 FROM communication_recipients cr JOIN users parent_user ON parent_user.id = cr.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr.communication_id = ? LIMIT 1');
+            $recipientStmt->execute([(int) $row['id']]);
+            return (bool) $recipientStmt->fetchColumn();
+        }
+        return false;
     }
     public function updateCommunication($id, $data)
     {
@@ -534,6 +561,15 @@ class CommunicationsManager extends FileLifecycleBase
                 $sql .= " AND $col = :$col";
                 $params[":$col"] = $filters[$col];
             }
+        }
+        $visibility = $filters['visibility'] ?? 'all';
+        $visibilityUserId = (int) ($filters['visibility_user_id'] ?? 0);
+        if ($visibility === 'self_or_tagged' && $visibilityUserId > 0) {
+            $sql .= " AND (sender_id = :visibility_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = communications.id AND cr_scope.recipient_id = :visibility_recipient))";
+            $params[':visibility_user'] = $visibilityUserId;
+            $params[':visibility_recipient'] = $visibilityUserId;
+        } elseif ($visibility === 'teacher_parent') {
+            $sql .= " AND EXISTS (SELECT 1 FROM user_roles sender_role WHERE sender_role.user_id = communications.sender_id AND sender_role.role_id IN (7, 8, 9)) AND (sender_signature LIKE '%parent%' OR sender_signature LIKE '%selected_students%' OR sender_signature LIKE '%selected_class%' OR EXISTS (SELECT 1 FROM communication_recipients cr_parent JOIN users parent_user ON parent_user.id = cr_parent.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr_parent.communication_id = communications.id))";
         }
         if (isset($filters['from_date'])) {
             $sql .= " AND created_at >= :from_date";

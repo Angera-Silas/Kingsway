@@ -44,6 +44,9 @@ class KcbMpesaExpressService
         if ($invoice === '' || $callback === '') {
             throw new Exception('Invoice number and callback URL are required.');
         }
+        if (!preg_match('#^https://#i', $callback)) {
+            throw new Exception('Buni callback URL must use HTTPS and be publicly reachable.');
+        }
 
         $messageId = substr(preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($data['message_id'] ?? 'KWA' . bin2hex(random_bytes(8)))), 0, 32);
         $payload = [
@@ -76,6 +79,7 @@ class KcbMpesaExpressService
             'checkout_request_id' => $body['CheckoutRequestID'] ?? null,
             'merchant_request_id' => $body['MerchantRequestID'] ?? null,
             'message' => $body['CustomerMessage'] ?? $header['statusDescription'] ?? 'Buni M-Pesa Express response received.',
+            'callback_url' => $callback,
             'response' => $response,
         ];
     }
