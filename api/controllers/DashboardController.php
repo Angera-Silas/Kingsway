@@ -42,6 +42,19 @@ class DashboardController extends BaseController
     {
         return $this->success(['message' => 'Dashboard API is running']);
     }
+
+    /** Resolve the normalized staff.id used by teaching assignment tables. */
+    private function getTeachingStaffId(): ?int
+    {
+        $userId = $this->getUserId();
+        if (!$userId) return null;
+        $stmt = $this->getDb()->getConnection()->prepare(
+            'SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? LIMIT 1'
+        );
+        $stmt->execute([(int) $userId]);
+        $staffId = $stmt->fetchColumn();
+        return $staffId ? (int) $staffId : null;
+    }
     /**
      * GET /api/dashboard/director/announcements
      * Director-only: Latest published announcements/news and expiring notices for dashboard
@@ -972,7 +985,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Subject Teacher dashboard data retrieved');
         } catch (Exception $e) {
@@ -992,7 +1005,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getClassesStats();
             return $this->success([
                 'data' => $result
@@ -1014,7 +1027,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getSectionsStats();
             return $this->success([
                 'data' => $result
@@ -1036,7 +1049,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getAssessmentsDueStats();
             return $this->success([
                 'data' => $result
@@ -1058,7 +1071,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getGradedStats();
             return $this->success([
                 'data' => $result
@@ -1080,7 +1093,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getExamsStats();
             return $this->success([
                 'data' => $result
@@ -1102,7 +1115,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getLessonPlansStats();
             return $this->success([
                 'data' => $result
@@ -1124,7 +1137,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getPendingAssessments();
             return $this->success([
                 'data' => $result['data'],
@@ -1147,7 +1160,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Subject Teacher access only');
         }
         try {
-            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $service = new SubjectTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getExamSchedule();
             return $this->success([
                 'data' => $result['data'],
@@ -1173,7 +1186,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getFullDashboardData();
             return $this->success($result, 'Class Teacher dashboard data retrieved');
         } catch (Exception $e) {
@@ -1193,7 +1206,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getMyStudentsStats();
             return $this->success($result, 'My class data retrieved');
         } catch (Exception $e) {
@@ -1213,7 +1226,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getTodayAttendanceStats();
             return $this->success($result, 'Attendance data retrieved');
         } catch (Exception $e) {
@@ -1233,7 +1246,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getPendingAssessmentsStats();
             return $this->success($result, 'Assessments data retrieved');
         } catch (Exception $e) {
@@ -1253,7 +1266,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getLessonPlansStats();
             return $this->success($result, 'Lesson plans data retrieved');
         } catch (Exception $e) {
@@ -1273,7 +1286,7 @@ class DashboardController extends BaseController
             return $this->forbidden('Class Teacher access only');
         }
         try {
-            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $service = new ClassTeacherAnalyticsService($this->getTeachingStaffId());
             $result = $service->getStudentRoster();
             return $this->success(['data' => $result], 'Student roster retrieved');
         } catch (Exception $e) {

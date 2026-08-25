@@ -23,6 +23,7 @@ $tax = $tax ?? 0;
 $total = $total ?? 0;
 $amountDue = $amountDue ?? $total;
 $invoiceType = $invoiceType ?? 'Service';
+$useSharedReportShell = $useSharedReportShell ?? false;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -77,7 +78,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
 </style>
 </head>
 <body>
-<div class="inv-header">
+<?php if (!$useSharedReportShell): ?><div class="inv-header">
     <div class="inv-header-left">
         <div class="school-name"><?= ie($schoolName ?? 'KINGSWAY PREPARATORY SCHOOL') ?></div>
         <div class="school-motto">"<?= ie($schoolMotto ?? 'In God We Soar') ?>"</div>
@@ -87,7 +88,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
         <div class="inv-title">INVOICE</div>
         <div class="inv-type"><?= ie($invoiceType) ?></div>
     </div>
-</div>
+</div><?php endif; ?>
 
 <div class="inv-meta">
     <div class="inv-meta-box"><div class="label">Invoice No</div><div class="value"><?= ie($invoiceNo) ?></div></div>
@@ -145,13 +146,13 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:9pt; color:#1b2a
 </div>
 <?php endif; ?>
 
-<div class="inv-footer">
+<?php if (!$useSharedReportShell): ?><div class="inv-footer">
     <table>
         <tr>
             <td><div class="sig-line"></div><div class="sig-name">Authorized Signatory</div></td>
             <td><div class="sig-line"></div><div class="sig-name">Received By</div></td>
         </tr>
     </table>
-</div>
+</div><?php endif; ?>
 </body>
 </html>

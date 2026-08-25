@@ -34,6 +34,13 @@ require_once __DIR__ . '/public/layout/public_data.php';
       </div>
     </div>
 
+    <div id="dl-year-selector" class="row justify-content-center mb-4" style="display:none">
+      <div class="col-md-5 col-lg-4">
+        <label for="dlAcademicYear" class="form-label fw-semibold">Academic year</label>
+        <select id="dlAcademicYear" class="form-select"></select>
+      </div>
+    </div>
+
     <div id="dl-categories"></div>
 
     <!-- Note -->

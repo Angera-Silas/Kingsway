@@ -17,6 +17,8 @@ const PayrollManagerController = {
   perPage: 15,
   currentPayslipId: null,
   bulkPayrollRows: [],
+  selectedPaymentIds: new Set(),
+  statutoryRules: {},
   accessReady: false,
 
   /**
@@ -54,6 +56,7 @@ const PayrollManagerController = {
         this.loadPayrolls(),
         this.loadStats(),
         this.loadStaffList(),
+        this.loadStatutoryRules(),
       ]);
 
     } catch (error) {
@@ -62,16 +65,39 @@ const PayrollManagerController = {
     }
   },
 
+  loadStatutoryRules: async function () {
+    try {
+      const response = await callAPI('/staff/statutory-compliance?year=' + new Date().getFullYear(), 'GET');
+      const data = response?.data || response || {};
+      this.statutoryRules = {};
+      (Array.isArray(data.rules) ? data.rules : []).forEach((rule) => {
+        this.statutoryRules[rule.agency + ':' + rule.rule_code] = rule.rules || {};
+      });
+    } catch (error) {
+      console.error('Unable to load statutory rules:', error);
+      this.statutoryRules = {};
+    }
+  },
+
   canManagePayroll: function () {
     return window.AuthContext?.hasPermission?.('staff.payroll.manage') || false;
   },
 
   canApprovePayroll: function () {
+    const user = window.AuthContext?.getUser?.() || {};
+    const roleNames = [user.role_name, ...(Array.isArray(user.roles) ? user.roles.map((role) => role?.name || role) : [])]
+      .filter(Boolean).map((name) => String(name).toLowerCase());
+    if (roleNames.includes('accountant')) return false;
     return window.AuthContext?.hasPermission?.('staff.payroll.approve') || false;
   },
 
   canProcessPayroll: function () {
-    return window.AuthContext?.hasPermission?.('staff.payroll.process') || false;
+    const user = window.AuthContext?.getUser?.() || {};
+    const names = [user.role_name, ...(Array.isArray(user.roles) ? user.roles.map((role) => role?.name || role) : [])]
+      .filter(Boolean).map((name) => String(name).toLowerCase());
+    if (names.includes('accountant')) return false;
+    if (window.AuthContext?.hasPermission?.('staff.payroll.process')) return true;
+    return names.some((name) => ['director', 'school administrator', 'system administrator'].includes(name));
   },
 
   isPayrollReviewer: function () {
@@ -106,6 +132,8 @@ const PayrollManagerController = {
     const statusFilter = document.getElementById("filterStatus");
     const page = document.querySelector(".director-payroll-page");
     if (page) page.dataset.payrollMode = this.getPayrollMode();
+    const paySelectedButton = document.getElementById("paySelectedPayrollBtn");
+    if (paySelectedButton) paySelectedButton.hidden = !this.canProcessPayroll();
 
     const visibleCards = new Set(this.getVisiblePayrollCards());
     document.querySelectorAll("[data-payroll-card]").forEach((card) => {
@@ -113,9 +141,9 @@ const PayrollManagerController = {
     });
 
     if (this.canProcessPayroll() && !this.canManagePayroll()) {
-      if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-money-check-alt"></i> Accountant Payroll';
+      if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-money-check-alt"></i> Executive Payroll Control';
       if (title) title.textContent = "Payroll Payment Queue";
-      if (subtitle) subtitle.textContent = "Review approved payrolls, open payslips, and release payments.";
+      if (subtitle) subtitle.textContent = "Review approved payrolls, verify source accounts, and release selected staff payments.";
       if (statusFilter && !statusFilter.value) statusFilter.value = "approved";
       return;
     }
@@ -130,8 +158,10 @@ const PayrollManagerController = {
 
     if (this.canManagePayroll()) {
       if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-users-cog"></i> Payroll Operations';
-      if (title) title.textContent = "Payroll Management";
-      if (subtitle) subtitle.textContent = "Prepare staff payroll, review deductions, and track approval/payment status.";
+      if (title) title.textContent = this.canProcessPayroll() ? "Payroll Management & Payment Control" : "Payroll Management";
+      if (subtitle) subtitle.textContent = this.canProcessPayroll()
+        ? "Prepare payroll, review deductions, approve the payable amount, and release selected staff payments."
+        : "Prepare staff payroll and track approval/payment status.";
     }
   },
 
@@ -152,6 +182,7 @@ const PayrollManagerController = {
 
   getPayrollColumns: function () {
     const base = {
+      select: { label: '<input type="checkbox" aria-label="Select all approved staff" onchange="PayrollManagerController.toggleAllPaymentSelection(this.checked)">', className: "text-center" },
       staff: { label: "Staff" },
       period: { label: "Period" },
       basic: { label: "Basic Salary", className: "text-end" },
@@ -165,9 +196,9 @@ const PayrollManagerController = {
     };
 
     const byMode = {
-      operations: ["staff", "period", "basic", "allowances", "statutory", "children", "other", "net", "status", "actions"],
+      operations: ["select", "staff", "period", "basic", "allowances", "statutory", "children", "other", "net", "status", "actions"],
       approval: ["staff", "period", "basic", "allowances", "statutory", "children", "net", "status", "actions"],
-      payment: ["staff", "period", "children", "net", "status", "actions"],
+      payment: ["select", "staff", "period", "children", "net", "status", "actions"],
       viewer: ["staff", "period", "net", "status", "actions"],
     };
 
@@ -379,7 +410,7 @@ const PayrollManagerController = {
       (parseFloat(p.nssf_deduction) || 0) +
       (parseFloat(p.shif_deduction ?? p.nhif_deduction) || 0) +
       (parseFloat(p.paye_tax) || 0) +
-      (parseFloat(p.housing_levy) || parseFloat(p.gross_salary) * 0.015);
+      (parseFloat(p.housing_levy) || 0);
     const otherDed = (parseFloat(p.other_deductions) || 0) - childrenFees;
     return {
       period: `${monthNames[p.payroll_month] || ""} ${p.payroll_year || ""}`.trim(),
@@ -392,6 +423,7 @@ const PayrollManagerController = {
 
   renderPayrollCell: function (p, computed, column) {
     const cellMap = {
+      select: `<td class="text-center"><input type="checkbox" class="payroll-payment-select" value="${Number(p.id)}" ${this.selectedPaymentIds.has(Number(p.id)) ? "checked" : ""} ${p.status !== "approved" || p.payroll_run_status !== "approved" ? "disabled" : ""} onchange="PayrollManagerController.togglePaymentSelection(${Number(p.id)}, this.checked)" aria-label="Select ${this.escapeHtml(p.staff_name || "staff")} for payment"></td>`,
       staff: `
         <td>
           <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
@@ -413,6 +445,38 @@ const PayrollManagerController = {
     return cellMap[column] || "";
   },
 
+  togglePaymentSelection: function (payslipId, checked) {
+    const id = Number(payslipId);
+    if (checked) this.selectedPaymentIds.add(id);
+    else this.selectedPaymentIds.delete(id);
+    this.updatePaymentSelectionSummary();
+  },
+
+  toggleAllPaymentSelection: function (checked) {
+    this.filteredPayrolls.filter((p) => p.status === "approved" && p.payroll_run_status === "approved").forEach((p) => {
+      const id = Number(p.id);
+      if (checked) this.selectedPaymentIds.add(id);
+      else this.selectedPaymentIds.delete(id);
+    });
+    this.renderTable();
+    this.updatePaymentSelectionSummary();
+  },
+
+  updatePaymentSelectionSummary: function () {
+    const selected = this.filteredPayrolls.filter((p) => this.selectedPaymentIds.has(Number(p.id)));
+    const total = selected.reduce((sum, p) => sum + (Number(p.net_salary) || 0), 0);
+    const label = document.getElementById("payrollPaymentSelectionSummary");
+    if (label) label.textContent = selected.length ? `${selected.length} selected · KES ${this.formatCurrency(total)}` : "No staff selected";
+    const button = document.getElementById("paySelectedPayrollBtn");
+    if (button) button.disabled = !selected.length;
+  },
+
+  paySelected: function () {
+    const selected = this.filteredPayrolls.filter((p) => this.selectedPaymentIds.has(Number(p.id)) && p.status === "approved" && p.payroll_run_status === "approved");
+    if (!selected.length) return this.showError("Select at least one approved staff payment.");
+    this.markAsPaid(Number(selected[0].id), selected.map((p) => Number(p.id)));
+  },
+
   renderPayrollActions: function (p) {
     return `
       <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
@@ -426,11 +490,12 @@ const PayrollManagerController = {
           <i class="fas fa-user-check"></i>
         </button>
       ` : ""}
-      ${p.status === "approved" && this.canProcessPayroll() ? `
+      ${p.status === "approved" && p.payroll_run_status === "approved" && this.canProcessPayroll() ? `
         <button class="table-action-btn approve" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Release Payment">
           <i class="fas fa-check-circle"></i>
         </button>
       ` : ""}
+      ${p.status === "approved" && p.payroll_run_status && p.payroll_run_status !== "approved" ? `<span class="text-muted small" title="Payment has already started for this payroll run"><i class="fas fa-lock"></i> ${this.escapeHtml(p.payroll_run_status)}</span>` : ""}
     `;
   },
 
@@ -747,6 +812,7 @@ const PayrollManagerController = {
     document.getElementById("houseAllowance").value = 0;
     document.getElementById("transportAllowance").value = 0;
     document.getElementById("otherAllowances").value = 0;
+    if (document.getElementById("bonusAllowance")) document.getElementById("bonusAllowance").value = 0;
     document.getElementById("otherDeductions").value = 0;
   },
 
@@ -1003,18 +1069,20 @@ const PayrollManagerController = {
       parseFloat(document.getElementById("transportAllowance").value) || 0;
     const otherAllowances =
       parseFloat(document.getElementById("otherAllowances").value) || 0;
+    const bonusAllowance =
+      parseFloat(document.getElementById("bonusAllowance")?.value) || 0;
     const otherDeductions =
       parseFloat(document.getElementById("otherDeductions").value) || 0;
 
     const totalAllowances =
-      houseAllowance + transportAllowance + otherAllowances;
+      houseAllowance + transportAllowance + otherAllowances + bonusAllowance;
     const grossSalary = basicSalary + totalAllowances;
 
     // Calculate statutory deductions
     const nssf = this.calculateNSSF(grossSalary);
     const shif = this.calculateSHIF(grossSalary);
-    const paye = this.calculatePAYE(grossSalary - nssf - shif - grossSalary * 0.015);
-    const housingLevy = grossSalary * 0.015;
+    const housingLevy = this.calculateHousingLevy(grossSalary);
+    const paye = this.calculatePAYE(grossSalary - nssf - shif - housingLevy);
     const employerNSSF = this.calculateNSSF(grossSalary);
     const employerHousingLevy = housingLevy;
 
@@ -1048,41 +1116,38 @@ const PayrollManagerController = {
       "KES " + this.formatCurrency(netSalary);
   },
 
-  /**
-   * Calculate NSSF Year 4 (2026) preview. Final payroll values come from the server configuration.
-   */
+  /** Calculate NSSF from the active effective-dated rule snapshot. */
   calculateNSSF: function (gross) {
-    const tierI = Math.min(gross, 9000) * 0.06;
-    const tierII = Math.max(0, Math.min(gross, 108000) - 9000) * 0.06;
-    return tierI + tierII;
+    const rule = this.statutoryRules['NSSF:employee_employer_contribution'] || {};
+    const rate = Number(rule.employee_rate || 0) / 100;
+    const upper = Number(rule.upper_earnings_limit || 0);
+    return upper > 0 ? Math.min(Math.max(0, Number(gross) || 0), upper) * rate : 0;
   },
 
-  /**
-   * Calculate SHIF (2.75% of gross salary)
-   */
+  /** Calculate SHIF from the active effective-dated rule snapshot. */
   calculateSHIF: function (gross) {
-    return gross * 0.0275;
+    const rule = this.statutoryRules['SHIF:employee_contribution'] || {};
+    return Math.max(0, Number(gross) || 0) * (Number(rule.employee_rate || 0) / 100);
   },
 
-  /**
-   * Calculate PAYE (Kenya tax bands)
-   */
+  calculateHousingLevy: function (gross) {
+    const rule = this.statutoryRules['Housing Levy:employee_employer_contribution'] || {};
+    return Math.max(0, Number(gross) || 0) * (Number(rule.employee_rate || 0) / 100);
+  },
+
+  /** Calculate PAYE from the active effective-dated rule snapshot. */
   calculatePAYE: function (taxableIncome) {
-    const bands = [
-      [24000, 0.1],
-      [32333, 0.25],
-      [500000, 0.3],
-      [800000, 0.325],
-      [Infinity, 0.35],
-    ];
-    const personalRelief = 2400;
+    const rule = this.statutoryRules['KRA:paye_bands'] || {};
+    const bands = Array.isArray(rule.bands) ? rule.bands : [];
+    const personalRelief = Number(rule.personal_relief || 0);
     let tax = 0;
-    let remaining = taxableIncome;
+    let remaining = Math.max(0, Number(taxableIncome) || 0);
     let prevLimit = 0;
 
-    for (const [limit, rate] of bands) {
-      const taxable = Math.min(remaining, limit - prevLimit);
-      tax += taxable * rate;
+    for (const band of bands) {
+      const limit = band.up_to === null || band.up_to === undefined ? Infinity : Number(band.up_to);
+      const taxable = Math.min(remaining, Math.max(0, limit - prevLimit));
+      tax += taxable * (Number(band.rate || 0) / 100);
       remaining -= taxable;
       prevLimit = limit;
       if (remaining <= 0) break;
@@ -1116,6 +1181,7 @@ const PayrollManagerController = {
         house: parseFloat(document.getElementById("houseAllowance").value) || 0,
         transport: parseFloat(document.getElementById("transportAllowance").value) || 0,
         other: parseFloat(document.getElementById("otherAllowances").value) || 0,
+        bonus: parseFloat(document.getElementById("bonusAllowance")?.value) || 0,
       } : {};
       const otherDeductions = reviewer
         ? parseFloat(document.getElementById("otherDeductions").value) || 0
@@ -1304,10 +1370,7 @@ const PayrollManagerController = {
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <img src="${this.escapeHtml(logoUrl)}" alt="${this.escapeHtml(schoolName)} Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
-                    <h4 class="mb-1">${this.escapeHtml(schoolName).toUpperCase()}</h4>
-                    <p class="mb-0">${this.escapeHtml(schoolLocation)}</p>
-                    <h5 class="mt-3">PAYSLIP</h5>
+                    <h5 class="mt-3">EMPLOYEE PAYSLIP</h5>
                     <p class="text-muted">${period}</p>
                 </div>
                 
@@ -1499,25 +1562,36 @@ const PayrollManagerController = {
     }
   },
 
-  markAsPaid: function (payrollId) {
+  markAsPaid: function (payrollId, selectedIds = []) {
     if (!this.canProcessPayroll()) {
       this.showError("You do not have permission to release payroll payments.");
+      return;
+    }
+    // A payroll run becomes immutable as soon as disbursement starts. Keep a
+    // defensive client-side check here because an old table row, browser tab,
+    // or direct onclick can otherwise open the payment modal after the run
+    // has moved to processing/completed/failed.
+    const payroll = (this.payrolls || []).find((p) => Number(p.id) === Number(payrollId))
+      || (this.filteredPayrolls || []).find((p) => Number(p.id) === Number(payrollId));
+    const runStatus = payroll && String(payroll.payroll_run_status || '').toLowerCase();
+    if (runStatus && runStatus !== "approved") {
+      this.showError(`Payroll payment is locked because disbursement has already started (${runStatus}). Refresh the page for the latest status.`);
       return;
     }
     var self = this;
     self.showConfirm(
       "Mark this payroll as paid? This will also record fee payments for any children deductions.",
       function () {
-        self.showPaymentModeModal(function (mode, reference) {
-          self._executeMarkAsPaid(payrollId, mode, reference);
-        });
+        self.showPaymentModeModal(function (mode, reference, sourceId) {
+          self._executeMarkAsPaid(payrollId, mode, reference, sourceId, selectedIds);
+        }, payrollId);
       }
     );
   },
 
-  _executeMarkAsPaid: async function (payrollId, paymentMode, paymentRef) {
+  _executeMarkAsPaid: async function (payrollId, paymentMode, paymentRef, sourceId = null, selectedIds = []) {
     try {
-      const response = await API.finance.markPayrollPaid(payrollId, paymentRef, paymentMode);
+      const response = await API.finance.markPayrollPaid(payrollId, paymentRef, paymentMode, sourceId, selectedIds);
 
       if (response && (response.payroll_id || response.status === "paid" || response.status === "success" || response.id || response.message)) {
         this.showSuccess("Payroll marked as paid successfully");
@@ -1535,30 +1609,86 @@ const PayrollManagerController = {
    * Print payslip
    */
   printPayslip: async function () {
-    const source = document.getElementById("payslipPrintArea");
-
-    if (!source) {
+    if (!this.currentPayslipId) {
       this.showError("Payslip is not ready to print");
       return;
     }
 
-    await window.PrintManager.printRecord({
-      title: "Staff Payslip",
-      description: "Official payroll statement.",
-      sections: [
-        {
-          title: "Payslip Details",
-          content: source.innerHTML,
-          allowHtml: true,
+    try {
+      const data = await API.finance.getDetailedPayslip(this.currentPayslipId);
+      if (!data || !data.id) throw new Error("Payslip details are unavailable");
+      const number = (value) => Number.parseFloat(value) || 0;
+      const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const period = `${monthNames[Number(data.payroll_month)] || "-"} ${data.payroll_year || "-"}`;
+      const children = Array.isArray(data.children_deductions) ? data.children_deductions : [];
+      const childrenList = children.map((child) => ({
+        student_name: child.student_name || "Child",
+        class_name: child.class_name || "",
+        deducted_amount: number(child.deducted_amount || child.amount),
+      }));
+      const other = number(data.other_deductions ?? data.other_deductions_total);
+      const mode = data.payment_mode || data.payment_method;
+      const modeLabels = { bank: "Bank Transfer", cash: "Cash", mpesa: "M-Pesa", airtel_money: "Airtel Money" };
+      const paymentMethod = mode ? (modeLabels[mode] || mode) : "Not Recorded";
+      const paidDateValue = data.paid_at || data.payment_date;
+      const datePaid = paidDateValue
+        ? new Date(paidDateValue).toLocaleString("en-KE")
+        : "Not Paid";
+      const status = String(data.status || data.payslip_status || data.payment_status || "Unknown");
+      const school = data.school_profile || {};
+
+      // Payload mirrors every field rendered by renderPayslip(). The backend
+      // renders the payslip's complete standalone template (including its
+      // own header/footer), not the generic report shell.
+      await window.PrintManager.printDedicatedPayslip({
+        title: "Staff Payslip",
+        subtitle: period,
+        employeeName: `${data.first_name || ""} ${data.last_name || ""}`.trim(),
+        staffNo: data.staff_no || data.staff_number || "-",
+        department: data.department || "-",
+        designation: data.position || data.designation || "-",
+        kraPin: data.kra_pin || "-",
+        nssfNo: data.nssf_no || "-",
+        shifNo: data.shif_no || data.nhif_no || "-",
+        period,
+        basicSalary: number(data.basic_salary),
+        allowances: [{ name: "Allowances", amount: number(data.allowances ?? data.allowances_total) }],
+        statutory: {
+          paye: number(data.paye_tax),
+          nssf: number(data.nssf_deduction ?? data.nssf_contribution),
+          nhif_shif: number(data.shif_deduction ?? data.shif_contribution ?? data.nhif_contribution),
+          housing_levy: number(data.housing_levy),
         },
-      ],
-      filename: `staff_payslip_${new Date().toISOString().slice(0, 10)}`,
-      reportCode: `PAYSLIP-${Date.now()}`,
-      signatureSection: [
-        { label: "Payroll Officer", dateLine: true },
-        { label: "Headteacher", dateLine: true },
-      ],
-    });
+        childrenDeductions: childrenList,
+        otherDeductions: other,
+        deductions: [],
+        grossPay: number(data.gross_salary),
+        totalDeductions: number(data.total_deductions ?? data.employee_deductions_total),
+        netPay: number(data.net_salary),
+        employerNssf: number(data.employer_nssf_contribution),
+        employerHousing: number(data.employer_housing_levy),
+        bankName: data.bank_name || "-",
+        bankAccountNumber: data.bank_account_number || data.bank_account || "-",
+        bankAccount: [data.bank_name, data.bank_account_number || data.bank_account].filter(Boolean).join(" / ") || "-",
+        paymentMethod,
+        paymentReference: data.payment_reference || "-",
+        datePaid,
+        status,
+        generatedOn: new Date().toLocaleDateString("en-KE"),
+        schoolName: school.school_name,
+        schoolLogo: school.logo_url,
+        schoolMotto: school.motto,
+        filename: `staff_payslip_${data.payroll_year || new Date().getFullYear()}_${data.payroll_month || ""}`,
+        reportCode: `PAYSLIP-${data.id}`,
+        signatureSection: [
+          { label: "Accounts Officer", dateLine: true },
+          { label: "Employee Acknowledgement", dateLine: true },
+        ],
+      });
+    } catch (error) {
+      console.error("Error printing payslip:", error);
+      this.showError(error.message || "Unable to generate the payslip");
+    }
   },
 
   /**
@@ -1818,7 +1948,7 @@ const PayrollManagerController = {
    * Show payment mode modal (replaces browser prompt())
    * Returns { mode, reference } via callback
    */
-  showPaymentModeModal: function (onConfirm) {
+  showPaymentModeModal: function (onConfirm, payrollId = null) {
     var modal = document.getElementById("payrollPaymentModeModal");
     var refInput = document.getElementById("paymentReferenceInput");
     var okBtn = document.getElementById("payrollPaymentConfirmOk");
@@ -1826,6 +1956,8 @@ const PayrollManagerController = {
     // Reset
     refInput.value = "";
     document.getElementById("modeBank").checked = true;
+    const sourceSelect = document.getElementById("payrollPaymentSourceFinancialAccount");
+    if (sourceSelect && payrollId) sourceSelect.dataset.payrollId = String(payrollId);
 
     var bsModal = new bootstrap.Modal(modal);
     bsModal.show();
@@ -1839,8 +1971,9 @@ const PayrollManagerController = {
       var selectedMode = document.querySelector('input[name="paymentMode"]:checked');
       var mode = selectedMode ? selectedMode.value : "bank";
       var reference = refInput.value.trim();
+      var sourceId = sourceSelect ? Number(sourceSelect.value || 0) || null : null;
       bsModal.hide();
-      if (typeof onConfirm === "function") onConfirm(mode, reference);
+      if (typeof onConfirm === "function") onConfirm(mode, reference, sourceId);
     });
   },
 

@@ -21,6 +21,7 @@ use function App\API\Includes\formatResponse;
  *  - C2B register URLs                  POST /mpesa/c2b/v1/registerurl
  *  - C2B simulate (sandbox only)        POST /mpesa/c2b/v1/simulate
  *  - C2B validation / confirmation      (callback processing)
+ *  - Pull Transactions                  POST /pulltransactions/v1/query
  *  - Transaction Status                 POST /mpesa/transactionstatus/v1/query
  *  - Account Balance                    POST /mpesa/accountbalance/v1/query
  *  - Reversal                           POST /mpesa/reversal/v1/request
@@ -65,6 +66,22 @@ class MpesaPaymentService
         );
     }
 
+    /**
+     * The shared client returns non-JSON provider/WAF bodies as `raw` and
+     * some Daraja APIs return business failures in an HTTP 200 response.
+     * Never expose either shape as a successful operation.
+     */
+    private function providerResponseFailed(array $response): bool
+    {
+        if (isset($response['raw']) || isset($response['fault'])) {
+            return true;
+        }
+        if (isset($response['errorCode']) && (string) $response['errorCode'] !== '0') {
+            return true;
+        }
+        return false;
+    }
+
     private function callbackUrl(string $endpoint): string
     {
         $base = defined('MPESA_CALLBACK_BASE_URL') && MPESA_CALLBACK_BASE_URL !== ''
@@ -104,9 +121,11 @@ class MpesaPaymentService
      * @param string $description     TransactionDesc
      * @return array
      */
-    public function initiateSTKPush($admissionNumber, $phoneNumber, $amount, $description = 'School Fees Payment')
+    public function initiateSTKPush($admissionNumber, $phoneNumber, $amount, $description = 'School Fees Payment', int $financialAccountId = 0, int $collectionRouteId = 0)
     {
         try {
+            $rawReference = trim((string) $admissionNumber);
+            $canonicalReference = (new ReferenceNormalizer())->reference($rawReference);
             $phone = $this->normalizePhone((string) $phoneNumber);
             if (!preg_match('/^254[0-9]{9}$/', $phone)) {
                 return $this->respond(false, null, 'Invalid phone number format. Use 254XXXXXXXXX');
@@ -119,26 +138,63 @@ class MpesaPaymentService
             // Safaricom/Buni must never receive an STK request for an unknown
             // account. The account may be either an existing learner's
             // admission number or an applicant's application number.
-            $account = $this->resolvePaymentAccount((string) $admissionNumber);
+            $account = $this->resolvePaymentAccount($rawReference);
             if (!$account) {
                 return $this->respond(false, null, 'The application or admission account reference was not found');
             }
 
             $studentId = (int) ($account['student_id'] ?? 0) ?: null;
 
+            $purpose = preg_match('/^(TRN|T)-/i', $canonicalReference) ? 'transport' : (preg_match('/^(U|UC|UNIFORM)-/i', $canonicalReference) ? 'uniforms' : 'fees');
+            $settlementAccountId = 0;
+            $shortcode = '';
+
+            // STK is a collection-point operation. Resolve the shortcode from
+            // the selected route, then post the money to that route's real
+            // settlement account. A bank account must never be treated as a
+            // Daraja shortcode.
+            if ($collectionRouteId > 0) {
+                $routeStmt = $this->getDb()->prepare(
+                    "SELECT r.account_identifier, r.settlement_financial_account_id,
+                            r.financial_account_id, p.code AS provider_code
+                     FROM payment_collection_routes r
+                     JOIN payment_providers p ON p.id = r.provider_id
+                     JOIN payment_collection_route_channels rc ON rc.route_id = r.id
+                     JOIN financial_channels ch ON ch.id = rc.channel_id
+                     WHERE r.id = :route_id AND r.purpose = :purpose
+                       AND r.active = 1 AND p.code = 'mpesa_daraja'
+                       AND r.collection_product = 'paybill' AND ch.code = 'mpesa_stk'
+                     LIMIT 1"
+                );
+                $routeStmt->execute(['route_id' => $collectionRouteId, 'purpose' => $purpose]);
+                $route = $routeStmt->fetch(PDO::FETCH_ASSOC);
+                if (!$route) {
+                    return $this->respond(false, null, 'The selected M-Pesa STK collection point is not active or is not configured for this purpose.');
+                }
+                $shortcode = (string) $route['account_identifier'];
+                $settlementAccountId = (int) ($route['settlement_financial_account_id'] ?: $route['financial_account_id']);
+            } else {
+                $schoolAccount = (new FinancialAccountService($this->getDb()))->requireFor($financialAccountId, $purpose, 'mpesa_stk');
+                if (($schoolAccount['provider_code'] ?? '') !== 'mpesa_daraja') {
+                    return $this->respond(false, null, 'Select an M-Pesa STK collection point, not a bank account.');
+                }
+                $shortcode = (string) $schoolAccount['account_identifier'];
+                $settlementAccountId = (int)($schoolAccount['settlement_financial_account_id'] ?? 0) ?: (int)$schoolAccount['id'];
+            }
+
             $timestamp = $this->client->timestamp();
 
             $requestData = [
-                'BusinessShortCode' => $this->client->getShortcode(),
-                'Password'          => $this->client->lipaNaMpesaPassword($timestamp),
+                'BusinessShortCode' => $this->client->getShortcode($shortcode),
+                'Password'          => $this->client->lipaNaMpesaPassword($timestamp, $shortcode),
                 'Timestamp'         => $timestamp,
                 'TransactionType'   => 'CustomerPayBillOnline',
                 'Amount'            => (int) $amount,
                 'PartyA'            => $phone,
-                'PartyB'            => $this->client->getShortcode(),
+                'PartyB'            => $this->client->getShortcode($shortcode),
                 'PhoneNumber'       => $phone,
                 'CallBackURL'       => $this->callbackUrl('/api/payments/mpesa-stk-callback'),
-                'AccountReference'  => $admissionNumber,
+                'AccountReference'  => $canonicalReference,
                 'TransactionDesc'   => $description,
             ];
 
@@ -148,7 +204,7 @@ class MpesaPaymentService
             $merchantId  = $response['MerchantRequestID'] ?? null;
             $responseCode = $response['ResponseCode'] ?? '1';
 
-            $this->logStkRequest($studentId, $admissionNumber, $phone, $amount, $requestData, $response);
+            $this->logStkRequest($studentId, $canonicalReference, $phone, $amount, $requestData, $response, $settlementAccountId);
 
             if ($responseCode === '0') {
                 return $this->respond(true, [
@@ -162,7 +218,7 @@ class MpesaPaymentService
             return $this->respond(false, $response, $message, 400);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] STK Push error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -171,7 +227,7 @@ class MpesaPaymentService
      * No M-Pesa receipt exists yet, so a placeholder code is used and later
      * replaced by the real MpesaReceiptNumber when the callback/query lands.
      */
-    private function logStkRequest($studentId, string $admissionNumber, string $phone, float $amount, array $request, array $response): void
+    private function logStkRequest($studentId, string $admissionNumber, string $phone, float $amount, array $request, array $response, int $financialAccountId): void
     {
         try {
             $checkoutId = $response['CheckoutRequestID'] ?? null;
@@ -179,10 +235,10 @@ class MpesaPaymentService
             $stmt = $this->getDb()->prepare(
                 "INSERT INTO mpesa_transactions
                     (mpesa_code, student_id, amount, transaction_date, phone_number,
-                     bill_ref_number, status, transaction_type, checkout_request_id,
+                    bill_ref_number, financial_account_id, collection_account_identifier, status, transaction_type, checkout_request_id,
                      raw_callback, webhook_data, created_at)
                  VALUES (:code, :sid, :amount, NOW(), :phone, :bill_ref,
-                         'pending', 'STK_PUSH', :checkout, :raw, :webhook, NOW())
+                         :financial_account_id, :collection_account_identifier, 'pending', 'STK_PUSH', :checkout, :raw, :webhook, NOW())
                  ON DUPLICATE KEY UPDATE checkout_request_id = VALUES(checkout_request_id)"
             );
             $stmt->execute([
@@ -191,6 +247,8 @@ class MpesaPaymentService
                 'amount'   => $amount,
                 'phone'    => $phone,
                 'bill_ref' => $admissionNumber,
+                'financial_account_id' => $financialAccountId,
+                'collection_account_identifier' => $request['BusinessShortCode'] ?? null,
                 'checkout' => $checkoutId,
                 'raw'      => json_encode($request),
                 'webhook'  => json_encode($response),
@@ -231,10 +289,15 @@ class MpesaPaymentService
                 $this->recordStkSuccess($checkoutRequestId, $response);
             }
 
-            return $this->respond(true, $response, 'STK status retrieved');
+            return $this->respond(
+                !$this->providerResponseFailed($response),
+                $response,
+                $this->providerResponseFailed($response) ? 'STK status query failed' : 'STK status retrieved',
+                $this->providerResponseFailed($response) ? 502 : 200
+            );
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] STK query error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -246,7 +309,8 @@ class MpesaPaymentService
     {
         try {
             $stmt = $this->getDb()->prepare(
-                "SELECT id, status, bill_ref_number, amount FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
+                "SELECT id, status, bill_ref_number, amount, collection_account_identifier
+                 FROM mpesa_transactions WHERE checkout_request_id = :checkout LIMIT 1"
             );
             $stmt->execute(['checkout' => $checkoutRequestId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -266,6 +330,7 @@ class MpesaPaymentService
             $mpesaReceipt = $kv['MpesaReceiptNumber'] ?? null;
             $phone = $kv['PhoneNumber'] ?? null;
             $amount = $kv['Amount'] ?? null;
+            $normalizedBillRef = (new ReferenceNormalizer())->reference((string) ($row['bill_ref_number'] ?? ''));
 
             $update = $this->getDb()->prepare(
                 "UPDATE mpesa_transactions
@@ -273,6 +338,7 @@ class MpesaPaymentService
                      mpesa_code = COALESCE(:receipt, mpesa_code),
                      phone_number = COALESCE(:phone, phone_number),
                      amount = COALESCE(:amount, amount),
+                     normalized_reference = NULLIF(:normalized_reference, ''),
                      raw_callback = :raw,
                      webhook_data = :webhook
                  WHERE id = :id"
@@ -281,6 +347,7 @@ class MpesaPaymentService
                 'receipt' => $mpesaReceipt,
                 'phone'   => $phone,
                 'amount'  => $amount,
+                'normalized_reference' => $normalizedBillRef,
                 'raw'     => json_encode($callback),
                 'webhook' => json_encode($callback),
                 'id'      => $row['id'],
@@ -354,12 +421,36 @@ class MpesaPaymentService
             if (!$wasAlreadyProcessed) {
                 $this->sendPaymentConfirmationSms((int) $row['id']);
             }
+
+            // Fees STK callbacks enter the same normalized fee ledger as C2B
+            // and bank collections. Transport and uniforms reconcile below.
+            if (!$wasAlreadyProcessed) {
+                $stkBillRef = trim((string) ($row['bill_ref_number'] ?? ''));
+                if ($stkBillRef !== '' && !preg_match('/^(T|TRN|U|UC|UNIFORM)-/i', $stkBillRef)) {
+                    try {
+                        (new PaymentRoutingService($this->getDb()))->routeIncoming(
+                            'mpesa_daraja',
+                            [
+                                'BusinessShortCode' => $row['collection_account_identifier'] ?? null,
+                                'BillRefNumber' => $stkBillRef,
+                                'channel' => 'mpesa_stk',
+                            ],
+                            (string) ($mpesaReceipt ?: $checkoutRequestId),
+                            (float) ($amount ?: $row['amount'] ?: 0),
+                            (string) ($row['collection_account_identifier'] ?? ''),
+                            $stkBillRef
+                        );
+                    } catch (\Throwable $feeRoutingError) {
+                        error_log('[MpesaPaymentService] STK fee routing failed: ' . $feeRoutingError->getMessage());
+                    }
+                }
+            }
             // Transport has its own entitlement ledger. A successful STK
             // callback is the only point at which that ledger may be credited.
             if (!$wasAlreadyProcessed && !empty($checkoutRequestId)) {
                 try {
                     $billRef = (string)($row['bill_ref_number'] ?? '');
-                    if (preg_match('/^(U|UNIFORM)-/i', $billRef)) {
+                    if (preg_match('/^(U|UC|UNIFORM)-/i', $billRef)) {
                         (new UniformPaymentService($this->getDb()))->reconcileReference($billRef, (float)($amount ?: 0), 'mpesa_daraja', $mpesaReceipt ?: $checkoutRequestId);
                     } else {
                         (new TransportPaymentService($this->getDb()))->reconcileDaraja($checkoutRequestId, $mpesaReceipt ?: $checkoutRequestId, (float)($amount ?: 0));
@@ -472,7 +563,8 @@ class MpesaPaymentService
         try {
             $db = $this->getDb();
             $current = $db->query(
-                "SELECT ayt.id AS ayt_id, ayt.academic_year_id AS ay_id
+                "SELECT ayt.id AS ayt_id, ayt.academic_year_id AS ay_id,
+                        ay.year_code AS ay_code
                  FROM academic_year_terms ayt
                  JOIN academic_years ay ON ay.id = ayt.academic_year_id
                  WHERE ay.is_current = 1 AND ayt.status = 'current'
@@ -491,9 +583,9 @@ class MpesaPaymentService
 
             $annual = $db->prepare(
                 "SELECT SUM(balance) FROM vw_student_fee_balances
-                 WHERE student_id = :sid AND academic_year_id = :ay"
+                 WHERE student_id = :sid AND academic_year = :ay_code"
             );
-            $annual->execute(['sid' => $studentId, 'ay' => $current['ay_id']]);
+            $annual->execute(['sid' => $studentId, 'ay_code' => $current['ay_code']]);
             $annualBalance = $annual->fetchColumn();
 
             return [
@@ -586,7 +678,8 @@ class MpesaPaymentService
     /** Resolve both official learner accounts and pre-placement applicant accounts. */
     private function resolvePaymentAccount(string $reference): ?array
     {
-        $reference = trim($reference);
+        $rawReference = trim($reference);
+        $reference = (new ReferenceNormalizer())->reference($rawReference);
         if ($reference === '') return null;
 
         $db = $this->getDb();
@@ -594,23 +687,49 @@ class MpesaPaymentService
             "SELECT s.id AS student_id, sp.parent_id, s.admission_no
              FROM students s
              LEFT JOIN student_parents sp ON sp.student_id = s.id
-             WHERE s.admission_no = :reference
+            WHERE s.admission_no IN (:raw_reference, :reference)
              LIMIT 1"
         );
-        $student->execute(['reference' => $reference]);
+        $student->execute(['raw_reference' => $rawReference, 'reference' => $reference]);
         $studentRow = $student->fetch(PDO::FETCH_ASSOC);
         if ($studentRow) {
             return ['type' => 'student'] + $studentRow;
         }
 
+        // Transport and uniform references are valid payment accounts even
+        // though they are not admission numbers. Resolve them from the
+        // central routing table so Daraja STK/C2B and callback reconciliation
+        // use the same verified reference.
+        $routing = $db->prepare(
+            "SELECT r.purpose, r.student_id, r.uniform_sale_id
+             FROM payment_routing_references r
+             WHERE (r.reference = :reference OR r.normalized_reference = :normalized)
+               AND r.status = 'active'
+               AND (r.expires_at IS NULL OR r.expires_at >= NOW())
+             LIMIT 1"
+        );
+        $normalizer = new ReferenceNormalizer();
+        $routing->execute([
+            'reference' => $reference,
+            'normalized' => $normalizer->reference($reference),
+        ]);
+        $routingRow = $routing->fetch(PDO::FETCH_ASSOC);
+        if ($routingRow) {
+            return [
+                'type' => (string) $routingRow['purpose'],
+                'student_id' => (int) $routingRow['student_id'],
+                'uniform_sale_id' => !empty($routingRow['uniform_sale_id']) ? (int) $routingRow['uniform_sale_id'] : null,
+            ];
+        }
+
         $application = $db->prepare(
             "SELECT id AS application_id, parent_id, application_no, status, enrolled_student_id
              FROM admission_applications
-             WHERE application_no = :reference
+            WHERE application_no IN (:raw_reference, :reference)
                AND status NOT IN ('cancelled', 'rejected')
              LIMIT 1"
         );
-        $application->execute(['reference' => $reference]);
+        $application->execute(['raw_reference' => $rawReference, 'reference' => $reference]);
         $applicationRow = $application->fetch(PDO::FETCH_ASSOC);
         return $applicationRow ? ['type' => 'application'] + $applicationRow : null;
     }
@@ -664,14 +783,15 @@ class MpesaPaymentService
 
         $date = $this->client->formatTransactionDate((string) ($callbackData['TransTime'] ?? ''));
 
+        $normalizedAdmissionNo = (new ReferenceNormalizer())->reference($admissionNo);
         $stmt = $db->prepare(
             "INSERT INTO mpesa_transactions
                 (mpesa_code, student_id, amount, transaction_date, phone_number,
                  first_name, middle_name, last_name, org_account_balance,
-                 third_party_trans_id, bill_ref_number, status, transaction_type,
+                 third_party_trans_id, bill_ref_number, normalized_reference, status, transaction_type,
                  raw_callback, webhook_data, created_at)
              VALUES (:code, :sid, :amount, :tdate, :phone, :fname, :mname, :lname,
-                     :orgbal, :thirdparty, :billref, 'processed', 'C2B',
+                     :orgbal, :thirdparty, :billref, :normalized_reference, 'processed', 'C2B',
                      :raw, :webhook, NOW())
              ON DUPLICATE KEY UPDATE status = 'processed',
                  webhook_data = VALUES(webhook_data)"
@@ -688,6 +808,7 @@ class MpesaPaymentService
             'orgbal'     => isset($callbackData['OrgAccountBalance']) ? (float) $callbackData['OrgAccountBalance'] : null,
             'thirdparty' => $callbackData['ThirdPartyTransID'] ?? null,
             'billref'    => $admissionNo,
+            'normalized_reference' => $normalizedAdmissionNo,
             'raw'        => json_encode($callbackData),
             'webhook'    => json_encode($callbackData),
         ]);
@@ -710,24 +831,27 @@ class MpesaPaymentService
     /**
      * Register C2B validation/confirmation URLs.
      */
-    public function registerC2BUrls($validationURL, $confirmationURL, $responseType = 'Completed')
+    public function registerC2BUrls($validationURL, $confirmationURL, $responseType = 'Completed', $shortcode = null)
     {
         try {
             $payload = [
-                'ShortCode'         => $this->client->getShortcode(),
+                'ShortCode'         => $this->client->getShortcode($shortcode),
                 'ResponseType'      => $responseType,
                 'ConfirmationURL'   => $confirmationURL,
                 'ValidationURL'     => $validationURL,
             ];
 
-            $response = $this->client->post('/mpesa/c2b/v1/registerurl', $payload);
+            // Daraja C2B URL registration is v2. The simulator remains v1;
+            // keeping those versions separate is required by the API.
+            $response = $this->client->post('/mpesa/c2b/v2/registerurl', $payload);
             $this->logWebhook('mpesa_c2b_confirmation', [
                 'operation' => 'register_urls',
                 'request' => $payload,
                 'response' => $response,
             ], 'received');
 
-            if (($response['ResponseDescription'] ?? '') === 'Success') {
+            if (($response['ResponseDescription'] ?? '') === 'Success'
+                || (string) ($response['ResponseCode'] ?? '') === '0') {
                 return $this->respond(true, $response, 'C2B URLs registered');
             }
             return $this->respond(false, $response, $response['ResponseDescription'] ?? 'Registration failed');
@@ -741,11 +865,11 @@ class MpesaPaymentService
      * C2B simulate (sandbox only) — fires a fake C2B transaction so the
      * confirmation callback fires with a realistic payload.
      */
-    public function simulateC2B($amount, $msisdn, $billRefNumber, $commandId = 'CustomerPayBillOnline')
+    public function simulateC2B($amount, $msisdn, $billRefNumber, $commandId = 'CustomerPayBillOnline', $shortcode = null)
     {
         try {
             $payload = [
-                'ShortCode'     => $this->client->getShortcode(),
+                'ShortCode'     => $this->client->getShortcode($shortcode),
                 'CommandID'     => $commandId,
                 'Amount'        => (int) $amount,
                 'Msisdn'        => $msisdn,
@@ -777,7 +901,39 @@ class MpesaPaymentService
             return $this->respond(($response['ResponseCode'] ?? '1') === '0', $response, $response['ResponseDescription'] ?? 'C2B simulate failed');
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] simulateC2B error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
+        }
+    }
+
+    /**
+     * Pull C2B transactions missed by a failed/unreachable confirmation
+     * notification. Safaricom limits this query to a maximum 48-hour window.
+     */
+    public function pullTransactions(?string $startDate = null, ?string $endDate = null, int $offset = 0, ?string $shortcode = null): array
+    {
+        try {
+            $end = $endDate ? new \DateTime($endDate, new \DateTimeZone('Africa/Nairobi')) : new \DateTime('now', new \DateTimeZone('Africa/Nairobi'));
+            $start = $startDate ? new \DateTime($startDate, new \DateTimeZone('Africa/Nairobi')) : clone $end;
+            if (!$startDate) {
+                $start->modify('-24 hours');
+            }
+            if ($start >= $end || ($end->getTimestamp() - $start->getTimestamp()) > 172800) {
+                return $this->respond(false, null, 'Pull transaction window must be positive and no more than 48 hours');
+            }
+            $offset = max(0, $offset);
+            $payload = [
+                'ShortCode' => $this->client->getShortcode($shortcode),
+                'StartDate' => $start->format('Y-m-d H:i:s'),
+                'EndDate' => $end->format('Y-m-d H:i:s'),
+                'OffSetValue' => (string) $offset,
+            ];
+            $response = $this->client->post('/pulltransactions/v1/query', $payload);
+            $failed = $this->providerResponseFailed($response)
+                || (isset($response['ResponseCode']) && (string) $response['ResponseCode'] !== '0');
+            return $this->respond($failed ? false : true, $response, $failed ? ($response['ResponseMessage'] ?? 'Pull transaction query failed') : 'Pulled C2B transactions', $failed ? 502 : 200);
+        } catch (\Exception $e) {
+            error_log('[MpesaPaymentService] pullTransactions error: ' . $e->getMessage());
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -808,10 +964,11 @@ class MpesaPaymentService
                 'Occasion'           => $occasion,
             ];
             $response = $this->client->post('/mpesa/transactionstatus/v1/query', $payload);
-            return $this->respond(true, $response, 'Transaction status queried');
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? 'Transaction status query failed' : 'Transaction status queried', $failed ? 502 : 200);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] transaction status error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -832,10 +989,11 @@ class MpesaPaymentService
                 'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
             ];
             $response = $this->client->post('/mpesa/accountbalance/v1/query', $payload);
-            return $this->respond(true, $response, 'Account balance queried');
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? 'Account balance query failed' : 'Account balance queried', $failed ? 502 : 200);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] account balance error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -862,10 +1020,11 @@ class MpesaPaymentService
                 'Occasion'           => $occasion,
             ];
             $response = $this->client->post('/mpesa/reversal/v1/request', $payload);
-            return $this->respond(true, $response, 'Reversal request submitted');
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? 'Reversal request failed' : 'Reversal request submitted', $failed ? 502 : 200);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] reversal error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -886,10 +1045,11 @@ class MpesaPaymentService
                 'Type'         => 'dynamic',
             ];
             $response = $this->client->post('/mpesa/qrcode/v1/generate', $payload);
-            return $this->respond(true, $response, 'QR generated');
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? 'QR generation failed' : 'QR generated', $failed ? 502 : 200);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] QR error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 
@@ -915,10 +1075,11 @@ class MpesaPaymentService
                 'ResultURL'          => $this->callbackUrl('/api/payments/mpesa-result'),
             ];
             $response = $this->client->post('/mpesa/b2b/v1/paymentrequest', $payload);
-            return $this->respond(true, $response, 'B2B payment submitted');
+            $failed = $this->providerResponseFailed($response);
+            return $this->respond(!$failed, $response, $failed ? ($response['errorMessage'] ?? 'B2B payment failed') : 'B2B payment submitted', $failed ? 502 : 200);
         } catch (Exception $e) {
             error_log('[MpesaPaymentService] B2B error: ' . $e->getMessage());
-            return $this->respond(false, null, 'An internal error occurred.', 500);
+            return $this->respond(false, null, 'M-Pesa provider unavailable', 502);
         }
     }
 

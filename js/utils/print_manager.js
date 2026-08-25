@@ -1511,7 +1511,15 @@ const PrintManager = (() => {
   async function printDedicatedPayslip(options = {}) {
     const config = normalizeConfig(options);
     try {
-      const response = await request(config.endpoints.payslip, options, config);
+      // Payslip templates are complete documents with their own branded
+      // header/footer. Keep the contract explicit at the client boundary;
+      // the server also enforces this so callers cannot accidentally select
+      // the generic report shell.
+      const response = await request(
+        config.endpoints.payslip,
+        { ...options, standaloneDocument: true, useSharedReportShell: false },
+        config,
+      );
       return handleGeneratedFiles(response, config);
     } catch (error) {
       notify("error", error.message || "Unable to generate the payslip.");

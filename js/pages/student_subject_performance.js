@@ -325,6 +325,7 @@ const studentSubjectPerformanceCtrl = (() => {
 
     function bindEvents() {
         document.getElementById('loadPerformanceBtn')?.addEventListener('click', loadPerformance);
+        document.getElementById('loadPerformanceBtn')?.classList.add('d-none');
         document.getElementById('exportBtn')?.addEventListener('click', exportPerformance);
         document.getElementById('printBtn')?.addEventListener('click', printPerformance);
         

@@ -15,14 +15,12 @@ class TransportPaymentService
     private $db;
     private $entitlements;
     private $accounts;
-    private $posting;
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
         $this->entitlements = new StudentTransportEntitlementManager($db);
         $this->accounts = new FinancialAccountService($db);
-        $this->posting = new FinancialPostingCoordinator($db);
     }
 
     public function initiate(array $data, int $userId): array
@@ -55,7 +53,7 @@ class TransportPaymentService
         } catch (\Throwable $routingError) { error_log('[TransportPaymentService] routing reference registration failed: '.$routingError->getMessage()); }
 
         if ($channel === 'daraja_mpesa') {
-            $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment');
+            $result = (new MpesaPaymentService())->initiateSTKPush('TRN-' . $intentId, $phone, $amount, 'Transport payment', (int)$account['id']);
             $this->updateProviderResult($intentId, $result, $result['data']['checkout_request_id'] ?? $result['checkout_request_id'] ?? null);
         } elseif ($channel === 'buni_mpesa') {
             $base = defined('KCB_CALLBACK_BASE_URL') ? KCB_CALLBACK_BASE_URL : (defined('BASE_URL') ? BASE_URL : '');
@@ -63,6 +61,7 @@ class TransportPaymentService
                 'phone_number' => $phone,
                 'amount' => $amount,
                 'invoice_number' => 'TRN-' . $intentId,
+                'org_short_code' => (string)$account['account_identifier'],
                 'description' => 'Transport payment',
                 'callback_url' => rtrim($base, '/') . '/api/payments/kcb-mpesa-express-callback',
             ]);
@@ -108,7 +107,8 @@ class TransportPaymentService
     public function reconcileBuni(array $callback): bool
     {
         $flat = $this->flatten($callback);
-        $invoice = (string)($flat['invoiceNumber'] ?? $flat['invoice_number'] ?? $flat['billRefNumber'] ?? $flat['transactionReference'] ?? '');
+        $rawInvoice = (string)($flat['invoiceNumber'] ?? $flat['invoice_number'] ?? $flat['billRefNumber'] ?? $flat['transactionReference'] ?? '');
+        $invoice = (new ReferenceNormalizer())->reference($rawInvoice);
         if (!preg_match('/^TRN-(\d+)$/', $invoice, $m)) return false;
         $amount = (float)($flat['amount'] ?? $flat['transactionAmount'] ?? $flat['debitAmount'] ?? 0);
         $reference = (string)($flat['transactionReference'] ?? $flat['transactionID'] ?? $flat['transactionId'] ?? $flat['messageID'] ?? $invoice);
@@ -124,6 +124,7 @@ class TransportPaymentService
 
     public function reconcileIntentReference(string $reference, float $amount, string $provider, string $providerReference): bool
     {
+        $reference = (new ReferenceNormalizer())->reference($reference);
         $s=$this->db->prepare("SELECT i.* FROM transport_payment_intents i JOIN payment_routing_references r ON r.transport_intent_id=i.id WHERE r.reference=? AND r.purpose='transport' LIMIT 1"); $s->execute([$reference]); $intent=$s->fetch(PDO::FETCH_ASSOC);
         if (!$intent) return false;
         if ($intent['status']==='confirmed') return true;
@@ -161,7 +162,9 @@ class TransportPaymentService
     private function recordConfirmed(int $entitlementId, array $data, int $userId, int $financialAccountId): array
     {
         $payment = $this->entitlements->recordPayment($entitlementId, $data, $userId);
-        $this->posting->postIncoming('transport_entitlement_payment', (int)$payment['payment_id'], $financialAccountId, 'transport', (string)$payment['amount'], $userId, $data['provider_reference'] ?? null);
+        // StudentTransportEntitlementManager records the payment and posts
+        // its journal in the same transaction. Keep one posting boundary so
+        // a verified callback cannot create a second accounting attempt.
         return $payment;
     }
 

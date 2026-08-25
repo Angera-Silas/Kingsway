@@ -1,10 +1,9 @@
 <?php
 /**
- * Create Subject CAT - Subject Teacher CAT Creation
- * Role: Subject Teacher (8)
- * Purpose: Create CATs for their assigned subjects
- * Shows only subjects the teacher is assigned to
+ * @deprecated Use the shared formative-assessment workspace.
  */
+require __DIR__ . '/my_cats.php';
+return;
 ?>
 <div class="container-fluid py-4">
     <div class="row">

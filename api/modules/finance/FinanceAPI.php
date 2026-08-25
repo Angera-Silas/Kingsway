@@ -67,6 +67,7 @@ class FinanceAPI extends BaseAPI
     private $disbursementManager;
     private $departmentBudgetManager;
     private $accountsManager;
+    private $paymentTerminalManager;
 
     // Workflows
     private $feeWorkflow;
@@ -97,6 +98,7 @@ class FinanceAPI extends BaseAPI
         $this->disbursementManager = new DisbursementManager();
         $this->departmentBudgetManager = new DepartmentBudgetManager($this->db);
         $this->accountsManager = new AccountsManager();
+        $this->paymentTerminalManager = new PaymentTerminalManager();
 
         // Initialize Workflows
         $this->feeWorkflow = new FeeApprovalWorkflow('FEE_APPROVAL');
@@ -155,6 +157,31 @@ class FinanceAPI extends BaseAPI
     public function financialAccountPermissions($id)
     {
         return $this->accountsManager->financialAccountPermissions((int)$id);
+    }
+
+    public function listPaymentPosTerminals()
+    {
+        return $this->paymentTerminalManager->listTerminals();
+    }
+
+    public function createPaymentPosTerminal($data, $userId = 0)
+    {
+        return $this->paymentTerminalManager->createTerminal((array)$data, (int)$userId);
+    }
+
+    public function updatePaymentPosTerminal($id, $data, $userId = 0)
+    {
+        return $this->paymentTerminalManager->updateTerminal((int)$id, (array)$data, (int)$userId);
+    }
+
+    public function verifyPaymentPosTerminal($id, $userId = 0)
+    {
+        return $this->paymentTerminalManager->verifyTerminal((int)$id, (int)$userId);
+    }
+
+    public function recordPaymentPosTransaction($data, $userId = 0)
+    {
+        return $this->paymentTerminalManager->recordTransaction((array)$data, (int)$userId);
     }
 
     /**
@@ -1142,6 +1169,21 @@ class FinanceAPI extends BaseAPI
         return $this->listStaffPayments($payrollId);
     }
 
+    public function assignPayrollSourceAccounts(int $payrollId, array $allocations, int $userId): array
+    {
+        try {
+            return formatResponse(true, $this->disbursementManager->assignPayrollSourceAccounts($payrollId, $allocations, $userId), 'Payroll source accounts assigned.');
+        } catch (\Throwable $e) {
+            return formatResponse(false, null, $e->getMessage());
+        }
+    }
+
+    public function payrollSourceAllocationRows(int $payrollId): array
+    {
+        try { return formatResponse(true, $this->disbursementManager->payrollSourceAllocationRows($payrollId)); }
+        catch (\Throwable $e) { return formatResponse(false, null, $e->getMessage()); }
+    }
+
     public function getPayrollSummary($data)
     {
         return $this->generatePayrollReport($data);
@@ -2118,7 +2160,11 @@ class FinanceAPI extends BaseAPI
                 $grossSalary = $basicSalary + $allowances;
                 $nssf = $eligible ? $this->calculateNSSF($grossSalary, $year) : 0;
                 $shif = $eligible ? $this->calculateSHIF($grossSalary, $year) : 0;
-                $housingLevy = $eligible ? round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYEE_RATE', $year, 1.5) / 100), 2) : 0;
+                $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', $year);
+                $housingLevy = $eligible ? round($grossSalary * ((float)($housingRule['employee_rate'] ?? 0) / 100), 2) : 0;
+                if ($housingLevy > 0 && $housingRule['cap_amount'] !== null) {
+                    $housingLevy = min($housingLevy, (float)$housingRule['cap_amount']);
+                }
                 $paye = $eligible ? $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $year) : 0;
                 $totalDeductions = $nssf + $shif + $paye + $housingLevy + $otherDeductions;
 
@@ -2348,9 +2394,16 @@ class FinanceAPI extends BaseAPI
             $effectiveDate = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
             $nssf = $this->calculateNSSF($grossSalary, $payrollYear, $effectiveDate);
             $shif = $this->calculateSHIF($grossSalary, $payrollYear, $effectiveDate);
-            $housingLevy = round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYEE_RATE', $payrollYear, 1.5, $effectiveDate) / 100), 2);
+            $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', $payrollYear, $effectiveDate);
+            $housingLevy = round($grossSalary * ((float)($housingRule['employee_rate'] ?? 0) / 100), 2);
+            if ($housingLevy > 0 && $housingRule['cap_amount'] !== null) {
+                $housingLevy = min($housingLevy, (float)$housingRule['cap_amount']);
+            }
             $employerNssf = $this->calculateEmployerNSSF($grossSalary, $payrollYear, $effectiveDate);
-            $employerHousingLevy = round($grossSalary * ($this->payrollConfig('HOUSING_LEVY_EMPLOYER_RATE', $payrollYear, 1.5, $effectiveDate) / 100), 2);
+            $employerHousingLevy = round($grossSalary * ((float)($housingRule['employer_rate'] ?? 0) / 100), 2);
+            if ($employerHousingLevy > 0 && $housingRule['cap_amount'] !== null) {
+                $employerHousingLevy = min($employerHousingLevy, (float)$housingRule['cap_amount']);
+            }
             // KRA permits SHIF and the employee Housing Levy to reduce taxable income.
             $paye = $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housingLevy), $payrollYear);
 
@@ -2403,7 +2456,9 @@ class FinanceAPI extends BaseAPI
                         if (!$feeInvoiceId && $academicYearId && $dedTermId) {
                             $invStmt = $this->db->prepare("
                                 SELECT student_academic_enrollment_id AS id, balance FROM vw_student_fee_balances
-                                WHERE student_id = ? AND academic_year_id = ? AND academic_year_term_id = ?
+                                WHERE student_id = ?
+                                  AND academic_year = (SELECT year_code FROM academic_years WHERE id = ? LIMIT 1)
+                                  AND academic_year_term_id = ?
                                 LIMIT 1
                             ");
                             $invStmt->execute([$studentId, $academicYearId, $dedTermId]);
@@ -2580,8 +2635,9 @@ class FinanceAPI extends BaseAPI
                 'net_salary' => $netSalary
             ], 'Payroll processed successfully');
         } catch (Exception $e) {
-            $this->db->rollBack();
-            return $this->handleException($e);
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $this->logError($e, 'Payroll processing with deductions failed');
+            return formatResponse(false, null, 'Unable to process payroll with the supplied deductions.');
         }
     }
 
@@ -2625,18 +2681,11 @@ class FinanceAPI extends BaseAPI
         return $rows;
     }
 
-    private function payrollConfig($key, $year, $fallback, $effectiveDate = null)
-    {
-        $effectiveDate = $effectiveDate ?: sprintf('%04d-12-31', (int) $year);
-        $stmt = $this->db->prepare('SELECT config_value FROM payroll_configurations WHERE config_key = ? AND financial_year <= ? AND is_active = 1 AND (effective_from IS NULL OR effective_from <= ?) ORDER BY financial_year DESC, COALESCE(effective_from, \'1000-01-01\') DESC, id DESC LIMIT 1');
-        $stmt->execute([$key, (int) $year, $effectiveDate]);
-        $value = $stmt->fetchColumn();
-        return $value === false ? (float) $fallback : (float) $value;
-    }
-
     private function calculateSHIF($grossSalary, $year, $effectiveDate = null)
     {
-        return round($grossSalary * ($this->payrollConfig('SHIF_RATE', $year, 2.75, $effectiveDate) / 100), 2);
+        $rule = $this->statutoryRule('SHIF', 'employee_contribution', $year, $effectiveDate);
+        $amount = round(max(0, (float)$grossSalary) * ((float)($rule['employee_rate'] ?? 0) / 100), 2);
+        return $rule['cap_amount'] !== null ? min($amount, (float)$rule['cap_amount']) : $amount;
     }
 
     private function calculateEmployerNSSF($grossSalary, $year, $effectiveDate = null)
@@ -2753,7 +2802,7 @@ class FinanceAPI extends BaseAPI
             // The payslip is a financial document. Return the authoritative
             // school identity with it so the UI never invents header data.
             $schoolStmt = $this->db->query(
-                "SELECT school_name, address, city, country, postal_code, logo_url, currency
+                "SELECT school_name, employer_kra_pin, address, city, country, postal_code, logo_url, currency
                  FROM school_profile ORDER BY id ASC LIMIT 1"
             );
             $school = $schoolStmt->fetch(PDO::FETCH_ASSOC) ?: [];
@@ -2870,9 +2919,11 @@ class FinanceAPI extends BaseAPI
     private function calculateNSSF($grossSalary, $year = null, $effectiveDate = null)
     {
         $year = (int) ($year ?: date('Y'));
-        $rate = $this->payrollConfig('NSSF_RATE', $year, 6, $effectiveDate) / 100;
-        $lowerLimit = $this->payrollConfig('NSSF_LOWER_EARNINGS_LIMIT', $year, 7000, $effectiveDate);
-        $upperLimit = $this->payrollConfig('NSSF_UPPER_EARNINGS_LIMIT', $year, 36000, $effectiveDate);
+        $rule = $this->statutoryRule('NSSF', 'employee_employer_contribution', $year, $effectiveDate);
+        $rate = ((float) ($rule['employee_rate'] ?? 0)) / 100;
+        $lowerLimit = (float) ($rule['lower_earnings_limit'] ?? 0);
+        $upperLimit = (float) ($rule['upper_earnings_limit'] ?? 0);
+        if ($rate <= 0 || $upperLimit <= 0) return 0;
         $tierI = min($grossSalary, $lowerLimit) * $rate;
         $tierII = max(0, min($grossSalary, $upperLimit) - $lowerLimit) * $rate;
         return $tierI + $tierII;
@@ -2880,20 +2931,19 @@ class FinanceAPI extends BaseAPI
 
     private function calculatePAYE($taxableIncome, $year = null)
     {
-        $bands = [
-            24000 => 0.10,
-            32333 => 0.25,
-            500000 => 0.30,
-            800000 => 0.325,
-            PHP_INT_MAX => 0.35
-        ];
-        $personalRelief = $this->payrollConfig('PAYE_PERSONAL_RELIEF', (int) ($year ?: date('Y')), 2400);
+        $rule = $this->statutoryRule('KRA', 'paye_bands', (int) ($year ?: date('Y')));
+        $bandsStmt = $this->db->prepare('SELECT upper_bound,tax_rate FROM statutory_tax_bands WHERE rule_version_id=? ORDER BY band_order');
+        $bandsStmt->execute([(int) ($rule['id'] ?? 0)]);
+        $bands = $bandsStmt->fetchAll(PDO::FETCH_ASSOC);
+        $personalRelief = (float) ($rule['personal_relief'] ?? 0);
         $tax = 0;
-        $remaining = $taxableIncome;
+        $remaining = max(0, (float) $taxableIncome);
         $prevLimit = 0;
 
-        foreach ($bands as $limit => $rate) {
-            $taxable = min($remaining, $limit - $prevLimit);
+        foreach ($bands as $band) {
+            $limit = $band['upper_bound'] === null ? INF : (float) $band['upper_bound'];
+            $rate = (float) $band['tax_rate'] / 100;
+            $taxable = min($remaining, max(0, $limit - $prevLimit));
             $tax += $taxable * $rate;
             $remaining -= $taxable;
             $prevLimit = $limit;
@@ -2902,6 +2952,19 @@ class FinanceAPI extends BaseAPI
         }
 
         return max(0, $tax - $personalRelief);
+    }
+
+    private function statutoryRule($agency, $ruleCode, $year = null, $effectiveDate = null)
+    {
+        $asOf = $effectiveDate ?: sprintf('%04d-12-31', (int) ($year ?: date('Y')));
+        $stmt = $this->db->prepare("SELECT id,employee_rate,employer_rate,lower_earnings_limit,
+            upper_earnings_limit,cap_amount,personal_relief
+            FROM statutory_rule_versions
+            WHERE agency=? AND rule_code=? AND active=1 AND effective_from<=?
+            AND (effective_to IS NULL OR effective_to>=?)
+            ORDER BY effective_from DESC,id DESC LIMIT 1");
+        $stmt->execute([$agency, $ruleCode, $asOf, $asOf]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
     /**
@@ -2922,8 +2985,10 @@ class FinanceAPI extends BaseAPI
                         ps.nssf_contribution AS nssf_deduction,
                         COALESCE(ps.shif_contribution, ps.nhif_contribution) AS shif_deduction,
                         ps.paye_tax AS paye_deduction,
-                        ps.other_deductions_total AS other_deductions
+                        ps.other_deductions_total AS other_deductions,
+                        pr.status AS payroll_run_status
                     FROM payslips ps
+                    LEFT JOIN payroll_runs pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year
                     JOIN staff s ON ps.staff_id = s.id
                     LEFT JOIN persons p ON p.id = s.person_id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
@@ -3307,7 +3372,7 @@ class FinanceAPI extends BaseAPI
             $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
                     WHERE payroll_month = ? AND payroll_year = ? AND payslip_status <> 'paid'";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approvedBy, $payrollId, $current['payroll_month'], $current['payroll_year']]);
+            $stmt->execute([$approvedBy, $current['payroll_month'], $current['payroll_year']]);
             $run = $this->db->prepare("UPDATE payroll_runs SET status='approved', workflow='approved' WHERE month=? AND year=?");
             $run->execute([$current['payroll_month'], $current['payroll_year']]);
 
@@ -3392,12 +3457,9 @@ class FinanceAPI extends BaseAPI
     /**
      * Mark payroll as paid and record children fee payments
      */
-    public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null, $sourceFinancialAccountId = null, $userId = null)
+    public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null, $sourceFinancialAccountId = null, $userId = null, array $selectedPayslipIds = [])
     {
         try {
-            if (!$sourceFinancialAccountId) {
-                throw new Exception('Select an authorized salary source financial account before releasing payroll.');
-            }
             $statusStmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? LIMIT 1");
             $statusStmt->execute([$payrollId]);
             $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
@@ -3417,7 +3479,11 @@ class FinanceAPI extends BaseAPI
             $method = in_array($paymentMode, ['mpesa', 'airtel_money'], true) ? 'mobile_money' : 'bank';
             $this->db->prepare('UPDATE payslips SET payment_method = ?, payment_reference = NULL, payment_status = \'pending\', updated_at = NOW() WHERE payroll_month = ? AND payroll_year = ? AND payslip_status = \'approved\'')
                 ->execute([$method, $run['month'], $run['year']]);
-            $result = $this->disbursementManager->processPayrollDisbursement((int) $run['id'], (int) ($userId ?: $this->getCurrentUserId()), ['source_financial_account_id' => (int) $sourceFinancialAccountId]);
+            $releaseData = $sourceFinancialAccountId ? ['source_financial_account_id' => (int)$sourceFinancialAccountId] : [];
+            if ($selectedPayslipIds) {
+                $releaseData['payslip_ids'] = $selectedPayslipIds;
+            }
+            $result = $this->disbursementManager->processPayrollDisbursement((int) $run['id'], (int) ($userId ?: $this->getCurrentUserId()), $releaseData);
             return formatResponse(true, $result, 'Payroll disbursement initiated');
 
         } catch (Exception $e) {

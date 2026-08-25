@@ -19,8 +19,22 @@
       }
 
       this.bindEvents();
+      this.updateVisibilityHint();
       await this.loadStatistics();
       await this.loadTemplates();
+    },
+
+    updateVisibilityHint: function () {
+      const user = window.AuthContext?.getUser?.() || {};
+      const roles = [user.role_name, ...(Array.isArray(user.roles) ? user.roles.map(role => role?.name || role) : [])].filter(Boolean).map(role => String(role).toLowerCase());
+      const isManagement = roles.some(role => ['system administrator', 'director', 'school administrator'].includes(role));
+      const isHeadteacher = roles.includes('headteacher');
+      const subtitle = document.querySelector('.app-page-subtitle');
+      if (subtitle && !isManagement) subtitle.textContent = isHeadteacher
+        ? 'Teacher-to-parent communications and your communication activity'
+        : 'Your sent messages and communications where you are a recipient';
+      const templateButton = document.getElementById('newTemplateBtn');
+      if (templateButton && !isManagement) templateButton.title = 'Only your templates are shown here';
     },
 
     pageExists: function () {

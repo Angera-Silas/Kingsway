@@ -31,8 +31,11 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:7pt; color:#1b2a
 .p9-header .p9-subtitle { font-size:9pt; font-weight:700; margin-top:1mm; }
 
 .p9-sections { display:flex; gap:4mm; margin-bottom:3mm; font-size:7.5pt; }
-.p9-section { flex:1; border:1pt solid #000; padding:2mm; }
+.p9-section { flex:1; width:50%; border:1pt solid #000; padding:2mm; }
 .p9-section h4 { font-size:8pt; margin-bottom:1.5mm; text-transform:uppercase; border-bottom:0.5pt solid #ccc; padding-bottom:1mm; }
+.p9-details-table { width:100%; border-collapse:collapse; font-size:7.5pt; }
+.p9-details-table th, .p9-details-table td { border:0.5pt solid #999; padding:1.3mm 2mm; vertical-align:top; }
+.p9-details-table th { width:24%; text-align:left; background:#f1f3f5; font-weight:700; }
 .p9-field { display:flex; margin-bottom:0.8mm; }
 .p9-field-label { font-weight:700; width:35%; }
 .p9-field-value { border-bottom:0.3pt dotted #999; flex:1; padding-left:1mm; }
@@ -62,18 +65,22 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size:7pt; color:#1b2a
 <div class="p9-sections">
     <div class="p9-section">
         <h4>Section A: Employer Details</h4>
-        <div class="p9-field"><span class="p9-field-label">Employer Name:</span><span class="p9-field-value"><?= pe($employerName ?? 'Kingsway Preparatory School') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">KRA PIN:</span><span class="p9-field-value"><?= pe($employerPin ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">Address:</span><span class="p9-field-value"><?= pe($employerAddress ?? 'P.O. Box 203-20203, Londiani') ?></span></div>
+        <table class="p9-details-table"><tbody>
+            <tr><th>Employer Name</th><td><?= pe($employerName ?? 'Kingsway Preparatory School') ?></td></tr>
+            <tr><th>KRA PIN</th><td><?= pe($employerPin ?? '') ?></td></tr>
+            <tr><th>Address</th><td><?= pe($employerAddress ?? 'P.O. Box 203-20203, Londiani') ?></td></tr>
+        </tbody></table>
     </div>
     <div class="p9-section">
         <h4>Section B: Employee Details</h4>
-        <div class="p9-field"><span class="p9-field-label">Employee Name:</span><span class="p9-field-value"><?= pe($employeeName ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">KRA PIN:</span><span class="p9-field-value"><?= pe($employeePin ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">Staff No:</span><span class="p9-field-value"><?= pe($staffNo ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">NSSF No:</span><span class="p9-field-value"><?= pe($nssfNo ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">NHIF/SHIF No:</span><span class="p9-field-value"><?= pe($nhifNo ?? '') ?></span></div>
-        <div class="p9-field"><span class="p9-field-label">National ID:</span><span class="p9-field-value"><?= pe($nationalId ?? '') ?></span></div>
+        <table class="p9-details-table"><tbody>
+            <tr><th>Employee Name</th><td><?= pe($employeeName ?? '') ?></td></tr>
+            <tr><th>KRA PIN</th><td><?= pe($employeePin ?? '') ?></td></tr>
+            <tr><th>Staff No</th><td><?= pe($staffNo ?? '') ?></td></tr>
+            <tr><th>NSSF No</th><td><?= pe($nssfNo ?? '') ?></td></tr>
+            <tr><th>NHIF/SHIF No</th><td><?= pe($nhifNo ?? '') ?></td></tr>
+            <tr><th>National ID</th><td><?= pe($nationalId ?? '') ?></td></tr>
+        </tbody></table>
     </div>
 </div>
 

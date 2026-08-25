@@ -19,15 +19,20 @@ const PortfolioController = {
 
     async loadReferences() {
         try {
-            const [classes, competencies, values] = await Promise.all([
-                window.API.apiCall('/academic/classes/list', 'GET'),
+            const [students, competencies, values] = await Promise.all([
+                window.API.apiCall('/students/context-list', 'GET', null, { context: 'teacher_class' }),
                 window.API.apiCall('/academic/core-competencies-list', 'GET'),
                 window.API.apiCall('/academic/core-values-list', 'GET'),
             ]);
-            this.state.classes = Array.isArray(classes) ? classes : [];
+            const studentPayload = students?.data?.students || students?.data?.data || students?.data || students || [];
+            this.state.students = Array.isArray(studentPayload) ? studentPayload : [];
+            this.state.classes = [...new Map(this.state.students.map(s => [String(s.class_id), {
+                id: s.class_id, name: s.class_name
+            }]).filter(([id, c]) => id && c.name)).values()];
             this.state.competencies = Array.isArray(competencies) ? competencies : [];
             this.state.values = Array.isArray(values) ? values : [];
             this.populateClassFilter();
+            this.renderStudentList();
         } catch (err) {
             console.error('Error loading references:', err);
         }
@@ -49,7 +54,7 @@ const PortfolioController = {
     populateClassFilter() {
         const sel = document.getElementById('pfClassFilter');
         if (!sel) return;
-        sel.innerHTML = '<option value="">All Classes</option>' +
+        sel.innerHTML = '<option value="">Select a class...</option>' +
             this.state.classes.map(c =>
                 `<option value="${c.id}">${this.esc(c.name || c.class_name)}</option>`
             ).join('');
@@ -57,21 +62,27 @@ const PortfolioController = {
 
     async loadStudents() {
         const classId = document.getElementById('pfClassFilter')?.value || '';
-        const sel = document.getElementById('pfStudentSelect');
-        if (!sel) return;
-        sel.innerHTML = '<option value="">Loading...</option>';
+        this.renderStudentList(classId);
+    },
 
-        try {
-            const url = classId ? `/students/students-by-class/${classId}` : '/students/students-get';
-            const res = await window.API.apiCall(url, 'GET');
-            const students = classId ? (res?.data ?? res ?? []) : (res?.data ?? res ?? []);
-            this.state.students = Array.isArray(students) ? students : [];
-            sel.innerHTML = '<option value="">Select a student...</option>' +
-                this.state.students.map(s =>
-                    `<option value="${s.id}">${this.esc(s.first_name || '')} ${this.esc(s.last_name || '')} (${this.esc(s.admission_no || 'N/A')})</option>`
-                ).join('');
-        } catch (err) {
-            sel.innerHTML = '<option value="">Error loading students</option>';
+    renderStudentList(classId = '') {
+        const list = document.getElementById('pfStudentList');
+        const classWrap = document.getElementById('pfClassPickerWrap');
+        const needsClassChoice = this.state.classes.length > 1 && !classId;
+        const students = needsClassChoice ? [] : this.state.students.filter(s => !classId || String(s.class_id) === String(classId));
+        if (classWrap) classWrap.style.display = this.state.classes.length > 1 ? '' : 'none';
+        if (list) list.innerHTML = needsClassChoice
+            ? '<div class="text-muted py-2">Select a class to view its learners.</div>'
+            : (students.length ? students.map(s => `<button type="button" class="list-group-item list-group-item-action" data-student-id="${s.id}"><strong>${this.esc(s.admission_no || 'N/A')}</strong> <span>${this.esc([s.first_name, s.last_name].filter(Boolean).join(' '))}</span></button>`).join('') : '<div class="text-muted py-2">No learners assigned.</div>');
+        list?.querySelectorAll('[data-student-id]').forEach(btn => btn.addEventListener('click', () => {
+            this.state.selectedStudentId = btn.dataset.studentId;
+            list.querySelectorAll('.active').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('pfActionBtns').style.display = 'block';
+            this.loadPortfolio();
+        }));
+        if (this.state.classes.length === 1 && students.length === 1) {
+            this.state.selectedStudentId = String(students[0].id);
         }
     },
 

@@ -659,7 +659,10 @@ class AuthAPI extends BaseAPI
         // deprecated sidebar_menu_configs / role_delegations_items tables which are
         // no longer part of the schema, and duplicated role_sidebars.php coverage.)
         try {
-            $sidebarItems = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+            // A teacher can hold multiple simultaneous roles (for example
+            // class teacher + subject teacher). Build one deduplicated menu
+            // from every assigned role instead of using only the primary role.
+            $sidebarItems = $this->getHardcodedSidebarItemsForRoles($roleIds ?: [($primaryRoleId ?? 0)]);
             if ($sidebarItems === null) {
                 // Fallback only if a role has no entry in role_sidebars.php
                 $sidebarItems = [];
@@ -952,7 +955,7 @@ class AuthAPI extends BaseAPI
         $dashboardKey = null;
 
         // Fast path: use hardcoded sidebar if defined for this role (no DB queries needed)
-        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+        $hardcodedSidebar = $this->getHardcodedSidebarItemsForRoles($roleIds ?: [($primaryRoleId ?? 0)]);
         if ($hardcodedSidebar !== null) {
             $sidebarItems = $hardcodedSidebar;
         }
@@ -1651,6 +1654,11 @@ class AuthAPI extends BaseAPI
         }
         $items = \App\API\Services\SidebarConfigReader::forRole($roleId);
         return $items;
+    }
+
+    private function getHardcodedSidebarItemsForRoles(array $roleIds): array
+    {
+        return \App\API\Services\SidebarConfigReader::forRoles($roleIds);
     }
 
     /**

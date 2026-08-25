@@ -309,7 +309,8 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             $grossSalary = $basicSalary + $allowances;
 
             // Calculate deductions
-            $deductions = $this->calculateDeductions($member, $grossSalary);
+            $periodDate = sprintf('%04d-%02d-01', (int)$data['year'], (int)$data['month']);
+            $deductions = $this->calculateDeductions($member, $grossSalary, $periodDate);
             $netSalary = $grossSalary - $deductions;
 
             // Insert staff payment record (3NF: payslips)
@@ -340,18 +341,13 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     /**
      * Calculate deductions (NSSF, NHIF, PAYE, loans)
      */
-    private function calculateDeductions($staff, $grossSalary)
+    private function calculateDeductions($staff, $grossSalary, $periodDate = null)
     {
-        $deductions = 0;
-
-        // NSSF (mock calculation)
-        $deductions += min($grossSalary * 0.06, 1080); // 6% capped at 1080
-
-        // NHIF (mock calculation based on gross)
-        $deductions += $this->calculateNHIF($grossSalary);
-
-        // PAYE (mock calculation)
-        $deductions += $this->calculatePAYE($grossSalary);
+        $nssf = $this->calculateNSSF($grossSalary, $periodDate);
+        $shif = $this->calculateSHIF($grossSalary, $periodDate);
+        $housing = $this->calculateHousingLevy($grossSalary, $periodDate);
+        $paye = $this->calculatePAYE(max(0, $grossSalary - $nssf - $shif - $housing), $periodDate);
+        $deductions = $nssf + $shif + $housing + $paye;
 
         // Loans and advances
         $deductions += $staff['loan_deduction'] ?? 0;
@@ -359,65 +355,72 @@ class PayrollApprovalWorkflow extends WorkflowHandler
         return $deductions;
     }
 
-    /**
-     * Calculate NHIF based on salary bands
-     */
-    private function calculateNHIF($gross)
+    private function activeStatutoryRule(string $agency, string $ruleCode, $asOfDate = null): array
     {
-        if ($gross <= 5999)
-            return 150;
-        if ($gross <= 7999)
-            return 300;
-        if ($gross <= 11999)
-            return 400;
-        if ($gross <= 14999)
-            return 500;
-        if ($gross <= 19999)
-            return 600;
-        if ($gross <= 24999)
-            return 750;
-        if ($gross <= 29999)
-            return 850;
-        if ($gross <= 34999)
-            return 900;
-        if ($gross <= 39999)
-            return 950;
-        if ($gross <= 44999)
-            return 1000;
-        if ($gross <= 49999)
-            return 1100;
-        if ($gross <= 59999)
-            return 1200;
-        if ($gross <= 69999)
-            return 1300;
-        if ($gross <= 79999)
-            return 1400;
-        if ($gross <= 89999)
-            return 1500;
-        if ($gross <= 99999)
-            return 1600;
-        return 1700;
+        $asOfDate = $asOfDate ?: date('Y-m-d');
+        $stmt = $this->db->prepare("SELECT id,calculation_method,employee_rate,employer_rate,
+            lower_earnings_limit,upper_earnings_limit,cap_amount,personal_relief,deadline_day,deadline_basis
+            FROM statutory_rule_versions
+            WHERE agency=? AND rule_code=? AND active=1 AND effective_from<=?
+            AND (effective_to IS NULL OR effective_to>=?)
+            ORDER BY effective_from DESC, id DESC LIMIT 1");
+        $stmt->execute([$agency, $ruleCode, $asOfDate, $asOfDate]);
+        $rules = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$rules) return [];
+        $rules['employee_rate'] = $rules['employee_rate'] === null ? null : (float)$rules['employee_rate'];
+        $rules['employer_rate'] = $rules['employer_rate'] === null ? null : (float)$rules['employer_rate'];
+        $rules['lower_earnings_limit'] = $rules['lower_earnings_limit'] === null ? null : (float)$rules['lower_earnings_limit'];
+        $rules['upper_earnings_limit'] = $rules['upper_earnings_limit'] === null ? null : (float)$rules['upper_earnings_limit'];
+        $rules['personal_relief'] = $rules['personal_relief'] === null ? null : (float)$rules['personal_relief'];
+        $bandStmt = $this->db->prepare('SELECT upper_bound up_to,tax_rate rate FROM statutory_tax_bands WHERE rule_version_id=? ORDER BY band_order');
+        $bandStmt->execute([(int)$rules['id']]);
+        $rules['bands'] = array_map(static function (array $band): array {
+            return ['up_to' => $band['up_to'] === null ? null : (float)$band['up_to'], 'rate' => (float)$band['rate']];
+        }, $bandStmt->fetchAll(PDO::FETCH_ASSOC));
+        return $rules;
     }
 
-    /**
-     * Calculate PAYE (simplified)
-     */
-    private function calculatePAYE($gross)
+    private function calculateNSSF($gross, $asOfDate = null)
     {
-        $taxable = $gross - 2400; // Personal relief
-        if ($taxable <= 0)
-            return 0;
+        $rule = $this->activeStatutoryRule('NSSF', 'employee_employer_contribution', $asOfDate);
+        $rate = (float)($rule['employee_rate'] ?? 0);
+        $lower = (float)($rule['lower_earnings_limit'] ?? 0);
+        $upper = (float)($rule['upper_earnings_limit'] ?? 0);
+        if ($rate <= 0 || $upper <= 0) return 0;
+        return round(max(0, min($gross, $upper) - min($gross, $lower)) * $rate / 100
+            + min($gross, $lower) * $rate / 100, 2);
+    }
 
-        $tax = 0;
-        if ($taxable <= 24000) {
-            $tax = $taxable * 0.10;
-        } elseif ($taxable <= 32333) {
-            $tax = 2400 + (($taxable - 24000) * 0.25);
-        } else {
-            $tax = 2400 + 2083.25 + (($taxable - 32333) * 0.30);
+    private function calculateSHIF($gross, $asOfDate = null)
+    {
+        $rule = $this->activeStatutoryRule('SHIF', 'employee_contribution', $asOfDate);
+        $amount = round(max(0, $gross) * ((float)($rule['employee_rate'] ?? 0)) / 100, 2);
+        return $rule['cap_amount'] !== null ? min($amount, (float)$rule['cap_amount']) : $amount;
+    }
+
+    private function calculateHousingLevy($gross, $asOfDate = null)
+    {
+        $rule = $this->activeStatutoryRule('Housing Levy', 'employee_employer_contribution', $asOfDate);
+        $amount = round(max(0, $gross) * ((float)($rule['employee_rate'] ?? 0)) / 100, 2);
+        return $rule['cap_amount'] !== null ? min($amount, (float)$rule['cap_amount']) : $amount;
+    }
+
+    private function calculatePAYE($gross, $asOfDate = null)
+    {
+        $rule = $this->activeStatutoryRule('KRA', 'paye_bands', $asOfDate);
+        $bands = is_array($rule['bands'] ?? null) ? $rule['bands'] : [];
+        $remaining = max(0, (float)$gross);
+        $previous = 0.0;
+        $tax = 0.0;
+        foreach ($bands as $band) {
+            $limit = isset($band['up_to']) && $band['up_to'] !== null ? (float)$band['up_to'] : INF;
+            $portion = min($remaining, max(0, $limit - $previous));
+            $tax += $portion * ((float)($band['rate'] ?? 0)) / 100;
+            $remaining -= $portion;
+            $previous = $limit;
+            if ($remaining <= 0) break;
         }
-
-        return max(0, $tax - 2400); // Deduct personal relief
+        return round(max(0, $tax - (float)($rule['personal_relief'] ?? 0)), 2);
     }
 
     /**

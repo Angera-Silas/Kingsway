@@ -511,15 +511,89 @@ final class FinanceCrudService
 
     public function createFeeWaiver(array $d, int $userId): int
     {
+        $obligationId = !empty($d['obligation_id']) ? (int)$d['obligation_id'] : null;
+        $studentId = (int)($d['student_id'] ?? 0);
+        // The UI uses the academic-year code (for example 2026/2027), while
+        // fee_discounts_waivers.academic_year is a MySQL YEAR(4) column.
+        // Keep both representations explicit: year code for joins/lookups,
+        // numeric opening year for persistence.
+        $yearCode = (string)($d['academic_year'] ?? date('Y'));
+        $yearValue = (int) preg_replace('/[^0-9].*$/', '', $yearCode);
+        if ($yearValue < 1900 || $yearValue > 2200) $yearValue = (int) date('Y');
+        $requestedAmount = (float)($d['discount_value'] ?? 0);
+        if (!$studentId || $requestedAmount < 0) throw new InvalidArgumentException('student_id and a valid waiver amount are required');
+
+        // A student balance spans multiple term obligations. Distribute a
+        // full or fixed waiver across the outstanding term balances so the
+        // selected learner is actually relieved correctly, rather than
+        // attaching the whole amount to the first obligation only.
+        if (!$obligationId && empty($d['term_id'])) {
+            $terms = $this->db->prepare(
+                "SELECT v.academic_year_term_id, v.term_id, v.balance,
+                        (SELECT MIN(sfo.id) FROM student_fee_obligations sfo
+                         JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                         WHERE sae.student_id=? AND sfo.academic_year_term_id=v.academic_year_term_id) AS obligation_id
+                 FROM vw_student_fee_balances v
+                 WHERE v.student_id=? AND v.academic_year=? AND v.balance>0
+                 ORDER BY v.academic_year_term_id"
+            );
+            $terms->execute([$studentId, $studentId, $yearCode]);
+            $termRows = $terms->fetchAll() ?: [];
+            if ($termRows) {
+                $remaining = $requestedAmount;
+                $this->db->beginTransaction();
+                try {
+                    $insert = $this->db->prepare(
+                        "INSERT INTO fee_discounts_waivers
+                         (student_id, student_fee_obligation_id, discount_type, discount_value,
+                          discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)
+                         VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active',?)"
+                    );
+                    $firstId = 0;
+                    foreach ($termRows as $termRow) {
+                        $termBalance = (float)$termRow['balance'];
+                        $amount = $d['discount_type'] === 'full_waiver'
+                            ? $termBalance
+                            : min($termBalance, max(0, $remaining));
+                        if ($amount <= 0) continue;
+                        $insert->execute([$studentId, (int)$termRow['obligation_id'], $d['discount_type'], $amount,
+                        $d['discount_percentage'] ?? null, $d['reason'], $yearValue, (int)$termRow['term_id'],
+                            $userId, $d['valid_until'] ?? null]);
+                        if (!$firstId) $firstId = (int)$this->db->lastInsertId();
+                        $remaining -= $amount;
+                        if ($d['discount_type'] !== 'full_waiver' && $remaining <= 0) break;
+                    }
+                    $this->db->commit();
+                    if ($firstId) return $firstId;
+                } catch (\Throwable $e) {
+                    if ($this->db->inTransaction()) $this->db->rollBack();
+                    throw $e;
+                }
+            }
+        }
+        if (!$obligationId) {
+            $termId = !empty($d['term_id']) ? (int)$d['term_id'] : null;
+            $sql = "SELECT sfo.id
+                    FROM student_fee_obligations sfo
+                    JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                    JOIN academic_years ay ON ay.id=sfo.academic_year_id
+                    WHERE sae.student_id=? AND ay.year_code LIKE ? AND sfo.status <> 'paid'";
+            $params = [$studentId, $yearCode . '%'];
+            if ($termId) { $sql .= ' AND sfo.academic_year_term_id=?'; $params[] = $termId; }
+            $sql .= ' ORDER BY sfo.id LIMIT 1';
+            $lookup = $this->db->prepare($sql);
+            $lookup->execute($params);
+            $obligationId = (int)($lookup->fetchColumn() ?: 0) ?: null;
+        }
         $this->db->prepare(
             "INSERT INTO fee_discounts_waivers (student_id, student_fee_obligation_id, discount_type, discount_value,
               discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)
              VALUES (?,?,?,?,?,?,?,?,?,NOW(),'active',?)"
         )->execute([
-            $d['student_id'], $d['obligation_id'] ?? null,
+            $d['student_id'], $obligationId,
             $d['discount_type'], $d['discount_value'],
             $d['discount_percentage'] ?? null, $d['reason'],
-            $d['academic_year'] ?? date('Y'), $d['term_id'] ?? null,
+            $yearValue, $d['term_id'] ?? null,
             $userId, $d['valid_until'] ?? null
         ]);
         return $this->db->lastInsertId();
@@ -537,6 +611,144 @@ final class FinanceCrudService
              FROM vw_sponsored_students_status v
              ORDER BY v.sponsor_waiver_percentage DESC"
         )->fetchAll() ?: [];
+    }
+
+    // ==================== ANNUAL SCHOLARSHIPS ====================
+
+    public function listScholarshipPrograms(): array
+    {
+        return $this->db->query(
+            "SELECT id, code, name, coverage_type, default_percentage,
+                    default_amount, description
+             FROM scholarship_programs WHERE is_active = 1 ORDER BY name"
+        )->fetchAll() ?: [];
+    }
+
+    public function listStudentScholarships(array $filters = []): array
+    {
+        $where = ['1=1'];
+        $params = [];
+        if (!empty($filters['student_id'])) { $where[] = 'ssa.student_id = ?'; $params[] = (int)$filters['student_id']; }
+        if (!empty($filters['academic_year_id'])) { $where[] = 'ssa.academic_year_id = ?'; $params[] = (int)$filters['academic_year_id']; }
+        $stmt = $this->db->prepare(
+            "SELECT ssa.*, sp.name AS programme_name, sp.code AS programme_code,
+                    ay.year_code, s.admission_no,
+                    COALESCE(CONCAT(p.first_name,' ',p.last_name), s.admission_no) AS student_name
+             FROM student_scholarship_awards ssa
+             JOIN scholarship_programs sp ON sp.id = ssa.scholarship_program_id
+             JOIN academic_years ay ON ay.id = ssa.academic_year_id
+             JOIN students s ON s.id = ssa.student_id
+             LEFT JOIN persons p ON p.id = s.person_id
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY ssa.created_at DESC"
+        );
+        $stmt->execute($params);
+        return $stmt->fetchAll() ?: [];
+    }
+
+    public function createStudentScholarship(array $d, int $userId): int
+    {
+        $studentId = (int)($d['student_id'] ?? 0);
+        $programId = (int)($d['scholarship_program_id'] ?? 0);
+        $yearId = (int)($d['academic_year_id'] ?? 0);
+        if (!$studentId || !$programId || !$yearId || empty($d['reason'])) {
+            throw new InvalidArgumentException('student_id, scholarship_program_id, academic_year_id and reason are required');
+        }
+        $p = $this->db->prepare("SELECT coverage_type, default_percentage, default_amount FROM scholarship_programs WHERE id=? AND is_active=1");
+        $p->execute([$programId]);
+        $program = $p->fetch();
+        if (!$program) throw new InvalidArgumentException('Scholarship programme was not found or is inactive');
+
+        $type = $d['coverage_type'] ?? $program['coverage_type'];
+        $percentage = $type === 'percentage' ? ($d['coverage_percentage'] ?? $program['default_percentage']) : null;
+        $amount = $type === 'fixed_amount' ? ($d['coverage_amount'] ?? $program['default_amount']) : null;
+        if ($type === 'percentage' && ($percentage === null || $percentage < 0 || $percentage > 100)) {
+            throw new InvalidArgumentException('Percentage coverage must be between 0 and 100');
+        }
+        if ($type === 'fixed_amount' && ($amount === null || $amount < 0)) {
+            throw new InvalidArgumentException('Fixed coverage amount is required');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare(
+                "INSERT INTO student_scholarship_awards
+                    (student_id, scholarship_program_id, academic_year_id, coverage_type,
+                     coverage_percentage, coverage_amount, reason, starts_on, ends_on,
+                     status, awarded_by, notes)
+                 VALUES (?,?,?,?,?,?,?,?,?,'active',?,?)
+                 ON DUPLICATE KEY UPDATE
+                    scholarship_program_id=VALUES(scholarship_program_id),
+                    coverage_type=VALUES(coverage_type), coverage_percentage=VALUES(coverage_percentage),
+                    coverage_amount=VALUES(coverage_amount), reason=VALUES(reason),
+                    starts_on=VALUES(starts_on), ends_on=VALUES(ends_on), status='active',
+                    awarded_by=VALUES(awarded_by), revoked_by=NULL, revoked_at=NULL, notes=VALUES(notes), updated_at=NOW()"
+            );
+            $stmt->execute([$studentId, $programId, $yearId, $type, $percentage, $amount,
+                $d['reason'], $d['starts_on'] ?? null, $d['ends_on'] ?? null, $userId, $d['notes'] ?? null]);
+            $idStmt = $this->db->prepare("SELECT id FROM student_scholarship_awards WHERE student_id=? AND academic_year_id=?");
+            $idStmt->execute([$studentId, $yearId]);
+            $id = (int)$idStmt->fetchColumn();
+            $this->applyScholarshipToObligations($id);
+            $this->db->commit();
+            return $id;
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function revokeStudentScholarship(int $id, int $userId): void
+    {
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare("UPDATE student_scholarship_awards SET status='revoked', revoked_by=?, revoked_at=NOW(), updated_at=NOW() WHERE id=? AND status='active'");
+            $stmt->execute([$userId, $id]);
+            $this->db->prepare(
+                "UPDATE student_fee_obligations sfo
+                 JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                 JOIN student_scholarship_awards ssa ON ssa.student_id=sae.student_id AND ssa.academic_year_id=sfo.academic_year_id
+                 SET sfo.is_sponsored=0, sfo.sponsored_waiver_amount=0,
+                     sfo.status=CASE
+                       WHEN COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.student_id=sae.student_id AND p.status='confirmed' AND p.payment_purpose='fees'),0) >= sfo.amount_due THEN 'paid'
+                       WHEN COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.student_id=sae.student_id AND p.status='confirmed' AND p.payment_purpose='fees'),0) > 0 THEN 'partial'
+                       ELSE 'pending' END,
+                     sfo.updated_at=NOW()
+                 WHERE ssa.id=? AND ssa.status='revoked'"
+            )->execute([$id]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function applyScholarshipToObligations(int $awardId): void
+    {
+        $stmt = $this->db->prepare("SELECT * FROM student_scholarship_awards WHERE id=? AND status='active'");
+        $stmt->execute([$awardId]);
+        $award = $stmt->fetch();
+        if (!$award) return;
+        $waiver = $this->db->prepare(
+            "UPDATE student_fee_obligations sfo
+             JOIN student_academic_enrollments sae ON sae.id=sfo.student_academic_enrollment_id
+                 SET sfo.is_sponsored=1,
+                 sfo.sponsored_waiver_amount=LEAST(sfo.amount_due, CASE
+                    WHEN ?='full' THEN sfo.amount_due
+                    WHEN ?='percentage' THEN sfo.amount_due * ? / 100
+                    ELSE ? END),
+                 sfo.status=CASE WHEN LEAST(sfo.amount_due, CASE
+                    WHEN ?='full' THEN sfo.amount_due
+                    WHEN ?='percentage' THEN sfo.amount_due * ? / 100
+                    ELSE ? END) >= sfo.amount_due THEN 'paid' ELSE sfo.status END,
+                 sfo.updated_at=NOW()
+             WHERE sae.student_id=? AND sfo.academic_year_id=? AND sfo.status <> 'paid'"
+        );
+        $waiver->execute([
+            $award['coverage_type'], $award['coverage_type'], (float)$award['coverage_percentage'], (float)$award['coverage_amount'],
+            $award['coverage_type'], $award['coverage_type'], (float)$award['coverage_percentage'], (float)$award['coverage_amount'],
+            (int)$award['student_id'], (int)$award['academic_year_id']
+        ]);
     }
 
     // ==================== FEE CREDIT NOTES ====================

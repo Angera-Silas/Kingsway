@@ -181,12 +181,29 @@ const reportCardsCtrl = (() => {
             const students = inner.students || (Array.isArray(r.data) ? r.data : []);
             const pg       = inner.pagination || { total: students.length, total_pages: 1 };
 
+            const releaseParams = new URLSearchParams();
+            if (filters.term_id) releaseParams.set('term_id', filters.term_id);
+            if (filters.class_id) releaseParams.set('class_id', filters.class_id);
+            const releaseResponse = await api(`academic/report-card-releases?${releaseParams}`);
+            const releases = releaseResponse.data?.data || releaseResponse.data || [];
+            const releasesByStudent = new Map((Array.isArray(releases) ? releases : []).map(item => [Number(item.student_id), item]));
+            students.forEach(student => {
+                const release = releasesByStudent.get(Number(student.id));
+                if (!release) return;
+                student.release_id = Number(release.release_id);
+                student.card_status = release.status;
+                student.download_url = release.download_url;
+                student.overall_pct = release.overall_percentage;
+                student.rank = release.class_position;
+                student.class_population = release.class_population;
+            });
+
             state.students   = students;
             state.pagination = { ...state.pagination, ...pg };
 
             /* Summary */
-            const generated  = students.filter(s => s.card_status === 'generated' || s.card_status === 'downloaded').length;
-            const downloaded = students.filter(s => s.card_status === 'downloaded').length;
+            const generated  = students.filter(s => s.release_id).length;
+            const downloaded = students.filter(s => s.card_status === 'released').length;
             const pending    = students.length - generated;
             state.summary = { total: pg.total, generated, pending, downloaded };
             renderSummary();
@@ -207,7 +224,7 @@ const reportCardsCtrl = (() => {
                 const cbcGrade  = s.cbc_grade || deriveCBCGrade(s.overall_pct);
                 const cardSt    = s.card_status || 'pending';
                 const termName  = s.term_name || (state.currentTerm?.name) || '—';
-                const canDownload = true;
+                const canDownload = Boolean(s.download_url);
 
                 return `
                     <tr>
@@ -226,13 +243,15 @@ const reportCardsCtrl = (() => {
                         <td>${esc(termName)}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-success" title="Generate Report Card"
+                                <button class="btn btn-outline-success" title="${s.release_id ? 'Generate corrected version' : 'Generate report card'}"
                                     onclick="reportCardsCtrl.generateCard(${s.id})">
                                     <i class="bi bi-file-earmark-plus"></i>
                                 </button>
+                                ${cardSt === 'pending_approval' ? `<button class="btn btn-outline-success" title="Approve official PDF" onclick="reportCardsCtrl.approveCard(${s.release_id})"><i class="bi bi-check2-circle"></i></button>` : ''}
+                                ${cardSt === 'approved' ? `<button class="btn btn-outline-warning" title="Release by SMS, email and WhatsApp" onclick="reportCardsCtrl.releaseCard(${s.release_id})"><i class="bi bi-send-check"></i></button>` : ''}
                                 <button class="btn btn-outline-primary" title="Download"
                                     onclick="reportCardsCtrl.downloadCard(${s.id})"
-                                    ${canDownload ? '' : 'disabled'}>
+                                    ${s.download_url ? '' : 'disabled'}>
                                     <i class="bi bi-download"></i>
                                 </button>
                                 <button class="btn btn-outline-secondary" title="Print"
@@ -286,12 +305,16 @@ const reportCardsCtrl = (() => {
         const termId = filters.term_id || state.currentTerm?.id;
         if (!termId) { toast('Select a term first', 'error'); return; }
         try {
-            await api('academic/reports-generate-student-reports', 'POST', {
+            const response = await api('academic/reports-generate-student-reports', 'POST', {
                 student_ids: [studentId],
                 term_id: termId,
                 academic_year_id: state.currentYear?.id
             });
-            toast('Report card generated', 'success');
+            const result = response.data?.data || response.data || {};
+            if (Number(result.failed_count || 0) > 0) {
+                throw new Error(result.failed?.[0]?.message || 'The report card could not be generated');
+            }
+            toast('Report card generated for approval', 'success');
             loadData(state.pagination.page);
         } catch (e) { toast('Generate failed: ' + e.message, 'error'); }
     }
@@ -302,13 +325,34 @@ const reportCardsCtrl = (() => {
         if (!termId) { toast('Select a term first', 'error'); return; }
         if (!(await window.confirmAction('Confirm', 'Generate report cards for all students in the selected filter?'))) return;
         try {
-            await api('academic/reports-generate-student-reports', 'POST', {
+            const response = await api('academic/reports-generate-student-reports', 'POST', {
                 term_id: termId, class_id: classId || undefined,
                 academic_year_id: state.currentYear?.id
             });
-            toast('All report cards generation started', 'success');
+            const result = response.data?.data || response.data || {};
+            const generated = Number(result.generated_count || 0);
+            const failed = Number(result.failed_count || 0);
+            toast(failed ? `Generated ${generated}; ${failed} need attention` : `Generated ${generated} report card(s) for approval`, failed ? 'primary' : 'success');
             loadData(1);
         } catch (e) { toast('Failed: ' + e.message, 'error'); }
+    }
+
+    async function approveCard(releaseId) {
+        if (!(await window.confirmAction('Approve report card', 'Approve this immutable PDF as the official report card?'))) return;
+        try {
+            await api('academic/reports-review-and-approve', 'POST', { release_id: releaseId });
+            toast('Report card approved', 'success');
+            await loadData(state.pagination.page);
+        } catch (e) { toast('Approval failed: ' + e.message, 'error'); }
+    }
+
+    async function releaseCard(releaseId) {
+        if (!(await window.confirmAction('Release report card', 'Queue the parent SMS and send the PDF by email and WhatsApp?'))) return;
+        try {
+            await api('academic/reports-distribute', 'POST', { release_id: releaseId, channels: ['sms', 'email', 'whatsapp'] });
+            toast('Report card queued for guardian delivery', 'success');
+            await loadData(state.pagination.page);
+        } catch (e) { toast('Release failed: ' + e.message, 'error'); }
     }
 
     function buildReportCardHtml(student, summary, subjects, termLabel) {
@@ -395,84 +439,21 @@ const reportCardsCtrl = (() => {
     }
 
     async function downloadCard(studentId) {
-        const termId = filters.term_id || state.currentTerm?.id || '';
-        if (!termId) {
-            toast('Select a term first', 'error');
+        const release = state.students.find((row) => Number(row.id) === Number(studentId));
+        if (release?.download_url) {
+            window.open(release.download_url, '_blank', 'noopener');
             return;
         }
-
-        try {
-            const params = new URLSearchParams({
-                student_id: String(studentId),
-                term_id: String(termId)
-            });
-
-            const resp = await api(`academic/student-results?${params.toString()}`);
-            const payload = resp.data || {};
-            const fallback = state.students.find((s) => Number(s.id) === Number(studentId)) || {};
-            const student = payload.student || fallback;
-            const summary = payload.summary || {};
-            const subjects = Array.isArray(payload.subjects) ? payload.subjects : [];
-
-            if (!student || !student.id) {
-                throw new Error('Student result record not found');
-            }
-
-            const termLabel = state.terms.find((t) => String(t.id) === String(termId))?.name || state.currentTerm?.name || '';
-            const fileStem = (student.admission_no || `student_${studentId}`).toString().replace(/[^\w-]+/g, '_');
-            const html = buildReportCardHtml(student, summary, subjects, termLabel);
-            downloadTextFile(html, `report_card_${fileStem}_term_${termId}.html`);
-            toast(`Downloaded card for ${student.first_name || 'student'}`, 'success');
-        } catch (e) {
-            toast(`Download failed: ${e.message}`, 'error');
-        }
+        toast('Generate and approve the official PDF before downloading it', 'error');
     }
 
     function printCard(studentId) {
         const student = state.students.find((row) => Number(row.id) === Number(studentId));
-        if (!student) {
-            toast('Student record not found', 'error');
+        if (!student?.download_url) {
+            toast('Generate and approve the official PDF before printing it', 'error');
             return;
         }
-
-        const studentName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-
-        if (window.PrintManager && window.PrintManager.printReportCard) {
-            const level = student.cbc_level || deriveCBCLevel(student.class_name);
-            window.PrintManager.printReportCard({
-                level: level,
-                student: {
-                    first_name: student.first_name,
-                    last_name: student.last_name,
-                    admission_no: student.admission_no,
-                    class_name: student.class_name,
-                    stream_name: student.stream_name,
-                    gender: student.gender
-                },
-                term: state.currentTerm || {},
-                scores: state.currentScores || [],
-                competencies: state.currentCompetencies || [],
-                values: state.currentValues || [],
-                attendance: state.currentAttendance || {},
-                comments: state.currentComments || {},
-                filename: `report_card_${student.admission_no || student.id}_${Date.now()}`,
-            });
-        } else if (window.PrintManager) {
-            window.PrintManager.printRecord({
-                title: 'Student Report Card',
-                subtitle: `Kingsway Academy - ${studentName}`,
-                sections: [{ title: 'Student Information', fields: [
-                    { label: 'Student', value: studentName },
-                    { label: 'Admission No', value: student.admission_no || '—' },
-                    { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
-                    { label: 'CBC Grade', value: student.cbc_grade || '—' },
-                    { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
-                ]}],
-                orientation: 'portrait', paperSize: 'A4',
-            });
-        } else {
-            toast('PrintManager not available', 'error');
-        }
+        window.open(student.download_url, '_blank', 'noopener');
     }
 
     async function downloadAll() {
@@ -723,10 +704,10 @@ const reportCardsCtrl = (() => {
 
     /* ─── Helpers ─────────────────────────────────────────────── */
     function esc(s) { return s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function gradeBadge(g) { const u = (g||'').toUpperCase(); return ['EE','ME','AE','BE'].includes(GradingScale.band(u)) ? `<span class="grade-${u}">${u}</span>` : `<span class="badge bg-secondary">${u||'—'}</span>`; }
+    function gradeBadge(g) { const u = (g||'').toUpperCase(); const band = GradingScale.band(u); return ['EE','ME','AE','BE'].includes(band) ? `<span class="grade-${band}">${u}</span>` : `<span class="badge bg-secondary">${u||'—'}</span>`; }
     function cardStatusPill(s) {
-        const m = { generated:'rc-generated', pending:'rc-pending', approved:'rc-approved', distributed:'rc-distributed', downloaded:'rc-approved', not_generated:'rc-pending' };
-        return `<span class="rc-pill ${m[s]||'rc-pending'}">${esc(s)}</span>`;
+        const m = { generated:'rc-generated', pending:'rc-pending', pending_approval:'rc-pending', approved:'rc-approved', released:'rc-distributed', distributed:'rc-distributed', downloaded:'rc-approved', not_generated:'rc-pending' };
+        return `<span class="rc-pill ${m[s]||'rc-pending'}">${esc(String(s).replaceAll('_', ' '))}</span>`;
     }
     function deriveCBCGrade(p) { if (p==null) return '—'; return GradingScale.grade(p) || '—'; }
     function deriveCBCLevel(className) {
@@ -744,7 +725,7 @@ const reportCardsCtrl = (() => {
     /* ─── Public ─────────────────────────────────────────────── */
     return {
         init, loadPage: loadData,
-        generateCard, downloadCard, printCard, generateAll,
+        generateCard, approveCard, releaseCard, downloadCard, printCard, generateAll,
         startWorkflow, exportCSV,
         printCards, printSelected
     };

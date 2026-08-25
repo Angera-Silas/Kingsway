@@ -305,6 +305,7 @@ const AuthContext = (() => {
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
+  let teacherScope = null;
   let storagePrefix = "kw_";
   let _accessToken = null;
 
@@ -706,6 +707,7 @@ const AuthContext = (() => {
     currentUser = null;
     permissions.clear();
     roles = [];
+    teacherScope = null;
     _csrfToken = null;
     // Use removeAllUserKeys() which reads the sentinel BEFORE clearing it,
     // so it can compute the correct namespaced keys (kw_<userId>_*) to delete.
@@ -805,6 +807,13 @@ const AuthContext = (() => {
    */
   function getRoles() {
     return [...roles];
+  }
+
+  async function getTeacherScope(params = {}, force = false) {
+    if (teacherScope && !force && !Object.keys(params).length) return teacherScope;
+    const response = await apiCall("/staff/teacher-scope", "GET", null, params);
+    teacherScope = response?.data || response || null;
+    return teacherScope;
   }
 
   /**
@@ -961,6 +970,7 @@ const AuthContext = (() => {
     getCurrentUser,
     getPermissions,
     getRoles,
+    getTeacherScope,
     getSidebarItems,
     getDashboardInfo,
     getPermissionCount,
@@ -1354,9 +1364,19 @@ const ENDPOINT_PERMISSIONS = {
   "/academic/curriculum-units/delete": "academic_delete",
   "/academic/exam-schedule": {
     GET: "academic_view",
-    POST: "academic_update",
-    PUT: "academic_update",
-    DELETE: "academic_update",
+    POST: [
+      "academic_manage",
+      "academics_manage",
+      "academic_edit",
+      "academics_edit",
+    ],
+    PUT: [
+      "academic_manage",
+      "academics_manage",
+      "academic_edit",
+      "academics_edit",
+    ],
+    DELETE: ["academic_manage", "academics_manage"],
   },
   "/academic/supervision-roster": {
     GET: "academic_view",
@@ -1374,10 +1394,18 @@ const ENDPOINT_PERMISSIONS = {
     DELETE: "academic_update",
   },
   "/academic/scheme-of-work-get": "academic_view",
-  "/academic/lesson-plans-list": "academic_view",
-  "/academic/lesson-plans-approval": "academic_view",
-  "/academic/lesson-plans-review": "academic_update",
-  "/academic/lesson-plans-bulk-approve": "academic_update",
+  "/academic/lesson-planning-context": "lesson_plans_view",
+  "/academic/lesson-plans-list": "lesson_plans_view",
+  "/academic/lesson-plans-get": "lesson_plans_view",
+  "/academic/lesson-plans-create": "lesson_plans_create",
+  "/academic/lesson-plans-update": "lesson_plans_edit",
+  "/academic/lesson-plans-delete": "lesson_plans_edit",
+  "/academic/lesson-plans-approve": "lesson_plans_approve",
+  "/academic/lesson-plans-reject": "lesson_plans_approve",
+  "/academic/lesson-plans-submit": "lesson_plans_edit",
+  "/academic/lesson-plans-approval": "lesson_plans_manage",
+  "/academic/lesson-plans-review": "lesson_plans_approve",
+  "/academic/lesson-plans-bulk-approve": "lesson_plans_approve",
   "/academic/performance-overview": "academic_view",
   "/academic/student-results": "academic_view",
   "/academic/custom": {
@@ -1467,6 +1495,7 @@ const ENDPOINT_PERMISSIONS = {
   // and role fallbacks server-side. Keeping legacy-only client checks here
   // blocks valid oversight roles before the request reaches PHP.
   "/staff/index": null,
+  "/staff/teacher-scope": null,
   "/staff/staff": {
     GET: "staff_view",
     POST: "staff_create",
@@ -1577,6 +1606,12 @@ const ENDPOINT_PERMISSIONS = {
 
   // Communications
   "/communications/index": "communications_view",
+  "/communications/pta": {
+    GET: "students_parents_view",
+    POST: "students_parents_view",
+    PUT: "students_parents_view",
+    DELETE: "students_parents_view",
+  },
   "/communications/sms": {
     GET: "communications_view",
     POST: "communications_create",
@@ -1605,6 +1640,19 @@ const ENDPOINT_PERMISSIONS = {
   "/schedules/timetable-check-conflicts": "schedules_view",
   "/schedules/timetable-report-conflict": "schedules_create",
   "/schedules/timetable-time-slots": "schedules_view",
+  "/schedules/timetable-drafts": "schedules_view",
+  "/schedules/timetable-streams": "schedules_view",
+  // The controller applies scope-aware authorization: class teachers may
+  // save lower-primary drafts while leadership may save upper/whole-school
+  // drafts. A single global schedules_create permission cannot represent that.
+  "/schedules/timetable-draft": null,
+  "/schedules/timetable-draft-transition": null,
+  "/schedules/duty-roster-drafts": "schedules_view",
+  "/schedules/duty-roster-draft": "schedules_create",
+  "/schedules/duty-roster-transition": "schedules_update",
+  "/schedules/exam-timetable-drafts": "schedules_view",
+  "/schedules/exam-timetable-draft": "schedules_create",
+  "/schedules/exam-timetable-transition": "schedules_update",
   "/schedules/rooms-get": "schedules_view",
   "/schedules/exam-get": "schedules_view",
   "/schedules/exam-create": "schedules_create",
@@ -3440,6 +3488,8 @@ window.API = {
     // Exam schedules + supervision roster
     listExamSchedules: async (params = {}) =>
       apiCall("/academic/exam-schedule", "GET", null, params),
+    getExamResultEntry: async (examScheduleId) =>
+      apiCall(`/academic/exam-result-entry/${examScheduleId}`, "GET"),
     listSupervisionRoster: async (params = {}) =>
       apiCall("/academic/supervision-roster", "GET", null, params),
     getSupervisionRoster: async (id) =>
@@ -3699,10 +3749,30 @@ window.API = {
     // Scheme of work
     createSchemeOfWork: async (data) =>
       apiCall("/academic/scheme-of-work-create", "POST", data),
-    getSchemeOfWork: async (id = null) =>
-      id
+    createSchemeOfWorkBatch: async (data) =>
+      apiCall("/academic/scheme-of-work-batch", "POST", data),
+    saveSchemeWorkbook: async (data) => apiCall("/academic/scheme-workbook-save", "POST", data),
+    submitSchemeWorkbook: async (data) => apiCall("/academic/scheme-workbook-submit", "POST", data),
+    getSchemeWorkbook: async (id) => apiCall(`/academic/scheme-workbook-get/${id}`, "GET"),
+    requestSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-request-revision/${id}`, "POST", data),
+    reopenSchemeWorkbookRevision: async (id, data = {}) => apiCall(`/academic/scheme-workbook-reopen-revision/${id}`, "POST", data),
+    approveSchemeWorkbook: async (id, data = {}) => apiCall(`/academic/scheme-workbook-approve/${id}`, "POST", data),
+    getTeacherPlanningContext: async () =>
+      apiCall("/academic/teacher-planning-context", "GET"),
+    getLessonPlanningContext: async (schemeId) =>
+      apiCall(`/academic/lesson-planning-context/${schemeId}`, "GET"),
+    saveLessonPlanLearnerEvidence: async (lessonPlanId, data) =>
+      apiCall(`/academic/lesson-plan-learner-evidence/${lessonPlanId}`, "POST", data),
+    getSchemeOfWork: async (id = null) => {
+      // The list endpoint accepts filters such as status and teacher_id.
+      // Do not stringify a filter object into /[object Object].
+      if (id && typeof id === "object" && !Array.isArray(id)) {
+        return apiCall("/academic/scheme-of-work-get", "GET", null, id);
+      }
+      return id
         ? apiCall(`/academic/scheme-of-work-get/${id}`, "GET")
-        : apiCall("/academic/scheme-of-work-get", "GET"),
+        : apiCall("/academic/scheme-of-work-get", "GET");
+    },
 
     // Teacher portal (identity resolved server-side from JWT)
     getMyClasses: async (params = {}) =>
@@ -3784,6 +3854,8 @@ window.API = {
     index: async () => apiCall("/attendance/index", "GET"),
     getSessions: async (params = {}) =>
       apiCall("/attendance/sessions", "GET", null, params),
+    getSessionConfig: async () => apiCall("/attendance/session-config", "GET", null, {}, { checkPermission: false }),
+    updateSessionConfig: async (id, data) => apiCall(`/attendance/session-config/${id}`, "PUT", data, null, { checkPermission: false }),
     getAcademicSummary: async (params = {}) =>
       apiCall("/attendance/academic-summary", "GET", null, params),
     getDailyRegister: async (params = {}) =>
@@ -4351,6 +4423,10 @@ window.API = {
       apiCall("/finance/payment-collection-routes", "GET"),
     savePaymentCollectionRoute: async (data) =>
       apiCall("/finance/payment-collection-routes", "POST", data),
+    updatePaymentCollectionRoute: async (id, data) =>
+      apiCall(`/finance/payment-collection-routes/${id}`, "PUT", data),
+    deletePaymentCollectionRoute: async (id) =>
+      apiCall(`/finance/payment-collection-routes/${id}`, "DELETE"),
     getAccountingTrialBalance: async () =>
       apiCall("/finance/accounting/trial-balance", "GET"),
     getAccountingReport: async (type = "income") =>
@@ -4369,6 +4445,16 @@ window.API = {
       apiCall(`/finance/financial-accounts/${id}/permissions`, "POST", { permissions }),
     getFinancialAccountPermissions: async (id) =>
       apiCall(`/finance/financial-accounts/${id}/permissions`, "GET"),
+    getPaymentPosTerminals: async () =>
+      apiCall("/finance/payment-pos-terminals", "GET"),
+    createPaymentPosTerminal: async (data) =>
+      apiCall("/finance/payment-pos-terminals", "POST", data),
+    updatePaymentPosTerminal: async (id, data) =>
+      apiCall(`/finance/payment-pos-terminals/${id}`, "PUT", data),
+    verifyPaymentPosTerminal: async (id) =>
+      apiCall(`/finance/payment-pos-terminals/${id}/verify`, "PUT"),
+    recordPaymentPosTransaction: async (data) =>
+      apiCall("/finance/payment-pos-transactions", "POST", data),
     getStatementLines: async (params = {}) =>
       apiCall("/finance/reconciliation/statement-lines", "GET", null, params),
     importStatement: async (data) =>
@@ -4421,6 +4507,10 @@ window.API = {
         null,
         params,
       ),
+    assignPayrollSourceAccounts: async (payrollId, allocations) =>
+      apiCall(`/finance/payrolls/${payrollId}/source-allocations`, "POST", { allocations }),
+    getPayrollSourceAllocations: async (payrollId) =>
+      apiCall(`/finance/payrolls/${payrollId}/source-allocations`, "GET"),
     createDraftPayroll: async (data) =>
       apiCall("/finance/payrolls-create-draft", "POST", data),
     calculatePayroll: async (data) =>
@@ -4475,12 +4565,13 @@ window.API = {
         payroll_id: payrollId,
         approved_by: approvedBy,
       }),
-    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null) =>
+    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank", sourceFinancialAccountId = null, payslipIds = []) =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
         payment_reference: paymentRef,
         payment_mode: paymentMode,
         source_financial_account_id: sourceFinancialAccountId,
+        payslip_ids: payslipIds,
       }),
 
     // Payments
@@ -4587,6 +4678,16 @@ window.API = {
       ),
     getStudentBalance: async (studentId) =>
       apiCall(`/finance/students/balance/${studentId}`, "GET"),
+    saveFeeWaiver: async (data) =>
+      apiCall("/finance/fee-waivers", "POST", data),
+    getScholarshipPrograms: async () =>
+      apiCall("/finance/scholarship-programs", "GET"),
+    getStudentScholarships: async (params = {}) =>
+      apiCall("/finance/student-scholarships", "GET", null, params),
+    saveStudentScholarship: async (data) =>
+      apiCall("/finance/student-scholarships", "POST", data),
+    revokeStudentScholarship: async (id) =>
+      apiCall(`/finance/student-scholarships/${id}`, "DELETE"),
 
     // Reports
     generatePayrollReport: async (data) =>
@@ -4880,6 +4981,8 @@ window.API = {
 
   // Staff endpoints
   staff: {
+    getTeacherScope: async (params = {}) =>
+      apiCall("/staff/teacher-scope", "GET", null, params),
     index: async (params = {}) => {
       const data = await apiCall("/staff/index", "GET", null, params);
       // Directory data: warm the staff IndexedDB cache so reloads render
@@ -5226,6 +5329,10 @@ window.API = {
       id
         ? apiCall(`/transport/transport-vehicle/${id}`, "GET")
         : apiCall("/transport/transport-vehicle", "GET"),
+    getAllVehicles: async (params) => apiCall("/transport/all-vehicles", "GET", null, params),
+    createVehicle: async (data) => apiCall("/transport/transport-vehicle", "POST", data),
+    updateVehicle: async (id, data) => apiCall(`/transport/transport-vehicle/${id}`, "PUT", data),
+    deleteVehicle: async (id) => apiCall(`/transport/transport-vehicle/${id}`, "DELETE"),
 
     // Drivers
     getDriver: async (id = null) =>
@@ -5292,6 +5399,8 @@ window.API = {
     // Reports & Summary
     getRouteManifest: async (routeId) =>
       apiCall(`/transport/route-manifest?route_id=${routeId}`, "GET"),
+    getDriverManifest: async (params = {}) =>
+      apiCall("/transport/driver-manifest", "GET", null, params),
     getStudentSummary: async (studentId) =>
       apiCall(`/transport/student-summary?student_id=${studentId}`, "GET"),
     getRouteSummary: async (routeId) =>
@@ -5402,6 +5511,22 @@ window.API = {
     reportTimetableConflict: async (data) =>
       apiCall("/schedules/timetable-report-conflict", "POST", data),
     getTimeSlots: async () => apiCall("/schedules/timetable-time-slots", "GET"),
+    listTimetableDrafts: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/schedules/timetable-drafts?${qs}` : "/schedules/timetable-drafts", "GET");
+    },
+    listTimetableStreams: async (params = {}) => apiCall("/schedules/timetable-streams", "GET", null, params),
+    getTimetableDraft: async (id) => apiCall(`/schedules/timetable-draft/${id}`, "GET"),
+    saveTimetableDraft: async (data) => apiCall("/schedules/timetable-draft", "POST", data),
+    transitionTimetableDraft: async (data) => apiCall("/schedules/timetable-draft-transition", "POST", data),
+    listDutyRosterDrafts: async () => apiCall("/schedules/duty-roster-drafts", "GET"),
+    getDutyRosterDraft: async (id) => apiCall(`/schedules/duty-roster-draft/${id}`, "GET"),
+    saveDutyRosterDraft: async (data) => apiCall("/schedules/duty-roster-draft", "POST", data),
+    transitionDutyRosterDraft: async (data) => apiCall("/schedules/duty-roster-transition", "POST", data),
+    listExamTimetableDrafts: async () => apiCall("/schedules/exam-timetable-drafts", "GET"),
+    getExamTimetableDraft: async (id) => apiCall(`/schedules/exam-timetable-draft/${id}`, "GET"),
+    saveExamTimetableDraft: async (data) => apiCall("/schedules/exam-timetable-draft", "POST", data),
+    transitionExamTimetableDraft: async (data) => apiCall("/schedules/exam-timetable-transition", "POST", data),
 
     // Exams
     getExam: async (id = null) =>

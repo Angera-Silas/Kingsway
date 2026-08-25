@@ -1,0 +1,16 @@
+#paymentIntegrationSettingsPage .pis-instrument {
+    width: 100%; min-height: 92px; display: flex; align-items: center; gap: 1rem;
+    text-align: left; padding: 1rem; border: 1px solid var(--bs-border-color);
+    border-radius: .75rem; background: #fff; color: inherit; transition: .15s ease;
+}
+#paymentIntegrationSettingsPage .pis-instrument:hover,
+#paymentIntegrationSettingsPage .pis-instrument.selected { border-color: var(--bs-primary); background: #f1f6ff; box-shadow: 0 0 0 .15rem rgba(13,110,253,.1); }
+#paymentIntegrationSettingsPage .pis-instrument i { width: 2rem; text-align: center; font-size: 1.35rem; color: var(--bs-primary); }
+#paymentIntegrationSettingsPage .pis-instrument span { display: flex; flex-direction: column; gap: .25rem; }
+#paymentIntegrationSettingsPage .pis-instrument small { color: var(--bs-secondary-color); font-weight: 400; }
+#pisModal .pis-wizard-steps { gap: .5rem; }
+#pisModal .pis-step { flex: 1; padding: .6rem .5rem; text-align: center; border-bottom: 3px solid var(--bs-border-color); color: var(--bs-secondary-color); font-size: .82rem; font-weight: 600; }
+#pisModal .pis-step.active { color: var(--bs-primary); border-color: var(--bs-primary); }
+#pisModal .pis-step.done { color: var(--bs-success); border-color: var(--bs-success); }
+#pisModal .pis-wizard-pane h5 { font-weight: 700; }
+#pisModal .pis-wizard-pane .form-text { font-size: .78rem; }

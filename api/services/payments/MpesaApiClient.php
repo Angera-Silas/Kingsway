@@ -50,9 +50,9 @@ class MpesaApiClient
         return $this->environment;
     }
 
-    public function getShortcode(): string
+    public function getShortcode(?string $override = null): string
     {
-        return $this->shortcode;
+        return $override !== null && trim($override) !== '' ? trim($override) : $this->shortcode;
     }
 
     public function getInitiatorName(): string
@@ -84,10 +84,10 @@ class MpesaApiClient
     /**
      * STK Push password: base64(Shortcode . Passkey . Timestamp).
      */
-    public function lipaNaMpesaPassword(?string $timestamp = null): string
+    public function lipaNaMpesaPassword(?string $timestamp = null, ?string $shortcode = null): string
     {
         $ts = $timestamp ?: $this->timestamp();
-        return base64_encode($this->shortcode . $this->passkey . $ts);
+        return base64_encode($this->getShortcode($shortcode) . $this->passkey . $ts);
     }
 
     /**
@@ -102,7 +102,13 @@ class MpesaApiClient
             return $this->securityCredential;
         }
 
-        $certPath = dirname(__DIR__, 3) . '/config/mpesa_production_cert.cer';
+        $certPath = defined('MPESA_CERTIFICATE_PATH') && MPESA_CERTIFICATE_PATH !== ''
+            ? (string) MPESA_CERTIFICATE_PATH
+            : dirname(__DIR__, 3) . '/config/' . ($this->isSandbox() ? 'mpesa_sandbox_cert.cer' : 'mpesa_production_cert.cer');
+        if (!file_exists($certPath)) {
+            $fallbackCert = dirname(__DIR__, 3) . '/config/mpesa_production_cert.cer';
+            $certPath = file_exists($fallbackCert) ? $fallbackCert : $certPath;
+        }
         if (file_exists($certPath)) {
             $publicKey = file_get_contents($certPath);
             $encrypted = null;

@@ -1,10 +1,10 @@
 <?php
 /**
- * My Subject CATs - Subject Teacher Specific CAT Management
- * Role: Subject Teacher (8)
- * Shows only CATs for the teacher's assigned subjects
- * Provides focused interface for Subject Teachers to manage their assessments
+ * @deprecated Subject and class teachers now share one effective-scope
+ * formative-assessment workspace.
  */
+require __DIR__ . '/my_cats.php';
+return;
 ?>
 <div class="container-fluid py-4">
     <div class="row">

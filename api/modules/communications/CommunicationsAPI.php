@@ -60,7 +60,7 @@ class CommunicationsAPI extends BaseAPI
      *
      * @return array
      */
-    public function getSummary()
+    public function getSummary(array $scope = [])
     {
         $result = [
             'totals' => [
@@ -100,8 +100,22 @@ class CommunicationsAPI extends BaseAPI
         ];
 
         try {
+            $visibility = $scope['visibility'] ?? 'all';
+            $userId = (int) ($scope['user_id'] ?? $this->user_id ?? 0);
+            $visibilitySql = '';
+            $visibilityParams = [];
+            if ($visibility === 'self_or_tagged' && $userId > 0) {
+                $visibilitySql = " WHERE (c.sender_id = :scope_user OR EXISTS (SELECT 1 FROM communication_recipients cr_scope WHERE cr_scope.communication_id = c.id AND cr_scope.recipient_id = :scope_recipient))";
+                $visibilityParams = [':scope_user' => $userId, ':scope_recipient' => $userId];
+            } elseif ($visibility === 'self_or_tagged') {
+                $visibilitySql = ' WHERE 1 = 0';
+            } elseif ($visibility === 'teacher_parent') {
+                $visibilitySql = " WHERE EXISTS (SELECT 1 FROM user_roles sender_role WHERE sender_role.user_id = c.sender_id AND sender_role.role_id IN (7, 8, 9)) AND (c.sender_signature LIKE '%parent%' OR c.sender_signature LIKE '%selected_students%' OR c.sender_signature LIKE '%selected_class%' OR EXISTS (SELECT 1 FROM communication_recipients cr_parent JOIN users parent_user ON parent_user.id = cr_parent.recipient_id JOIN parents parent_record ON parent_record.person_id = parent_user.person_id WHERE cr_parent.communication_id = c.id))";
+            }
+
             // Totals and breakdown by type/status/priority
-            $stmt = $this->db->query("SELECT type, status, priority, COUNT(*) AS c FROM communications GROUP BY type, status, priority");
+            $stmt = $this->db->prepare("SELECT c.type, c.status, c.priority, COUNT(*) AS c FROM communications c" . $visibilitySql . " GROUP BY c.type, c.status, c.priority");
+            $stmt->execute($visibilityParams);
             $total = 0;
             $lastActivity = null;
             while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
@@ -120,7 +134,9 @@ class CommunicationsAPI extends BaseAPI
             $result['totals']['communications'] = $total;
 
             // Announcement breakdown (type = notification)
-            $stmt = $this->db->query("SELECT status, COUNT(*) AS c FROM communications WHERE type = 'notification' GROUP BY status");
+            $announcementWhere = $visibilitySql === '' ? " WHERE c.type = 'notification'" : $visibilitySql . " AND c.type = 'notification'";
+            $stmt = $this->db->prepare("SELECT c.status, COUNT(*) AS c FROM communications c" . $announcementWhere . " GROUP BY c.status");
+            $stmt->execute($visibilityParams);
             while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
                 $result['totals']['announcements']['total'] += (int)$row['c'];
                 if ($row['status'] === 'sent') {
@@ -133,7 +149,8 @@ class CommunicationsAPI extends BaseAPI
             }
 
             // Last activity
-            $stmt = $this->db->query("SELECT MAX(created_at) AS last FROM communications");
+            $stmt = $this->db->prepare("SELECT MAX(c.created_at) AS last FROM communications c" . $visibilitySql);
+            $stmt->execute($visibilityParams);
             $lastRow = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($lastRow && !empty($lastRow['last'])) {
                 $result['totals']['last_activity_at'] = $lastRow['last'];
@@ -149,8 +166,10 @@ class CommunicationsAPI extends BaseAPI
                 $result['totals']['messaging']['unread'] = (int)($row['u'] ?? 0);
             }
 
-            // Recent communications (last 5)
-            $stmt = $this->db->query("SELECT id, type, subject, status, priority, sender_id, created_at FROM communications ORDER BY id DESC LIMIT 5");
+            // Recent communications (last 5), using exactly the same visibility scope.
+            $recentWhere = $visibilitySql;
+            $stmt = $this->db->prepare("SELECT c.id, c.type, c.subject, c.status, c.priority, c.sender_id, c.created_at FROM communications c" . $recentWhere . " ORDER BY c.id DESC LIMIT 5");
+            $stmt->execute($visibilityParams);
             $recent = [];
             while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
                 $recent[] = [
@@ -1050,9 +1069,9 @@ class CommunicationsAPI extends BaseAPI
     {
         return $this->manager->updateDeliveryStatusByProvider($providerMessageId, $status, $deliveredAt, $errorMessage);
     }
-    public function getCommunication($id)
+    public function getCommunication($id, array $filters = [])
     {
-        return $this->manager->getCommunication($id);
+        return $this->manager->getCommunication($id, $filters);
     }
     public function updateCommunication($id, $data)
     {

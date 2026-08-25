@@ -79,16 +79,18 @@ class FinanceController extends BaseController
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         try {
             $stmt = $this->db->query("SELECT a.*,k.code account_kind,p.code provider_code,c.account_code ledger_code,
-                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes,
-                GROUP_CONCAT(DISTINCT fc.code ORDER BY fc.code SEPARATOR ',') channels
+                sa.account_name settlement_account_name, sa.account_identifier settlement_account_identifier,
+                GROUP_CONCAT(DISTINCT r.collection_product ORDER BY r.collection_product SEPARATOR ',') collection_products,
+                GROUP_CONCAT(DISTINCT r.reference_policy ORDER BY r.reference_policy SEPARATOR ',') reference_policies,
+                GROUP_CONCAT(DISTINCT fp.code ORDER BY fp.code SEPARATOR ',') purposes
                 FROM school_financial_accounts a
                 JOIN financial_account_kinds k ON k.id=a.account_kind_id
                 LEFT JOIN payment_providers p ON p.id=a.provider_id
                 LEFT JOIN chart_of_accounts c ON c.id=a.ledger_account_id
+                LEFT JOIN school_financial_accounts sa ON sa.id=a.settlement_financial_account_id
+                LEFT JOIN payment_collection_routes r ON r.financial_account_id=a.id AND r.active=1
                 LEFT JOIN school_financial_account_purposes ap ON ap.financial_account_id=a.id
                 LEFT JOIN financial_account_purposes fp ON fp.id=ap.purpose_id
-                LEFT JOIN school_financial_account_channels ac ON ac.financial_account_id=a.id
-                LEFT JOIN financial_channels fc ON fc.id=ac.channel_id
                 GROUP BY a.id ORDER BY a.account_name");
             return $this->success(['accounts' => $stmt->fetchAll(\PDO::FETCH_ASSOC)]);
         } catch (\Throwable $e) {
@@ -108,10 +110,46 @@ class FinanceController extends BaseController
         return $this->api->financialAccountSetupOptions();
     }
 
+    public function getPaymentPosTerminals($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->listPaymentPosTerminals();
+    }
+
+    public function postPaymentPosTerminals($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->createPaymentPosTerminal($data, (int)$this->getUserId());
+    }
+
+    public function putPaymentPosTerminals($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->updatePaymentPosTerminal((int)$id, $data, (int)$this->getUserId());
+    }
+
+    public function putPaymentPosTerminalsVerify($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        return $this->api->verifyPaymentPosTerminal((int)$id, (int)$this->getUserId());
+    }
+
+    public function postPaymentPosTransactions($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Finance payment permission required');
+        return $this->api->recordPaymentPosTransaction($data, (int)$this->getUserId());
+    }
+
     public function putFinancialAccount($id = null, $data = [], $segments = [])
     {
         if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
         return $this->api->updateFinancialAccount((int)$id, $data, (int)$this->getUserId());
+    }
+
+    // Router plural aliases for /finance/financial-accounts/*.
+    public function putFinancialAccounts($id = null, $data = [], $segments = [])
+    {
+        return $this->putFinancialAccount($id, $data, $segments);
     }
 
     public function getFinancialAccountPermissions($id = null, $data = [], $segments = [])
@@ -172,6 +210,11 @@ class FinanceController extends BaseController
         return $this->api->createFinancialAccount($data, (int)$this->getUserId());
     }
 
+    public function postFinancialAccounts($id = null, $data = [], $segments = [])
+    {
+        return $this->postFinancialAccount($id, $data, $segments);
+    }
+
     /** PUT /api/finance/financial-accounts/{id}/verify */
     public function putFinancialAccountVerify($id = null, $data = [], $segments = [])
     {
@@ -179,11 +222,21 @@ class FinanceController extends BaseController
         return $this->api->verifyFinancialAccount((int)$id, (int)$this->getUserId(), (string)($data['status'] ?? 'active'));
     }
 
+    public function putFinancialAccountsVerify($id = null, $data = [], $segments = [])
+    {
+        return $this->putFinancialAccountVerify($id, $data, $segments);
+    }
+
     /** POST /api/finance/financial-accounts/{id}/permissions */
     public function postFinancialAccountPermissions($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Only authorized integration administrators may assign account permissions');
         return $this->api->setFinancialAccountPermissions((int)$id, (array)($data['permissions'] ?? []), (int)$this->getUserId());
+    }
+
+    public function postFinancialAccountsPermissions($id = null, $data = [], $segments = [])
+    {
+        return $this->postFinancialAccountPermissions($id, $data, $segments);
     }
 
     /**
@@ -324,15 +377,31 @@ class FinanceController extends BaseController
     /** GET /api/finance/payment-collection-routes */
     public function getPaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
-        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Insufficient permissions');
         return $this->success(['routes' => (new PaymentRoutingService(Database::getInstance()->getConnection()))->listRoutes()]);
     }
 
     /** POST /api/finance/payment-collection-routes */
     public function postPaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
-        if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
         try { return $this->created((new PaymentRoutingService(Database::getInstance()->getConnection()))->saveRoute($data), 'Collection route saved'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** PUT /api/finance/payment-collection-routes/{id} */
+    public function putPaymentCollectionRoutes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->updateRoute((int)$id, $data), 'Collection route updated'); }
+        catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
+    }
+
+    /** DELETE /api/finance/payment-collection-routes/{id} */
+    public function deletePaymentCollectionRoutes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
+        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->deleteRoute((int)$id), 'Collection route deactivated'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -442,13 +511,27 @@ class FinanceController extends BaseController
      */
     private function requireApprovalAccess(string $action = 'perform this approval'): ?array
     {
-        if ($this->staffAccess->allows('staff.payroll.approve', ['director']) ||
+        if (in_array('accountant', $this->staffAccess->roles(), true)) {
+            return $this->forbidden("Accountants prepare payroll; they cannot $action");
+        }
+        if ($this->staffAccess->allows('staff.payroll.approve', ['director', 'school administrator', 'headteacher', 'system administrator']) ||
             $this->userHasAny(['finance_approve', 'payroll_approve', 'budget_approve',
                                'fee_structure_approve', 'expense_approve', 'finance.approve'],
-                              [3], ['director'])) {
+                              [2, 3, 4, 5], ['director', 'school administrator', 'headteacher', 'system administrator'])) {
             return null;
         }
         return $this->forbidden("Insufficient permissions to $action");
+    }
+
+    /** Only the director/school-administration control layer may alter fee relief. */
+    private function requireFeeReliefAccess(string $action): ?array
+    {
+        $roles = $this->staffAccess->roles();
+        if (in_array('accountant', $roles, true)) return $this->forbidden("Accountants cannot $action");
+        if (array_intersect($roles, ['director', 'school administrator', 'system administrator'])) {
+            return null;
+        }
+        return $this->forbidden("Only the director or school administrator can $action");
     }
 
     // ========================================
@@ -699,6 +782,25 @@ class FinanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** GET /api/finance/payrolls/{id}/source-allocations */
+    public function getPayrollsSourceAllocations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['director','school administrator','accountant','system administrator'])) return $denied;
+        $payrollId = (int)($id ?: ($data['payroll_id'] ?? 0));
+        if (!$payrollId) return $this->badRequest('Payroll ID is required.');
+        return $this->handleResponse($this->api->payrollSourceAllocationRows($payrollId));
+    }
+
+    /** POST /api/finance/payrolls/{id}/source-allocations */
+    public function postPayrollsSourceAllocations($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.approve', ['director','school administrator','system administrator'])) return $denied;
+        $payload = $data ?: $this->getRequestData();
+        $payrollId = (int)($id ?: ($payload['payroll_id'] ?? 0));
+        if (!$payrollId) return $this->badRequest('Payroll ID is required.');
+        return $this->handleResponse($this->api->assignPayrollSourceAccounts($payrollId, (array)($payload['allocations'] ?? []), (int)$this->getUserId()));
+    }
+
     /**
      * POST /api/finance/payrolls/create-draft
      */
@@ -775,7 +877,7 @@ class FinanceController extends BaseController
      */
     public function postPayrollsProcess($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
         $result = $this->api->processPayroll($data);
         return $this->handleResponse($result);
     }
@@ -785,7 +887,7 @@ class FinanceController extends BaseController
      */
     public function postPayrollsDisburse($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
         $result = $this->api->disbursePayroll($data);
         return $this->handleResponse($result);
     }
@@ -932,11 +1034,11 @@ class FinanceController extends BaseController
 
     /**
      * POST /api/finance/approve-payroll
-     * Director approval before accountant payment release
+     * Executive approval before director/school-admin payment release
      */
     public function postApprovePayroll($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.approve', ['director'])) return $denied;
+        if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
         $payload = $data ?: $this->getRequestData();
         $payrollId = $payload['payroll_id'] ?? null;
         if (!$payrollId) {
@@ -1030,7 +1132,7 @@ class FinanceController extends BaseController
      */
     public function postMarkPayrollPaid($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','director','school administrator'])) return $denied;
         $payrollId = $data['payroll_id'] ?? $id ?? null;
 
         if (!$payrollId) {
@@ -1041,7 +1143,8 @@ class FinanceController extends BaseController
         $paymentMode = $data['payment_mode'] ?? 'bank';
         $data['user_id'] = $this->getUserId();
         $sourceAccountId = $data['source_financial_account_id'] ?? null;
-        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode, $sourceAccountId, $data['user_id']);
+        $selectedPayslipIds = array_values(array_filter(array_map('intval', (array)($data['payslip_ids'] ?? []))));
+        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode, $sourceAccountId, $data['user_id'], $selectedPayslipIds);
         return $this->handleResponse($result);
     }
 
@@ -2116,6 +2219,7 @@ return $this->error('An internal error occurred.');
     /** POST /api/finance/fee-waivers — create waiver/discount */
     public function postFeeWaivers($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireFeeReliefAccess('create fee waivers')) return $denied;
         if (empty($data['student_id']) || empty($data['discount_type']) || !isset($data['discount_value'])) {
             return $this->badRequest('student_id, discount_type, discount_value are required');
         }
@@ -2133,6 +2237,47 @@ return $this->error('An internal error occurred.');
     public function getSponsoredStudents($id = null, $data = [], $segments = [])
     {
         return $this->success($this->crud->listSponsoredStudents());
+    }
+
+    /** GET /api/finance/scholarship-programs */
+    public function getScholarshipPrograms($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->crud->listScholarshipPrograms());
+    }
+
+    /** GET /api/finance/student-scholarships */
+    public function getStudentScholarships($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->crud->listStudentScholarships($data ?: $_GET));
+    }
+
+    /** POST /api/finance/student-scholarships */
+    public function postStudentScholarships($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requireFeeReliefAccess('manage student scholarships')) return $denied;
+        try {
+            $awardId = $this->crud->createStudentScholarship($data, $this->getUserId());
+            return $this->created(['id' => $awardId], 'Student scholarship saved and applied to this academic year.');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] scholarship create: ' . $e->getMessage());
+            return $this->serverError('Unable to save student scholarship.');
+        }
+    }
+
+    /** DELETE /api/finance/student-scholarships/{id} */
+    public function deleteStudentScholarships($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->requireFeeReliefAccess('revoke student scholarships')) return $denied;
+        if (!$id) return $this->badRequest('Scholarship award id is required');
+        try {
+            $this->crud->revokeStudentScholarship((int)$id, $this->getUserId());
+            return $this->success(null, 'Student scholarship revoked.');
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] scholarship revoke: ' . $e->getMessage());
+            return $this->serverError('Unable to revoke student scholarship.');
+        }
     }
 
     // ==================== FEE CREDIT NOTES ====================

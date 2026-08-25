@@ -345,19 +345,23 @@
 }
 
 /* Force portrait */
+@page print-portrait {
+    size: A4 portrait;
+    margin: 12mm;
+}
+
 .print-portrait {
-    @page {
-        size: A4 portrait;
-        margin: 12mm;
-    }
+    page: print-portrait;
 }
 
 /* Force landscape */
+@page print-landscape {
+    size: A4 landscape;
+    margin: 10mm;
+}
+
 .print-landscape {
-    @page {
-        size: A4 landscape;
-        margin: 10mm;
-    }
+    page: print-landscape;
 }
 
 /* ============================================

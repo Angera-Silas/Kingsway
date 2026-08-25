@@ -316,6 +316,7 @@ return [
             'subitems' => [
                 ['label' => 'Classes', 'url' => 'manage_classes'],
                 ['label' => 'View Timetable', 'url' => 'manage_timetable'],
+                ['label' => 'Academic Planning Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'View Results', 'url' => 'view_results'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
@@ -488,14 +489,15 @@ return [
             ]
         ],
 
-        // FEES — Admin collects fees, reviews fee structure before Director approves
+        // FINANCE — Admin manages charges, collections, reconciliation and refunds
         [
-            'label' => 'Fees',
+            'label' => 'Finance',
             'url' => null,
-            'icon' => 'fas fa-receipt',
+            'icon' => 'fas fa-coins',
             'subitems' => [
                 ['label' => 'Fee Structure', 'url' => 'manage_fee_structure'],       // review (not draft — that's accountant)
                 ['label' => 'Extra Charges', 'url' => 'manage_extra_charges'],
+                ['label' => 'Transport Fees', 'url' => 'transport_fees'],
                 ['label' => 'Student Fee Accounts', 'url' => 'student_fees'],
                 ['label' => 'Payment Register', 'url' => 'manage_payments'],
                 ['label' => 'Supplier Payments', 'url' => 'supplier_payments'],
@@ -529,7 +531,6 @@ return [
                 ['label' => 'Manage Transport', 'url' => 'manage_transport'],
                 ['label' => 'Routes', 'url' => 'my_routes'],
                 ['label' => 'Assign Students to Routes', 'url' => 'student_route_assignment'],
-                ['label' => 'Transport Fees', 'url' => 'transport_fees'],
             ]
         ],
 
@@ -545,6 +546,7 @@ return [
                 ['label' => 'Term Transition', 'url' => 'term_transition'],
                 ['label' => 'Year Rollover', 'url' => 'year_rollover'],
                 ['label' => 'View Timetable', 'url' => 'manage_timetable'],
+                ['label' => 'Academic Planning Oversight', 'url' => 'academic_planning_oversight'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],              // distribute report cards
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
                 ['label' => 'CBC Manager', 'url' => 'cbc_curriculum'],
@@ -562,8 +564,9 @@ return [
             'icon' => 'fas fa-file-alt',
             'subitems' => [
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
+                ['label' => 'Exam Timetable Drafts', 'url' => 'exam_timetable_drafts'],
                 ['label' => 'Supervision Roster', 'url' => 'supervision_roster'],
-                ['label' => 'Grading Status', 'url' => 'grading_status'],
+                ['label' => 'School-wide Grading Status', 'url' => 'grading_status'],
                 ['label' => 'Results Moderation', 'url' => 'exam_moderation'],
                 ['label' => 'View Results', 'url' => 'view_results'],
             ]
@@ -709,9 +712,10 @@ return [
             'subitems' => [
                 ['label' => 'Subjects', 'url' => 'manage_subjects'],
                 ['label' => 'Timetable (Approve)', 'url' => 'manage_timetable'],           // APPROVE
-                ['label' => 'Lesson Plan Approval', 'url' => 'lesson_plan_approval'],       // APPROVE
-                ['label' => 'All Lesson Plans', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Schemes of Work', 'url' => 'schemes_of_work'],
+                ['label' => 'Academic Planning', 'url' => 'academic_planning_oversight'], // schemes, lesson plans, coverage and approvals in one workspace
+                ['label' => 'My Schemes of Work', 'url' => 'my_schemes_of_work'],          // teacher scope, when the HT also teaches
+                ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],             // teacher scope, when the HT also teaches
+                ['label' => 'Content Reconciliation', 'url' => 'academic_content_reconciliation'],
                 ['label' => 'Academic Calendar', 'url' => 'academic_calendar'],
                 ['label' => 'Academic Years', 'url' => 'academic_years'],
                 ['label' => 'CBC Curriculum', 'url' => 'curriculum_cbc'],
@@ -728,12 +732,15 @@ return [
             'url' => null,
             'icon' => 'fas fa-file-alt',
             'subitems' => [
-                ['label' => 'Exam Setup', 'url' => 'exam_setup'],
-                ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
+                // Exam configuration belongs to the Deputy Academic/Admin
+                // workflow. The Headteacher oversees the resulting school
+                // schedule rather than maintaining a second setup screen.
+                ['label' => 'School Exam Schedule', 'url' => 'exam_schedule'],
+                ['label' => 'Exam Timetable Review', 'url' => 'exam_timetable_drafts'],
                 ['label' => 'Supervision Roster', 'url' => 'supervision_roster'],
-                ['label' => 'Grading Status', 'url' => 'grading_status'],
+                ['label' => 'School-wide Grading Status', 'url' => 'grading_status'],
                 ['label' => 'Results Moderation', 'url' => 'exam_moderation'],
-                ['label' => 'View Results', 'url' => 'view_results'],
+                ['label' => 'Official Results', 'url' => 'view_results'],
                 ['label' => 'Results Analysis', 'url' => 'results_analysis'],
                 ['label' => 'Report Cards (Approve)', 'url' => 'report_cards'],              // HT signs off on report cards
             ]
@@ -842,22 +849,6 @@ return [
             ]
         ],
 
-        [
-            'label' => 'Website Management',
-            'url' => null,
-            'icon' => 'fas fa-globe',
-            'subitems' => [
-                ['label' => 'News Articles', 'url' => 'manage_articles'],
-                ['label' => 'Events', 'url' => 'manage_public_events'],
-                ['label' => 'Gallery', 'url' => 'manage_school_gallery'],
-                ['label' => 'Downloads', 'url' => 'manage_public_downloads'],
-                ['label' => 'Vacancies', 'url' => 'manage_job_vacancies'],
-                ['label' => 'Applications', 'url' => 'manage_job_applications'],
-                ['label' => 'Inquiries', 'url' => 'manage_inquiries'],
-                ['label' => 'Page Content', 'url' => 'manage_page_content'],
-            ]
-        ],
-
         ['label' => 'Boarding', 'url' => null, 'icon' => 'fas fa-bed', 'subitems' => [['label' => 'Boarding Overview', 'url' => 'manage_boarding'], ['label' => 'Roll Call', 'url' => 'boarding_roll_call']]],
         ['label' => 'Transport', 'url' => null, 'icon' => 'fas fa-bus', 'subitems' => [['label' => 'Transport Overview', 'url' => 'manage_transport']]],
         ['label' => 'Activities', 'url' => null, 'icon' => 'fas fa-running', 'subitems' => [['label' => 'Manage Activities', 'url' => 'manage_activities'], ['label' => 'School Events', 'url' => 'school_events']]],
@@ -883,9 +874,10 @@ return [
             'subitems' => [
                 ['label' => 'My Timetable', 'url' => 'timetable'],                  // view personal teaching schedule
                 ['label' => 'My Class', 'url' => 'my_students_list'],           // if assigned a home class
-                ['label' => 'Mark Attendance', 'url' => 'mark_attendance'],            // daily class register
+                ['label' => 'Mark Class Attendance', 'url' => 'class_mark_attendance'],            // daily class register
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],        // CREATE own plans (not just review)
                 ['label' => 'Schemes of Work', 'url' => 'schemes_of_work'],            // plan the term
+                ['label' => 'Content Reconciliation', 'url' => 'academic_content_reconciliation'],
                 ['label' => 'Enter Assessment Marks', 'url' => 'formative_assessments'],      // grade own students
                 ['label' => 'Competency Ratings', 'url' => 'competencies_sheet'],         // CBC competency entries
             ]
@@ -957,8 +949,10 @@ return [
             'icon' => 'fas fa-file-alt',
             'subitems' => [
                 ['label' => 'Exam Setup', 'url' => 'exam_setup'],
+                ['label' => 'Draft Exam Timetable', 'url' => 'exam_timetable_drafts'],
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
                 ['label' => 'Grading Status', 'url' => 'grading_status'],             // track which teachers have graded
+                ['label' => 'Results Moderation', 'url' => 'exam_moderation'],
                 ['label' => 'View All Results', 'url' => 'view_results'],
                 ['label' => 'Results Analysis', 'url' => 'results_analysis'],
                 ['label' => 'Report Cards', 'url' => 'report_cards'],
@@ -1086,7 +1080,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-clipboard-check',
             'subitems' => [
-                ['label' => 'Mark Attendance', 'url' => 'mark_attendance'],            // daily task
+                ['label' => 'Mark Class Attendance', 'url' => 'class_mark_attendance'],            // daily task
                 ['label' => 'Attendance History', 'url' => 'class_attendance_history'],
                 ['label' => 'Absentees Today', 'url' => 'today_absentees'],
             ]
@@ -1103,14 +1097,13 @@ return [
             ]
         ],
 
-        // LESSON PLANS — Class teacher creates (Deputy reviews, HT approves)
+        // LESSON PLANS — one scoped workspace; creation is inside Manage Lesson Plans
         [
             'label' => 'Lesson Plans',
             'url' => null,
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Create Lesson Plan', 'url' => 'create_lesson_plan'],        // CREATE — key workflow step
                 ['label' => 'Schemes of Work', 'url' => 'my_schemes_of_work'],
             ]
         ],
@@ -1121,9 +1114,11 @@ return [
             'url' => null,
             'icon' => 'fas fa-tasks',
             'subitems' => [
-                ['label' => 'Create Assessment', 'url' => 'create_assessment'],
-                ['label' => 'CATs (Formative)', 'url' => 'my_cats'],
-                ['label' => 'Enter Marks', 'url' => 'enter_marks'],
+                // Creation and editing live inside one scoped formative workspace.
+                // Summative exams are created only by publishing the leadership timetable.
+                ['label' => 'Formative Assessments', 'url' => 'my_cats'],
+                ['label' => 'Enter Formative Scores', 'url' => 'enter_marks'],
+                ['label' => 'Summative Exam Scores', 'url' => 'enter_exam_results'],
                 ['label' => 'Class Results', 'url' => 'class_results'],
                 ['label' => 'CBC Competencies', 'url' => 'competencies_sheet'],
             ]
@@ -1135,7 +1130,6 @@ return [
             'icon' => 'fas fa-file-signature',
             'subitems' => [
                 ['label' => 'Exam Schedule', 'url' => 'exam_schedule'],
-                ['label' => 'Grade Entry', 'url' => 'grade_entry'],
             ]
         ],
 
@@ -1222,8 +1216,8 @@ return [
             'url' => null,
             'icon' => 'fas fa-users',
             'subitems' => [
-                ['label' => 'Student List', 'url' => 'subject_students_list'],
-                ['label' => 'By Class', 'url' => 'students_by_class'],
+                ['label' => 'Subject Student List', 'url' => 'subject_students_list'],
+                ['label' => 'Subject Students by Class', 'url' => 'students_by_class'],
                 ['label' => 'Performance Tracking', 'url' => 'student_subject_performance'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
             ]
@@ -1235,23 +1229,24 @@ return [
             'url' => null,
             'icon' => 'fas fa-clipboard-check',
             'subitems' => [
-                ['label' => 'Mark Attendance', 'url' => 'mark_attendance'],
-                ['label' => 'View History', 'url' => 'view_attendance'],
+                ['label' => 'Mark Class Attendance', 'url' => 'class_mark_attendance'],
+                ['label' => 'Attendance History', 'url' => 'view_attendance'],
             ]
         ],
 
         // TIMETABLE — view (deputy assigns, not subject teacher)
-        ['label' => 'Timetable', 'url' => 'timetable', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
+        ['label' => 'My Teaching Timetable', 'url' => 'timetable', 'icon' => 'fas fa-calendar-alt', 'subitems' => []],
 
-        // LESSON PLANS — subject teacher CREATES
+        // LESSON PLANS — one scoped workspace; creation is inside Manage Lesson Plans
         [
             'label' => 'Lesson Plans',
             'url' => null,
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'], // view own plans
-                ['label' => 'Create Lesson Plan', 'url' => 'create_lesson_plan'], //get strands for each learning area assigned
-                ['label' => 'Schemes of Work', 'url' => 'subject_schemes_of_work'],
+                // One shared teacher entry; the page resolves both
+                // class-teacher and subject-teacher scopes.
+                ['label' => 'Schemes of Work', 'url' => 'my_schemes_of_work'],
             ]
         ],
 
@@ -1261,10 +1256,9 @@ return [
             'url' => null,
             'icon' => 'fas fa-tasks',
             'subitems' => [
-                ['label' => 'Create CAT', 'url' => 'create_subject_cat'],
-                ['label' => 'My CATs', 'url' => 'my_subject_cats'],
-                ['label' => 'Grade Entry', 'url' => 'subject_grade_entry'],
-                ['label' => 'Grading Status', 'url' => 'subject_grading_status'],
+                ['label' => 'Formative Assessments', 'url' => 'my_cats'],
+                ['label' => 'Enter Formative Scores', 'url' => 'subject_grade_entry'],
+                ['label' => 'Subject Grading Status', 'url' => 'subject_grading_status'],
             ]
         ],
 
@@ -1274,8 +1268,8 @@ return [
             'icon' => 'fas fa-file-alt',
             'subitems' => [
                 ['label' => 'Exam Schedule', 'url' => 'subject_exam_schedule'],
-                ['label' => 'Enter Results', 'url' => 'enter_exam_results'],
-                ['label' => 'Results Summary', 'url' => 'subject_results_summary'],
+                ['label' => 'Enter Summative Scores', 'url' => 'enter_exam_results'],
+                ['label' => 'My Subject Results', 'url' => 'subject_results_summary'],
             ]
         ],
 
@@ -1348,7 +1342,6 @@ return [
             'icon' => 'fas fa-book',
             'subitems' => [
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],
-                ['label' => 'Create Plan', 'url' => 'create_lesson_plan'],
                 ['label' => 'Mentor Feedback', 'url' => 'mentor_feedback'],
             ]
         ],
@@ -2108,7 +2101,7 @@ return [
             'subitems' => [
                 ['label' => 'My Timetable', 'url' => 'timetable'],                  // personal teaching schedule
                 ['label' => 'My Class', 'url' => 'my_students_list'],           // if assigned a home class
-                ['label' => 'Mark Attendance', 'url' => 'mark_attendance'],            // daily class register
+                ['label' => 'Mark Class Attendance', 'url' => 'class_mark_attendance'],            // daily class register
                 ['label' => 'My Lesson Plans', 'url' => 'manage_lesson_plans'],        // create own plans
                 ['label' => 'Schemes of Work', 'url' => 'schemes_of_work'],
                 ['label' => 'Enter Assessment Marks', 'url' => 'formative_assessments'],      // grade own students

@@ -7,6 +7,7 @@ const academicReportsCtrl = (() => {
     let perfChart = null;
     let trendsChart = null;
     let gradeChart = null;
+    let contextReady = false;
 
     const state = {
         years: [],
@@ -80,7 +81,8 @@ const academicReportsCtrl = (() => {
     }
 
     async function loadTerms() {
-        const terms = await apiGet('academic/terms-list');
+        const yearId = document.getElementById('selectYear')?.value || '';
+        const terms = await apiGet('academic/terms-list', yearId ? { academic_year_id: yearId, year_id: yearId } : {});
         state.terms = Array.isArray(terms) ? terms : [];
         const sel = document.getElementById('selectTerm');
         if (!sel) return;
@@ -128,6 +130,12 @@ const academicReportsCtrl = (() => {
         }
     }
 
+    function responseRows(response, key = 'rows') {
+        const payload = response?.data ?? response ?? {};
+        if (Array.isArray(payload)) return payload;
+        return Array.isArray(payload[key]) ? payload[key] : [];
+    }
+
     function computeClassMetric(classInfo, students) {
         const scores = students
             .map((s) => (s.year_average != null ? Number(s.year_average) : null))
@@ -170,16 +178,73 @@ const academicReportsCtrl = (() => {
     }
 
     async function buildClassMetrics(selectedClassId = '') {
+        const reportType = document.getElementById('reportType')?.value || 'class';
         const classes = selectedClassId
             ? state.classes.filter((c) => Number(c.id) === Number(selectedClassId))
             : state.classes;
 
-        const metrics = await Promise.all(
-            classes.map(async (cls) => {
-                const students = await fetchStudentsByClass(cls.id);
-                return computeClassMetric(cls, students);
-            })
-        );
+        const yearId = document.getElementById('selectYear')?.value || state.currentAcademicYear || '';
+        const termId = document.getElementById('selectTerm')?.value || state.currentTerm || '';
+        const filters = { view_mode: reportType === 'student' ? 'students' : 'class', limit: 500 };
+        if (yearId) filters.year_id = yearId;
+        if (termId) filters.term_id = termId;
+        if (selectedClassId) filters.class_id = selectedClassId;
+
+        const [overviewResponse, analysisResponse] = await Promise.all([
+            apiGet('academic/performance-overview', filters),
+            apiGet('academic/results-analysis', filters)
+        ]);
+        const overviewRows = responseRows(overviewResponse);
+        const analysisPayload = analysisResponse?.data ?? analysisResponse ?? {};
+        const scoreRows = Array.isArray(analysisPayload.class_metrics) ? analysisPayload.class_metrics : [];
+        const subjectRows = Array.isArray(analysisPayload.subject_metrics) ? analysisPayload.subject_metrics : [];
+        if (reportType === 'subject') {
+            return subjectRows.map(row => ({
+                class_id: row.subject_id, class_name: row.subject_name, level_name: row.level_name || 'All levels',
+                student_count: Number(row.students_assessed || 0), stream_count: '—', scored_count: Number(row.students_assessed || 0),
+                average_score: row.avg_overall_pct == null ? null : Number(row.avg_overall_pct), pass_rate: row.pass_rate == null ? null : Number(row.pass_rate), top_score: null,
+                term1_avg: null, term2_avg: null, term3_avg: null,
+                grade_counts: { EE: Number(row.ee_count || 0), ME: Number(row.me_count || 0), AE: Number(row.ae_count || 0), BE: Number(row.be_count || 0) }
+            }));
+        }
+        if (reportType === 'student') {
+            return overviewRows.map(row => ({
+                class_id: row.student_id, class_name: row.admission_no || '—', student_name: row.full_name || row.student_name || 'Unnamed learner', admission_no: row.admission_no || '—',
+                level_name: row.class_name || '—', stream_name: row.stream_name || '—', student_count: 1, stream_count: row.stream_name || '—', scored_count: row.average_score != null ? 1 : 0,
+                average_score: row.average_score == null || Number(row.average_score) === 0 ? null : Number(row.average_score),
+                pass_rate: row.average_score == null ? null : (Number(row.average_score) >= 50 ? 100 : 0), top_score: null,
+                term1_avg: null, term2_avg: null, term3_avg: null,
+                grade_counts: { EE: row.grade === 'EE' ? 1 : 0, ME: row.grade === 'ME' ? 1 : 0, AE: row.grade === 'AE' ? 1 : 0, BE: row.grade === 'BE' ? 1 : 0 }
+            }));
+        }
+        const byClass = new Map(scoreRows.map(row => [String(row.class_id), row]));
+        const overviewByClass = new Map(overviewRows.map(row => [String(row.class_id), row]));
+
+        const metrics = classes.map((cls) => {
+            const overview = overviewByClass.get(String(cls.id)) || {};
+            const score = byClass.get(String(cls.id)) || {};
+            const average = score.average_overall != null ? Number(score.average_overall) : (overview.average_score ? Number(overview.average_score) : null);
+            const studentCount = Number(overview.total_students ?? overview.student_count ?? score.students_assessed ?? 0);
+            const scoredCount = Number(score.students_assessed ?? 0);
+            return {
+                class_id: cls.id,
+                class_name: cls.name,
+                level_name: cls.level_name || cls.level_code || '—',
+                student_count: studentCount,
+                stream_count: toNumber(cls.stream_count),
+                scored_count: scoredCount,
+                average_score: score.average_overall != null
+                    ? (Number.isFinite(average) ? average : null)
+                    : (overview.average_score != null && Number(overview.average_score) !== 0 ? Number(overview.average_score) : null),
+                pass_rate: score.pass_rate != null ? Number(score.pass_rate) : null,
+                top_score: null,
+                term1_avg: null, term2_avg: null, term3_avg: null,
+                grade_counts: {
+                    EE: Number(score.ee_count || 0), ME: Number(score.me_count || 0),
+                    AE: Number(score.ae_count || 0), BE: Number(score.be_count || 0)
+                }
+            };
+        });
 
         state.classMetrics = metrics;
         return metrics;
@@ -220,16 +285,28 @@ const academicReportsCtrl = (() => {
     function renderDetailedTable(metrics) {
         const tbody = document.getElementById('detailedTbody');
         if (!tbody) return;
+        const reportType = document.getElementById('reportType')?.value || 'class';
+        const thead = document.querySelector('#detailedTable thead');
+        if (thead) {
+            thead.innerHTML = reportType === 'student'
+                ? '<tr><th>Student Name</th><th>Adm No.</th><th>Class</th><th>Stream</th><th>Avg %</th><th>EE</th><th>ME</th><th>AE</th><th>BE</th><th>Pass Rate</th></tr>'
+                : reportType === 'subject'
+                    ? '<tr><th>Learning Area</th><th>Level</th><th>Students Assessed</th><th>Avg %</th><th>EE</th><th>ME</th><th>AE</th><th>BE</th><th>Pass Rate</th></tr>'
+                    : '<tr><th>Class</th><th>Level</th><th>Students</th><th>Streams</th><th>Avg %</th><th>EE</th><th>ME</th><th>AE</th><th>BE</th><th>Pass Rate</th></tr>';
+        }
         if (!metrics.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="ar-empty"><i class="bi bi-table"></i>No class data available</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${reportType === 'subject' ? 9 : 10}" class="ar-empty"><i class="bi bi-table"></i>No report data available</td></tr>`;
             return;
         }
-
         tbody.innerHTML = metrics.map((m) => {
             const avg = m.average_score != null ? `${m.average_score.toFixed(1)}%` : '—';
             const pass = m.pass_rate != null ? `${m.pass_rate.toFixed(1)}%` : '—';
             const top = m.top_score != null ? `${m.top_score.toFixed(1)}%` : '—';
             const scoreHealth = m.scored_count > 0 ? `${m.scored_count}/${m.student_count}` : '0';
+            if (reportType === 'student') return `
+                <tr><td><strong>${m.student_name || '—'}</strong></td><td>${m.admission_no || '—'}</td><td>${m.level_name || '—'}</td><td>${m.stream_name || m.stream_count || '—'}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
+            if (reportType === 'subject') return `
+                <tr><td><strong>${m.class_name}</strong></td><td>${m.level_name}</td><td>${m.student_count}</td><td>${avg}</td><td>${m.grade_counts.EE || '—'}</td><td>${m.grade_counts.ME || '—'}</td><td>${m.grade_counts.AE || '—'}</td><td>${m.grade_counts.BE || '—'}</td><td>${pass}</td></tr>`;
             return `
                 <tr>
                     <td><strong>${m.class_name}</strong></td>
@@ -237,11 +314,11 @@ const academicReportsCtrl = (() => {
                     <td>${m.student_count}</td>
                     <td>${m.stream_count}</td>
                     <td>${avg}</td>
+                    <td>${m.grade_counts.EE || '—'}</td>
+                    <td>${m.grade_counts.ME || '—'}</td>
+                    <td>${m.grade_counts.AE || '—'}</td>
+                    <td>${m.grade_counts.BE || '—'}</td>
                     <td>${pass}</td>
-                    <td>${top}</td>
-                    <td>${scoreHealth}</td>
-                    <td>${m.term1_avg != null ? `${m.term1_avg.toFixed(1)}%` : '—'}</td>
-                    <td>${m.term3_avg != null ? `${m.term3_avg.toFixed(1)}%` : '—'}</td>
                 </tr>
             `;
         }).join('');
@@ -366,6 +443,7 @@ const academicReportsCtrl = (() => {
     async function generateReport() {
         try {
             const classId = document.getElementById('selectClass')?.value || '';
+            const reportType = document.getElementById('reportType')?.value || 'class';
             const metrics = await buildClassMetrics(classId);
             updateKpis(metrics);
             renderDetailedTable(metrics);
@@ -437,9 +515,9 @@ const academicReportsCtrl = (() => {
             window.AcademicContext.subscribe((context, event, data) => {
                 if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
                     // Reload years, terms, and report when academic year or term changes
-                    loadYears();
-                    loadTerms();
-                    generateReport();
+                    if (contextReady) {
+                        loadYears().then(loadTerms).then(generateReport);
+                    }
                 }
             });
             
@@ -454,8 +532,17 @@ const academicReportsCtrl = (() => {
         }
         
         try {
-            await Promise.all([loadYears(), loadTerms(), loadClasses(), loadLearningAreas()]);
+            await loadYears();
+            await Promise.all([loadTerms(), loadClasses(), loadLearningAreas()]);
+            document.getElementById('selectYear')?.addEventListener('change', async () => {
+                await loadTerms();
+                await generateReport();
+            });
+            document.getElementById('selectTerm')?.addEventListener('change', generateReport);
+            document.getElementById('selectClass')?.addEventListener('change', generateReport);
+            document.getElementById('reportType')?.addEventListener('change', generateReport);
             await generateReport();
+            contextReady = true;
         } catch (error) {
             toast(`Failed to initialise: ${error.message}`, 'danger');
         }

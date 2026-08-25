@@ -23,31 +23,38 @@ if ($appBase === '.') $appBase = '';
     <div class="card-body clp-form">
       <form id="lessonPlanForm">
         <div class="row g-3">
-          <div class="col-md-6"><label>Topic *</label><input type="text" name="topic" id="lpTopic" required></div>
+          <div class="col-12"><label>Approved Scheme Row *</label><select id="lpScheme" required><option value="">Loading approved scheme rows…</option></select><div id="lpSchemeHint" class="form-text">Choose the week and planned scheme row first. The lesson date must fall within that week.</div></div>
+          <div class="col-md-6"><label>Lesson Focus *</label><input type="text" name="topic" id="lpTopic" required></div>
           <div class="col-md-6"><label>Subtopic</label><input type="text" name="subtopic" id="lpSubtopic"></div>
           <div class="col-md-4">
-            <label>Subject (Learning Area) *</label>
-            <select name="learning_area_id" id="lpLearningArea" required><option value="">Select Subject</option></select>
+            <label>Learning Area</label>
+            <select name="learning_area_id" id="lpLearningArea" required disabled><option value="">Select a scheme row</option></select>
           </div>
           <div class="col-md-4">
-            <label>Curriculum Unit *</label>
-            <select name="unit_id" id="lpUnit" required><option value="">Select Unit</option></select>
+            <label>Strand / Sub-strand</label>
+            <select name="unit_id" id="lpUnit" required disabled><option value="">Select a scheme row</option></select>
           </div>
-          <div class="col-md-4">
-            <label>Class *</label>
-            <select name="class_id" id="lpClass" required><option value="">Select Class</option></select>
+          <div class="col-md-4" id="lpClassField">
+            <label>Class / Stream</label>
+            <select name="stream_id" id="lpStream" required disabled><option value="">Select a scheme row</option></select>
+            <input type="hidden" name="class_id" id="lpClass">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4" id="lpTeacherField">
             <label>Teacher *</label>
             <select name="teacher_id" id="lpTeacher" required><option value="">Select Teacher</option></select>
           </div>
           <div class="col-md-4"><label>Lesson Date *</label><input type="date" name="lesson_date" id="lpDate" required></div>
           <div class="col-md-4"><label>Duration (minutes) *</label><input type="number" name="duration" id="lpDuration" value="40" min="1" required></div>
-          <div class="col-12"><label>Objectives *</label><textarea name="objectives" id="lpObjectives" rows="2" required></textarea></div>
-          <div class="col-12"><label>Activities *</label><textarea name="activities" id="lpActivities" rows="3" required></textarea></div>
-          <div class="col-md-6"><label>Resources / Teaching Aids</label><textarea name="resources" id="lpResources" rows="2"></textarea></div>
-          <div class="col-md-6"><label>Assessment</label><textarea name="assessment" id="lpAssessment" rows="2"></textarea></div>
-          <div class="col-12"><label>Homework</label><textarea name="homework" id="lpHomework" rows="2"></textarea></div>
+          <div class="col-12"><label>Specific learning outcomes *</label><div id="lpOutcomes" class="border rounded p-2 bg-light"><span class="text-muted small">Select an approved scheme row first.</span></div></div>
+          <div class="col-12"><label>Learning experiences *</label><div id="lpExperiences" class="border rounded p-2 bg-light"><span class="text-muted small">Select an approved scheme row first.</span></div></div>
+          <div class="col-12"><label>Lesson activities *</label><div id="lpActivities" class="border rounded p-2 bg-light"><span class="text-muted small">Add the concrete activities delivered in this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddActivity"><i class="bi bi-plus"></i> Add activity</button></div>
+          <div class="col-md-6"><label>Resources / Teaching Aids</label><div id="lpResources" class="border rounded p-2 bg-light"><span class="text-muted small">No resources configured for this sub-strand yet.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddResource"><i class="bi bi-plus"></i> Add resource</button></div>
+          <div class="col-md-6"><label>Assessment tools</label><div id="lpAssessmentTools" class="border rounded p-2 bg-light"><span class="text-muted small">Assessment tools configured for this learning area will appear here.</span></div></div>
+          <div class="col-md-6"><label>Assessment rubric criteria</label><div id="lpAssessmentRubrics" class="border rounded p-2 bg-light"><span class="text-muted small">Select an assessment tool first.</span></div></div>
+          <div class="col-md-6"><label>Core competencies</label><div id="lpCompetencies" class="border rounded p-2 bg-light"></div></div>
+          <div class="col-md-6"><label>Rubric criteria / levels</label><div id="lpRubrics" class="border rounded p-2 bg-light"></div></div>
+          <div class="col-12"><label>Key inquiry questions</label><div id="lpQuestions" class="border rounded p-2 bg-light"></div></div>
+          <div class="col-12"><label>Expected coverage</label><div id="lpCoverage" class="border rounded p-2 bg-light"><span class="text-muted small">Add the atomic coverage items expected from this lesson.</span></div><button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="lpAddCoverage"><i class="bi bi-plus"></i> Add coverage item</button></div>
         </div>
         <div class="mt-4 d-flex gap-2">
           <button type="button" class="btn btn-outline-primary" onclick="createLessonPlanController.save('draft')"><i class="bi bi-save me-1"></i>Save as Draft</button>

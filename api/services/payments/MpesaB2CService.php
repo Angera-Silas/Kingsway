@@ -81,13 +81,27 @@ class MpesaB2CService
             $commandId = $data['command_id'] ?? 'BusinessPayment';
             $remarks = $data['remarks'] ?? 'Payment';
             $occasion = $data['occasion'] ?? '';
+            $originatorId = trim((string) ($data['originator_conversation_id'] ?? ''));
+            if ($originatorId === '') {
+                $originatorId = 'KWA' . date('ymdHis') . strtoupper(bin2hex(random_bytes(3)));
+            }
+            $originatorId = substr(preg_replace('/[^A-Za-z0-9_-]/', '', $originatorId), 0, 20);
+            $partyA = $this->client->getShortcode();
+            $sourceAccountId = (int)($data['source_financial_account_id'] ?? $data['source_account_id'] ?? 0);
+            if ($sourceAccountId > 0) {
+                $source = $this->getDb()->prepare("SELECT account_identifier,provider_id FROM school_financial_accounts WHERE id=? AND status='active' LIMIT 1");
+                $source->execute([$sourceAccountId]); $sourceRow = $source->fetch(PDO::FETCH_ASSOC);
+                if (!$sourceRow || trim((string)$sourceRow['account_identifier']) === '') throw new Exception('Selected M-Pesa source account is inactive or has no identifier.');
+                $partyA = trim((string)$sourceRow['account_identifier']);
+            }
 
             $payload = [
+                'OriginatorConversationID' => $originatorId,
                 'InitiatorName'     => $this->client->getInitiatorName(),
                 'SecurityCredential' => $this->client->securityCredential(),
                 'CommandID'         => $commandId,
                 'Amount'            => (int) $amount,
-                'PartyA'            => $this->client->getShortcode(),
+                'PartyA'            => $partyA,
                 'PartyB'            => $phone,
                 'Remarks'           => $remarks,
                 'QueueTimeOutURL'   => $this->callbackUrl('/api/payments/mpesa-b2c-timeout'),
@@ -95,7 +109,7 @@ class MpesaB2CService
                 'Occasion'          => $occasion,
             ];
 
-            $response = $this->client->post('/mpesa/b2c/v1/paymentrequest', $payload);
+            $response = $this->client->post('/mpesa/b2c/v3/paymentrequest', $payload);
 
             $originatorId = $response['OriginatorConversationID'] ?? null;
             $conversationId = $response['ConversationID'] ?? null;
@@ -104,6 +118,21 @@ class MpesaB2CService
             $this->recordDisbursement($data, $phone, $amount, $commandId, $originatorId, $conversationId, $payload, $response);
 
             if ($responseCode !== '0') {
+                // The request was persisted before checking the provider
+                // acknowledgement so callbacks can always correlate it. If
+                // Daraja rejects it immediately, it must not remain pending
+                // or look like money is still in flight.
+                $description = (string)($response['ResponseDescription'] ?? $response['errorMessage'] ?? 'B2C request rejected by provider');
+                $this->getDb()->prepare(
+                    "UPDATE disbursement_transactions
+                     SET status='failed', result_description=?, callback_data=?, failed_at=NOW()
+                     WHERE originator_conversation_id=? OR conversation_id=?"
+                )->execute([$description, json_encode($response), $originatorId, $conversationId]);
+                $this->getDb()->prepare(
+                    "UPDATE mpesa_transactions
+                     SET status='failed', webhook_data=?
+                     WHERE mpesa_code=?"
+                )->execute([json_encode($response), 'B2C-' . ($originatorId ?: '')]);
                 throw new Exception($response['ResponseDescription'] ?? 'B2C request failed');
             }
 
@@ -112,6 +141,10 @@ class MpesaB2CService
                 'message' => 'Payment request sent successfully',
                 'transaction_ref' => $conversationId,
                 'originator_conversation_id' => $originatorId,
+                'callback_urls' => [
+                    'queue_timeout_url' => $payload['QueueTimeOutURL'],
+                    'result_url' => $payload['ResultURL'],
+                ],
                 'response' => $response,
             ];
         } catch (Exception $e) {
@@ -210,6 +243,10 @@ class MpesaB2CService
         $base = defined('MPESA_CALLBACK_BASE_URL') && MPESA_CALLBACK_BASE_URL !== ''
             ? MPESA_CALLBACK_BASE_URL
             : (defined('BASE_URL') ? BASE_URL : '');
-        return $base !== '' ? $base . $endpoint : $endpoint;
+        $url = $base !== '' ? $base . $endpoint : $endpoint;
+        if (!preg_match('#^https://#i', $url)) {
+            throw new Exception('M-Pesa B2C callback URLs must use HTTPS and be publicly reachable.');
+        }
+        return $url;
     }
 }

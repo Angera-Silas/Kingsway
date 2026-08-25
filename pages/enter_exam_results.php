@@ -1,108 +1,89 @@
 <?php
-/**
- * Enter Exam Results - School Admin Exam Results Entry
- * Role: School Administrator (4)
- * Purpose: Enter exam results for all students
- * Full access to all classes and subjects for exam results entry
- */
+/** Assigned-teacher entry for published, school-based summative examinations. */
 ?>
-<div class="container-fluid py-4">
-    <div class="row">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="bi bi-pencil-square me-2"></i>Enter Exam Results
-                    </h5>
-                    <small class="text-muted">Enter exam results for all students</small>
-                </div>
-                <div class="card-body">
-                    <div id="resultsLoading" class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <p class="mt-2 text-muted">Loading exam data...</p>
-                    </div>
-                    <div id="resultsContent" style="display: none;">
-                        <div class="row mb-3">
-                            <div class="col-md-3">
-                                <label class="form-label">Exam</label>
-                                <select id="examFilter" class="form-select" data-permission="assessments_view">
-                                    <option value="">Select Exam</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Class</label>
-                                <select id="classFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Classes</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Subject</label>
-                                <select id="subjectFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Subjects</option>
-                                </select>
-                            </div>
-                            <div class="col-md-3">
-                                <label class="form-label">Academic Year</label>
-                                <select id="yearFilter" class="form-select" data-permission="academic_view">
-                                    <option value="">All Years</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div id="examInfo" class="alert alert-info mb-3" style="display: none;">
-                            <strong>Exam:</strong> <span id="examName"></span><br>
-                            <strong>Subject:</strong> <span id="examSubject"></span><br>
-                            <strong>Type:</strong> <span id="examType"></span><br>
-                            <strong>Max Marks:</strong> <span id="examMaxMarks"></span><br>
-                            <strong>Date:</strong> <span id="examDate"></span>
-                        </div>
+<div class="container-fluid py-4" id="examResultsPage">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h4 mb-1"><i class="bi bi-journal-check me-2"></i>Summative Exam Scores</h2>
+            <p class="text-muted mb-0">Record the complete class register, then submit it to academic leadership for moderation.</p>
+        </div>
+        <span class="badge bg-light text-dark border" id="examAcademicContext">Current academic context</span>
+    </div>
 
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <div class="d-flex gap-2">
-                                <button id="saveAllBtn" class="btn btn-primary" data-permission="assessments_edit">
-                                    <i class="bi bi-save me-1"></i>Save All Results
-                                </button>
-                                <button id="autoCalculateBtn" class="btn btn-outline-secondary">
-                                    <i class="bi bi-calculator me-1"></i>Auto Calculate
-                                </button>
-                                <button id="exportBtn" class="btn btn-outline-success" data-permission="assessments_export">
-                                    <i class="bi bi-download me-1"></i>Export
-                                </button>
-                            </div>
-                            <div id="statsContainer" class="d-flex gap-3">
-                                <span class="badge bg-primary">Students: <span id="totalStudents">0</span></span>
-                                <span class="badge bg-success">Results Entered: <span id="enteredStudents">0</span></span>
-                                <span class="badge bg-warning">Pending: <span id="pendingStudents">0</span></span>
-                            </div>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table table-bordered" id="resultsTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 50px;">#</th>
-                                        <th scope="col">Adm No</th>
-                                        <th scope="col">Student Name</th>
-                                        <th scope="col">Class</th>
-                                        <th style="width: 120px;">Marks</th>
-                                        <th style="width: 120px;">Grade</th>
-                                        <th style="width: 100px;">Remarks</th>
-                                        <th style="width: 150px;">Last Updated</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="resultsTableBody">
-                                    <tr>
-                                        <td colspan="8" class="text-center text-muted py-4">
-                                            Select an exam to enter results
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-lg-4">
+                    <label class="form-label" for="examFilter">Published examination paper</label>
+                    <select id="examFilter" class="form-select">
+                        <option value="">Select an examination paper</option>
+                    </select>
                 </div>
+                <div class="col-md-4 col-lg-3">
+                    <label class="form-label" for="classFilter">Class / stream</label>
+                    <select id="classFilter" class="form-select"><option value="">All assigned classes</option></select>
+                </div>
+                <div class="col-md-4 col-lg-3">
+                    <label class="form-label" for="subjectFilter">Learning area</label>
+                    <select id="subjectFilter" class="form-select"><option value="">All assigned learning areas</option></select>
+                </div>
+                <div class="col-md-4 col-lg-2 d-flex align-items-end">
+                    <button id="refreshExamsBtn" class="btn btn-outline-secondary w-100" type="button">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="examEmptyState" class="alert alert-info">
+        Select a published examination paper. Only a teacher assigned to its class stream and learning area can enter scores.
+    </div>
+
+    <div id="examEntryWorkspace" class="d-none">
+        <div class="card mb-3">
+            <div class="card-body d-flex flex-wrap justify-content-between gap-3">
+                <div>
+                    <h3 class="h5 mb-1" id="examName">—</h3>
+                    <div class="text-muted" id="examDetails">—</div>
+                </div>
+                <div class="text-end">
+                    <span id="assessmentStatus" class="badge bg-secondary">—</span>
+                    <div class="small text-muted mt-1" id="entryProgress">0 of 0 complete</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="resultLifecycleMessage" class="alert d-none" role="alert"></div>
+
+        <div class="card">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <strong>Learner score register</strong>
+                <div class="d-flex gap-2">
+                    <button id="saveDraftBtn" class="btn btn-outline-primary" type="button">
+                        <i class="bi bi-save me-1"></i>Save draft
+                    </button>
+                    <button id="submitResultsBtn" class="btn btn-primary" type="button">
+                        <i class="bi bi-send-check me-1"></i>Submit for moderation
+                    </button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Admission no.</th>
+                            <th>Learner</th>
+                            <th style="min-width:140px">Exam status</th>
+                            <th style="min-width:120px">Marks</th>
+                            <th>Grade</th>
+                            <th style="min-width:190px">Teacher remark</th>
+                            <th>Moderation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsTableBody"></tbody>
+                </table>
             </div>
         </div>
     </div>

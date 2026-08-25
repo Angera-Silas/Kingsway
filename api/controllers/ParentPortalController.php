@@ -191,6 +191,13 @@ class ParentPortalController extends BaseController
         return $this->handleApiResponse($this->parent->getStudentReportCard((int)$id));
     }
 
+    /** GET /api/parent-portal/student-learning-plan/{id} */
+    public function getStudentLearningPlan($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        return $this->handleApiResponse($this->parent->getStudentLearningPlan((int)$id));
+    }
+
     /**
      * GET /api/parent-portal/messages/{studentId?}
      */

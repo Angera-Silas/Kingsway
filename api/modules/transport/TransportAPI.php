@@ -57,6 +57,7 @@ class TransportAPI extends BaseAPI
                 $routeStmt->execute([(int) $userId]);
                 $routeId = (int) $routeStmt->fetchColumn();
             }
+            if ($routeId <= 0) throw new \InvalidArgumentException('A route is required before transport attendance can be marked.');
 
             $tripSession = $data['trip_session'] ?? 'morning_pickup';
             $validSessions = ['morning_pickup', 'evening_dropoff', 'midday_trip', 'special_trip'];
@@ -80,16 +81,28 @@ class TransportAPI extends BaseAPI
                  ON DUPLICATE KEY UPDATE route_id = VALUES(route_id), status = VALUES(status),
                      marked_time = CURTIME(), marked_by = VALUES(marked_by)"
             );
+            $eligible = $this->db->prepare("SELECT COUNT(*) FROM student_transport_assignments WHERE student_id=? AND route_id=? AND status IN ('active','suspended')");
             $recorded = 0;
             foreach ($presentIds as $studentId) {
+                $eligible->execute([(int)$studentId, $routeId]);
+                if (!(int)$eligible->fetchColumn()) throw new \InvalidArgumentException('One or more selected learners are not active passengers on this route.');
                 $stmt->execute([(int) $studentId, $routeId, $date, $tripSession, $status, (int) $userId]);
                 $recorded++;
             }
             return $this->successResponse(['recorded' => $recorded, 'date' => $date]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (Exception $e) {
             $this->logError($e, 'TransportAPI::recordStudentAttendance');
             return $this->errorResponse('An internal error occurred.', 500);
         }
+    }
+
+    public function userHasAssignedRoute(int $userId, int $routeId): bool
+    {
+        $stmt = $this->db->prepare("SELECT 1 FROM users u JOIN staff s ON s.person_id=u.person_id JOIN transport_vehicles v ON v.driver_id=s.id JOIN transport_vehicle_routes tvr ON tvr.vehicle_id=v.id AND tvr.status='active' WHERE u.id=? AND tvr.route_id=? AND s.status IN ('active','on_leave') LIMIT 1");
+        $stmt->execute([$userId, $routeId]);
+        return (bool)$stmt->fetchColumn();
     }
 
     protected $driverManager;
@@ -149,6 +162,7 @@ class TransportAPI extends BaseAPI
     {
         return $this->getAllVehicles();
     }
+
 
     // Get all drivers (alias for getAllDrivers)
     public function getDrivers($data = [])
@@ -312,6 +326,11 @@ class TransportAPI extends BaseAPI
     public function getRouteManifest($routeId, $month, $year)
     {
         return $this->statusManager->getRouteManifest($routeId, $month, $year);
+    }
+
+    public function getDriverManifest(int $userId, string $date, string $tripSession): array
+    {
+        return $this->statusManager->getDriverManifest($userId, $date, $tripSession);
     }
     public function getStudentSummary($studentId)
     {

@@ -612,22 +612,21 @@ class SchoolAdminAnalyticsService
                 ];
             }
 
-            // Unmarked attendance today
-            $activeStudents = $this->getActiveStudentsStats()['total_students'];
-            $attendanceQuery = "SELECT COUNT(DISTINCT student_academic_enrollment_id) as marked FROM student_attendance WHERE date = CURDATE()";
+            // Attendance is register/session scoped.  A global student-minus-marked
+            // count incorrectly treats one session as the whole school day.
+            $attendanceQuery = "SELECT COUNT(*) FROM attendance_registers
+                                 WHERE register_date <= CURDATE() AND status IN ('overdue','not_marked')";
             $stmt = $this->db->query($attendanceQuery);
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            $marked = (int) ($result['marked'] ?? 0);
-            $unmarked = $activeStudents - $marked;
-            if ($unmarked > 0) {
+            $overdueRegisters = (int) $stmt->fetchColumn();
+            if ($overdueRegisters > 0) {
                 $items[] = [
                     'type' => 'Attendance',
                     'icon' => 'bi bi-clipboard-check',
-                    'description' => 'Students Attendance Not Marked',
-                    'count' => $unmarked,
-                    'priority' => $unmarked > ($activeStudents / 2) ? 'high' : 'medium',
-                    'action_url' => 'mark_attendance',
-                    'action_label' => 'Mark Now'
+                    'description' => 'Attendance Registers Requiring Attention',
+                    'count' => $overdueRegisters,
+                    'priority' => 'high',
+                    'action_url' => 'view_attendance',
+                    'action_label' => 'Review'
                 ];
             }
 

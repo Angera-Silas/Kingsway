@@ -66,19 +66,7 @@
             </div>
         </div>
 
-        <!-- Academic Year/Term Selector -->
-        <div class="row mb-3">
-            <div class="col-md-6">
-                <select id="academicYearSelect" class="form-select">
-                    <option value="">Select Academic Year</option>
-                </select>
-            </div>
-            <div class="col-md-6">
-                <select id="termSelect" class="form-select">
-                    <option value="">Select Term</option>
-                </select>
-            </div>
-        </div>
+        <div class="alert alert-light border mb-3" id="currentPlanningContext"><i class="bi bi-calendar2-check text-success me-2"></i>Loading current academic year and term…</div>
 
         <!-- Schemes Table -->
         <div class="table-responsive">
@@ -87,8 +75,9 @@
                     <tr>
                         <th scope="col">#</th>
                         <th scope="col">Subject</th>
-                        <th scope="col">Class</th>
-                        <th scope="col">Term</th>
+                        <th scope="col">Class / Stream</th>
+                        <th scope="col">Planned Weeks</th>
+                        <th scope="col">Planned Coverage</th>
                         <th scope="col">Status</th>
                         <th scope="col">Progress</th>
                         <th scope="col">Last Updated</th>
@@ -97,7 +86,7 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td colspan="8" class="text-center py-4">
+                        <td colspan="9" class="text-center py-4">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
@@ -108,6 +97,21 @@
             </table>
         </div>
     </div>
+</div>
+
+<div class="modal fade" id="teacherSchemeBuilder" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen-xl-down modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header bg-success text-white"><div><h5 class="modal-title mb-1"><i class="bi bi-calendar-week me-2"></i>Term Scheme Workspace</h5><small>Week is the planning base. Add multiple strands and sub-strands inside every week.</small></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="alert alert-light border small"><i class="bi bi-info-circle text-success me-1"></i>Academic year, current term and calendar weeks are supplied automatically. Select your authorised stream and learning area once, then complete any number of weeks. You can save and resume before submitting.</div>
+      <form id="teacherSchemeForm"><div class="row g-3 mb-3">
+        <div class="col-md-5"><label class="form-label">Class / Stream</label><select id="tsStream" class="form-select" required><option value="">Select stream</option></select></div>
+        <div class="col-md-5"><label class="form-label">Learning Area</label><select id="tsArea" class="form-select" required><option value="">Select learning area</option></select></div>
+        <div class="col-md-2"><label class="form-label">Draft title</label><input id="tsTitle" class="form-control" placeholder="Term plan"></div>
+      </div></form>
+      <div id="tsWeeks" class="d-grid gap-3"><div class="alert alert-secondary">Select a stream and learning area to load the term weeks.</div></div>
+    </div><div class="modal-footer"><span id="tsSaveStatus" class="small text-muted me-auto"></span><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button><button class="btn btn-outline-success" id="saveTeacherScheme"><i class="bi bi-save me-1"></i>Save progress</button><button class="btn btn-success" id="submitTeacherScheme"><i class="bi bi-send me-1"></i>Submit completed scheme</button></div>
+  </div></div>
 </div>
 
 <?php asset_script($appBase, 'js/pages/my_schemes_of_work.js'); ?>

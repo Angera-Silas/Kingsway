@@ -663,16 +663,12 @@ class StudentsAPI extends BaseAPI
 
         if ($academicYearId !== null) {
             $stmt = $this->db->prepare("
-                SELECT DISTINCT ayc.class_id, aycs.id AS stream_id
-                FROM academic_year_class_learning_area_teachers la_teachers
-                JOIN academic_year_class_learning_areas la 
-                    ON la.id = la_teachers.academic_year_class_learning_area_id
-                JOIN academic_year_classes ayc 
-                    ON ayc.id = la.academic_year_class_id
-                LEFT JOIN academic_year_class_streams aycs 
-                    ON aycs.academic_year_class_id = ayc.id
-                WHERE la_teachers.staff_id = ?
-                  AND ayc.academic_year_id = ?
+                SELECT DISTINCT ayc.class_id, v.academic_year_class_stream_id AS stream_id
+                FROM vw_teacher_effective_stream_learning_areas v
+                JOIN academic_year_class_streams aycs ON aycs.id = v.academic_year_class_stream_id
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                WHERE v.staff_id = ?
+                  AND v.academic_year_id = ?
             ");
             $stmt->execute([$staffId, $academicYearId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -693,7 +689,12 @@ class StudentsAPI extends BaseAPI
                 FROM academic_year_class_streams aycs
                 JOIN streams sm ON sm.id = aycs.stream_id
                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
-                WHERE aycs.class_teacher_id = ?
+                WHERE EXISTS (
+                    SELECT 1 FROM vw_teacher_effective_stream_learning_areas tscope
+                    WHERE tscope.staff_id = ?
+                      AND tscope.academic_year_class_stream_id = aycs.id
+                      AND tscope.scope_type = 'class_teacher'
+                )
                   AND aycs.status = 'active'
             ");
             $streamStmt->execute([$staffId]);
@@ -1259,8 +1260,28 @@ class StudentsAPI extends BaseAPI
             return 0;
         }
 
-        $isSponsored = !empty($sponsorship['is_sponsored']);
+        // Annual award overrides the legacy student-level sponsorship flag for
+        // this academic year.  The award is deliberately resolved here so
+        // newly generated obligations receive the same treatment as existing
+        // obligations immediately.
+        $awardStmt = $this->db->prepare(
+            "SELECT coverage_type, coverage_percentage, coverage_amount
+             FROM student_scholarship_awards
+             WHERE student_id=? AND academic_year_id=? AND status='active'
+               AND (starts_on IS NULL OR starts_on <= CURDATE())
+               AND (ends_on IS NULL OR ends_on >= CURDATE())
+             LIMIT 1"
+        );
+        $awardStmt->execute([$studentId, $academicYearId]);
+        $annualAward = $awardStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $isSponsored = !empty($sponsorship['is_sponsored']) || !empty($annualAward);
         $waiverPercent = (float) ($sponsorship['sponsor_waiver_percentage'] ?? 0);
+        $fixedAwardAmount = 0.0;
+        if ($annualAward) {
+            if ($annualAward['coverage_type'] === 'full') $waiverPercent = 100.0;
+            if ($annualAward['coverage_type'] === 'percentage') $waiverPercent = (float)$annualAward['coverage_percentage'];
+            if ($annualAward['coverage_type'] === 'fixed_amount') $fixedAwardAmount = (float)$annualAward['coverage_amount'];
+        }
         if ($waiverPercent > 0) {
             $isSponsored = true;
         }
@@ -1287,7 +1308,7 @@ class StudentsAPI extends BaseAPI
             $amountDue = (float) $row['amount'];
             $waivedAmount = $isSponsored && $waiverPercent > 0
                 ? round($amountDue * ($waiverPercent / 100), 2)
-                : 0.0;
+                : ($isSponsored && $fixedAwardAmount > 0 ? $fixedAwardAmount : 0.0);
             $waivedAmount = min($waivedAmount, $amountDue);
             $netBalance = max(0, $amountDue - $waivedAmount);
             $status = $netBalance <= 0 ? 'paid' : 'pending';

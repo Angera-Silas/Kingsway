@@ -117,15 +117,26 @@ class SchedulesWorkflow extends WorkflowHandler
                 if ($learningAreaId <= 0) {
                     throw new \Exception('Invalid subject_id in timetable entry');
                 }
+                $streamLearningAreaId = (int)$this->db->query(
+                    "SELECT sla.id
+                     FROM academic_year_class_stream_learning_areas sla
+                     JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id
+                     WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? LIMIT 1",
+                    [$classStreamId, $learningAreaId]
+                )->fetchColumn();
+                if ($streamLearningAreaId <= 0) {
+                    throw new \Exception('Learning area is not configured for the selected class stream');
+                }
                 $timeSlotId = $this->resolveTimeSlotId($entry['time_slot_id'] ?? null, $entry['start_time'] ?? null, $entry['end_time'] ?? null);
                 if ($timeSlotId === null) {
                     throw new \Exception('No time slot matches the entry start/end time');
                 }
                 $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-                $stmt = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (:id, :aycs, :term, :day, :ts, :la, :teacher, 'scheduled')");
+                $stmt = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (:id, :aycs, :stream_la, :term, :day, :ts, :la, :teacher, 'scheduled')");
                 $stmt->execute([
                     'id' => $entryId,
                     'aycs' => $classStreamId,
+                    'stream_la' => $streamLearningAreaId,
                     'term' => $termId,
                     'day' => $dayNum,
                     'ts' => $timeSlotId,

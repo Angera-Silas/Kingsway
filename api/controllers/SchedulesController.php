@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\schedules\SchedulesAPI;
+use App\API\Services\TeacherScopeService;
 use Exception;
 
 /**
@@ -28,6 +29,88 @@ class SchedulesController extends BaseController
             return $this->unauthorized('Authentication required');
         }
         return null;
+    }
+
+    /** Exam drafts are an academic-leadership workspace, not a teacher workspace. */
+    private function guardExamTimetable(bool $publishing = false): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        $allowedRoleIds = $publishing ? [1, 4] : [1, 4, 5, 6];
+        $allowedRoleNames = $publishing
+            ? ['system administrator', 'school administrator']
+            : ['system administrator', 'school administrator', 'headteacher', 'deputy head - academic'];
+        if (!$this->userHasAny([], $allowedRoleIds, $allowedRoleNames)) {
+            return $this->forbidden(
+                $publishing
+                    ? 'Only the school administrator can publish an approved exam timetable'
+                    : 'Exam timetable drafts are restricted to academic leadership'
+            );
+        }
+        return null;
+    }
+
+    private function currentUserId(): int
+    {
+        return (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+    }
+
+    /** Resolve the primary role from the normalized login response. */
+    private function currentRole(): string
+    {
+        $role = $this->user['role_name'] ?? $this->user['role'] ?? '';
+        $roles = !empty($this->user['roles']) && is_array($this->user['roles']) ? $this->user['roles'] : [];
+        $names = [];
+        foreach ($roles as $candidate) {
+            if (is_array($candidate)) $names[] = $candidate['name'] ?? $candidate['role_name'] ?? '';
+            elseif (is_object($candidate)) $names[] = $candidate->name ?? $candidate->role_name ?? '';
+            else $names[] = (string) $candidate;
+        }
+        // A blended teacher must receive the strongest timetable scope. A
+        // Headteacher/Deputy/Admin who also teaches is still an administrator
+        // on this workspace, not a class-teacher-only user.
+        foreach (array_merge($names, [(string) $role]) as $candidate) {
+            $candidate = strtolower(trim((string) $candidate));
+            if ($candidate !== '' && preg_match('/admin|director|headteacher|deputy/', $candidate)) return $candidate;
+        }
+        return strtolower((string) ($names[0] ?? $role));
+    }
+
+    private function currentStaffId(): ?int
+    {
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        if (!$userId) return null;
+        $stmt = $this->db->getConnection()->prepare(
+            "SELECT s.id FROM staff s JOIN users u ON u.person_id = s.person_id WHERE u.id = ? AND s.status = 'active' LIMIT 1"
+        );
+        $stmt->execute([(int) $userId]);
+        $id = $stmt->fetchColumn();
+        return $id ? (int) $id : null;
+    }
+
+    /** Restrict timetable reads to the streams the current teacher actually owns. */
+    private function timetableScope(array $data): array
+    {
+        $role = $this->currentRole();
+        $isManagement = strpos($role, 'admin') !== false || strpos($role, 'director') !== false
+            || strpos($role, 'headteacher') !== false || strpos($role, 'deputy') !== false;
+        if ($isManagement) return $data;
+
+        $scope = (new TeacherScopeService($this->db->getConnection()))->forUser(
+            $this->user ?: [],
+            !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null,
+            !empty($data['academic_year_term_id']) ? (int)$data['academic_year_term_id'] : null
+        );
+        // Page contexts may intentionally narrow the union. Lower-primary
+        // class-teacher timetable work is about the owned class streams only;
+        // subject-teacher visibility remains available in subject operations.
+        if (($data['scope_context'] ?? '') === 'class_teacher') {
+            $data['_scope_stream_ids'] = $scope['class_stream_ids'] ?: [-1];
+        } else {
+            $data['_scope_stream_ids'] = $scope['visible_stream_ids'] ?: [-1];
+        }
+        return $data;
     }
 
     public function index()
@@ -97,7 +180,7 @@ class SchedulesController extends BaseController
      */
     public function getTimetableGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getTimetable($data);
+        $result = $this->api->getTimetable($this->timetableScope($data));
         return $this->handleResponse($result);
     }
 
@@ -107,8 +190,7 @@ class SchedulesController extends BaseController
     public function postTimetableCreate($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardSchedules()) return $guard;
-        $result = $this->api->createTimetableEntry($data);
-        return $this->handleResponse($result);
+        return $this->badRequest('Direct timetable entry creation is disabled. Create or resume a timetable draft, then submit it for approval.');
     }
 
     /**
@@ -117,9 +199,7 @@ class SchedulesController extends BaseController
     public function putTimetableUpdate($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardSchedules()) return $guard;
-        $entryId = $id ?? ($data['id'] ?? null);
-        $result = $this->api->updateTimetableEntry($entryId, $data);
-        return $this->handleResponse($result);
+        return $this->badRequest('Direct timetable entry updates are disabled after the draft workflow was enabled.');
     }
 
     /**
@@ -175,6 +255,112 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** GET /api/schedules/timetable-drafts */
+    public function getTimetableDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        return $this->handleResponse($this->api->listTimetableDrafts($this->timetableScope($data)));
+    }
+
+    public function getTimetableStreams($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        return $this->handleResponse($this->api->listTimetableStreams($this->timetableScope($data)));
+    }
+
+    /** GET /api/schedules/timetable-draft/{id} */
+    public function getTimetableDraft($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $scope = $this->timetableScope([])['_scope_stream_ids'] ?? null;
+        if ($scope !== null) {
+            $check = $this->db->getConnection()->prepare("SELECT COUNT(*) FROM timetable_draft_entries WHERE draft_id = ? AND academic_year_class_stream_id IN (" . ($scope ? implode(',', array_fill(0, count($scope), '?')) : '0') . ")");
+            $check->execute(array_merge([(int)($id ?? ($data['id'] ?? 0))], $scope ?: []));
+            if (!(int)$check->fetchColumn()) return $this->forbidden('This timetable draft is outside your assigned streams.');
+        }
+        return $this->handleResponse($this->api->getTimetableDraft($id ?? ($data['id'] ?? 0)));
+    }
+
+    /** POST /api/schedules/timetable-draft */
+    public function postTimetableDraft($id = null, $data = [], $segments = [])
+    {
+        try {
+            if ($guard = $this->guardSchedules()) return $guard;
+            $role = $this->currentRole();
+            $scope = strtolower((string)($data['scope'] ?? ''));
+            $isAdmin = strpos($role, 'admin') !== false || strpos($role, 'director') !== false || strpos($role, 'headteacher') !== false;
+            $isDeputy = strpos($role, 'deputy') !== false;
+            $isClassTeacher = strpos($role, 'class') !== false && strpos($role, 'teacher') !== false;
+            if ($scope === 'lower_primary' && !$isAdmin && !$isDeputy && !$isClassTeacher) return $this->forbidden('Only a class teacher, deputy headteacher, headteacher, school admin, or director may draft this timetable.');
+            if ($scope === 'upper_primary' && !$isAdmin && !$isDeputy) return $this->forbidden('Only the school admin, deputy headteacher, headteacher, or director may draft the Grade 4–9 timetable.');
+            if ($scope === 'whole_school' && !$isAdmin && !$isDeputy) return $this->forbidden('Only academic leadership may draft the whole-school timetable.');
+            $data['created_by'] = (int)($this->user['id'] ?? 0);
+            $staffId = $this->currentStaffId();
+            $data['_actor_staff_id'] = $staffId;
+            $data['_class_teacher_mode'] = $isClassTeacher;
+            $data['_academic_leadership_mode'] = $isAdmin || $isDeputy;
+            $data['_scope_stream_ids'] = $this->timetableScope(['academic_year_id' => $data['academic_year_id']])['_scope_stream_ids'] ?? [];
+            return $this->handleResponse($this->api->saveTimetableDraft($data));
+        } catch (\Throwable $e) {
+            error_log('[SchedulesController] timetable draft endpoint failed: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->serverError('Timetable draft could not be saved');
+        }
+    }
+
+    /** POST /api/schedules/timetable-draft-transition */
+    public function postTimetableDraftTransition($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardSchedules()) return $guard;
+        $role = $this->currentRole();
+        $action = strtolower((string)($data['action'] ?? ''));
+        $isLeadership = strpos($role, 'admin') !== false || strpos($role, 'director') !== false || strpos($role, 'headteacher') !== false || strpos($role, 'deputy') !== false;
+        $isSubjectTeacher = strpos($role, 'subject') !== false && strpos($role, 'teacher') !== false;
+        $isClassTeacher = strpos($role, 'class') !== false && strpos($role, 'teacher') !== false;
+        if ($action === 'publish' && !$isLeadership) return $this->forbidden('Only academic leadership may publish a timetable.');
+        if ($action === 'approve' && !$isLeadership) return $this->forbidden('Only the deputy headteacher, headteacher, school admin, or director may approve a timetable.');
+        if (in_array($action, ['review', 'request_changes'], true) && !$isLeadership && !$isSubjectTeacher) return $this->forbidden('Only an assigned subject teacher or academic leader may review this timetable.');
+        if ($isClassTeacher && in_array($action, ['submit'], true)) {
+            $scope = $this->timetableScope([])['_scope_stream_ids'] ?? [];
+            if (!$scope) return $this->forbidden('No assigned class stream is available for timetable submission.');
+            $q = $this->db->getConnection()->prepare("SELECT COUNT(*) FROM timetable_draft_entries WHERE draft_id = ? AND academic_year_class_stream_id IN (" . implode(',', array_fill(0, count($scope), '?')) . ")");
+            $q->execute(array_merge([(int)($data['id'] ?? 0)], $scope));
+            if (!(int)$q->fetchColumn()) return $this->forbidden('You may only submit a draft containing your assigned streams.');
+        }
+        $data['actor_id'] = (int)($this->user['id'] ?? 0);
+        return $this->handleResponse($this->api->transitionTimetableDraft($data));
+    }
+
+    public function getDutyRosterDrafts($id = null, $data = [], $segments = []) { if ($guard=$this->guardSchedules()) return $guard; return $this->handleResponse($this->api->listDutyRosterDrafts($data)); }
+    public function getDutyRosterDraft($id = null, $data = [], $segments = []) { if ($guard=$this->guardSchedules()) return $guard; return $this->handleResponse($this->api->getDutyRosterDraft($id ?? ($data['id']??0))); }
+    public function postDutyRosterDraft($id = null, $data = [], $segments = []) { if ($guard=$this->guardSchedules()) return $guard; $data['created_by']=(int)($this->user['id']??0); return $this->handleResponse($this->api->saveDutyRosterDraft($data)); }
+    public function postDutyRosterTransition($id = null, $data = [], $segments = []) { if ($guard=$this->guardSchedules()) return $guard; $data['actor_id']=(int)($this->user['id']??0); return $this->handleResponse($this->api->transitionDutyRosterDraft($data)); }
+    public function getExamTimetableDrafts($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardExamTimetable()) return $guard;
+        return $this->handleResponse($this->api->listExamTimetableDrafts($data));
+    }
+
+    public function getExamTimetableDraft($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardExamTimetable()) return $guard;
+        return $this->handleResponse($this->api->getExamTimetableDraft($id ?? ($data['id'] ?? 0)));
+    }
+
+    public function postExamTimetableDraft($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardExamTimetable()) return $guard;
+        $data['created_by'] = $this->currentUserId();
+        return $this->handleResponse($this->api->saveExamTimetableDraft($data));
+    }
+
+    public function postExamTimetableTransition($id = null, $data = [], $segments = [])
+    {
+        $action = strtolower((string) ($data['action'] ?? ''));
+        if ($guard = $this->guardExamTimetable($action === 'publish')) return $guard;
+        $data['actor_id'] = $this->currentUserId();
+        return $this->handleResponse($this->api->transitionExamTimetableDraft($data));
+    }
+
     // ========================================
     // SECTION 3: Exam Schedules
     // ========================================
@@ -194,8 +380,7 @@ class SchedulesController extends BaseController
     public function postExamCreate($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardSchedules()) return $guard;
-        $result = $this->api->createExamSchedule($data);
-        return $this->handleResponse($result);
+        return $this->badRequest('Direct exam creation is disabled. Use the Exam Timetable Drafts workflow.');
     }
 
     /**
@@ -205,8 +390,7 @@ class SchedulesController extends BaseController
     public function postExamBulkGenerate($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardSchedules()) return $guard;
-        $result = $this->api->bulkGenerateExamSchedule($data);
-        return $this->handleResponse($result);
+        return $this->badRequest('Direct exam generation is disabled. Generate and submit an exam timetable draft first.');
     }
 
     // ========================================
