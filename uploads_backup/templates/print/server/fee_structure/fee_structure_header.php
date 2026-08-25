@@ -57,11 +57,13 @@ $cornerSrc = 'data:image/svg+xml;base64,' . base64_encode($cornerSvg);
                 <div class="fs-motto"><?= $sMotto ?></div>
 
                 <!-- Gold Divider Line with Diamond Center -->
-                <table class="fs-gold-rule-table">
-                    <tr>
-                        <td class="fs-gold-rule-line"></td>
-                        <td class="fs-gold-rule-diamond">&#9670;</td>
-                        <td class="fs-gold-rule-line"></td>
+                <table role="presentation" style="width:100%;height:8px;border-collapse:collapse;margin:1.2mm 0 0">
+                    <tr style="height:8px">
+                        <td style="width:46%;height:8px;vertical-align:middle"><div style="height:0;border-top:0.55mm solid #c9941d;line-height:0"></div></td>
+                        <td style="width:8%;height:8px;text-align:center;vertical-align:middle">
+                            <span style="display:inline-block;width:2.2mm;height:2.2mm;background:#c9941d;transform:rotate(45deg)"></span>
+                        </td>
+                        <td style="width:46%;height:8px;vertical-align:middle"><div style="height:0;border-top:0.55mm solid #c9941d;line-height:0"></div></td>
                     </tr>
                 </table>
             </td>

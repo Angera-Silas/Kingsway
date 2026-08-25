@@ -1077,21 +1077,15 @@ class StaffPayrollManager extends BaseAPI
             $taxableIncome = $basicSalary + $taxableAllowances;
 
             // Calculate statutory deductions
-            // NSSF: Tier I (6% up to 7,000) + Tier II (6% of 7,001 - 36,000)
-            $nssfTier1 = min($grossSalary * 0.06, 420); // Max Tier I
-            $nssfTier2 = 0;
-            if ($grossSalary > 7000) {
-                $tier2Base = min($grossSalary - 7000, 29000);
-                $nssfTier2 = $tier2Base * 0.06;
-            }
-            $nssfContribution = round($nssfTier1 + $nssfTier2, 2);
+            // Statutory values are effective-dated database rules.
+            $nssfContribution = $this->calculateNSSF($grossSalary, (int)date('Y'));
             $taxableIncome -= $nssfContribution; // NSSF is tax deductible
 
-            // Housing Levy: 1.5% of gross
-            $housingLevy = round($grossSalary * 0.015, 2);
+            $housingRule = $this->statutoryRule('Housing Levy', 'employee_employer_contribution', (int)date('Y'));
+            $housingLevy = round($grossSalary * ((float)($housingRule['employee_rate'] ?? 0)) / 100, 2);
 
-            // NHIF rates (based on gross salary)
-            $nhifContribution = $this->calculateNHIF($grossSalary);
+            // NHIF is retained only as a legacy field name; the calculation is SHIF.
+            $nhifContribution = $this->calculateSHIF($grossSalary, (int)date('Y'));
 
             // PAYE calculation
             $paye = $this->calculatePAYE($taxableIncome);
@@ -1404,53 +1398,40 @@ class StaffPayrollManager extends BaseAPI
         return (int) $stmt->fetchColumn();
     }
 
-    /**
-     * Calculate NHIF contribution based on salary bands
-     */
-    private function calculateNHIF($grossSalary)
+    private function statutoryRule($agency, $ruleCode, $year = null)
     {
-        // NHIF rates as per Kenya rates 2024
-        $bands = [
-            [0, 5999, 150],
-            [6000, 7999, 300],
-            [8000, 11999, 400],
-            [12000, 14999, 500],
-            [15000, 19999, 600],
-            [20000, 24999, 750],
-            [25000, 29999, 850],
-            [30000, 34999, 900],
-            [35000, 39999, 950],
-            [40000, 44999, 1000],
-            [45000, 49999, 1100],
-            [50000, 59999, 1200],
-            [60000, 69999, 1300],
-            [70000, 79999, 1400],
-            [80000, 89999, 1500],
-            [90000, 99999, 1600],
-            [100000, PHP_INT_MAX, 1700]
-        ];
-
-        foreach ($bands as $band) {
-            if ($grossSalary >= $band[0] && $grossSalary <= $band[1]) {
-                return $band[2];
-            }
-        }
-
-        return 1700; // Maximum
+        $asOf = sprintf('%04d-12-31', (int)($year ?: date('Y')));
+        $stmt = $this->db->prepare("SELECT id, employee_rate, employer_rate,
+                    lower_earnings_limit, upper_earnings_limit, personal_relief
+                FROM statutory_rule_versions
+                WHERE agency = ? AND rule_code = ? AND active = 1
+                  AND effective_from <= ?
+                  AND (effective_to IS NULL OR effective_to >= ?)
+                ORDER BY effective_from DESC, id DESC LIMIT 1");
+        $stmt->execute([$agency, $ruleCode, $asOf, $asOf]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /**
-     * Calculate NSSF contribution fallback (6% tiered cap)
-     */
-    private function calculateNSSF($grossSalary)
+    private function calculateSHIF($grossSalary, $year = null)
     {
-        $tier1 = min($grossSalary * 0.06, 420);
-        $tier2 = 0;
-        if ($grossSalary > 7000) {
-            $tier2Base = min($grossSalary - 7000, 29000);
-            $tier2 = $tier2Base * 0.06;
-        }
-        return round($tier1 + $tier2, 2);
+        $rule = $this->statutoryRule('SHIF', 'employee_contribution', $year);
+        return round(max(0, (float)$grossSalary) * ((float)($rule['employee_rate'] ?? 0)) / 100, 2);
+    }
+
+    private function calculateNHIF($grossSalary, $year = null)
+    {
+        return $this->calculateSHIF($grossSalary, $year);
+    }
+
+    private function calculateNSSF($grossSalary, $year = null)
+    {
+        $rule = $this->statutoryRule('NSSF', 'employee_employer_contribution', $year);
+        $rate = (float)($rule['employee_rate'] ?? 0);
+        $lower = (float)($rule['lower_earnings_limit'] ?? 0);
+        $upper = (float)($rule['upper_earnings_limit'] ?? 0);
+        if ($rate <= 0 || $upper <= 0) return 0;
+        $gross = max(0, (float)$grossSalary);
+        return round((min($gross, $lower) + max(0, min($gross, $upper) - $lower)) * $rate / 100, 2);
     }
 
     /**
@@ -1474,42 +1455,20 @@ class StaffPayrollManager extends BaseAPI
         return null;
     }
 
-    /**
-     * Calculate PAYE (Kenya tax rates 2024)
-     */
-    private function calculatePAYE($taxableIncome)
+    private function calculatePAYE($taxableIncome, $year = null)
     {
-        // Monthly tax bands
-        $bands = [
-            [0, 24000, 0.10],       // 10% on first 24,000
-            [24001, 32333, 0.25],   // 25% on 24,001 - 32,333
-            [32334, 500000, 0.30],  // 30% on 32,334 - 500,000
-            [500001, 800000, 0.325], // 32.5% on 500,001 - 800,000
-            [800001, PHP_INT_MAX, 0.35] // 35% above 800,000
-        ];
-
+        $rule = $this->statutoryRule('KRA', 'paye_bands', $year);
+        if (!$rule) return 0;
+        $stmt = $this->db->prepare('SELECT lower_bound, upper_bound, tax_rate
+            FROM statutory_tax_bands WHERE rule_version_id = ? ORDER BY band_order');
+        $stmt->execute([(int)$rule['id']]);
+        $income = max(0, (float)$taxableIncome);
         $tax = 0;
-        $remaining = $taxableIncome;
-
-        foreach ($bands as $band) {
-            if ($remaining <= 0)
-                break;
-
-            $bandMin = $band[0];
-            $bandMax = $band[1];
-            $rate = $band[2];
-
-            $taxableInBand = min($remaining, $bandMax - $bandMin + 1);
-            if ($taxableInBand > 0) {
-                $tax += $taxableInBand * $rate;
-                $remaining -= $taxableInBand;
-            }
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $band) {
+            $lower = (float)$band['lower_bound'];
+            $upper = $band['upper_bound'] === null ? $income : (float)$band['upper_bound'];
+            $tax += max(0, min($income, $upper) - $lower) * ((float)$band['tax_rate'] / 100);
         }
-
-        // Personal relief (monthly)
-        $personalRelief = 2400;
-        $tax = max(0, $tax - $personalRelief);
-
-        return round($tax, 2);
+        return round(max(0, $tax - (float)($rule['personal_relief'] ?? 0)), 2);
     }
 }

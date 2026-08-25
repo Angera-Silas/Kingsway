@@ -9,6 +9,7 @@ const StudentFeesController = {
     classes: [],
     years: [],
     pagination: { page: 1, limit: 25, total: 0 },
+    selectedStudentIds: new Set(),
     summary: {
       total_due: 0,
       total_paid: 0,
@@ -35,6 +36,12 @@ const StudentFeesController = {
     }
   },
 
+  escapeHtml: function (value) {
+    const div = document.createElement("div");
+    div.textContent = value == null ? "" : String(value);
+    return div.innerHTML;
+  },
+
   init: async function () {
     await window.AuthContext?.ready();
     if (!AuthContext.isAuthenticated()) {
@@ -56,6 +63,10 @@ const StudentFeesController = {
       termFilter: document.getElementById("termFilter"),
       recordPaymentBtn: document.getElementById("recordPaymentBtn"),
       exportBtn: document.getElementById("exportBtn"),
+      awardScholarshipBtn: document.getElementById("awardScholarshipBtn"),
+      waiveFeesBtn: document.getElementById("waiveFeesBtn"),
+      printSelectedFeesBtn: document.getElementById("printSelectedFeesBtn"),
+      selectAllFeeStudents: document.getElementById("selectAllFeeStudents"),
       tableBody: document.querySelector("#feesTable tbody"),
       pagination: document.getElementById("pagination"),
       totalExpected: document.getElementById("totalExpected"),
@@ -82,6 +93,31 @@ const StudentFeesController = {
       feeBreakdownBody: document.getElementById("feeBreakdownBody"),
       paymentHistoryBody: document.getElementById("paymentHistoryBody"),
       printStatementBtn: document.getElementById("printStatementBtn"),
+      manageAssistanceBtn: document.getElementById("manageAssistanceBtn"),
+      assistanceModal: document.getElementById("studentAssistanceModal"),
+      assistanceForm: document.getElementById("studentAssistanceForm"),
+      assistanceStudentId: document.getElementById("assistanceStudentId"),
+      assistanceStudentLabel: document.getElementById("assistanceStudentLabel"),
+      assistanceYear: document.getElementById("assistanceYear"),
+      assistanceProgram: document.getElementById("assistanceProgram"),
+      assistanceCoverage: document.getElementById("assistanceCoverage"),
+      assistancePercentageWrap: document.getElementById("assistancePercentageWrap"),
+      assistancePercentage: document.getElementById("assistancePercentage"),
+      assistanceAmountWrap: document.getElementById("assistanceAmountWrap"),
+      assistanceAmount: document.getElementById("assistanceAmount"),
+      assistanceReason: document.getElementById("assistanceReason"),
+      assistanceNotes: document.getElementById("assistanceNotes"),
+      assistanceAwardsBody: document.getElementById("studentAssistanceAwardsBody"),
+      saveAssistanceBtn: document.getElementById("saveAssistanceBtn"),
+      waiverModal: document.getElementById("studentWaiverModal"),
+      waiverStudentLabel: document.getElementById("waiverStudentLabel"),
+      waiverYear: document.getElementById("waiverYear"),
+      waiverScope: document.getElementById("waiverScope"),
+      waiverAmountWrap: document.getElementById("waiverAmountWrap"),
+      waiverAmount: document.getElementById("waiverAmount"),
+      waiverReason: document.getElementById("waiverReason"),
+      waiverNotes: document.getElementById("waiverNotes"),
+      saveWaiverBtn: document.getElementById("saveWaiverBtn"),
     };
   },
 
@@ -138,6 +174,17 @@ const StudentFeesController = {
     if (this.ui.exportBtn) {
       this.ui.exportBtn.addEventListener("click", () => this.exportTable());
     }
+    const awardAllowed = this.canManageAwards();
+    if (this.ui.awardScholarshipBtn) {
+      this.ui.awardScholarshipBtn.hidden = !awardAllowed;
+      this.ui.awardScholarshipBtn.addEventListener("click", () => this.openAssistanceModal());
+    }
+    if (this.ui.waiveFeesBtn) {
+      this.ui.waiveFeesBtn.hidden = !awardAllowed;
+      this.ui.waiveFeesBtn.addEventListener("click", () => this.openWaiverModal());
+    }
+    if (this.ui.printSelectedFeesBtn) this.ui.printSelectedFeesBtn.addEventListener("click", () => this.printSelectedFeeAccounts());
+    if (this.ui.selectAllFeeStudents) this.ui.selectAllFeeStudents.addEventListener("change", (event) => this.toggleAllStudents(event.target.checked));
 
     if (this.ui.paymentStudent) {
       this.ui.paymentStudent.addEventListener("change", async (event) => {
@@ -168,6 +215,24 @@ const StudentFeesController = {
         this.printFeeStatement();
       });
     }
+    if (this.ui.manageAssistanceBtn) {
+      this.ui.manageAssistanceBtn.addEventListener("click", () => this.openAssistanceModal(this.currentStudentId));
+    }
+    if (this.ui.assistanceCoverage) {
+      this.ui.assistanceCoverage.addEventListener("change", () => this.updateAssistanceCoverageFields());
+    }
+    if (this.ui.waiverScope) this.ui.waiverScope.addEventListener("change", () => this.ui.waiverAmountWrap?.classList.toggle("d-none", this.ui.waiverScope.value !== "amount"));
+    if (this.ui.saveAssistanceBtn) {
+      this.ui.saveAssistanceBtn.addEventListener("click", () => this.saveAssistance());
+    }
+    if (this.ui.saveWaiverBtn) this.ui.saveWaiverBtn.addEventListener("click", () => this.saveWaiver());
+  },
+
+  canManageAwards: function () {
+    const user = window.AuthContext?.getUser?.() || {};
+    const roles = [user.role_name, ...(Array.isArray(user.roles) ? user.roles.map((r) => r?.name || r) : [])]
+      .filter(Boolean).map((r) => String(r).toLowerCase());
+    return roles.some((r) => ["director", "school administrator", "system administrator"].includes(r));
   },
 
   loadInitialData: async function () {
@@ -262,16 +327,17 @@ const StudentFeesController = {
 
     if (!this.data.rows.length) {
       this.ui.tableBody.innerHTML =
-        '<tr><td colspan="8" class="text-center text-muted">No fee records found.</td></tr>';
+        '<tr><td colspan="9" class="text-center text-muted">No fee records found.</td></tr>';
       return;
     }
 
     this.ui.tableBody.innerHTML = this.data.rows
       .map((row) => {
-        const status = this.formatPaymentStatus(row.payment_status);
+        const status = this.formatPaymentStatus(row);
         const safeName = (row.student_name || "").replace(/'/g, "\\'");
         return `
           <tr>
+            <td class="text-center"><input type="checkbox" class="fee-student-select" value="${Number(row.id)}" ${this.data.selectedStudentIds.has(Number(row.id)) ? "checked" : ""} onchange="StudentFeesController.toggleStudent(${Number(row.id)}, this.checked)" aria-label="Select ${this.escapeHtml(row.student_name || "student")}"></td>
             <td>${row.admission_no || "-"}</td>
             <td>${row.student_name || "-"}</td>
             <td>${row.class_name || row.level_name || "-"}</td>
@@ -282,6 +348,9 @@ const StudentFeesController = {
             <td>
               <button class="btn btn-sm btn-outline-primary me-1" data-action="view" data-student-id="${row.id}">
                 View
+              </button>
+              <button class="btn btn-sm btn-outline-success me-1" data-action="scholarship" data-student-id="${row.id}">
+                <i class="bi bi-award"></i> Scholarship
               </button>
               <button class="btn btn-sm btn-outline-secondary" data-action="history" data-student-id="${row.id}" data-student-name="${safeName}">
                 <i class="fas fa-history"></i> Full History
@@ -310,6 +379,36 @@ const StudentFeesController = {
           this.openBillingHistory(studentId, studentName);
         });
       });
+
+    this.ui.tableBody
+      .querySelectorAll("button[data-action='scholarship']")
+      .forEach((btn) => btn.addEventListener("click", (event) => {
+        this.openAssistanceModal(event.currentTarget.getAttribute("data-student-id"));
+      }));
+    this.updateSelectionUi();
+  },
+
+  toggleStudent: function (studentId, checked) {
+    const id = Number(studentId);
+    if (checked) this.data.selectedStudentIds.add(id);
+    else this.data.selectedStudentIds.delete(id);
+    this.updateSelectionUi();
+  },
+
+  toggleAllStudents: function (checked) {
+    this.data.rows.forEach((row) => {
+      const id = Number(row.id);
+      if (checked) this.data.selectedStudentIds.add(id);
+      else this.data.selectedStudentIds.delete(id);
+    });
+    this.renderTable();
+  },
+
+  updateSelectionUi: function () {
+    const count = this.data.selectedStudentIds.size;
+    const suffix = count ? ` (${count})` : "";
+    if (this.ui.awardScholarshipBtn) this.ui.awardScholarshipBtn.innerHTML = `<i class="bi bi-award"></i> Sponsor (Scholarship)${suffix}`;
+    if (this.ui.waiveFeesBtn) this.ui.waiveFeesBtn.innerHTML = `<i class="bi bi-shield-check"></i> Waive Off Fees${suffix}`;
   },
 
   renderPagination: function () {
@@ -370,6 +469,7 @@ const StudentFeesController = {
     }
 
     try {
+      this.currentStudentId = Number(studentId);
       const statementResp = await window.API.finance.getStudentFeeStatement(
         studentId,
         {
@@ -431,6 +531,138 @@ const StudentFeesController = {
     } catch (error) {
       console.error("Failed to load fee statement:", error);
     }
+  },
+
+  updateAssistanceCoverageFields: function () {
+    const type = this.ui.assistanceCoverage?.value || "full";
+    this.ui.assistancePercentageWrap?.classList.toggle("d-none", type !== "percentage");
+    this.ui.assistanceAmountWrap?.classList.toggle("d-none", type !== "fixed_amount");
+    if (type === "full") this.ui.assistancePercentage.value = 100;
+  },
+
+  openAssistanceModal: async function (studentId) {
+    const ids = studentId ? [Number(studentId)] : Array.from(this.data.selectedStudentIds);
+    if (!ids.length) { this.notify("Select at least one student first.", "warning"); return; }
+    const rows = ids.map((id) => this.data.rows.find((item) => Number(item.id) === id)).filter(Boolean);
+    this.currentStudentId = ids[0];
+    this.ui.assistanceStudentId.value = ids.join(",");
+    this.ui.assistanceStudentLabel.textContent = ids.length === 1
+      ? `${rows[0]?.student_name || "Student"} · ${rows[0]?.admission_no || ""}`
+      : `${ids.length} selected students`;
+    this.ui.assistanceForm.reset();
+    this.ui.assistanceStudentId.value = ids.join(",");
+    this.ui.assistanceCoverage.value = "full";
+    this.ui.assistancePercentage.value = 100;
+    this.updateAssistanceCoverageFields();
+    const years = this.data.years || [];
+    this.ui.assistanceYear.innerHTML = years.map((year) => `<option value="${year.id}">${year.year_code || year.year_name || year.id}</option>`).join("");
+    const current = years.find((year) => year.is_current == 1 || year.is_current === "1");
+    if (current) this.ui.assistanceYear.value = String(current.id);
+    const programsResp = await window.API.finance.getScholarshipPrograms();
+    const programs = programsResp?.data ?? programsResp ?? [];
+    this.ui.assistanceProgram.innerHTML = (Array.isArray(programs) ? programs : []).map((p) => `<option value="${p.id}" data-type="${p.coverage_type}" data-pct="${p.default_percentage || ""}">${p.name}</option>`).join("");
+    this.ui.assistanceProgram.onchange = () => {
+      const option = this.ui.assistanceProgram.selectedOptions[0];
+      if (option?.dataset.type) this.ui.assistanceCoverage.value = option.dataset.type;
+      if (option?.dataset.pct) this.ui.assistancePercentage.value = option.dataset.pct;
+      this.updateAssistanceCoverageFields();
+    };
+    if (ids.length === 1) await this.loadAssistanceAwards(ids[0]);
+    new bootstrap.Modal(this.ui.assistanceModal).show();
+  },
+
+  loadAssistanceAwards: async function (studentId) {
+    const response = await window.API.finance.getStudentScholarships({ student_id: studentId });
+    const awards = response?.data ?? response ?? [];
+    this.ui.assistanceAwardsBody.innerHTML = (Array.isArray(awards) ? awards : []).map((award) => {
+      const coverage = award.coverage_type === "full" ? "100%" : award.coverage_type === "percentage" ? `${award.coverage_percentage}%` : this.formatCurrency(award.coverage_amount);
+      const action = award.status === "active" ? `<button class="btn btn-sm btn-outline-danger" data-revoke-award="${award.id}">Revoke</button>` : "";
+      return `<tr><td>${award.year_code || award.academic_year_id}</td><td>${award.programme_name}</td><td>${coverage}</td><td>${award.status}</td><td>${action}</td></tr>`;
+    }).join("") || '<tr><td colspan="5" class="text-muted">No annual awards recorded.</td></tr>';
+    this.ui.assistanceAwardsBody.querySelectorAll("[data-revoke-award]").forEach((button) => button.addEventListener("click", async () => {
+      if (!window.confirm("Revoke this award? Unpaid obligations for that year will become payable again.")) return;
+      await window.API.finance.revokeStudentScholarship(button.dataset.revokeAward);
+      await this.loadAssistanceAwards(studentId);
+      await this.loadPaymentStatus();
+    }));
+  },
+
+  saveAssistance: async function () {
+    const type = this.ui.assistanceCoverage.value;
+    const payload = {
+      student_id: Number(String(this.ui.assistanceStudentId.value).split(",")[0]),
+      academic_year_id: Number(this.ui.assistanceYear.value),
+      scholarship_program_id: Number(this.ui.assistanceProgram.value),
+      coverage_type: type,
+      coverage_percentage: type === "percentage" ? Number(this.ui.assistancePercentage.value) : null,
+      coverage_amount: type === "fixed_amount" ? Number(this.ui.assistanceAmount.value) : null,
+      reason: this.ui.assistanceReason.value.trim(),
+      notes: this.ui.assistanceNotes.value.trim(),
+    };
+    if (!payload.student_id || !payload.academic_year_id || !payload.scholarship_program_id || !payload.reason) {
+      this.notify("Select the year and programme, then enter the approval reason.", "warning"); return;
+    }
+    const studentIds = String(this.ui.assistanceStudentId.value).split(",").map(Number).filter(Boolean);
+    if (!studentIds.length) { this.notify("Select at least one student.", "warning"); return; }
+    try {
+      for (const studentId of studentIds) await window.API.finance.saveStudentScholarship({ ...payload, student_id: studentId });
+      this.notify(`Scholarship awarded to ${studentIds.length} student(s).`, "success");
+      if (studentIds.length === 1) await this.loadAssistanceAwards(studentIds[0]);
+      await this.loadPaymentStatus();
+    } catch (error) { this.notify(error.message || "Unable to save scholarship.", "danger"); }
+  },
+
+  openWaiverModal: function () {
+    const ids = Array.from(this.data.selectedStudentIds);
+    if (!ids.length) { this.notify("Select at least one student first.", "warning"); return; }
+    const years = this.data.years || [];
+    this.ui.waiverYear.innerHTML = years.map((year) => `<option value="${year.year_code || year.year || year.id}">${year.year_code || year.year_name || year.id}</option>`).join("");
+    const current = years.find((year) => year.is_current == 1 || year.is_current === "1");
+    if (current) this.ui.waiverYear.value = String(current.year_code || current.year || current.id);
+    this.ui.waiverStudentLabel.textContent = `${ids.length} selected students`;
+    this.ui.waiverReason.value = "";
+    this.ui.waiverNotes.value = "";
+    this.ui.waiverScope.value = "full";
+    this.ui.waiverAmount.value = "";
+    this.ui.waiverAmountWrap.classList.add("d-none");
+    new bootstrap.Modal(this.ui.waiverModal).show();
+  },
+
+  saveWaiver: async function () {
+    if (!this.canManageAwards()) { this.notify("Only the director or school administrator can waive fees.", "danger"); return; }
+    const ids = Array.from(this.data.selectedStudentIds);
+    const reason = this.ui.waiverReason.value.trim();
+    if (!ids.length || !reason) { this.notify("Select students and enter the waiver reason.", "warning"); return; }
+    const rows = ids.map((id) => this.data.rows.find((row) => Number(row.id) === id)).filter(Boolean);
+    try {
+      for (const row of rows) {
+        const amount = this.ui.waiverScope.value === "full" ? Number(row.current_balance || 0) : Number(this.ui.waiverAmount.value || 0);
+        if (amount <= 0) continue;
+        await window.API.finance.saveFeeWaiver({
+          student_id: Number(row.id), discount_type: this.ui.waiverScope.value === "full" ? "full_waiver" : "fixed_amount", discount_value: amount,
+          academic_year: this.ui.waiverYear.value, reason, notes: this.ui.waiverNotes.value.trim(),
+        });
+      }
+      this.notify(`Fee waiver applied to ${rows.length} student(s).`, "success");
+      bootstrap.Modal.getInstance(this.ui.waiverModal)?.hide();
+      await this.loadPaymentStatus();
+    } catch (error) { this.notify(error.message || "Unable to apply fee waiver.", "danger"); }
+  },
+
+  printSelectedFeeAccounts: function () {
+    const rows = this.data.rows.filter((row) => this.data.selectedStudentIds.has(Number(row.id)));
+    if (!rows.length) { this.notify("Select at least one student to print.", "warning"); return; }
+    if (!window.PrintManager?.printTable) { this.notify("Print service is unavailable.", "danger"); return; }
+    return window.PrintManager.printTable({
+      title: "Selected Student Fee Accounts", subtitle: new Date().toLocaleDateString("en-KE"),
+      filename: `selected_student_fee_accounts_${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { key: "admission_no", label: "Admission No" }, { key: "student_name", label: "Student Name" },
+        { key: "class_name", label: "Class" }, { key: "total_due", label: "Expected", type: "currency" },
+        { key: "total_paid", label: "Paid", type: "currency" }, { key: "current_balance", label: "Balance", type: "currency" },
+        { key: "payment_status", label: "Status" },
+      ], rows,
+    });
   },
 
   openPaymentModal: function () {
@@ -654,7 +886,16 @@ const StudentFeesController = {
     return `KES ${number.toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   },
 
-  formatPaymentStatus: function (status) {
+  formatPaymentStatus: function (statusOrRow) {
+    const row = statusOrRow && typeof statusOrRow === "object" ? statusOrRow : {};
+    const status = typeof statusOrRow === "object" ? row.payment_status : statusOrRow;
+    if (Number(row.is_sponsored || 0) === 1 || row.sponsorship_type) {
+      return { label: `Sponsored – ${row.sponsorship_type || "Sponsorship"}`, badge: "bg-info text-dark" };
+    }
+    const waived = Number(row.total_waived || row.amount_waived || 0);
+    if (waived > 0) {
+      return { label: `Waived – ${this.formatCurrency(waived)}`, badge: "bg-primary" };
+    }
     const normalized = String(status || "").toLowerCase();
     if (normalized === "paid" || normalized === "fully_paid") {
       return { label: "Paid", badge: "bg-success" };

@@ -1487,6 +1487,18 @@ class StudentsController extends BaseController
             return $auth;
         }
 
+        // Class-parent contacts are a staff self-service view. Management may
+        // request the full parent directory; everyone else is restricted to
+        // students in their own class-teacher stream.
+        $roles = $this->getUserRoleIds();
+        if (empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]))) {
+            $data['class'] = 'self';
+            $data['staff_user_id'] = (int) $this->getUserId();
+        }
+        if (($data['class'] ?? '') === 'self') {
+            return $this->handleResponse($this->familyGroupsManager->getClassParentContacts((int) ($data['staff_user_id'] ?? $this->getUserId())));
+        }
+
         return $this->handleResponse(
             $this->familyGroupsManager->getParents($data)
         );
@@ -2341,7 +2353,14 @@ return $this->badRequest('An internal error occurred.');
         }
 
         try {
-            return $this->success($this->studentInsightsService->listSpecialNeedsIEPs(array_merge($_GET, $data)));
+            $filters = array_merge($_GET, $data);
+            $roles = $this->getUserRoleIds();
+            $roleName = strtolower((string) ($this->user['role'] ?? $this->user['role_name'] ?? ''));
+            // Class teachers see IEPs only for learners in their assigned streams.
+            if (in_array(7, $roles, true) || strpos($roleName, 'class teacher') !== false) {
+                $filters['_class_teacher_user_id'] = (int) $this->user['id'];
+            }
+            return $this->success($this->studentInsightsService->listSpecialNeedsIEPs($filters));
         } catch (\Exception $e) {
             error_log('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');

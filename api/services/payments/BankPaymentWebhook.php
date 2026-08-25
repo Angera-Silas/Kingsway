@@ -19,53 +19,12 @@ use function App\API\Includes\formatResponse;
 class BankPaymentWebhook
 {
     private $db;
-    private $apiKey;
     private $admissionColumn;
 
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
-        // FIX: Enforce BANK_API_KEY configuration - throw exception if missing
-        if (defined('BANK_API_KEY')) {
-            $this->apiKey = \BANK_API_KEY;
-        } else {
-            $envKey = getenv('BANK_API_KEY');
-            $this->apiKey = $envKey !== false ? $envKey : '';
-        }
-        
-        if (empty($this->apiKey)) {
-            error_log('SECURITY WARNING: BANK_API_KEY not configured. Webhook signature validation will fail.');
-            throw new Exception('Bank API Key not configured. Cannot process webhooks securely.');
-        }
-        
         $this->admissionColumn = null;
-    }
-
-    /**
-     * Validate webhook request
-     * @param array $headers Request headers
-     * @param string $payload Request payload
-     * @return bool Valid or not
-     */
-    public function validateWebhookSignature($headers, $payload)
-    {
-        // Implement signature validation based on bank's specification
-        // For KCB and other banks, they typically send:
-        // - X-Signature header with HMAC signature
-        // - X-API-Key header with API key
-
-        if (isset($headers['X-API-Key']) && $headers['X-API-Key'] === $this->apiKey) {
-            return true;
-        }
-
-        // Validate HMAC signature if provided
-        if (isset($headers['X-Signature'])) {
-            $signature = $headers['X-Signature'];
-            $expectedSignature = hash_hmac('sha256', $payload, $this->apiKey);
-            return hash_equals($expectedSignature, $signature);
-        }
-
-        return false;
     }
 
     /**
@@ -77,13 +36,6 @@ class BankPaymentWebhook
     public function processKCBPayment($paymentData, $headers = [])
     {
         try {
-            // FIX: CRITICAL - Validate webhook signature before processing
-            $requestBody = json_encode($paymentData);
-            if (!$this->validateWebhookSignature($headers, $requestBody)) {
-                $this->logWebhookError('KCB', 'Invalid webhook signature', $paymentData);
-                return formatResponse(false, null, 'Invalid webhook signature - request rejected');
-            }
-
             // Log raw webhook data
             $this->logWebhook('KCB', $paymentData);
 
@@ -181,7 +133,7 @@ class BankPaymentWebhook
                 $stmt = $this->db->prepare("
                     INSERT INTO bank_transactions (
                         student_id, transaction_ref, amount, transaction_date,
-                        bank_name, account_number, narration, status,
+                        bank_name, account_number, normalized_reference, narration, status,
                         source_type, webhook_data
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'recorded', 'api_callback', ?)
                 ");
@@ -193,6 +145,7 @@ class BankPaymentWebhook
                     $transactionDate,
                     $bankName,
                     $senderAccount,
+                    (new ReferenceNormalizer())->reference($accountNumber),
                     $narration,
                     json_encode($paymentData)
                 ]);
@@ -358,9 +311,9 @@ $admissionCol = $this->resolveAdmissionColumn();
         $bank = $this->db->prepare(
             "INSERT INTO bank_transactions
                 (transaction_ref, student_id, amount, transaction_date, bank_name, account_number,
-                 narration, status, matching_status, reconciled, reconciled_at, source_type, webhook_data)
+                 normalized_reference, narration, status, matching_status, reconciled, reconciled_at, source_type, webhook_data)
              VALUES (:transaction_ref, :student_id, :amount, :transaction_date, :bank_name, :account_number,
-                     :narration, 'recorded', 'matched', 1, NOW(), 'api_callback', :webhook_data)"
+                     :normalized_reference, :narration, 'recorded', 'matched', 1, NOW(), 'api_callback', :webhook_data)"
         );
         $bank->execute([
             'transaction_ref' => $transactionRef,
@@ -369,6 +322,7 @@ $admissionCol = $this->resolveAdmissionColumn();
             'transaction_date' => $transactionDate,
             'bank_name' => $bankName,
             'account_number' => $application['application_no'],
+            'normalized_reference' => (new ReferenceNormalizer())->reference($application['application_no']),
             'narration' => $narration,
             'webhook_data' => json_encode($payload),
         ]);

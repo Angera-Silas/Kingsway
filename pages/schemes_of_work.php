@@ -5,10 +5,10 @@
  * Embedded in app_layout.php
  *
  * Role-based access:
- * - Class Teacher: View and upload for own class subjects
+ * - Class Teacher: View and generate drafts for own class subjects
  * - Headteacher: View all, approve/reject schemes
  * - Intern: View only (read-only access)
- * - Subject Teacher: Upload and manage own subject schemes
+ * - Subject Teacher: Generate and manage own subject schemes
  * - Admin: Full access
  */
 ?>
@@ -23,10 +23,6 @@
                     <p class="text-muted mb-0">Manage and track teaching schemes across all subjects and classes</p>
                 </div>
                 <div class="btn-group">
-                    <button class="btn btn-primary btn-sm" id="uploadSchemeBtn"
-                            data-role="class_teacher,subject_teacher,headteacher,admin">
-                        <i class="bi bi-upload me-1"></i> Upload Scheme
-                    </button>
                     <button class="btn btn-success btn-sm" id="generateSchemeBtn"
                             data-role="class_teacher,subject_teacher,headteacher,admin">
                         <i class="bi bi-magic me-1"></i> Auto-Generate
@@ -123,7 +119,7 @@
                     <thead class="table-light">
                         <tr>
                             <th scope="col">Subject</th>
-                            <th scope="col">Class</th>
+                            <th scope="col">Class / Stream</th>
                             <th scope="col">Teacher</th>
                             <th scope="col">Term</th>
                             <th scope="col">Topic Count</th>
@@ -148,78 +144,6 @@
     </div>
 </div>
 
-<!-- Upload / Edit Scheme Modal -->
-<div class="modal fade" id="schemeModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="schemeModalTitle">Upload Scheme of Work</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="schemeForm">
-                    <input type="hidden" id="schemeId">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Subject*</label>
-                            <select class="form-select" id="schemeSubject" required>
-                                <option value="">Select Subject</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Class*</label>
-                            <select class="form-select" id="schemeClass" required>
-                                <option value="">Select Class</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Term*</label>
-                            <select class="form-select" id="schemeTerm" required>
-                                <option value="">Select Term</option>
-                                <option value="1">Term 1</option>
-                                <option value="2">Term 2</option>
-                                <option value="3">Term 3</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Academic Year*</label>
-                            <select class="form-select" id="schemeYear" required>
-                                <option value="">Select Year</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Scheme Title*</label>
-                        <input type="text" class="form-control" id="schemeTitle" required
-                               placeholder="e.g., Mathematics Term 1 Scheme">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Topics / Content*</label>
-                        <textarea class="form-control" id="schemeTopics" rows="5" required
-                                  placeholder="Enter topics covered, one per line..."></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Upload File (PDF/DOC)</label>
-                        <input type="file" class="form-control" id="schemeFile"
-                               accept=".pdf,.doc,.docx">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control" id="schemeNotes" rows="2"
-                                  placeholder="Additional notes..."></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveSchemeBtn">Save Scheme</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Auto-Generate Schemes Modal -->
 <div class="modal fade" id="generateSchemeModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -231,7 +155,7 @@
             <div class="modal-body">
                 <div class="alert alert-info py-2 small">
                     Generates weekly scheme-of-work entries from the CBC curriculum strands and sub-strands.
-                    Existing entries for the same class, subject and term are skipped.
+                    Generates a draft for one exact class stream and learning-area assignment. Existing entries for that stream, learning area and calendar week are skipped.
                 </div>
                 <form id="generateSchemeForm">
                     <div class="row">
@@ -239,6 +163,12 @@
                             <label class="form-label">Class*</label>
                             <select class="form-select" id="genClass" required>
                                 <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Class / Stream*</label>
+                            <select class="form-select" id="genStream" required>
+                                <option value="">Select a class first</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
@@ -250,9 +180,14 @@
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Term*</label>
-                            <select class="form-select" id="genTerm" required>
-                                <option value="">Select Term</option>
+                            <label class="form-label">Academic Term</label>
+                            <input type="hidden" id="genTerm">
+                            <div class="form-control bg-light" id="genTermLabel">Current term supplied automatically</div>
+                        </div>
+                        <div class="col-md-6 mb-3" id="genTeacherField">
+                            <label class="form-label">Responsible Teacher*</label>
+                            <select class="form-select" id="genTeacher">
+                                <option value="">Select teacher</option>
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">

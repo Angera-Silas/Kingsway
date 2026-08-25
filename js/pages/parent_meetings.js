@@ -77,6 +77,7 @@ const ParentMeetingsController = {
         this.state.classes = Array.isArray(classesRes)
           ? classesRes
           : classesRes.data || [];
+        this.populateClassSelectors();
       }
 
       // Split into upcoming and past
@@ -94,6 +95,12 @@ const ParentMeetingsController = {
     } catch (error) {
       console.error("Error loading meetings:", error);
     }
+  },
+
+  populateClassSelectors() {
+    const options = this.state.classes.map(c => `<option value="${this.esc(c.id)}">${this.esc(c.name || c.class_name || '')}</option>`).join('');
+    const select = document.getElementById('staticMeetingClass');
+    if (select) select.innerHTML = '<option value="">Select class</option>' + options;
   },
 
   updateStats() {
@@ -306,7 +313,7 @@ const ParentMeetingsController = {
                     <div class="col-md-6 mb-3"><label class="form-label">Class</label>
                         <select class="form-select" id="meetingClass">
                             <option value="">All Classes</option>
-                            ${this.state.classes.map((c) => `<option value="${c.id}">${this.esc(c.name)}</option>`).join("")}
+                            ${this.state.classes.map((c) => `<option value="${this.esc(c.id)}">${this.esc(c.name || c.class_name || '')}</option>`).join("")}
                         </select>
                     </div>
                     <div class="col-12 mb-3"><label class="form-label">Description</label><textarea class="form-control" id="meetingDescription" rows="3"></textarea></div>

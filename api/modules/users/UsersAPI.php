@@ -898,10 +898,7 @@ class UsersAPI extends BaseAPI
         // Sidebar is built from config/role_sidebars.php (the single source of
         // truth) via SidebarConfigReader, identical to the login/refresh path.
         // This keeps the profile sidebar in lockstep with the login sidebar.
-        $items = [];
-        foreach ($roleIds as $rid) {
-            $items = array_merge($items, \App\API\Services\SidebarConfigReader::forRole((int) $rid));
-        }
+        $items = \App\API\Services\SidebarConfigReader::forRoles($roleIds);
 
         return ['success' => true, 'data' => $items];
     }

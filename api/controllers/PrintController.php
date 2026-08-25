@@ -413,6 +413,83 @@ return formatResponse(false, null, 'An internal error occurred.');
         if ($guard = $this->guardPrint()) return $guard;
         try {
             $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+            $staffId = (int)($data['staff_id'] ?? 0);
+            $year = (int)($data['taxYear'] ?? $data['year'] ?? date('Y'));
+            if ($staffId <= 0) {
+                return formatResponse(false, null, 'Select an employee before generating a P9 form', 422);
+            }
+            $employeeStmt = $this->db->query(
+                "SELECT s.staff_no, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS employee_name,
+                        p.national_id_no, spp.kra_pin, spp.nssf_no, spp.nhif_no
+                 FROM staff s
+                 JOIN persons p ON p.id = s.person_id
+                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
+                 WHERE s.id = ? LIMIT 1",
+                [$staffId]
+            );
+            $employee = $employeeStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$employee) {
+                return formatResponse(false, null, 'Selected employee was not found', 404);
+            }
+            $monthsStmt = $this->db->query(
+                "SELECT payroll_month, gross_salary, nssf_contribution, shif_contribution, nhif_contribution,
+                        housing_levy, paye_tax
+                 FROM payslips WHERE staff_id = ? AND payroll_year = ? ORDER BY payroll_month",
+                [$staffId, $year]
+            );
+            $payslips = $monthsStmt->fetchAll(\PDO::FETCH_ASSOC);
+            if (!$payslips) {
+                return formatResponse(false, null, 'No payroll data exists for the selected employee and year', 422);
+            }
+            $ruleStmt = $this->db->prepare(
+                "SELECT personal_relief FROM statutory_rule_versions
+                 WHERE agency = 'KRA' AND rule_code = 'paye_bands' AND active = 1
+                   AND effective_from <= ?
+                   AND (effective_to IS NULL OR effective_to >= ?)
+                 ORDER BY effective_from DESC, id DESC LIMIT 1"
+            );
+            $asOf = sprintf('%04d-12-31', $year);
+            $ruleStmt->execute([$asOf, $asOf]);
+            $personalRelief = (float)($ruleStmt->fetchColumn() ?: 0);
+            $months = [];
+            foreach ($payslips as $row) {
+                $months[((int)$row['payroll_month']) - 1] = [
+                    'gross_pay' => (float)$row['gross_salary'],
+                    'nssf' => (float)$row['nssf_contribution'],
+                    'shif' => (float)($row['shif_contribution'] ?? $row['nhif_contribution'] ?? 0),
+                    'housing_levy' => (float)$row['housing_levy'],
+                    'chargeable_pay' => (float)$row['gross_salary'] - (float)$row['nssf_contribution'] - (float)($row['shif_contribution'] ?? $row['nhif_contribution'] ?? 0) - (float)$row['housing_levy'],
+                    'tax_charged' => (float)$row['paye_tax'] + $personalRelief,
+                    'personal_relief' => $personalRelief,
+                    'paye' => (float)$row['paye_tax'],
+                ];
+            }
+            $data['employeeName'] = $employee['employee_name'];
+            $data['employeePin'] = $employee['kra_pin'] ?? '';
+            $data['staffNo'] = $employee['staff_no'] ?? '';
+            $data['nssfNo'] = $employee['nssf_no'] ?? '';
+            $data['nhifNo'] = $employee['nhif_no'] ?? '';
+            $data['nationalId'] = $employee['national_id_no'] ?? '';
+            $data['year'] = $year;
+            $data['months'] = $months;
+            // Employer identity is authoritative in school_profile. Do not
+            // trust a blank/stale browser value for a statutory document.
+            $school = $this->db->query(
+                "SELECT school_name, employer_kra_pin, address, city, country, postal_code
+                 FROM school_profile ORDER BY id ASC LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC) ?: [];
+            $data['employerName'] = $school['school_name'] ?? ($data['employerName'] ?? 'Kingsway Preparatory School');
+            $data['employerPin'] = $school['employer_kra_pin'] ?? '';
+            $data['employerAddress'] = trim(implode(', ', array_filter([
+                $school['address'] ?? null,
+                $school['city'] ?? null,
+                $school['postal_code'] ?? null,
+                $school['country'] ?? null,
+            ])));
+            // P9 is an A4 landscape statutory form. Override caller/default
+            // orientation so it cannot be generated as a portrait document.
+            $data['orientation'] = 'landscape';
+            $data['paperSize'] = 'A4';
             $pdfPath = $this->prints()->printP9Form($data);
             $pdfUrl = $this->getPrintUrl($pdfPath);
             return formatResponse(true, [

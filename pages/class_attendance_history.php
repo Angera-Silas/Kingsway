@@ -1,3 +1,8 @@
-<?php
-/* PARTIAL — delegates to view_attendance */
-include __DIR__ . '/view_attendance.php';
+<?php if (!isset($appBase)) { $appBase = ''; } ?>
+<div class="container-fluid py-4" id="classAttendanceHistoryPage">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2"><div><h3 class="mb-1"><i class="bi bi-clock-history me-2"></i>Class Attendance History</h3><p class="text-muted mb-0">Review attendance for your assigned class streams.</p></div><a class="btn btn-primary btn-sm" href="<?= $appBase ?>/home.php?route=class_mark_attendance"><i class="bi bi-clipboard-check me-1"></i>Mark Today’s Attendance</a></div>
+  <div class="card shadow-sm border-0 mb-3"><div class="card-body"><div class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label fw-semibold">My Class / Stream</label><select id="historyStream" class="form-select"><option value="">Select your class stream</option></select></div><div class="col-md-4"><label class="form-label fw-semibold">Date</label><input id="historyDate" type="date" class="form-control"></div><div class="col-md-3"><span class="small text-muted d-block pb-2"><i class="bi bi-arrow-down-circle me-1"></i>Register updates automatically</span></div></div></div></div>
+  <div id="historyMessage" class="alert d-none"></div>
+  <div class="card shadow-sm border-0"><div class="card-header"><h5 class="mb-0">Attendance Register</h5></div><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Admission No.</th><th>Learner</th><th>Status</th><th>Marked At</th><th>Notes</th></tr></thead><tbody id="historyBody"><tr><td colspan="5" class="text-center text-muted py-4">Select a class stream and date.</td></tr></tbody></table></div></div>
+</div>
+<?php asset_script($appBase, 'js/pages/class_attendance_history.js'); ?>

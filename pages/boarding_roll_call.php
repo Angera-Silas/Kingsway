@@ -81,7 +81,7 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
                 <div>
                     <h3 class="mb-1"><i class="bi bi-house-door me-2"></i>Boarding Roll Call</h3>
-                    <p class="text-muted mb-0">Mark dormitory attendance for morning and evening sessions</p>
+                    <p class="text-muted mb-0">Today’s boarding register for your authorised dormitory and roll-call session</p>
                 </div>
                 <div class="d-flex gap-2">
                     <a href="<?= $appBase ?>/home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary d-none" id="viewAttendanceHistoryLink">
@@ -91,6 +91,29 @@
             </div>
         </div>
     </div>
+
+    <!-- Administrative oversight view; the controller reveals this only to leadership/administration. -->
+    <section id="adminDashboard" class="card shadow-sm mb-4" style="display:none;">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <div><h5 class="mb-1"><i class="bi bi-speedometer2 me-2"></i>Boarding Attendance Oversight</h5><small id="adminDashboardDate"></small></div>
+            <span class="badge bg-light text-success">School-wide view</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3">
+                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Expected</small><div class="fs-4 fw-bold" id="adminExpected">0</div></div></div>
+                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Marked</small><div class="fs-4 fw-bold text-primary" id="adminMarked">0</div></div></div>
+                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Present</small><div class="fs-4 fw-bold text-success" id="adminPresent">0</div></div></div>
+                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Absent / Sick</small><div class="fs-4 fw-bold text-danger" id="adminExceptions">0</div></div></div>
+                <div class="col-6 col-lg"><div class="border rounded p-3"><small class="text-muted">Pending Registers</small><div class="fs-4 fw-bold text-warning" id="adminPending">0</div></div></div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light"><tr><th>Dormitory</th><th>Session</th><th>Responsible</th><th>Expected</th><th>Marked</th><th>Present</th><th>Pending</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="adminSummaryBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
 
     <!-- Selection Controls -->
     <div class="card shadow-sm mb-4">
@@ -111,11 +134,6 @@
                 <div class="col-md-2">
                     <label class="form-label fw-semibold">Date</label>
                     <input type="date" id="rollCallDate" class="form-control">
-                </div>
-                <div class="col-md-2">
-                    <button id="loadStudentsBtn" class="btn btn-primary w-100">
-                        <i class="bi bi-search me-1"></i> Load Students
-                    </button>
                 </div>
                 <div class="col-md-2">
                     <button id="refreshBtn" class="btn btn-outline-secondary w-100">
@@ -171,8 +189,8 @@
     <!-- Empty State -->
     <div id="emptyState" class="text-center py-5">
         <i class="bi bi-house-door display-1 text-muted"></i>
-        <h5 class="mt-3">Select a Dormitory and Session</h5>
-        <p class="text-muted">Choose a dormitory and roll call session to begin marking attendance</p>
+        <h5 class="mt-3">Preparing today’s register…</h5>
+        <p class="text-muted">The system will open the authorised dormitory and applicable session automatically.</p>
     </div>
 
     <!-- Roll Call Card -->
@@ -232,7 +250,7 @@
     <!-- Today's Summary -->
     <div class="card shadow-sm mt-4" id="summaryCard" style="display: none;">
         <div class="card-header bg-white">
-            <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Today's Boarding Summary</h5>
+            <h5 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Current Register Summary</h5>
         </div>
         <div class="card-body">
             <div id="summaryContent">

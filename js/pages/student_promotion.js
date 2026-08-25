@@ -123,7 +123,9 @@ const StudentPromotionController = {
 
   attachEvents() {
     this.ui.loadCandidatesBtn?.addEventListener("click", () => this.loadCandidates());
+    this.ui.loadCandidatesBtn?.classList.add('d-none');
     this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadCandidates());
+    this.ui.applyFiltersBtn?.classList.add('d-none');
     this.ui.refreshBtn?.addEventListener("click", () => this.loadCandidates());
     this.ui.historyBtn?.addEventListener("click", () => this.showHistory());
     this.ui.newBatchBtn?.addEventListener("click", () => this.resetForm());
@@ -134,6 +136,11 @@ const StudentPromotionController = {
 
     this.ui.fromClass?.addEventListener("change", () => {
       this.updateStreamsFilter();
+      this.loadCandidates();
+    });
+    [this.ui.fromYear, this.ui.fromStream, this.ui.toYear, this.ui.toClass, this.ui.toStream,
+      this.ui.genderFilter, this.ui.searchBox].forEach((control) => {
+      control?.addEventListener(control === this.ui.searchBox ? "input" : "change", () => this.loadCandidates());
     });
   },
 

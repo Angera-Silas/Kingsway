@@ -170,7 +170,13 @@ class CommunicationsController extends BaseController
 
     public function index()
     {
-        return $this->handleResponse($this->api->getSummary());
+        $roles = $this->getUserRoleIds();
+        $isManagement = !empty(array_intersect($roles, [2, 3, 4]));
+        $isHeadteacher = in_array(5, $roles, true) && !$isManagement;
+        return $this->handleResponse($this->api->getSummary([
+            'user_id' => (int) $this->getUserId(),
+            'visibility' => $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged'),
+        ]));
     }
 
     /** Internal worker endpoint for systemd/cron when CLI PHP lacks pdo_mysql. */
@@ -285,6 +291,67 @@ class CommunicationsController extends BaseController
         }
     }
 
+
+    // --- PTA membership directory ---
+    // PTA membership is stored against real parent records. It must never
+    // read from communications, SMS, or outbox rows.
+    private function requirePtaAccess()
+    {
+        if (!$this->userHasAny(['students_parents_view', 'students_parents_view_all', 'students_view'])) {
+            return $this->forbidden('Permission required to manage PTA membership');
+        }
+        return null;
+    }
+
+    public function getPta($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requirePtaAccess()) return $guard;
+        $pdo = $this->getDb()->getConnection();
+        if ($id !== null) {
+            $stmt = $pdo->prepare("SELECT m.id,m.parent_id,m.role,m.membership_status AS status,m.appointed_at,m.ended_at,m.notes,
+                    CONCAT_WS(' ',pp.first_name,pp.middle_name,pp.last_name) AS name,pp.phone,pp.email
+                FROM parent_pta_memberships m JOIN parents p ON p.id=m.parent_id JOIN persons pp ON pp.id=p.person_id WHERE m.id=?");
+            $stmt->execute([(int)$id]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $row ? $this->success($row) : $this->notFound('PTA membership not found');
+        }
+        $rows = $pdo->query("SELECT m.id,m.parent_id,m.role,m.membership_status AS status,m.appointed_at,m.ended_at,m.notes,
+                CONCAT_WS(' ',pp.first_name,pp.middle_name,pp.last_name) AS name,pp.phone,pp.email
+            FROM parent_pta_memberships m JOIN parents p ON p.id=m.parent_id JOIN persons pp ON pp.id=p.person_id
+            ORDER BY m.membership_status='active' DESC, pp.first_name,pp.last_name,m.id")->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->success($rows);
+    }
+
+    public function postPta($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requirePtaAccess()) return $guard;
+        $parentId=(int)($data['parent_id']??0); $role=trim((string)($data['role']??'Member'));
+        if (!$parentId) return $this->badRequest('parent_id is required');
+        $pdo=$this->getDb()->getConnection(); $check=$pdo->prepare('SELECT id FROM parents WHERE id=?'); $check->execute([$parentId]);
+        if (!$check->fetchColumn()) return $this->badRequest('Parent record not found');
+        $stmt=$pdo->prepare("INSERT INTO parent_pta_memberships (parent_id,role,membership_status,appointed_at,notes,created_by) VALUES (?,?,?,?,?,?)");
+        $stmt->execute([$parentId,$role,$data['status']??'active',$data['appointed_at']??null,$data['notes']??null,$this->getUserId()]);
+        return $this->success(['id'=>(int)$pdo->lastInsertId()],'PTA member added');
+    }
+
+    public function putPta($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requirePtaAccess()) return $guard;
+        if ($id===null) return $this->badRequest('PTA membership ID is required');
+        $fields=[]; $values=[];
+        foreach(['role','status','appointed_at','ended_at','notes'] as $field) if(array_key_exists($field,$data)) { $fields[]=$field==='status'?'membership_status=?':$field.'=?'; $values[]=$data[$field]; }
+        if (!$fields) return $this->badRequest('No PTA membership changes supplied');
+        $values[]=(int)$id; $stmt=$this->getDb()->getConnection()->prepare('UPDATE parent_pta_memberships SET '.implode(',', $fields).' WHERE id=?'); $stmt->execute($values);
+        return $this->success(['id'=>(int)$id],'PTA member updated');
+    }
+
+    public function deletePta($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->requirePtaAccess()) return $guard;
+        if ($id===null) return $this->badRequest('PTA membership ID is required');
+        $stmt=$this->getDb()->getConnection()->prepare('DELETE FROM parent_pta_memberships WHERE id=?'); $stmt->execute([(int)$id]);
+        return $this->success(['id'=>(int)$id],'PTA member removed');
+    }
 
     // --- Contact Directory CRUD ---
     
@@ -596,9 +663,16 @@ class CommunicationsController extends BaseController
     // --- Communications CRUD ---
     public function getCommunication($id = null, $data = [], $segments = [])
     {
+        $roles = $this->getUserRoleIds();
+        $isManagement = !empty(array_intersect($roles, [2, 3, 4]));
+        $isHeadteacher = in_array(5, $roles, true) && !$isManagement;
         if ($id !== null) {
-            return $this->handleResponse($this->api->getCommunication($id));
+            $data['visibility_user_id'] = (int) $this->getUserId();
+            $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
+            return $this->handleResponse($this->api->getCommunication($id, $data));
         }
+        $data['visibility_user_id'] = (int) $this->getUserId();
+        $data['visibility'] = $isManagement ? 'all' : ($isHeadteacher ? 'teacher_parent' : 'self_or_tagged');
         return $this->handleResponse($this->api->listCommunications($data));
     }
     public function postCommunication($id = null, $data = [], $segments = [])
@@ -806,6 +880,10 @@ class CommunicationsController extends BaseController
     {
         if ($id !== null) {
             return $this->handleResponse($this->api->getTemplate($id));
+        }
+        $roles = $this->getUserRoleIds();
+        if (empty(array_intersect($roles, [2, 3, 4]))) {
+            $data['created_by'] = (int) $this->getUserId();
         }
         return $this->handleResponse($this->api->listTemplates($data));
     }

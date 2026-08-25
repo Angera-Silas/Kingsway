@@ -76,8 +76,12 @@ class PaymentsController extends BaseController
             }
 
             if (isset($result['status'])) {
-                return $result['status'] === 'success'
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
+                // Provider-accepted asynchronous operations are intentionally
+                // returned as pending (for example Buni STK). They are still
+                // successful API submissions; the final state arrives via IPN.
+                $responseData = array_key_exists('data', $result) ? $result['data'] : $result;
+                return in_array($result['status'], ['success', 'pending'], true)
+                    ? $this->success($responseData, $result['message'] ?? 'Operation successful')
                     : $this->mapError($code, $result['message'] ?? 'Operation failed', $result['data'] ?? []);
             }
 
@@ -89,6 +93,12 @@ class PaymentsController extends BaseController
 
     private function mapError($code, $message, $data = [])
     {
+        if ($code === 502) {
+            return $this->respond($data, $message, 502, false);
+        }
+        if ($code === 503) {
+            return $this->respond($data, $message, 503, false);
+        }
         if ($code >= 500) {
             return $this->serverError($message, $data);
         }
@@ -230,6 +240,18 @@ class PaymentsController extends BaseController
         $headers['__raw_body'] = (string) (file_get_contents('php://input') ?: json_encode($data));
         $result = $this->api->processKcbNotification($data, $headers);
         return $this->handleResponse($result);
+    }
+
+    /** POST /api/payments/kcb-account-notification */
+    public function postKcbAccountNotification($id = null, $data = [], $segments = [])
+    {
+        return $this->postKcbNotification($id, $data, $segments);
+    }
+
+    /** POST /api/payments/kcb-till-notification */
+    public function postKcbTillNotification($id = null, $data = [], $segments = [])
+    {
+        return $this->postKcbNotification($id, $data, $segments);
     }
 
     /**
@@ -447,58 +469,112 @@ class PaymentsController extends BaseController
 
     public function postMpesaStkPush($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerStkPush($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerStkPush($data));
     }
 
     /** POST /api/payments/kcb-mpesa-express */
     public function postKcbMpesaExpress($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerKcbMpesaExpress($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerKcbMpesaExpress($data));
     }
 
     public function postMpesaStkQuery($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerStkQuery($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerStkQuery($data));
     }
 
     public function postMpesaC2bRegister($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerC2BRegister($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerC2BRegister($data));
     }
 
     public function postMpesaC2bSimulate($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerC2BSimulate($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerC2BSimulate($data));
+    }
+
+    /** POST /api/payments/mpesa-pull-transactions */
+    public function postMpesaPullTransactions($id = null, $data = [], $segments = [])
+    {
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerPullTransactions($data));
     }
 
     public function postMpesaTransactionStatus($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerTransactionStatus($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerTransactionStatus($data));
     }
 
     public function postMpesaAccountBalance($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerAccountBalance());
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerAccountBalance());
     }
 
     public function postMpesaReversal($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerReversal($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerReversal($data));
     }
 
     public function postMpesaQr($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerQR($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerQR($data));
     }
 
     public function postMpesaB2b($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerB2B($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerB2B($data));
     }
 
     public function postMpesaB2c($id = null, $data = [], $segments = [])
     {
-        return $this->mpesaActionResult($this->authorizePaymentsAction(), $this->api->triggerB2C($data));
+        $guard = $this->authorizePaymentsAction();
+        if ($guard !== 'allowed') {
+            return $this->mpesaActionResult($guard, null);
+        }
+        return $this->mpesaActionResult($guard, $this->api->triggerB2C($data));
     }
 
     public function getMpesaResults($id = null, $data = [], $segments = [])

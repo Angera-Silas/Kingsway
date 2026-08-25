@@ -301,7 +301,7 @@
                 <div class="table-responsive">
                     <table class="table ar-table mb-0" id="detailedTable">
                         <thead>
-                            <tr><th scope="col">Class</th><th scope="col">Level</th><th scope="col">Students</th><th scope="col">Streams</th><th scope="col">Avg %</th><th scope="col">EE</th><th scope="col">ME</th><th scope="col">AE</th><th scope="col">BE</th><th scope="col">Pass Rate</th></tr>
+                            <tr><th scope="col">Student Name</th><th scope="col">Adm No.</th><th scope="col">Class</th><th scope="col">Stream</th><th scope="col">Avg %</th><th scope="col">EE</th><th scope="col">ME</th><th scope="col">AE</th><th scope="col">BE</th><th scope="col">Pass Rate</th></tr>
                         </thead>
                         <tbody id="detailedTbody">
                             <tr><td colspan="10" class="ar-empty"><i class="bi bi-table"></i>Generate a report to see detailed analysis</td></tr>

@@ -12,6 +12,12 @@ const TimetableController = {
     rooms: [],
     timeSlots: [],
     viewType: "class",
+    teacherScope: null,
+    streams: [],
+    isTeacher: false,
+    isLeadership: false,
+    isLowerPrimary: false,
+    selectedDay: "Monday",
   },
 
   async init() {
@@ -20,6 +26,18 @@ const TimetableController = {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+
+    const roles = (window.AuthContext.getRoles?.() || []).map((role) => String(typeof role === 'object' ? (role.name || role.role_name || '') : role).toLowerCase());
+    this.state.isLeadership = roles.some((role) => /admin|director|headteacher|deputy/.test(role));
+    this.state.isTeacher = roles.some((role) => role.includes('teacher'));
+    try { this.state.teacherScope = await window.AuthContext.getTeacherScope?.(); } catch (_) { this.state.teacherScope = null; }
+    const academicYearId = window.AcademicContext?.getAcademicYearId?.();
+    try {
+      const streamsResponse = await window.API.schedules.listTimetableStreams({ academic_year_id: academicYearId });
+      this.state.streams = streamsResponse?.data || streamsResponse || [];
+    } catch (_) { this.state.streams = []; }
+    this.state.isLowerPrimary = this.state.isTeacher && !this.state.isLeadership && this.isLowerPrimaryClassTeacher();
+    this.applyRoleView();
 
     if (
       typeof PageShell !== "undefined" &&
@@ -38,6 +56,30 @@ const TimetableController = {
 
     this.bindEvents();
     await Promise.all([this.loadFilters(), this.loadTimeSlots()]);
+    if (this.state.isTeacher && !this.state.isLeadership) await this.loadTimetable();
+  },
+
+  isLowerPrimaryClassTeacher() {
+    const owned = new Set((this.state.teacherScope?.class_stream_ids || []).map(Number));
+    const visible = new Set((this.state.teacherScope?.visible_stream_ids || []).map(Number));
+    const relevant = visible.size ? visible : owned;
+    const streams = this.state.streams.filter((stream) => relevant.has(Number(stream.academic_year_class_stream_id)));
+    return streams.length > 0 && streams.every((stream) => /playgroup|pp1|pp2|grade\s*[1-3]\b/i.test(`${stream.class_name || ''} ${stream.grade_level || ''}`));
+  },
+
+  applyRoleView() {
+    if (!this.state.isTeacher || this.state.isLeadership) return;
+    document.getElementById('generateTimetableButton')?.classList.add('d-none');
+    document.querySelectorAll('[data-management-only]').forEach((element) => element.classList.add('d-none'));
+    const title = document.querySelector('.row.mb-4 h4');
+    const subtitle = document.querySelector('.row.mb-4 p');
+    if (title) title.innerHTML = `<i class="bi bi-calendar-week me-2"></i>${this.state.isLowerPrimary ? 'My Class Timetable' : 'My Teaching Timetable'}`;
+    if (subtitle) subtitle.textContent = this.state.isLowerPrimary ? 'View the timetable for your assigned class streams.' : 'View your assigned learning areas across the streams you teach.';
+    const viewType = document.getElementById('viewType');
+    if (viewType) { viewType.innerHTML = '<option value="class">Weekly View</option><option value="daily">Daily View</option>'; viewType.value = 'class'; }
+    document.getElementById('teacherDayField')?.classList.remove('d-none');
+    const timetableTitle = document.getElementById('timetableTitle');
+    if (timetableTitle) timetableTitle.textContent = this.state.isLowerPrimary ? 'My Class Timetable' : 'My Teaching Timetable';
   },
 
   bindEvents() {
@@ -49,6 +91,9 @@ const TimetableController = {
 
     const loadBtn = document.getElementById("loadTimetable");
     if (loadBtn) loadBtn.addEventListener("click", () => this.loadTimetable());
+    ["selectClass", "selectTeacher", "selectWeek", "selectTerm", "teacherDay"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("change", () => this.loadTimetable());
+    });
 
     const printBtn = document.getElementById("printTimetable");
     if (printBtn) printBtn.addEventListener("click", () => this.printTimetable());
@@ -67,6 +112,7 @@ const TimetableController = {
       const data = await window.API.schedules.getTimeSlots() || [];
       if (data.length > 0) {
         this.state.timeSlots = data.map((s) => ({
+          id: s.id,
           label: s.label || `Period ${s.period_number}`,
           start: s.start_time?.substring(0, 5) || s.start_time,
           end: s.end_time?.substring(0, 5) || s.end_time,
@@ -81,6 +127,7 @@ const TimetableController = {
   },
 
   async loadFilters() {
+    if (this.state.isTeacher && !this.state.isLeadership) return;
     try {
       const [classesRes] = await Promise.all([
         window.API.academic.listClasses(),
@@ -117,6 +164,11 @@ const TimetableController = {
 
   onViewTypeChange(viewType) {
     this.state.viewType = viewType;
+    if (this.state.isTeacher && !this.state.isLeadership) {
+      document.getElementById('teacherDayField')?.classList.toggle('d-none', viewType !== 'daily');
+      this.loadTimetable();
+      return;
+    }
     document
       .getElementById("selectClass")
       ?.parentElement?.classList.toggle("d-none", viewType !== "class");
@@ -130,21 +182,23 @@ const TimetableController = {
 
   async loadTimetable() {
     try {
-      const grid = document.getElementById("timetableGrid");
+      const grid = document.getElementById("timetableGridWrap") || document.getElementById("timetableGrid");
       if (grid)
         grid.innerHTML =
           '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
       const viewType = this.state.viewType;
       let params = {};
+      const academicYearId = window.AcademicContext?.getAcademicYearId?.();
+      if (academicYearId) params.academic_year_id = academicYearId;
 
       if (viewType === "class") {
         const classId = document.getElementById("selectClass")?.value;
-        if (!classId) {
+        if (!classId && !(this.state.isTeacher && !this.state.isLeadership)) {
           this.showNotification("Please select a class", "warning");
           return;
         }
-        params.class_id = classId;
+        if (classId) params.class_id = classId;
       } else if (viewType === "teacher") {
         const teacherId = document.getElementById("selectTeacher")?.value;
         if (!teacherId) {
@@ -152,6 +206,13 @@ const TimetableController = {
           return;
         }
         params.teacher_id = teacherId;
+      }
+
+      if (this.state.isTeacher && !this.state.isLeadership) {
+        params.scope_context = this.state.isLowerPrimary ? 'class_teacher' : 'teacher';
+        if (this.state.viewType === 'daily') {
+          params.day_of_week = document.getElementById('teacherDay')?.value || 'Monday';
+        }
       }
 
       this.state.timetable = await window.API.schedules.getTimetable(params) || [];
@@ -163,19 +224,26 @@ const TimetableController = {
   },
 
   renderTimetableGrid() {
-    const grid = document.getElementById("timetableGrid");
+    const grid = document.getElementById("timetableGridWrap") || document.getElementById("timetableGrid");
     if (!grid) return;
 
-    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const days = this.state.isTeacher && !this.state.isLeadership && this.state.viewType === 'daily'
+      ? [document.getElementById('teacherDay')?.value || 'Monday']
+      : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
     const periods = this.getDisplayPeriods();
 
     if (this.state.timetable.length === 0) {
       grid.innerHTML =
-        '<div class="text-center py-5 text-muted"><i class="fas fa-calendar-times fa-3x mb-3"></i><p>No timetable data found. Select a class and click Load.</p></div>';
+        `<div class="text-center py-5 text-muted"><i class="fas fa-calendar-times fa-3x mb-3"></i><p>${this.state.isTeacher && !this.state.isLeadership ? 'No timetable has been published for your authorised teaching scope.' : 'No timetable data found. Select a class and click View Timetable.'}</p></div>`;
       return;
     }
 
-    let html = `<div class="table-responsive"><table class="table table-bordered text-center">
+    if (this.state.isTeacher && !this.state.isLeadership) {
+      this.renderTeacherGrid(grid, periods, days);
+      return;
+    }
+
+    let html = `<div class="table-responsive"><table id="timetableGrid" class="table table-bordered text-center">
             <thead class="bg-primary text-white">
                 <tr><th>Time</th>${days.map((d) => `<th>${d}</th>`).join("")}</tr>
             </thead><tbody>`;
@@ -210,6 +278,63 @@ const TimetableController = {
 
     html += "</tbody></table></div>";
     grid.innerHTML = html;
+  },
+
+  renderTeacherGrid(grid, periods, days) {
+    const ownedIds = new Set((this.state.teacherScope?.class_stream_ids || []).map(Number));
+    const scopedStreams = this.state.streams.filter((stream) => ownedIds.has(Number(stream.academic_year_class_stream_id)));
+    const lowerStreams = this.state.isLowerPrimary ? scopedStreams : [];
+    const rowsPerDay = lowerStreams.length || 1;
+    const totalRows = days.length * rowsPerDay;
+    const entries = this.state.timetable || [];
+    const firstRow = (dayIndex, streamIndex) => dayIndex === 0 && streamIndex === 0;
+    const verticalLabel = (label) => String(label || '').split(/\s+/).map((word) =>
+      `<span>${[...word].map((letter) => this.escapeHtml(letter)).join('<br>')}</span>`
+    ).join('<span class="word-gap"></span>');
+    const matches = (entry, day, period, streamId) => {
+      const entryDay = Number(entry.day_of_week) === days.indexOf(day) + 1 || entry.day === day;
+      const entryStream = streamId === null || Number(entry.academic_year_class_stream_id) === Number(streamId);
+      const entryPeriod = (period.start && this.normalizeTime(entry.start_time) === period.start) ||
+        (period.number !== undefined && Number(entry.period_number) === Number(period.number)) ||
+        (period.id !== undefined && Number(entry.time_slot_id) === Number(period.id));
+      return entryDay && entryStream && entryPeriod;
+    };
+    const lessonHtml = (items) => {
+      if (!items.length) return '<span class="text-muted">—</span>';
+      return items.map((slot) => {
+        const subject = this.escapeHtml(slot.subject_name || slot.learning_area_name || 'Lesson');
+        const stream = this.escapeHtml([slot.class_name, slot.stream_name].filter(Boolean).join(' - '));
+        const teacher = this.escapeHtml(slot.teacher_name || 'Assigned teacher');
+        return `<div class="teacher-lesson text-start mb-1"><strong class="text-primary">${subject}</strong>${!this.state.isLowerPrimary && stream ? `<div class="text-muted">${stream}</div>` : ''}<small class="d-block text-muted">${this.state.isLowerPrimary ? 'Class teacher' : teacher}</small></div>`;
+      }).join('');
+    };
+
+    let html = `<div class="table-responsive"><table id="timetableGrid" class="table table-bordered text-center align-middle mb-0 timetable-teacher-grid"><thead class="bg-primary text-white"><tr><th style="width:72px">Day</th>${this.state.isLowerPrimary ? '<th style="width:92px">Class / Stream</th>' : ''}${periods.map((period) => `<th>${this.escapeHtml(period.start || '')}<br>${this.escapeHtml(period.end || '')}<small class="d-block">${this.escapeHtml(period.label || '')}</small></th>`).join('')}</tr></thead><tbody>`;
+
+    days.forEach((day, dayIndex) => {
+      const streamRows = lowerStreams.length ? lowerStreams : [null];
+      streamRows.forEach((stream, streamIndex) => {
+        const streamId = stream ? Number(stream.academic_year_class_stream_id) : null;
+        html += '<tr>';
+        if (streamIndex === 0) html += `<th rowspan="${rowsPerDay}" class="bg-light">${day}</th>`;
+        if (this.state.isLowerPrimary) html += `<th class="bg-light text-start">${this.escapeHtml(`${stream.class_name || ''} - ${stream.stream_name || ''}`)}</th>`;
+        periods.forEach((period) => {
+          if (period.isBreak) {
+            if (firstRow(dayIndex, streamIndex)) {
+              const cls = period.type === 'lunch' ? 'table-info' : period.type === 'break' ? 'table-warning' : 'table-success';
+              html += `<td rowspan="${totalRows}" class="break-cell ${cls}"><strong>${verticalLabel(period.label)}</strong></td>`;
+            }
+            return;
+          }
+          html += `<td>${lessonHtml(entries.filter((entry) => matches(entry, day, period, streamId)))}</td>`;
+        });
+        html += '</tr>';
+      });
+    });
+    html += '</tbody></table></div>';
+    grid.innerHTML = html;
+    const title = document.getElementById('timetableTitle');
+    if (title) title.textContent = this.state.isLowerPrimary ? 'My Class Timetable' : 'My Teaching Timetable';
   },
 
   getDisplayPeriods() {

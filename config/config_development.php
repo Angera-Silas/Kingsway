@@ -243,6 +243,8 @@ define('COMMUNICATION_WEBHOOK_SECRET', $_ENV['COMMUNICATION_WEBHOOK_SECRET'] ?? 
 define('AFRICASTALKING_WEBHOOK_TOKEN', $_ENV['AFRICASTALKING_WEBHOOK_TOKEN'] ?? '');
 define('WHATSAPP_2FA_TEMPLATE_ID', $_ENV['WHATSAPP_2FA_TEMPLATE_ID'] ?? '');
 define('COMMUNICATION_WORKER_SECRET', $_ENV['COMMUNICATION_WORKER_SECRET'] ?? '');
+define('ATTENDANCE_WORKER_SECRET', $_ENV['ATTENDANCE_WORKER_SECRET'] ?? '');
+define('ATTENDANCE_GATE_SECRET', $_ENV['ATTENDANCE_GATE_SECRET'] ?? '');
 define('TWILIO_ACCOUNT_SID', $_ENV['TWILIO_ACCOUNT_SID'] ?? '');
 define('TWILIO_AUTH_TOKEN', $_ENV['TWILIO_AUTH_TOKEN'] ?? '');
 define('TWILIO_FROM', $_ENV['TWILIO_FROM'] ?? '');
@@ -257,6 +259,7 @@ define(
     'MPESA_ENVIRONMENT',
     $_ENV['MPESA_ENVIRONMENT'] ?? 'sandbox'
 );
+
 
 define(
     'MPESA_BASE_URL',
@@ -310,6 +313,7 @@ define(
     'MPESA_SECURITY_CREDENTIAL',
     $_ENV['MPESA_SECURITY_CREDENTIAL'] ?? ''
 );
+define('MPESA_CERTIFICATE_PATH', $_ENV['MPESA_CERTIFICATE_PATH'] ?? __DIR__ . '/mpesa_sandbox_cert.cer');
 
 /*
 |--------------------------------------------------------------------------

@@ -23,6 +23,10 @@
                 </button>
             </div>
         </div>
+        <div class="alert alert-light border mb-0 mt-3">
+            <i class="bi bi-info-circle me-2"></i>
+            Each canonical learning area appears once. Where it is offered in several education bands, those levels are combined in the same row.
+        </div>
     </div>
 
     <div class="card-body">

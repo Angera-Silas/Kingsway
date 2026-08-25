@@ -7,6 +7,7 @@ use App\API\Modules\schedules\SchedulesWorkflow;
 use App\API\Modules\schedules\TermHolidayManager;
 use App\API\Modules\schedules\TermHolidayWorkflow;
 use App\API\Services\CalendarSyncService;
+use App\API\Services\NotificationService;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use function App\API\Includes\dayNameToNumber;
@@ -334,10 +335,25 @@ class SchedulesAPI extends BaseAPI {
                 $where[] = "cs.academic_year_class_stream_id = ?";
                 $bindings[] = (int) $params['academic_year_class_stream_id'];
             }
+            if (!empty($params['class_stream_ids'])) {
+                $streamIds = is_array($params['class_stream_ids'])
+                    ? $params['class_stream_ids']
+                    : explode(',', (string) $params['class_stream_ids']);
+                $streamIds = array_values(array_filter(array_map('intval', $streamIds), static function ($id) { return $id > 0; }));
+                if (!$streamIds) return successResponse([]);
+                $where[] = 'cs.academic_year_class_stream_id IN (' . implode(',', array_fill(0, count($streamIds), '?')) . ')';
+                $bindings = array_merge($bindings, $streamIds);
+            }
             if (!empty($params['day_of_week'])) {
                 $dayNum = dayNameToNumber($params['day_of_week']);
                 $where[] = "cs.day_of_week = ?";
                 $bindings[] = $dayNum ?? $params['day_of_week'];
+            }
+            if (array_key_exists('_scope_stream_ids', $params)) {
+                $allowed = array_values(array_filter(array_map('intval', (array)$params['_scope_stream_ids']), static function ($id) { return $id > 0; }));
+                if (!$allowed) return successResponse([]);
+                $where[] = 'cs.academic_year_class_stream_id IN (' . implode(',', array_fill(0, count($allowed), '?')) . ')';
+                $bindings = array_merge($bindings, $allowed);
             }
 
             $whereSql = implode(' AND ', $where);
@@ -1724,6 +1740,552 @@ class SchedulesAPI extends BaseAPI {
         $stmt = $this->db->prepare("SELECT id FROM learning_areas WHERE id = ? LIMIT 1");
         $stmt->execute([$subjectId]);
         return (int) $stmt->fetchColumn();
+    }
+
+    /** List resumable timetable bundles, including their current workflow state. */
+    public function listTimetableDrafts(array $filters = []): array
+    {
+        $sql = "SELECT d.*, COUNT(e.id) AS entry_count
+                FROM timetable_drafts d
+                LEFT JOIN timetable_draft_entries e ON e.draft_id = d.id
+                WHERE 1=1";
+        $params = [];
+        if (!empty($filters['academic_year_term_id'])) { $sql .= " AND d.academic_year_term_id = ?"; $params[] = (int) $filters['academic_year_term_id']; }
+        if (!empty($filters['status'])) { $sql .= " AND d.status = ?"; $params[] = $filters['status']; }
+        if (array_key_exists('_scope_stream_ids', $filters)) {
+            $allowed = array_values(array_filter(array_map('intval', (array)$filters['_scope_stream_ids']), static function ($id) { return $id > 0; }));
+            if (!$allowed) return successResponse([]);
+            $sql .= ' AND EXISTS (SELECT 1 FROM timetable_draft_entries scope_e WHERE scope_e.draft_id = d.id AND scope_e.academic_year_class_stream_id IN (' . implode(',', array_fill(0, count($allowed), '?')) . '))';
+            $params = array_merge($params, $allowed);
+        }
+        $sql .= " GROUP BY d.id ORDER BY d.updated_at DESC";
+        $stmt = $this->db->prepare($sql); $stmt->execute($params);
+        return successResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function listTimetableStreams(array $filters = []): array
+    {
+        $sql = "SELECT aycs.id AS academic_year_class_stream_id, aycs.class_teacher_id, c.id AS class_id, c.name AS class_name, c.grade_level,
+                       COALESCE(st.name, 'A') AS stream_name,
+                       sla.id AS stream_learning_area_id, aycla.id AS class_learning_area_id, aycla.learning_area_id,
+                       la.name AS learning_area_name
+                FROM academic_year_class_streams aycs
+                JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                JOIN classes c ON c.id = ayc.class_id
+                LEFT JOIN streams st ON st.id = aycs.stream_id
+                LEFT JOIN academic_year_class_learning_areas aycla
+                    ON aycla.academic_year_class_id = ayc.id
+                   AND aycla.status IN ('planned','active')
+                LEFT JOIN academic_year_class_stream_learning_areas sla
+                    ON sla.academic_year_class_stream_id = aycs.id
+                   AND sla.academic_year_class_learning_area_id = aycla.id
+                   AND sla.status IN ('planned','active','in_progress','covered')
+                LEFT JOIN learning_areas la ON la.id = aycla.learning_area_id
+                WHERE ayc.academic_year_id = ? AND aycs.status IN ('planning','active')
+                ORDER BY c.id, stream_name, la.name";
+        $params = [(int)($filters['academic_year_id'] ?? 0)];
+        if (array_key_exists('_scope_stream_ids', $filters)) {
+            $allowed = array_values(array_filter(array_map('intval', (array)$filters['_scope_stream_ids']), static function ($id) { return $id > 0; }));
+            if (!$allowed) return successResponse([]);
+            $sql = str_replace('ORDER BY c.id, stream_name, la.name', 'AND aycs.id IN (' . implode(',', array_fill(0, count($allowed), '?')) . ') ORDER BY c.id, stream_name, la.name', $sql);
+            $params = array_merge($params, $allowed);
+        }
+        $stmt = $this->db->prepare($sql); $stmt->execute($params);
+        $streams = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $id = (int)$row['academic_year_class_stream_id'];
+            if (!isset($streams[$id])) {
+                $streams[$id] = [
+                    'academic_year_class_stream_id' => $id,
+                    'class_id' => (int)$row['class_id'],
+                    'class_teacher_id' => (int)($row['class_teacher_id'] ?? 0),
+                    'class_name' => $row['class_name'],
+                    'stream_name' => $row['stream_name'],
+                    'learning_areas' => [],
+                ];
+            }
+            if (!empty($row['learning_area_id'])) {
+                $streams[$id]['learning_areas'][] = [
+                    'id' => (int)$row['learning_area_id'],
+                    'name' => $row['learning_area_name'],
+                    'class_learning_area_id' => (int)$row['class_learning_area_id'],
+                    'stream_learning_area_id' => (int)($row['stream_learning_area_id'] ?? 0),
+                ];
+            }
+        }
+        return successResponse(array_values($streams));
+    }
+
+    public function saveDutyRosterDraft(array $data): array
+    {
+        foreach (['academic_year_id','academic_year_term_id','title','start_date','end_date','created_by'] as $f) if (($data[$f] ?? '') === '') return errorResponse("Missing required field: {$f}", 400);
+        $id=(int)($data['id']??0); $entries=is_array($data['entries']??null)?$data['entries']:[];
+        try { $this->db->beginTransaction();
+            if($id){$q=$this->db->prepare("SELECT status FROM duty_roster_drafts WHERE id=? FOR UPDATE");$q->execute([$id]);$st=$q->fetchColumn();if(!$st)throw new Exception('Duty roster draft not found');if(in_array($st,['approved','published','cancelled'],true))throw new Exception('Duty roster draft is locked');$this->db->prepare("UPDATE duty_roster_drafts SET title=?,start_date=?,end_date=?,status='draft' WHERE id=?")->execute([$data['title'],$data['start_date'],$data['end_date'],$id]);$this->db->prepare("DELETE FROM duty_roster_draft_entries WHERE draft_id=?")->execute([$id]);}
+            else{$q=$this->db->prepare("INSERT INTO duty_roster_drafts(academic_year_id,academic_year_term_id,title,start_date,end_date,created_by) VALUES(?,?,?,?,?,?)");$q->execute([(int)$data['academic_year_id'],(int)$data['academic_year_term_id'],$data['title'],$data['start_date'],$data['end_date'],(int)$data['created_by']]);$id=(int)$this->db->lastInsertId();}
+            $ins=$this->db->prepare("INSERT INTO duty_roster_draft_entries(draft_id,staff_id,date,duty_type_id,shift,start_time,end_time,location,notes,swapped_with_id) VALUES(?,?,?,?,?,?,?,?,?,NULLIF(?,0))");
+            $seen=[]; foreach($entries as $e){if(empty($e['staff_id'])||empty($e['date'])||empty($e['duty_type_id']))continue;$key=$e['staff_id'].'|'.$e['date'].'|'.($e['shift']??'full_day');if(isset($seen[$key]))throw new Exception('A staff member has duplicate duty assignments for the same date and shift.');$seen[$key]=1;$ins->execute([$id,(int)$e['staff_id'],$e['date'],(int)$e['duty_type_id'],$e['shift']??'full_day',$e['start_time']??null,$e['end_time']??null,$e['location']??null,$e['notes']??null,(int)($e['swapped_with_id']??0)]);}
+            $this->db->commit();return successResponse(['id'=>$id,'status'=>'draft','entry_count'=>count($entries)],'Duty roster draft saved');
+        }catch(Exception $e){if($this->db->inTransaction())$this->db->rollBack();return errorResponse($e->getMessage(),400);}
+    }
+
+    public function listDutyRosterDrafts(array $filters=[]): array { $q=$this->db->prepare("SELECT d.*,COUNT(e.id) entry_count FROM duty_roster_drafts d LEFT JOIN duty_roster_draft_entries e ON e.draft_id=d.id GROUP BY d.id ORDER BY d.updated_at DESC");$q->execute();return successResponse($q->fetchAll(PDO::FETCH_ASSOC)); }
+    public function getDutyRosterDraft($id): array { $q=$this->db->prepare("SELECT * FROM duty_roster_drafts WHERE id=?");$q->execute([(int)$id]);$d=$q->fetch(PDO::FETCH_ASSOC);if(!$d)return errorResponse('Duty roster draft not found',404);$q=$this->db->prepare("SELECT * FROM duty_roster_draft_entries WHERE draft_id=? ORDER BY date,start_time");$q->execute([(int)$id]);$d['entries']=$q->fetchAll(PDO::FETCH_ASSOC);return successResponse($d); }
+
+    public function saveExamTimetableDraft(array $data): array
+    {
+        foreach (['academic_year_id', 'academic_year_term_id', 'title', 'created_by'] as $field) {
+            if (($data[$field] ?? '') === '') return errorResponse("Missing required field: {$field}", 400);
+        }
+        $id = (int) ($data['id'] ?? 0);
+        $entries = is_array($data['entries'] ?? null) ? $data['entries'] : [];
+        if (!$entries) return errorResponse('Add at least one examination paper to the timetable', 422);
+
+        try {
+            $this->db->beginTransaction();
+            $term = $this->db->prepare(
+                'SELECT opening_date, closing_date FROM academic_year_terms WHERE id = ? AND academic_year_id = ? LIMIT 1'
+            );
+            $term->execute([(int) $data['academic_year_term_id'], (int) $data['academic_year_id']]);
+            $termDates = $term->fetch(PDO::FETCH_ASSOC);
+            if (!$termDates) throw new \InvalidArgumentException('The selected term does not belong to the selected academic year');
+
+            if ($id) {
+                $query = $this->db->prepare('SELECT status FROM exam_timetable_drafts WHERE id = ? FOR UPDATE');
+                $query->execute([$id]);
+                $status = $query->fetchColumn();
+                if (!$status) throw new \InvalidArgumentException('Exam timetable draft not found');
+                if (in_array($status, ['approved', 'published', 'cancelled'], true)) {
+                    throw new \InvalidArgumentException('This exam timetable draft is locked');
+                }
+                $this->db->prepare(
+                    "UPDATE exam_timetable_drafts SET title = ?, status = 'draft' WHERE id = ?"
+                )->execute([trim((string) $data['title']), $id]);
+                $this->db->prepare('DELETE FROM exam_timetable_draft_entries WHERE draft_id = ?')->execute([$id]);
+            } else {
+                $query = $this->db->prepare(
+                    'INSERT INTO exam_timetable_drafts
+                        (academic_year_id, academic_year_term_id, title, created_by)
+                     VALUES (?, ?, ?, ?)'
+                );
+                $query->execute([
+                    (int) $data['academic_year_id'],
+                    (int) $data['academic_year_term_id'],
+                    trim((string) $data['title']),
+                    (int) $data['created_by'],
+                ]);
+                $id = (int) $this->db->lastInsertId();
+            }
+
+            $streamAreaCheck = $this->db->prepare(
+                "SELECT sla.id
+                 FROM academic_year_class_stream_learning_areas sla
+                 JOIN academic_year_class_learning_areas cla
+                   ON cla.id = sla.academic_year_class_learning_area_id
+                 JOIN academic_year_class_streams aycs ON aycs.id = sla.academic_year_class_stream_id
+                 JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ?
+                   AND ayc.academic_year_id = ?
+                   AND sla.status IN ('planned','active','in_progress','covered')
+                 LIMIT 1"
+            );
+            $typeCheck = $this->db->prepare(
+                "SELECT name FROM assessment_types
+                 WHERE id = ? AND is_summative = 1 AND status = 'active' LIMIT 1"
+            );
+            $insert = $this->db->prepare(
+                'INSERT INTO exam_timetable_draft_entries
+                    (draft_id, academic_year_class_stream_id, learning_area_id, exam_name, exam_type,
+                     assessment_type_id, max_marks, exam_date, start_time, end_time, duration_minutes,
+                     room_id, venue, invigilator_id, supervisor_id, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, NULLIF(?, 0), NULLIF(?, 0), ?)'
+            );
+
+            $seen = [];
+            foreach ($entries as $index => $entry) {
+                $number = $index + 1;
+                $streamId = (int) ($entry['academic_year_class_stream_id'] ?? 0);
+                $learningAreaId = (int) ($entry['learning_area_id'] ?? 0);
+                $assessmentTypeId = (int) ($entry['assessment_type_id'] ?? 0);
+                $maxMarks = (float) ($entry['max_marks'] ?? 0);
+                $examName = trim((string) ($entry['exam_name'] ?? ''));
+                $date = (string) ($entry['exam_date'] ?? '');
+                $start = (string) ($entry['start_time'] ?? '');
+                $end = (string) ($entry['end_time'] ?? '');
+                if (!$streamId || !$learningAreaId || !$assessmentTypeId || $examName === '' || $date === '' || $start === '' || $end === '') {
+                    throw new \InvalidArgumentException("Exam row {$number} is incomplete");
+                }
+                if ($maxMarks <= 0) throw new \InvalidArgumentException("Exam row {$number} requires maximum marks greater than zero");
+                if ($end <= $start) throw new \InvalidArgumentException("Exam row {$number} must end after it starts");
+                if ((!empty($termDates['opening_date']) && $date < $termDates['opening_date'])
+                    || (!empty($termDates['closing_date']) && $date > $termDates['closing_date'])) {
+                    throw new \InvalidArgumentException("Exam row {$number} falls outside the selected term");
+                }
+
+                $streamAreaCheck->execute([$streamId, $learningAreaId, (int) $data['academic_year_id']]);
+                if (!$streamAreaCheck->fetchColumn()) {
+                    throw new \InvalidArgumentException("Exam row {$number} uses a learning area not assigned to that class stream");
+                }
+                $typeCheck->execute([$assessmentTypeId]);
+                $typeName = $typeCheck->fetchColumn();
+                if (!$typeName) throw new \InvalidArgumentException("Exam row {$number} must use an active summative assessment type");
+
+                foreach ($seen as $old) {
+                    $overlap = $old['date'] === $date && $old['start'] < $end && $old['end'] > $start;
+                    $resourceConflict = $old['stream'] === $streamId
+                        || (!empty($entry['room_id']) && $old['room'] === (int) $entry['room_id'])
+                        || (!empty($entry['invigilator_id']) && $old['invigilator'] === (int) $entry['invigilator_id']);
+                    if ($overlap && $resourceConflict) {
+                        throw new \InvalidArgumentException("Exam row {$number} conflicts with another class, room, or invigilator allocation");
+                    }
+                }
+                $seen[] = [
+                    'date' => $date,
+                    'start' => $start,
+                    'end' => $end,
+                    'stream' => $streamId,
+                    'room' => (int) ($entry['room_id'] ?? 0),
+                    'invigilator' => (int) ($entry['invigilator_id'] ?? 0),
+                ];
+
+                $duration = (int) ($entry['duration_minutes'] ?? 0);
+                if ($duration <= 0) {
+                    $duration = (int) round((strtotime($end) - strtotime($start)) / 60);
+                }
+                $insert->execute([
+                    $id, $streamId, $learningAreaId, $examName, (string) ($entry['exam_type'] ?? $typeName),
+                    $assessmentTypeId, $maxMarks, $date, $start, $end, $duration,
+                    (int) ($entry['room_id'] ?? 0), trim((string) ($entry['venue'] ?? '')) ?: null,
+                    (int) ($entry['invigilator_id'] ?? 0), (int) ($entry['supervisor_id'] ?? 0),
+                    trim((string) ($entry['notes'] ?? '')) ?: null,
+                ]);
+            }
+
+            $this->db->commit();
+            return successResponse(['id' => $id, 'status' => 'draft', 'entry_count' => count($entries)], 'Exam timetable draft saved');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            return errorResponse($e->getMessage(), $e instanceof \InvalidArgumentException ? 422 : 400);
+        }
+    }
+
+    public function listExamTimetableDrafts(array $filters = []): array
+    {
+        $query = $this->db->query(
+            'SELECT d.*, COUNT(e.id) AS entry_count
+             FROM exam_timetable_drafts d
+             LEFT JOIN exam_timetable_draft_entries e ON e.draft_id = d.id
+             GROUP BY d.id ORDER BY d.updated_at DESC'
+        );
+        return successResponse($query->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function getExamTimetableDraft($id): array
+    {
+        $query = $this->db->prepare('SELECT * FROM exam_timetable_drafts WHERE id = ?');
+        $query->execute([(int) $id]);
+        $draft = $query->fetch(PDO::FETCH_ASSOC);
+        if (!$draft) return errorResponse('Exam timetable draft not found', 404);
+        $query = $this->db->prepare(
+            'SELECT e.*, at.name AS assessment_type_name
+             FROM exam_timetable_draft_entries e
+             LEFT JOIN assessment_types at ON at.id = e.assessment_type_id
+             WHERE e.draft_id = ? ORDER BY e.exam_date, e.start_time'
+        );
+        $query->execute([(int) $id]);
+        $draft['entries'] = $query->fetchAll(PDO::FETCH_ASSOC);
+        return successResponse($draft);
+    }
+
+    public function transitionDutyRosterDraft(array $data): array { return $this->transitionScheduleDraft('duty',(int)($data['id']??0),$data['action']??'',(int)($data['actor_id']??0),$data['comments']??null); }
+    public function transitionExamTimetableDraft(array $data): array
+    {
+        return $this->transitionScheduleDraft(
+            'exam',
+            (int) ($data['id'] ?? 0),
+            (string) ($data['action'] ?? ''),
+            (int) ($data['actor_id'] ?? 0),
+            $data['comments'] ?? null
+        );
+    }
+    private function transitionScheduleDraft(string $type,int $id,string $action,int $actor,$comments): array {
+        $table=$type==='duty'?'duty_roster_drafts':'exam_timetable_drafts';$entryTable=$type==='duty'?'duty_roster_draft_entries':'exam_timetable_draft_entries';
+        $allowed=['submit'=>['draft','changes_requested'],'review'=>['submitted'],'request_changes'=>['submitted'],'approve'=>['submitted'],'publish'=>['approved']];if(!$id||!isset($allowed[$action]))return errorResponse('Draft id and valid action are required',400);
+        $to=['submit'=>'submitted','review'=>'submitted','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
+        try {
+            $this->db->beginTransaction();
+            $q = $this->db->prepare("SELECT status FROM {$table} WHERE id = ? FOR UPDATE");
+            $q->execute([$id]);
+            $from = $q->fetchColumn();
+            if (!$from || !in_array($from, $allowed[$action], true)) {
+                throw new \RuntimeException('Invalid workflow transition', 409);
+            }
+            $count = $this->db->prepare("SELECT COUNT(*) FROM {$entryTable} WHERE draft_id = ?");
+            $count->execute([$id]);
+            if ((int) $count->fetchColumn() === 0) throw new \RuntimeException('An empty schedule cannot be submitted or published', 422);
+            if ($action === 'request_changes' && trim((string) $comments) === '') {
+                throw new \RuntimeException('Explain the changes required', 422);
+            }
+            if ($action === 'publish') $this->publishScheduleDraft($type, $id, $entryTable, $actor);
+            $this->db->prepare(
+                "UPDATE {$table}
+                 SET status = ?, submitted_at = IF(? = 'submitted', NOW(), submitted_at),
+                     approved_at = IF(? = 'approved', NOW(), approved_at),
+                     published_at = IF(? = 'published', NOW(), published_at)
+                 WHERE id = ?"
+            )->execute([$to, $to, $to, $to, $id]);
+            $reviewAction=['submit'=>'submitted','review'=>'reviewed','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
+            $this->db->prepare(
+                'INSERT INTO schedule_draft_reviews(document_type,draft_id,reviewer_id,action,comments) VALUES(?,?,?,?,?)'
+            )->execute([$type, $id, $actor, $reviewAction, $comments]);
+            $this->db->commit();
+            $this->notifyScheduleTransition($type, $id, $to);
+            return successResponse(['id' => $id, 'status' => $to], "{$type} schedule draft {$to}");
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            $code = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
+            return errorResponse($e->getMessage(), $code);
+        }
+    }
+    private function notifyScheduleTransition(string $type,int $id,string $status): void { try{$n=new NotificationService($this->db);$label=$type==='duty'?'duty roster':'exam timetable';$recipients=$status==='submitted'?['role:headteacher','role:deputy_head_academic','role:school_admin']:'all_staff';$n->push($recipients,'schedule_workflow',ucfirst($label).' '.$status,"The {$label} draft #{$id} is now {$status}.",'medium',['reference_type'=>$type.'_schedule_draft','reference_id'=>$id,'action_url'=>'home.php?route='.($type==='duty'?'duty_roster':'exam_timetable_drafts')]);}catch(\Throwable $e){error_log('[SchedulesAPI] notification failed: '.$e->getMessage());} }
+    private function publishScheduleDraft(string $type,int $id,string $entryTable,int $actor): void {
+        if($type==='duty'){$q=$this->db->prepare("SELECT * FROM {$entryTable} WHERE draft_id=?");$q->execute([$id]);$ins=$this->db->prepare("INSERT INTO staff_duty_roster(staff_id,date,duty_type_id,shift,start_time,end_time,location,notes,is_swap,swapped_with_id) VALUES(?,?,?,?,?,?,?,?,?,?)");foreach($q as $e)$ins->execute([$e['staff_id'],$e['date'],$e['duty_type_id'],$e['shift'],$e['start_time'],$e['end_time'],$e['location'],$e['notes'],empty($e['swapped_with_id'])?0:1,$e['swapped_with_id']]);}
+        else {
+            $query = $this->db->prepare(
+                "SELECT d.academic_year_term_id, e.*
+                 FROM exam_timetable_drafts d JOIN {$entryTable} e ON e.draft_id = d.id
+                 WHERE d.id = ? ORDER BY e.exam_date, e.start_time"
+            );
+            $query->execute([$id]);
+            $entries = $query->fetchAll(PDO::FETCH_ASSOC);
+            $marker = $this->db->prepare(
+                "SELECT staff_id FROM academic_year_class_stream_learning_area_teachers
+                 WHERE academic_year_class_stream_id = ? AND academic_year_term_id = ?
+                   AND learning_area_id = ? AND status = 'active'
+                 ORDER BY FIELD(role, 'subject_teacher', 'hod', 'assistant'), id LIMIT 1"
+            );
+            $fallbackMarker = $this->db->prepare(
+                "SELECT teacher.staff_id
+                 FROM academic_year_class_streams stream
+                 JOIN academic_year_class_learning_areas class_area
+                   ON class_area.academic_year_class_id = stream.academic_year_class_id
+                  AND class_area.learning_area_id = ?
+                 JOIN academic_year_class_learning_area_teachers teacher
+                   ON teacher.academic_year_class_learning_area_id = class_area.id
+                  AND teacher.academic_year_term_id = ?
+                 WHERE stream.id = ?
+                 ORDER BY FIELD(teacher.role, 'subject_teacher', 'hod', 'assistant'), teacher.id LIMIT 1"
+            );
+            $classTeacher = $this->db->prepare('SELECT class_teacher_id FROM academic_year_class_streams WHERE id = ?');
+            $conflict = $this->db->prepare(
+                "SELECT id FROM exam_schedules
+                 WHERE exam_date = ? AND start_time < ? AND end_time > ? AND status <> 'cancelled'
+                   AND (academic_year_class_stream_id = ?
+                        OR (? > 0 AND room_id = ?)
+                        OR (? > 0 AND invigilator_id = ?))
+                 LIMIT 1"
+            );
+            $assessmentInsert = $this->db->prepare(
+                "INSERT INTO assessments
+                    (academic_year_class_stream_id, academic_year_term_id, learning_area_id,
+                     assessment_type_id, title, max_marks, assessment_date, assigned_by, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_submission')"
+            );
+            $scheduleInsert = $this->db->prepare(
+                "INSERT INTO exam_schedules
+                    (exam_timetable_draft_id, exam_timetable_draft_entry_id,
+                     academic_year_class_stream_id, academic_year_term_id, learning_area_id, assessment_id,
+                     exam_name, exam_type, exam_date, start_time, end_time, duration_minutes,
+                     room_id, venue, invigilator_id, supervisor_id, notes, created_by,
+                     published_by, published_at, status, source)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?,0), ?, NULLIF(?,0), NULLIF(?,0), ?, ?, ?, NOW(), 'scheduled', 'manual')"
+            );
+
+            foreach ($entries as $entry) {
+                $roomId = (int) ($entry['room_id'] ?? 0);
+                $invigilatorId = (int) ($entry['invigilator_id'] ?? 0);
+                $conflict->execute([
+                    $entry['exam_date'], $entry['end_time'], $entry['start_time'],
+                    (int) $entry['academic_year_class_stream_id'], $roomId, $roomId,
+                    $invigilatorId, $invigilatorId,
+                ]);
+                if ($conflict->fetchColumn()) {
+                    throw new \RuntimeException('A published exam now conflicts with a class, room, or invigilator allocation', 409);
+                }
+
+                $marker->execute([
+                    (int) $entry['academic_year_class_stream_id'],
+                    (int) $entry['academic_year_term_id'],
+                    (int) $entry['learning_area_id'],
+                ]);
+                $markerId = (int) ($marker->fetchColumn() ?: 0);
+                if (!$markerId) {
+                    $fallbackMarker->execute([
+                        (int) $entry['learning_area_id'],
+                        (int) $entry['academic_year_term_id'],
+                        (int) $entry['academic_year_class_stream_id'],
+                    ]);
+                    $markerId = (int) ($fallbackMarker->fetchColumn() ?: 0);
+                }
+                if (!$markerId) {
+                    $classTeacher->execute([(int) $entry['academic_year_class_stream_id']]);
+                    $markerId = (int) ($classTeacher->fetchColumn() ?: 0);
+                }
+                if (!$markerId) {
+                    throw new \RuntimeException('Every published exam requires an assigned marker for its class stream and learning area', 409);
+                }
+
+                $assessmentInsert->execute([
+                    (int) $entry['academic_year_class_stream_id'],
+                    (int) $entry['academic_year_term_id'],
+                    (int) $entry['learning_area_id'],
+                    (int) $entry['assessment_type_id'],
+                    $entry['exam_name'],
+                    (float) $entry['max_marks'],
+                    $entry['exam_date'],
+                    $markerId,
+                ]);
+                $assessmentId = (int) $this->db->lastInsertId();
+                $scheduleInsert->execute([
+                    $id, (int) $entry['id'],
+                    (int) $entry['academic_year_class_stream_id'], (int) $entry['academic_year_term_id'],
+                    (int) $entry['learning_area_id'], $assessmentId,
+                    $entry['exam_name'], $entry['exam_type'], $entry['exam_date'],
+                    $entry['start_time'], $entry['end_time'], (int) $entry['duration_minutes'],
+                    $roomId, $entry['venue'], $invigilatorId, (int) ($entry['supervisor_id'] ?? 0),
+                    $entry['notes'], $actor, $actor,
+                ]);
+            }
+        }
+    }
+
+    /** Create or update a draft matrix. Empty cells are deliberately omitted. */
+    public function saveTimetableDraft(array $data): array
+    {
+        $required = ['academic_year_id', 'academic_year_term_id', 'scope', 'title', 'created_by'];
+        foreach ($required as $field) if (!isset($data[$field]) || $data[$field] === '') return errorResponse("Missing required field: {$field}", 400);
+        if (!in_array($data['scope'], ['lower_primary', 'upper_primary', 'whole_school'], true)) return errorResponse('Invalid timetable scope', 400);
+        $id = !empty($data['id']) ? (int) $data['id'] : 0;
+        $entries = is_array($data['entries'] ?? null) ? $data['entries'] : [];
+        try {
+            $this->db->beginTransaction();
+            if ($id) {
+                $stmt = $this->db->prepare("SELECT status FROM timetable_drafts WHERE id = ? FOR UPDATE"); $stmt->execute([$id]);
+                $status = $stmt->fetchColumn();
+                if (!$status) throw new Exception('Timetable draft not found');
+                if (in_array($status, ['approved','published','cancelled'], true)) throw new Exception('This timetable draft is locked');
+                $this->db->prepare("UPDATE timetable_drafts SET title = ?, status = 'draft' WHERE id = ?")->execute([$data['title'], $id]);
+                $this->db->prepare("DELETE FROM timetable_draft_entries WHERE draft_id = ?")->execute([$id]);
+            } else {
+                $stmt = $this->db->prepare("INSERT INTO timetable_drafts (academic_year_id, academic_year_term_id, scope, title, created_by) VALUES (?, ?, ?, ?, ?)");
+                $stmt->execute([(int)$data['academic_year_id'], (int)$data['academic_year_term_id'], $data['scope'], $data['title'], (int)$data['created_by']]);
+                $id = (int) $this->db->lastInsertId();
+            }
+            $streamCheck = $this->db->prepare("SELECT ayc.id, aycs.class_teacher_id, c.name AS class_name FROM academic_year_class_streams aycs JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id JOIN classes c ON c.id = ayc.class_id WHERE aycs.id = ? AND ayc.academic_year_id = ? AND aycs.status IN ('planning','active') LIMIT 1");
+            $slotCheck = $this->db->prepare("SELECT id FROM time_slots WHERE id = ? AND is_active = 1 LIMIT 1");
+            $areaCheck = $this->db->prepare("SELECT sla.id, cla.learning_area_id FROM academic_year_class_stream_learning_areas sla JOIN academic_year_class_learning_areas cla ON cla.id = sla.academic_year_class_learning_area_id WHERE sla.academic_year_class_stream_id = ? AND cla.learning_area_id = ? AND sla.status IN ('planned','active','in_progress','covered') LIMIT 1");
+            $teacherCheck = $this->db->prepare("SELECT ayclt.id FROM academic_year_class_learning_area_teachers ayclt WHERE ayclt.academic_year_class_learning_area_id = ? AND ayclt.academic_year_term_id = ? AND ayclt.staff_id = ? LIMIT 1");
+            $streamTeacherCheck = $this->db->prepare("SELECT id FROM academic_year_class_stream_learning_area_teachers WHERE academic_year_class_stream_learning_area_id = ? AND academic_year_term_id = ? AND staff_id = ? AND status = 'active' LIMIT 1");
+            $contextTeacherCount = $this->db->prepare("SELECT COUNT(*) FROM academic_year_class_stream_learning_area_teachers WHERE academic_year_class_stream_learning_area_id = ? AND academic_year_term_id = ? AND status = 'active'");
+            $staffCheck = $this->db->prepare("SELECT id FROM staff WHERE id = ? AND status = 'active' LIMIT 1");
+            $insert = $this->db->prepare("INSERT INTO timetable_draft_entries (draft_id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, day_of_week, time_slot_id, learning_area_id, teacher_id, room_id, notes) VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?)");
+            $seenCells = []; $seenTeachers = [];
+            foreach ($entries as $entry) {
+                $stream = (int)($entry['academic_year_class_stream_id'] ?? 0); $day = (int)($entry['day_of_week'] ?? 0); $slot = (int)($entry['time_slot_id'] ?? 0);
+                if ($stream <= 0 || $day < 1 || $day > 7 || $slot <= 0) continue;
+                $area = (int)($entry['learning_area_id'] ?? 0); $teacher = (int)($entry['teacher_id'] ?? 0);
+                if ($area <= 0 && $teacher <= 0) continue;
+                if ($area <= 0 || $teacher <= 0) throw new \InvalidArgumentException('Every lesson allocation must have both a learning area and an assigned teacher.');
+                $cellKey = $stream . ':' . $day . ':' . $slot;
+                if (isset($seenCells[$cellKey])) throw new \InvalidArgumentException('A class stream has more than one allocation in the same time slot.');
+                $seenCells[$cellKey] = true;
+                // A lower-primary class teacher may coordinate more than one
+                // stream. Those streams are drafted independently in the
+                // class-teacher workflow, so a same-time cell in two owned
+                // streams is not rejected here. Master/subject timetables
+                // retain the normal teacher-overlap protection.
+                if (empty($data['_class_teacher_mode']) || ($data['scope'] ?? '') !== 'lower_primary') {
+                    $teacherKey = $teacher . ':' . $day . ':' . $slot;
+                    if (isset($seenTeachers[$teacherKey])) throw new \InvalidArgumentException('A teacher cannot be assigned to two class streams at the same time.');
+                    $seenTeachers[$teacherKey] = true;
+                }
+                $streamCheck->execute([$stream, (int)$data['academic_year_id']]); $streamRow = $streamCheck->fetch(PDO::FETCH_ASSOC); $classId = (int)($streamRow['id'] ?? 0);
+                if (!$classId) throw new \InvalidArgumentException('The selected class stream does not belong to the selected academic year.');
+                if (!empty($data['_actor_staff_id'])) {
+                    $allowed = array_map('intval', (array)($data['_scope_stream_ids'] ?? []));
+                    if ($allowed && !in_array($stream, $allowed, true)) throw new \InvalidArgumentException('You may only timetable your assigned class streams.');
+                    if (!empty($data['_class_teacher_mode'])) {
+                        $scopeStmt = $this->db->prepare("SELECT 1 FROM vw_teacher_effective_stream_learning_areas WHERE staff_id = ? AND academic_year_class_stream_id = ? AND scope_type = 'class_teacher' LIMIT 1");
+                        $scopeStmt->execute([(int) $data['_actor_staff_id'], $stream]);
+                        if (!$scopeStmt->fetchColumn()) throw new \InvalidArgumentException('You may only timetable a stream assigned to you.');
+                        if (preg_match('/playgroup|pre|grade [1-3]/i', (string)$streamRow['class_name']) && $teacher !== (int)$data['_actor_staff_id']) {
+                            throw new \InvalidArgumentException('A lower-primary class teacher must remain the responsible teacher for this stream.');
+                        }
+                    }
+                }
+                $slotCheck->execute([$slot]); if (!$slotCheck->fetchColumn()) throw new \InvalidArgumentException('The selected timetable period is not active.');
+                $areaCheck->execute([$stream, $area]); $areaRow = $areaCheck->fetch(PDO::FETCH_ASSOC); $streamLearningAreaId = (int)($areaRow['id'] ?? 0); $classAreaId = (int)($areaRow['learning_area_id'] ?? 0);
+                if (!$streamLearningAreaId) throw new \InvalidArgumentException('The selected learning area is not configured for this stream.');
+                $teacherCheck->execute([$classAreaId, (int)$data['academic_year_term_id'], $teacher]);
+                $assigned = (bool)$teacherCheck->fetchColumn();
+                $contextTeacherCount->execute([$streamLearningAreaId, (int)$data['academic_year_term_id']]);
+                $hasCanonicalAssignment = (int)$contextTeacherCount->fetchColumn() > 0;
+                $streamTeacherCheck->execute([$streamLearningAreaId, (int)$data['academic_year_term_id'], $teacher]);
+                $canonicalAssigned = (bool)$streamTeacherCheck->fetchColumn();
+                // Once a stream-learning-area has an explicit assignment, the
+                // broad class-level table cannot grant access to another user.
+                $assigned = $hasCanonicalAssignment ? $canonicalAssigned : $assigned;
+                if (!empty($data['_academic_leadership_mode'])) {
+                    $staffCheck->execute([$teacher]);
+                    if (!$staffCheck->fetchColumn()) throw new \InvalidArgumentException('The selected teacher is not an active staff member.');
+                } elseif (!$assigned && empty($data['_class_teacher_mode'])) {
+                    throw new \InvalidArgumentException('The selected teacher is not assigned to this learning area and class for the selected term.');
+                }
+                $insert->execute([$id, $stream, $streamLearningAreaId, $day, $slot, $area, $teacher, (int)($entry['room_id'] ?? 0), $entry['notes'] ?? null]);
+            }
+            $this->db->commit();
+            return successResponse(['id' => $id, 'status' => 'draft', 'entry_count' => count($entries)], 'Timetable draft saved');
+        } catch (\InvalidArgumentException $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return errorResponse($e->getMessage(), 400); }
+          catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); error_log('[SchedulesAPI] timetable draft save failed: ' . $e->getMessage()); return errorResponse('Timetable draft could not be saved', 400); }
+    }
+
+    public function getTimetableDraft($id): array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM timetable_drafts WHERE id = ?"); $stmt->execute([(int)$id]); $draft = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$draft) return errorResponse('Timetable draft not found', 404);
+        $stmt = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ? ORDER BY day_of_week, time_slot_id, academic_year_class_stream_id"); $stmt->execute([(int)$id]);
+        $draft['entries'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return successResponse($draft);
+    }
+
+    public function transitionTimetableDraft(array $data): array
+    {
+        $id = (int)($data['id'] ?? 0); $action = $data['action'] ?? ''; $actor = (int)($data['actor_id'] ?? 0);
+        $allowed = ['submit' => ['draft','changes_requested'], 'review' => ['submitted'], 'request_changes' => ['submitted'], 'approve' => ['submitted'], 'publish' => ['approved']];
+        if (!$id || !isset($allowed[$action])) return errorResponse('Draft id and valid action are required', 400);
+        $stmt = $this->db->prepare("SELECT status FROM timetable_drafts WHERE id = ? FOR UPDATE"); $stmt->execute([$id]); $from = $stmt->fetchColumn();
+        if (!$from || !in_array($from, $allowed[$action], true)) return errorResponse("Cannot {$action} a draft in its current state", 409);
+        $to = ['submit'=>'submitted','review'=>'submitted','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("UPDATE timetable_drafts SET status = ?, submitted_at = IF(?='submitted', NOW(), submitted_at), approved_at = IF(?='approved', NOW(), approved_at), published_at = IF(?='published', NOW(), published_at) WHERE id = ?")->execute([$to,$to,$to,$to,$id]);
+            $reviewAction = ['submit'=>'submitted','review'=>'reviewed','request_changes'=>'changes_requested','approve'=>'approved','publish'=>'published'][$action];
+            $this->db->prepare("INSERT INTO timetable_draft_reviews (draft_id, reviewer_id, action, comments) VALUES (?, ?, ?, ?)")->execute([$id,$actor,$reviewAction,$data['comments'] ?? null]);
+            if ($action === 'publish') {
+                $this->publishDraftEntries($id);
+            }
+            $this->db->commit(); return successResponse(['id'=>$id,'status'=>$to], "Timetable draft {$to}");
+        } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); return errorResponse($e->getMessage(), 400); }
+    }
+
+    private function publishDraftEntries(int $draftId): void
+    {
+        $stmt = $this->db->prepare("SELECT academic_year_term_id FROM timetable_drafts WHERE id = ?"); $stmt->execute([$draftId]); $term = (int)$stmt->fetchColumn();
+        $this->db->prepare("DELETE te FROM timetable_entries te JOIN timetable_draft_entries de ON de.academic_year_class_stream_id = te.academic_year_class_stream_id AND de.day_of_week = te.day_of_week AND de.time_slot_id = te.time_slot_id WHERE de.draft_id = ? AND te.academic_year_term_id = ?")->execute([$draftId,$term]);
+        $rows = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ?"); $rows->execute([$draftId]);
+        $next = (int)$this->db->query("SELECT COALESCE(MAX(id),0) FROM timetable_entries")->fetchColumn();
+        $insert = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')");
+        foreach ($rows as $row) $insert->execute([++$next,$row['academic_year_class_stream_id'],$row['academic_year_class_stream_learning_area_id'],$term,$row['day_of_week'],$row['time_slot_id'],$row['learning_area_id'],$row['teacher_id']]);
     }
 
     /**

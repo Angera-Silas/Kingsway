@@ -1,9 +1,7 @@
 <?php
 /**
- * My CATs - Class Teacher Specific CAT Management
- * Role: Class Teacher (7)
- * Shows only CATs for the teacher's assigned classes
- * Provides focused interface for Class Teachers to manage their assessments
+ * Formative Assessments - shared teacher workspace.
+ * Roles: Class Teacher (7), Subject Teacher (8), or a blended assignment.
  */
 ?>
 <div class="container-fluid py-4">
@@ -12,16 +10,16 @@
             <div class="card">
                 <div class="card-header">
                     <h5 class="card-title mb-0">
-                        <i class="bi bi-clipboard-data me-2"></i>My Class CATs
+                        <i class="bi bi-clipboard-data me-2"></i>Formative Assessments
                     </h5>
-                    <small class="text-muted">Continuous Assessment Tests for Your Classes</small>
+                    <small class="text-muted">Assignments, projects, quizzes, oral work, portfolios and observations within your teaching scope</small>
                 </div>
                 <div class="card-body">
                     <div id="myCatsLoading" class="text-center py-4">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <p class="mt-2 text-muted">Loading your CATs...</p>
+                        <p class="mt-2 text-muted">Loading formative assessments...</p>
                     </div>
                     <div id="myCatsContent" style="display: none;">
                         <div class="row mb-3">
@@ -47,7 +45,7 @@
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div class="d-flex gap-2">
                                 <button id="createCatBtn" class="btn btn-primary" data-permission="assessments_create">
-                                    <i class="bi bi-plus-lg me-1"></i>Create CAT
+                                    <i class="bi bi-plus-lg me-1"></i>New Formative Assessment
                                 </button>
                                 <button id="refreshBtn" class="btn btn-outline-secondary">
                                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
@@ -63,7 +61,7 @@
                             <table class="table table-hover" id="catsTable">
                                 <thead>
                                     <tr>
-                                        <th scope="col">CAT Name</th>
+                                        <th scope="col">Assessment</th>
                                         <th scope="col">Class</th>
                                         <th scope="col">Subject</th>
                                         <th scope="col">Type</th>
@@ -76,7 +74,7 @@
                                 <tbody id="catsTableBody">
                                     <tr>
                                         <td colspan="8" class="text-center text-muted py-4">
-                                            No CATs found for your classes
+                                            No formative assessments found in your teaching scope
                                         </td>
                                     </tr>
                                 </tbody>
@@ -94,7 +92,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="catModalTitle">Create CAT</h5>
+                <h5 class="modal-title" id="catModalTitle">New Formative Assessment</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -102,11 +100,11 @@
                     <input type="hidden" id="catId">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">CAT Name *</label>
+                            <label class="form-label">Assessment Name *</label>
                             <input type="text" class="form-control" id="catName" required>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">CAT Type *</label>
+                            <label class="form-label">Evidence Type *</label>
                             <select class="form-select" id="catType" required>
                                 <option value="">Select Type</option>
                                 <option value="assignment">Assignment</option>
@@ -135,7 +133,7 @@
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">CAT Date *</label>
+                            <label class="form-label">Assessment Date *</label>
                             <input type="date" class="form-control" id="catDate" required>
                         </div>
                         <div class="col-md-6 mb-3">

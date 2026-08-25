@@ -42,8 +42,16 @@ const CurriculumCBCController = (() => {
     }
 
     function learningAreaLabel(la) {
-        const levels = la && la.levels && la.levels !== 'NONE' ? ` (${la.levels})` : '';
-        return `${la.name || ''}${levels}`;
+        return `${la.learning_area_family || la.name || ''}`;
+    }
+
+    function learningAreaFamilies() {
+        const seen = new Map();
+        refs.learningAreas.forEach(la => {
+            const id = la.learning_area_family_id || la.id;
+            if (!seen.has(String(id))) seen.set(String(id), { id, name: la.learning_area_family || la.name });
+        });
+        return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
 
     function populateFilters() {
@@ -51,7 +59,7 @@ const CurriculumCBCController = (() => {
         if (laSel && refs.learningAreas.length) {
             const current = laSel.value;
             laSel.innerHTML = '<option value="">All Learning Areas</option>' +
-                refs.learningAreas.map(la => `<option value="${la.id}">${escapeHtml(learningAreaLabel(la))}</option>`).join('');
+            learningAreaFamilies().map(la => `<option value="${la.id}">${escapeHtml(la.name)}</option>`).join('');
             laSel.value = current;
         }
         const strandSel = document.getElementById('strandFilter');
@@ -61,6 +69,7 @@ const CurriculumCBCController = (() => {
                 refs.strands.map(s => `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${escapeHtml(s.grade_level || '')}">${escapeHtml((s.code || '') + ' - ' + s.name + (s.grade_level ? ' (' + escapeHtml(s.grade_level) + ')' : ''))}</option>`).join('');
             strandSel.value = current;
         }
+        refreshStrandFilter();
     }
 
     function refreshStrandFilter() {
@@ -71,7 +80,7 @@ const CurriculumCBCController = (() => {
         const selected = strandSel.value;
         strandSel.innerHTML = '<option value="">All Strands</option>' +
             refs.strands
-                .filter(s => (!laId || String(s.learning_area_id) === laId) && (!grade || String(s.grade_level) === grade))
+                .filter(s => (!laId || String(s.learning_area_family_id || s.learning_area_id) === laId) && (!grade || String(s.grade_level) === grade))
                 .map(s => `<option value="${s.id}" data-la="${s.learning_area_id || ''}" data-grade="${escapeHtml(s.grade_level || '')}">${escapeHtml((s.code || '') + ' - ' + s.name + (s.grade_level ? ' (' + escapeHtml(s.grade_level) + ')' : ''))}</option>`)
                 .join('');
         strandSel.value = refs.strands.some(s => String(s.id) === selected) ? selected : '';
@@ -85,19 +94,26 @@ const CurriculumCBCController = (() => {
             const grade = document.getElementById('gradeLevelFilter')?.value;
             if (grade) params.append('grade_level', grade);
             const area = document.getElementById('learningAreaFilter')?.value;
-            if (area) params.append('learning_area_id', area);
+            if (area) params.append('learning_area_family_id', area);
             const strand = document.getElementById('strandFilter')?.value;
             if (strand) params.append('strand_id', strand);
             const search = document.getElementById('searchCurriculum')?.value;
             if (search) params.append('search', search);
 
             const response = await window.API.apiCall(`/academic/curriculum?${params.toString()}`, 'GET');
-            const data = response?.data || response || [];
-            curriculumData = Array.isArray(data) ? data : (data.curriculum || data.data || []);
-            if (data.pagination) pagination = { ...pagination, ...data.pagination };
-            pagination.total = data.total || curriculumData.length;
+            // apiCall() normally unwraps the outer {data: ...} envelope, but
+            // older cache entries may still contain that envelope. Normalize
+            // both shapes before reading pagination metadata.
+            const payload = response?.pagination
+                ? response
+                : (response?.data?.pagination ? response.data : response);
+            curriculumData = Array.isArray(payload)
+                ? payload
+                : (payload?.curriculum || payload?.data || []);
+            if (payload?.pagination) pagination = { ...pagination, ...payload.pagination };
+            pagination.total = payload?.total ?? payload?.pagination?.total ?? pagination.total ?? curriculumData.length;
 
-            renderStats(curriculumData);
+            renderStats(curriculumData, payload?.summary || null);
             renderTable(curriculumData);
             renderPagination();
         } catch (e) {
@@ -106,16 +122,15 @@ const CurriculumCBCController = (() => {
         }
     }
 
-    function renderStats(data) {
-        const learningAreas = new Set(data.map(d => d.learning_area)).size;
+    function renderStats(data, summary = null) {
+        const learningAreas = new Set(data.map(d => d.learning_area_family || d.learning_area)).size;
         const strands = data.filter(d => d.strand).length;
         const subStrands = data.reduce((sum, d) => sum + (Number(d.sub_strand_count) || 0), 0);
-        const competencies = data.reduce((sum, d) => sum + (Number(d.outcome_count) || 0), 0);
 
-        document.getElementById('totalLearningAreas').textContent = learningAreas;
-        document.getElementById('totalStrands').textContent = strands;
-        document.getElementById('totalSubStrands').textContent = subStrands;
-        document.getElementById('totalCompetencies').textContent = competencies;
+        document.getElementById('totalLearningAreas').textContent = summary ? summary.learning_areas : learningAreas;
+        document.getElementById('totalStrands').textContent = summary ? summary.strands : strands;
+        document.getElementById('totalSubStrands').textContent = summary ? summary.sub_strands : subStrands;
+        document.getElementById('totalCompetencies').textContent = summary ? summary.learning_outcomes : 0;
     }
 
     function renderTable(items) {
@@ -127,6 +142,13 @@ const CurriculumCBCController = (() => {
             return;
         }
 
+        const spanFrom = (index, key) => {
+            let count = 1;
+            while (index + count < items.length && key(items[index + count]) === key(items[index])) count++;
+            return count;
+        };
+        const gradeKey = c => String(c.grade_level || '');
+        const areaKey = c => `${c.grade_level || ''}|${c.learning_area_family || c.learning_area || ''}`;
         tbody.innerHTML = items.map((c, i) => {
             const subStrands = (c.sub_strands || '').split('; ').filter(Boolean);
             const shown = subStrands.slice(0, 4);
@@ -134,10 +156,15 @@ const CurriculumCBCController = (() => {
             const more = subStrands.length > shown.length
                 ? `<span class="badge bg-secondary" title="${escapeHtml(subStrands.slice(4).join('; '))}">+${subStrands.length - shown.length} more</span>`
                 : '';
+            const previous = items[i - 1];
+            const gradeCell = !previous || gradeKey(previous) !== gradeKey(c)
+                ? `<td rowspan="${spanFrom(i, gradeKey)}" class="align-middle"><span class="badge bg-primary">${escapeHtml(c.grade_level || '-')}</span></td>` : '';
+            const areaCell = !previous || areaKey(previous) !== areaKey(c)
+                ? `<td rowspan="${spanFrom(i, areaKey)}" class="align-middle"><strong>${escapeHtml(c.learning_area_family || c.learning_area || '-')}</strong></td>` : '';
             return `<tr>
                 <td>${(pagination.page - 1) * pagination.limit + i + 1}</td>
-                <td><span class="badge bg-primary">${escapeHtml(c.grade_level || '-')}</span></td>
-                <td><strong>${escapeHtml(c.learning_area || '-')}</strong></td>
+                ${gradeCell}
+                ${areaCell}
                 <td>${escapeHtml((c.strand_code ? c.strand_code + ' - ' : '') + (c.strand || '-'))}</td>
                 <td>${subStrands.length ? chips + more : '<span class="text-muted">--</span>'}</td>
                 <td><span class="badge bg-warning-subtle text-warning">${Number(c.outcome_count) || 0} outcomes</span></td>
@@ -165,11 +192,16 @@ const CurriculumCBCController = (() => {
         if (totalEl) totalEl.textContent = pagination.total;
 
         let html = '';
-        for (let i = 1; i <= totalPages; i++) {
-            html += `<li class="page-item ${i === pagination.page ? 'active' : ''}">
-                <a class="page-link" href="#" onclick="CurriculumCBCController.loadPage(${i}); return false;">${i}</a>
+        const addPage = (page, label, disabled = false, active = false) => {
+            html += `<li class="page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}">
+                <a class="page-link" href="#" ${disabled ? 'tabindex="-1" aria-disabled="true"' : `onclick="CurriculumCBCController.loadPage(${page}); return false;"`}>${label}</a>
             </li>`;
+        };
+        addPage(Math.max(1, pagination.page - 1), '&laquo;', pagination.page <= 1);
+        for (let i = 1; i <= totalPages; i++) {
+            addPage(i, i, false, i === pagination.page);
         }
+        addPage(Math.min(totalPages, pagination.page + 1), '&raquo;', pagination.page >= totalPages);
         container.innerHTML = html;
     }
 

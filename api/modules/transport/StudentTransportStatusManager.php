@@ -86,6 +86,93 @@ class StudentTransportStatusManager
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * Return the authenticated driver's live manifest for a trip.
+     * The route is resolved from the driver's active vehicle assignment; a
+     * driver cannot request another route's passenger list.
+     */
+    public function getDriverManifest(int $userId, string $date, string $tripSession): array
+    {
+        $validSessions = ['morning_pickup', 'evening_dropoff', 'midday_trip', 'special_trip'];
+        if (!in_array($tripSession, $validSessions, true)) {
+            throw new \InvalidArgumentException('Invalid transport trip session');
+        }
+
+        $dateObj = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        if (!$dateObj || $dateObj->format('Y-m-d') !== $date) {
+            throw new \InvalidArgumentException('Invalid attendance date');
+        }
+
+        $routeStmt = $this->db->prepare(
+            "SELECT DISTINCT tr.id, tr.name, tr.code, tr.start_point, tr.end_point,
+                    tr.morning_departure, tr.afternoon_departure,
+                    v.id AS vehicle_id, v.registration_number AS vehicle_registration
+             FROM users u
+             JOIN staff ds ON ds.person_id = u.person_id
+             JOIN transport_vehicles v ON v.driver_id = ds.id AND v.status = 'active'
+             JOIN transport_vehicle_routes tvr ON tvr.vehicle_id = v.id AND tvr.status = 'active'
+             JOIN transport_routes tr ON tr.id = tvr.route_id AND tr.status = 'active'
+             WHERE u.id = ? AND ds.status IN ('active','on_leave')
+             ORDER BY tr.name"
+        );
+        $routeStmt->execute([$userId]);
+        $routes = $routeStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$routes) {
+            return ['date' => $date, 'trip_session' => $tripSession, 'routes' => [], 'students' => [], 'summary' => ['expected' => 0, 'boarded' => 0, 'remaining' => 0, 'rejected' => 0]];
+        }
+
+        $routeIds = array_map(static function ($route) { return (int)$route['id']; }, $routes);
+        $placeholders = implode(',', array_fill(0, count($routeIds), '?'));
+        $month = (int)$dateObj->format('n');
+        $year = (int)$dateObj->format('Y');
+        $sql = "SELECT s.id AS student_id, s.admission_no, p.first_name, p.last_name,
+                       a.route_id, a.stop_id, COALESCE(a.pickup_stop_id, a.stop_id) AS pickup_stop_id,
+                       COALESCE(ps.name, ss.name) AS stop_name,
+                       ps.sequence AS stop_sequence, ps.arrival_time, ps.departure_time,
+                       sta.id AS attendance_id, sta.status AS attendance_status,
+                       sta.marked_time, sta.marked_by, sta.vehicle_id AS attendance_vehicle_id
+                FROM student_transport_assignments a
+                JOIN students s ON s.id = a.student_id
+                JOIN persons p ON p.id = s.person_id
+                LEFT JOIN transport_stops ps ON ps.id = a.pickup_stop_id
+                LEFT JOIN transport_stops ss ON ss.id = a.stop_id
+                LEFT JOIN student_transport_attendance sta
+                  ON sta.student_id = a.student_id
+                 AND sta.route_id = a.route_id
+                 AND sta.attendance_date = ?
+                 AND sta.trip_session = ?
+                WHERE a.route_id IN ($placeholders)
+                  AND a.month = ? AND a.year = ?
+                  AND a.status IN ('active','suspended')
+                ORDER BY a.route_id, COALESCE(ps.sequence, 9999), p.last_name, p.first_name";
+        $params = array_merge([$date, $tripSession], $routeIds, [$month, $year]);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($students as &$student) {
+            $status = (string)($student['attendance_status'] ?? '');
+            $student['boarding_status'] = $status === 'picked_up' ? 'boarded'
+                : ($status === 'dropped_off' ? 'dropped_off' : 'not_boarded');
+            $student['boarded'] = $status === 'picked_up';
+            $student['attendance_id'] = $student['attendance_id'] ? (int)$student['attendance_id'] : null;
+            $student['student_id'] = (int)$student['student_id'];
+            $student['route_id'] = (int)$student['route_id'];
+        }
+        unset($student);
+
+        $expected = count($students);
+        $boarded = count(array_filter($students, static function ($student) { return !empty($student['boarded']); }));
+        return [
+            'date' => $date,
+            'trip_session' => $tripSession,
+            'routes' => $routes,
+            'students' => $students,
+            'summary' => ['expected' => $expected, 'boarded' => $boarded, 'remaining' => max(0, $expected - $boarded), 'rejected' => 0],
+            'generated_at' => date('Y-m-d H:i:s'),
+        ];
+    }
+
     // Get payment/arrears/credit summary for a student
     public function getStudentSummary($studentId)
     {

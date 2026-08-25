@@ -3303,6 +3303,9 @@ final class PrintService
             'paymentMethods'  => $data['paymentMethods'] ?? ($sConfig['paymentMethods'] ?? []),
             'importantNotes'  => $data['importantNotes'] ?? [
                 'Cash payment is not accepted.',
+                'Parent Portal: Log in, select your child, choose School Fees, select Pay Now and follow the STK prompt on your phone.',
+                'KCB Mobile App: Open the KCB Mobile App and navigate to Lipa Karo under the Pay Your Bills section. In Field 1, School Name, search for and select KINGSWAY PREPARATORY SCHOOL. For School Bank Account Number, select KINGSWAY PREPARATORY SCHOOL with value 1130991288. Enter the student admission number, student name and amount, then pay.',
+                'M-Pesa App or SIM Toolkit: choose Lipa na M-Pesa, Pay Bill, enter Paybill 600986, use the learner admission number as the account number, enter the amount and confirm.',
                 'Fee slip must be presented at school and acknowledged by receipt.',
                 'Fees once paid are non-refundable.',
             ],
@@ -3451,29 +3454,66 @@ final class PrintService
             $bank  = ['bank' => '', 'account_name' => '', 'account_no' => ''];
             try {
                 $acctStmt = $db->query(
-                    "SELECT sfa.account_name, sfa.account_identifier, sfa.bank_name, fak.code AS kind_code
-                     FROM school_financial_accounts sfa
-                     JOIN financial_account_kinds fak ON fak.id = sfa.account_kind_id
-                     WHERE sfa.status = 'active' AND sfa.is_primary = 1
-                     ORDER BY fak.code"
+                    "SELECT r.id, r.display_name, r.account_identifier, r.collection_product,
+                            r.purpose, p.code AS provider_code, sfa.bank_name,
+                            sfa.account_name AS settlement_account_name,
+                            sfa.account_identifier AS settlement_account_identifier,
+                            CASE
+                                WHEN p.code = 'mpesa_daraja' AND r.collection_product IN ('paybill','till') THEN 'mpesa'
+                                WHEN p.code = 'kcb_buni' AND r.collection_product = 'buni' THEN 'kcb_mobile'
+                                WHEN r.collection_product = 'bank_collection' THEN 'bank'
+                                ELSE 'technical'
+                            END AS kind_code,
+                            r.display_title, r.display_reference_label AS reference_label,
+                            r.display_reference_value AS reference_value, r.display_instructions AS instructions
+                     FROM payment_collection_routes r
+                     JOIN payment_providers p ON p.id = r.provider_id
+                     JOIN school_financial_accounts sfa ON sfa.id = COALESCE(r.settlement_financial_account_id, r.financial_account_id)
+                     WHERE sfa.status = 'active' AND r.active = 1 AND r.show_on_fee_structure = 1
+                       AND r.purpose = 'fees'
+                     ORDER BY r.display_order, r.display_name"
                 );
                 while ($acct = $acctStmt->fetch(PDO::FETCH_ASSOC)) {
                     $kind = $acct['kind_code'] ?? '';
-                    if ($kind === 'mobile_money') {
-                        $mpesa['paybill'] = $acct['account_identifier'] ?? '';
-                        $mpesa['account'] = $cfg['mpesa_account'] ?? '';
+                    if ($kind === 'mpesa') {
+                        $method = [
+                            'type' => 'mpesa',
+                            'title' => $acct['display_title'] ?: 'LIPA NA M-PESA',
+                            'paybill' => $acct['account_identifier'] ?? '',
+                            'reference_label' => $acct['reference_label'] ?: 'ACCOUNT NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
+                        $mpesa = $method;
+                        $paymentMethods[] = $method;
+                    } elseif ($kind === 'kcb_mobile') {
+                        $paymentMethods[] = [
+                            'type' => 'kcb_mobile',
+                            'title' => $acct['display_title'] ?: 'KCB MOBILE APP - LIPA KARO',
+                            'bank_name' => $acct['bank_name'] ?? 'KCB Bank',
+                            // The bank account's internal label (for example
+                            // "KCB School Fees Account") is staff-facing.
+                            // Parents must see the legal school account name.
+                            'account_name' => strtoupper(trim((string)($cfg['school_name'] ?: ($acct['settlement_account_name'] ?? '')))),
+                            'account_no' => $acct['settlement_account_identifier'] ?: ($acct['account_identifier'] ?? ''),
+                            'reference_label' => $acct['reference_label'] ?: 'ADMISSION NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
                     } elseif ($kind === 'bank') {
-                        $bank['bank']        = $acct['bank_name'] ?? '';
-                        $bank['account_name'] = $acct['account_name'] ?? '';
-                        $bank['account_no']   = $acct['account_identifier'] ?? '';
+                        $method = [
+                            'type' => 'bank',
+                            'title' => $acct['display_title'] ?: 'BANK PAYMENT',
+                            'bank_name' => $acct['bank_name'] ?? '',
+                            'account_name' => strtoupper(trim((string)($cfg['school_name'] ?: ($acct['settlement_account_name'] ?? '')))),
+                            'account_no' => $acct['settlement_account_identifier'] ?: ($acct['account_identifier'] ?? ''),
+                            'reference_label' => $acct['reference_label'] ?: 'ADMISSION NO.',
+                            'reference_value' => $acct['reference_value'] ?: 'Admission number',
+                            'instructions' => trim((string)($acct['instructions'] ?? '')),
+                        ];
+                        $bank = $method;
+                        $paymentMethods[] = $method;
                     }
-                    $paymentMethods[] = [
-                        'type' => $kind,
-                        'title' => $acct['bank_name'] ?: ($acct['account_name'] ?? ucfirst(str_replace('_', ' ', $kind))),
-                        'account_name' => $acct['account_name'] ?? '',
-                        'account_identifier' => $acct['account_identifier'] ?? '',
-                        'bank_name' => $acct['bank_name'] ?? '',
-                    ];
                 }
             } catch (\Exception $e) {
                 // Fall back to legacy system_config keys if the new table doesn't exist yet
@@ -3482,25 +3522,6 @@ final class PrintService
                 $bank['bank']        = $cfg['bank_name'] ?? '';
                 $bank['account_name'] = $cfg['bank_account_name'] ?? '';
                 $bank['account_no']   = $cfg['bank_account_no'] ?? '';
-            }
-
-            // Published school payment details remain available until the
-            // active financial-account records are populated in the database.
-            if (!$mpesa['paybill']) {
-                $mpesa = ['paybill' => '522123', 'account' => '20210K'];
-            }
-            if (!$bank['bank']) {
-                $bank = [
-                    'bank' => 'KENYA COMMERCIAL BANK',
-                    'account_name' => 'KINGSWAY PREPARATORY SCHOOL',
-                    'account_no' => '1130991288',
-                ];
-            }
-            if (!$paymentMethods) {
-                $paymentMethods = [
-                    ['type' => 'mobile_money', 'title' => 'LIPA KARO DETAILS', 'account_identifier' => $mpesa['paybill'], 'account_name' => $mpesa['account'], 'bank_name' => ''],
-                    ['type' => 'bank', 'title' => 'BANK PAYMENT', 'account_identifier' => $bank['account_no'], 'account_name' => $bank['account_name'], 'bank_name' => $bank['bank']],
-                ];
             }
 
             return [
@@ -3597,13 +3618,17 @@ final class PrintService
             throw new RuntimeException("Payslip template not found: {$templatePath}");
         }
 
-        if (empty($config['signatureSection'])) {
-            $config['signatureSection'] = $data['signatureSection'] ?? [
-                ['label' => 'Accounts Officer', 'dateLine' => true],
-                ['label' => 'Employee Acknowledgement', 'dateLine' => true],
-            ];
-        }
-        $html = $this->renderDedicatedReportTemplate($templatePath, $data, $config);
+        // Payslips are complete standalone documents. The template owns its
+        // page rules, school header, watermark, content and footer; wrapping
+        // it in renderDedicatedReportTemplate() would inject the generic
+        // report header/footer and strip the template's own page styling.
+        $variables = array_merge(
+            $this->buildTemplateVariables($config),
+            $config,
+            $data,
+            ['useSharedReportShell' => false]
+        );
+        $html = $this->renderPhpTemplate($templatePath, $variables);
 
         return $this->generatePDF($html, [
             'orientation' => 'portrait',

@@ -5,16 +5,44 @@
 
   <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-      <h3 class="mb-0"><i class="bi bi-receipt me-2 text-primary"></i>My Payslips</h3>
-      <small class="text-muted">Monthly salary breakdown and payment history</small>
+      <h3 class="mb-0"><i class="bi bi-receipt me-2 text-primary"></i>Payslips &amp; P9 Forms</h3>
+      <small class="text-muted">View employee payroll records or your personal payslips</small>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" onclick="payslipsController.downloadP9()">
+    <button class="btn btn-outline-secondary btn-sm" id="psP9Button" onclick="payslipsController.downloadP9()" disabled>
       <i class="bi bi-file-earmark-pdf me-1"></i>P9 Form
+    </button>
+    <button class="btn btn-outline-primary btn-sm" id="psViewSelected" onclick="payslipsController.viewSelected()" hidden disabled>
+      <i class="bi bi-eye me-1"></i>View Selected
+    </button>
+    <button class="btn btn-outline-dark btn-sm" id="psPrintSelected" onclick="payslipsController.printSelected()" hidden disabled>
+      <i class="bi bi-printer me-1"></i>Print Selected
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" id="psGenerateSelectedP9" onclick="payslipsController.downloadP9()" hidden disabled>
+      <i class="bi bi-file-earmark-pdf me-1"></i>Generate P9
+    </button>
+    <button class="btn btn-outline-success btn-sm" id="psShareEmail" onclick="payslipsController.shareSelected('email')" hidden disabled>
+      <i class="bi bi-envelope me-1"></i>Email
+    </button>
+    <button class="btn btn-outline-success btn-sm" id="psShareWhatsapp" onclick="payslipsController.shareSelected('whatsapp')" hidden disabled>
+      <i class="bi bi-whatsapp me-1"></i>WhatsApp
     </button>
   </div>
 
+  <ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item" role="presentation" id="employeePayslipsTabItem" hidden>
+      <button class="nav-link" id="employeePayslipsTab" type="button" role="tab" onclick="payslipsController.switchTab('employees')">
+        <i class="bi bi-people me-1"></i>Employee Payslips &amp; P9 Forms
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="personalPayslipsTab" type="button" role="tab" onclick="payslipsController.switchTab('personal')">
+        <i class="bi bi-person me-1"></i>Personal Payslips &amp; P9 Forms
+      </button>
+    </li>
+  </ul>
+
   <!-- Current month highlight card -->
-  <div class="card border-0 shadow-sm mb-4 bg-primary text-white">
+  <div class="card border-0 shadow-sm mb-4 bg-primary text-white" id="psCurrentSummary">
     <div class="card-body">
       <div class="row align-items-center">
         <div class="col-md-8">

@@ -34,7 +34,13 @@
          */
         loadData: async function () {
             try {
-                this.data = await API.callAPI("/accounts/bank-accounts", "GET");
+                var response = await API.callAPI("/accounts/bank-accounts", "GET");
+                // The bank-account endpoint returns { bank_accounts: [...] }.
+                // Keep the page read-only and never mix in collection routes or
+                // other financial-account kinds.
+                this.data = Array.isArray(response)
+                    ? response
+                    : (Array.isArray(response?.bank_accounts) ? response.bank_accounts : []);
                 if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading bank accounts:", error);
@@ -91,7 +97,7 @@
             if (!tbody) return;
 
             if (this.filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4">' +
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4">' +
                     '<i class="fas fa-university fa-3x text-muted mb-3 d-block"></i>' +
                     '<p class="text-muted mb-0">No bank accounts found</p></td></tr>';
                 this.updateTableInfo(0);
@@ -107,26 +113,16 @@
 
             pageItems.forEach(function (acc, index) {
                 var statusBadge = self.getStatusBadge(acc.status);
-                var typeBadge = (acc.account_type || acc.type || "Current").toLowerCase() === "savings"
-                    ? '<span class="badge bg-info">Savings</span>'
-                    : '<span class="badge bg-secondary">Current</span>';
 
                 html += '<tr>' +
                     '<td>' + (start + index + 1) + '</td>' +
                     '<td><strong>' + self.escapeHtml(acc.bank_name || "-") + '</strong></td>' +
                     '<td>' + self.escapeHtml(acc.account_name || "-") + '</td>' +
                     '<td><code>' + self.escapeHtml(acc.account_number || "-") + '</code></td>' +
-                    '<td class="text-center">' + typeBadge + '</td>' +
                     '<td class="text-end fw-bold">KES ' + self.formatCurrency(acc.balance || acc.current_balance || 0) + '</td>' +
                     '<td class="text-center">' + statusBadge + '</td>' +
                     '<td>' + self.formatDate(acc.last_transaction_date || acc.last_transaction || acc.updated_at) + '</td>' +
-                    '<td class="text-center">' +
-                        '<div class="btn-group btn-group-sm">' +
-                            '<button class="btn btn-outline-primary" onclick="BankAccountsController.viewAccount(' + acc.id + ')" title="View"><i class="fas fa-eye"></i></button>' +
-                            '<button class="btn btn-outline-warning" onclick="BankAccountsController.editAccount(' + acc.id + ')" title="Edit"><i class="fas fa-edit"></i></button>' +
-                            '<button class="btn btn-outline-danger" onclick="BankAccountsController.deleteAccount(' + acc.id + ')" title="Delete"><i class="fas fa-trash"></i></button>' +
-                        '</div>' +
-                    '</td>' +
+                    '<td class="text-center"><button class="btn btn-sm btn-outline-primary" onclick="BankAccountsController.viewAccount(' + acc.id + ')" title="View bank account"><i class="fas fa-eye me-1"></i>View</button></td>' +
                     '</tr>';
             });
 
@@ -141,13 +137,11 @@
         filterData: function () {
             var search = (document.getElementById("baSearch")?.value || "").toLowerCase();
             var bankFilter = document.getElementById("baBankFilter")?.value || "";
-            var typeFilter = document.getElementById("baTypeFilter")?.value || "";
             var statusFilter = document.getElementById("baStatusFilter")?.value || "";
 
             this.filtered = this.data.filter(function (acc) {
                 if (bankFilter && (acc.bank_name || "") !== bankFilter) return false;
-                if (typeFilter && (acc.account_type || acc.type || "") !== typeFilter) return false;
-                if (statusFilter && (acc.status || "") !== statusFilter) return false;
+                if (statusFilter && (acc.status || "").toLowerCase() !== statusFilter.toLowerCase()) return false;
 
                 if (search) {
                     var hay = ((acc.bank_name || "") + " " + (acc.account_name || "") + " " +
@@ -165,7 +159,7 @@
          * Clear all filters
          */
         clearFilters: function () {
-            var ids = ["baSearch", "baBankFilter", "baTypeFilter", "baStatusFilter"];
+            var ids = ["baSearch", "baBankFilter", "baStatusFilter"];
             ids.forEach(function (id) {
                 var el = document.getElementById(id);
                 if (el) el.value = "";
@@ -261,7 +255,6 @@
             var msg = "Bank: " + (acc.bank_name || "-") + "\n" +
                 "Account Name: " + (acc.account_name || "-") + "\n" +
                 "Account Number: " + (acc.account_number || "-") + "\n" +
-                "Type: " + (acc.account_type || acc.type || "-") + "\n" +
                 "Branch: " + (acc.branch || "-") + "\n" +
                 "Balance: KES " + this.formatCurrency(acc.balance || acc.current_balance || 0) + "\n" +
                 "Status: " + (acc.status || "-");
@@ -311,7 +304,7 @@
          * Export data as CSV
          */
         exportCSV: function () {
-            var headers = ["#", "Bank Name", "Account Name", "Account Number", "Type", "Balance (KES)", "Status", "Last Transaction"];
+            var headers = ["#", "Bank Name", "Account Name", "Account Number", "Balance (KES)", "Status", "Last Transaction"];
             var self = this;
             var rows = this.filtered.map(function (acc, i) {
                 return [
@@ -319,7 +312,6 @@
                     (acc.bank_name || "").replace(/,/g, " "),
                     (acc.account_name || "").replace(/,/g, " "),
                     acc.account_number || "",
-                    acc.account_type || acc.type || "",
                     acc.balance || acc.current_balance || 0,
                     acc.status || "",
                     self.formatDate(acc.last_transaction_date || acc.last_transaction || acc.updated_at)
@@ -392,7 +384,8 @@
             var s = (status || "Active").toLowerCase();
             var map = {
                 active: '<span class="badge bg-success">Active</span>',
-                inactive: '<span class="badge bg-warning text-dark">Inactive</span>',
+                pending_verification: '<span class="badge bg-warning text-dark">Pending verification</span>',
+                suspended: '<span class="badge bg-warning text-dark">Suspended</span>',
                 closed: '<span class="badge bg-danger">Closed</span>'
             };
             return map[s] || '<span class="badge bg-secondary">' + (status || "Unknown") + '</span>';

@@ -6,6 +6,7 @@ use App\Database\Database;
 use PDO;
 use App\API\Services\FinancialPostingCoordinator;
 use App\API\Services\payments\FinancialAccountService;
+use App\API\Services\payments\ReferenceNormalizer;
 use Exception;
 use function App\API\Includes\formatResponse;
 
@@ -91,12 +92,13 @@ class PaymentManager
                 CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
+            $normalizedReference = (new ReferenceNormalizer())->reference($data['reference_no'] ?? '');
             $stmt->execute([
                 $data['student_id'],           // p_student_id
                 $parentId,                      // p_parent_id (can be NULL)
                 $data['amount'],                // p_amount_paid
                 $data['payment_method'],        // p_payment_method ('cash', 'bank', 'mpesa', 'cheque')
-                $data['reference_no'] ?? null,  // p_reference_no (transaction ref)
+                $normalizedReference !== '' ? $normalizedReference : null,  // p_reference_no (canonical account reference)
                 $receiptNo,                     // p_receipt_no
                 $data['received_by'] ?? 1,      // p_received_by (user_id)
                 $data['payment_date'] ?? date('Y-m-d H:i:s'),  // p_payment_date
@@ -119,7 +121,7 @@ class PaymentManager
             $channel = in_array($method, ['mpesa', 'mpesa_daraja'], true) ? 'mpesa_c2b' : ($method === 'cash' ? 'cash' : 'bank_transfer');
             $source = (new FinancialAccountService($this->db))->requireFor((int)($data['financial_account_id'] ?? 0), $purpose, $channel, false, (int)($data['received_by'] ?? 0));
             $this->db->prepare('UPDATE payments SET financial_account_id=?, payment_purpose=? WHERE id=?')->execute([(int)$source['id'], $purpose, (int)$paymentId]);
-            (new FinancialPostingCoordinator($this->db))->postIncoming('payment', (int)$paymentId, (int)$source['id'], $purpose, (string)$data['amount'], (int)($data['received_by'] ?? 0), $data['reference_no'] ?? null);
+            (new FinancialPostingCoordinator($this->db))->postIncoming('payment', (int)$paymentId, (int)$source['id'], $purpose, (string)$data['amount'], (int)($data['received_by'] ?? 0), $normalizedReference ?: null);
 
             // If M-Pesa payment, record M-Pesa transaction details
             if ($data['payment_method'] === 'mpesa' && !empty($data['mpesa_data'])) {
@@ -750,6 +752,7 @@ return formatResponse(false, null, 'An internal error occurred.');
     public function recordCashPayment($data)
     {
         try {
+            throw new Exception('Cash payments are not supported for school fees. Use bank payment, M-Pesa C2B, Lipa Karo or STK Push.');
             $required = ['student_id', 'amount', 'received_by'];
             $missing = array_diff($required, array_keys($data));
 
