@@ -302,7 +302,7 @@
 .badge-ae { background: #d97706; color: #fff; }
 .badge-be { background: #dc2626; color: #fff; }
 
-/* ========================================================================== 
+/* ==========================================================================
    ROLE DASHBOARD SHELLS
    Shared by the dashboard components rebuilt around canonical API snapshots.
    ========================================================================== */
@@ -553,4 +553,680 @@
         font-size: 0.72rem;
         padding: 0.25rem 0.6rem;
     }
+}
+
+/* ==========================================================================
+   ROLE VISUAL SYSTEM
+   One component grammar, deliberately different role identities. Director
+   and School Administrator dashboards are intentionally outside this layer.
+   ========================================================================== */
+
+.dashboard-surface {
+    --dash-accent: #2563eb;
+    --dash-accent-2: #7c3aed;
+    --dash-ink: #172033;
+    --dash-canvas: #f5f7fb;
+    --dash-soft: #eef2ff;
+    --dash-radius: 18px;
+    position: relative;
+    isolation: isolate;
+    color: var(--dash-ink);
+}
+
+.dashboard-surface::after {
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    right: 0;
+    width: 42%;
+    height: 22rem;
+    border-radius: 0 0 0 100%;
+    background: radial-gradient(circle at top right, color-mix(in srgb, var(--dash-accent) 11%, transparent), transparent 68%);
+    pointer-events: none;
+    content: '';
+}
+
+.dashboard-identity {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 1rem;
+    min-height: 116px;
+    overflow: hidden;
+    padding: 1.35rem 1.5rem;
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 20%, transparent);
+    border-radius: var(--dash-radius);
+    background: linear-gradient(120deg, var(--dash-accent), var(--dash-accent-2));
+    color: #fff;
+    box-shadow: 0 14px 34px color-mix(in srgb, var(--dash-accent) 20%, transparent);
+}
+
+.dashboard-identity-icon {
+    display: grid;
+    width: 62px;
+    height: 62px;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.32);
+    border-radius: 18px;
+    background: rgba(255,255,255,.16);
+    box-shadow: inset 0 1px rgba(255,255,255,.25);
+    font-size: 1.75rem;
+}
+
+.dashboard-identity-eyebrow {
+    margin-bottom: .2rem;
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    opacity: .78;
+}
+
+.dashboard-identity h2 {
+    margin: 0;
+    font-size: clamp(1.35rem, 2vw, 2rem);
+    font-weight: 750;
+    letter-spacing: -.025em;
+}
+
+.dashboard-identity p {
+    max-width: 760px;
+    margin: .25rem 0 0;
+    font-size: .84rem;
+    opacity: .82;
+}
+
+.dashboard-identity-orbit {
+    position: absolute;
+    right: -54px;
+    width: 210px;
+    height: 210px;
+    border: 32px solid rgba(255,255,255,.08);
+    border-radius: 50%;
+}
+
+.dashboard-surface > .dash-meta-bar {
+    min-height: 46px;
+    padding: .55rem .75rem;
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 12%, #e5e7eb);
+    border-radius: 12px;
+    background: rgba(255,255,255,.88);
+    box-shadow: 0 5px 18px rgba(15,23,42,.045);
+    backdrop-filter: blur(8px);
+}
+
+.dashboard-surface .dash-period-bar {
+    width: fit-content;
+    padding: .28rem;
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 12%, #e5e7eb);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.dashboard-surface .dash-period-bar .btn-success {
+    border-color: var(--dash-accent);
+    background: var(--dash-accent);
+}
+
+.dashboard-surface .dash-card,
+.dashboard-surface .dashboard-card,
+.dashboard-surface .table-card {
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 9%, #e5e7eb);
+    border-radius: var(--dash-radius);
+    background: #fff;
+    box-shadow: 0 8px 28px rgba(15,23,42,.065);
+}
+
+.dashboard-surface .dashboard-section-title i,
+.dashboard-surface .card-header h6 i {
+    color: var(--dash-accent) !important;
+}
+
+.dashboard-surface .dashboard-table-wrap tbody tr {
+    transition: background-color .16s, transform .16s;
+}
+
+.dashboard-surface .dashboard-table-wrap tbody tr:hover {
+    background: var(--dash-soft);
+}
+
+.dashboard-action-strip {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: .65rem;
+    padding: .65rem;
+    border: 1px solid color-mix(in srgb, var(--dash-accent) 12%, #e5e7eb);
+    border-radius: calc(var(--dash-radius) * .7);
+    background: #fff;
+    box-shadow: 0 5px 18px rgba(15,23,42,.045);
+}
+
+.dashboard-action-strip a {
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    min-height: 48px;
+    padding: .65rem .8rem;
+    border-radius: calc(var(--dash-radius) * .55);
+    background: var(--dash-soft);
+    color: var(--dash-ink);
+    font-size: .8rem;
+    font-weight: 700;
+    text-decoration: none;
+    transition: transform .16s ease, background .16s ease;
+}
+
+.dashboard-action-strip a:hover,
+.dashboard-action-strip a:focus-visible {
+    background: color-mix(in srgb, var(--dash-accent) 14%, #fff);
+    color: var(--dash-accent);
+    transform: translateY(-2px);
+}
+
+.dashboard-action-strip i {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--dash-accent);
+    color: #fff;
+}
+
+/* Headteacher: executive wave analytics, composed and spacious. */
+.dashboard-leadership {
+    --dash-accent: #6236a5;
+    --dash-accent-2: #139b93;
+    --dash-soft: #f2eefb;
+    --dash-radius: 10px;
+}
+.dashboard-leadership .dashboard-identity { min-height: 138px; border-radius: 10px 44px 10px 10px; }
+.dashboard-leadership .dash-stat { min-height: 118px; border-radius: 8px; text-align: center; }
+.dashboard-leadership .dash-stat-icon { top: .9rem; right: 1rem; transform: none; }
+.dashboard-leadership .dash-stat-value { font-size: 2.25rem; font-weight: 400; }
+.dashboard-leadership .dash-card { border-top: 3px solid var(--dash-accent); }
+
+/* Deputy Academic: modern white KPI cards with coloured analytic rails. */
+.dashboard-academic-command {
+    --dash-accent: #3156c8;
+    --dash-accent-2: #7b61d1;
+    --dash-soft: #eef3ff;
+    --dash-radius: 22px;
+}
+.dashboard-academic-command .dash-greeting-bar { border-radius: 24px; background: linear-gradient(120deg,#263d8f,#7558c9); }
+.dashboard-academic-command .dash-stat {
+    min-height: 128px;
+    border: 1px solid #e7eaf4;
+    border-bottom: 5px solid var(--dash-accent);
+    border-radius: 22px;
+    background: #fff !important;
+    color: #243056 !important;
+    box-shadow: 0 8px 24px rgba(49,86,200,.09);
+}
+.dashboard-academic-command .dash-stat::after { background: var(--dash-soft); opacity: .8; }
+.dashboard-academic-command .dash-stat-icon { color: var(--dash-accent); opacity: .16; }
+
+/* Discipline: incident command visual language with strong status rails. */
+.dashboard-safeguarding {
+    --dash-accent: #b4233b;
+    --dash-accent-2: #252c46;
+    --dash-soft: #fff1f2;
+    --dash-radius: 7px;
+}
+.dashboard-safeguarding .dashboard-identity { border-left: 8px solid #ffbd59; border-radius: 7px; }
+.dashboard-safeguarding .dash-stat { border-radius: 6px; box-shadow: 0 3px 0 rgba(34,40,66,.18); }
+.dashboard-safeguarding .dash-card { border-radius: 7px; border-left: 4px solid color-mix(in srgb,var(--dash-accent) 72%,#fff); }
+.dashboard-safeguarding .dashboard-table-wrap thead th { background: #252c46; color: #fff; }
+
+/* Class teacher: warm, friendly classroom workspace. */
+.dashboard-classroom {
+    --dash-accent: #d36b2d;
+    --dash-accent-2: #efaa3c;
+    --dash-soft: #fff8e8;
+    --dash-radius: 26px;
+}
+.dashboard-classroom .dashboard-identity { color:#4b2a14; background: linear-gradient(125deg,#fff0bf,#f8b65b); }
+.dashboard-classroom .dashboard-identity-icon { border-radius: 50%; background: rgba(255,255,255,.55); }
+.dashboard-classroom .dash-stat { border-radius: 26px 8px 26px 8px; }
+.dashboard-classroom .dash-card { border-radius: 26px; }
+
+/* Subject teacher: precise learning-area analytics. */
+.dashboard-learning-area {
+    --dash-accent: #4752b8;
+    --dash-accent-2: #1583a3;
+    --dash-soft: #eef7fb;
+    --dash-radius: 14px;
+}
+.dashboard-learning-area .dashboard-identity { clip-path: polygon(0 0,96% 0,100% 35%,100% 100%,0 100%); border-radius: 14px; }
+.dashboard-learning-area .dash-card .card-header { background: linear-gradient(90deg,#f0f2ff,transparent); }
+.dashboard-learning-area .dash-stat { border-radius: 14px; border-right: 6px solid rgba(255,255,255,.38); }
+
+/* Intern: notebook / mentorship aesthetic. */
+.dashboard-practicum {
+    --dash-accent: #7357a8;
+    --dash-accent-2: #ba769d;
+    --dash-soft: #faf3fb;
+    --dash-radius: 16px;
+}
+.dashboard-practicum .dashboard-identity { border: 2px dashed rgba(255,255,255,.38); }
+.dashboard-practicum .dash-card { border-left: 5px solid #d8caea; box-shadow: 0 6px 16px rgba(65,45,90,.07); }
+.dashboard-practicum .dash-stat { transform: rotate(-.25deg); }
+.dashboard-practicum .dash-stat:nth-child(even) { transform: rotate(.25deg); }
+
+/* Accountant: classic ledger with restrained colour and hard edges. */
+.dashboard-finance {
+    --dash-accent: #087e72;
+    --dash-accent-2: #26445d;
+    --dash-soft: #edf8f5;
+    --dash-radius: 3px;
+}
+.dashboard-finance .dashboard-identity { border-radius: 3px; background: linear-gradient(100deg,#174254,#087e72); }
+.dashboard-finance .dash-stat {
+    min-height: 112px;
+    border: 1px solid #dfe8e6;
+    border-left: 5px solid var(--dash-accent);
+    border-radius: 3px;
+    background: #fff !important;
+    color: #20393a !important;
+    box-shadow: 0 2px 5px rgba(15,23,42,.08);
+}
+.dashboard-finance .dash-stat-icon { color: var(--dash-accent); opacity: .18; }
+.dashboard-finance .dash-card { box-shadow: 0 2px 5px rgba(15,23,42,.08); }
+
+/* Inventory: crisp modular operations grid. */
+.dashboard-inventory {
+    --dash-accent: #0876ad;
+    --dash-accent-2: #3f9a76;
+    --dash-soft: #edf7fa;
+    --dash-radius: 2px;
+}
+.dashboard-inventory .dashboard-identity { border-radius: 2px; }
+.dashboard-inventory .dash-stat { min-height: 118px; border-radius: 2px; }
+.dashboard-inventory .dash-card { border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.13); }
+.dashboard-inventory .card-header { border-left: 4px solid var(--dash-accent); }
+
+/* Catering: warm service cards with menu-like surfaces. */
+.dashboard-culinary {
+    --dash-accent: #bd5a24;
+    --dash-accent-2: #5b8c3a;
+    --dash-soft: #fff8ee;
+    --dash-radius: 24px;
+}
+.dashboard-culinary .dashboard-identity { color:#3e2a13; background: linear-gradient(120deg,#ffd790,#d8efae); }
+.dashboard-culinary .dashboard-identity-icon { border-radius: 50%; background:#fff8; }
+.dashboard-culinary .dash-card { border-radius: 24px 24px 8px 24px; }
+.dashboard-culinary .dash-stat { border-radius: 24px; }
+
+/* Boarding: evening watch, high-contrast exceptions. */
+.dashboard-boarding {
+    --dash-accent: #2c3f77;
+    --dash-accent-2: #7b5f96;
+    --dash-soft: #f1f2fa;
+    --dash-radius: 18px;
+}
+.dashboard-boarding .dashboard-identity { background: linear-gradient(120deg,#17264d,#594b79); }
+.dashboard-boarding .dashboard-identity-orbit { border-style: dashed; }
+.dashboard-boarding .dash-card { border-bottom: 4px solid #8b79ad; }
+
+/* Talent: energetic showcase blocks. */
+.dashboard-talent {
+    --dash-accent: #b43c80;
+    --dash-accent-2: #f08a3e;
+    --dash-soft: #fff0f7;
+    --dash-radius: 20px;
+}
+.dashboard-talent .dashboard-identity { border-radius: 40px 12px 40px 12px; }
+.dashboard-talent .dash-stat { border-radius: 40px 12px 40px 12px; }
+.dashboard-talent .dash-card:nth-child(odd) { border-top: 4px solid #f08a3e; }
+
+/* Driver: compact transport console. */
+.dashboard-transport {
+    --dash-accent: #176c91;
+    --dash-accent-2: #303d4d;
+    --dash-soft: #edf5f7;
+    --dash-radius: 9px;
+}
+.dashboard-transport .dashboard-identity { background: linear-gradient(100deg,#243442,#176c91); }
+.dashboard-transport .dashboard-identity::after { content:''; position:absolute; right:0; bottom:18px; width:34%; border-bottom:3px dashed rgba(255,255,255,.32); }
+.dashboard-transport .dash-stat { border-radius: 9px; border-bottom: 5px solid rgba(0,0,0,.18); }
+
+/* Counselling/chaplaincy: intentionally calm and private. */
+.dashboard-wellbeing {
+    --dash-accent: #587e78;
+    --dash-accent-2: #90749a;
+    --dash-soft: #f2f7f5;
+    --dash-radius: 28px;
+}
+.dashboard-wellbeing .dashboard-identity { background: linear-gradient(120deg,#6d938d,#90749a); border-radius: 28px; }
+.dashboard-wellbeing .dash-card { border-radius: 28px; box-shadow: 0 8px 24px rgba(77,105,100,.08); }
+.dashboard-wellbeing .dash-stat { border-radius: 28px; filter: saturate(.78); }
+
+/* Support staff: clear, compact workbench. */
+.dashboard-service {
+    --dash-accent: #32745a;
+    --dash-accent-2: #5b6573;
+    --dash-soft: #eff6f1;
+    --dash-radius: 8px;
+}
+.dashboard-service .dashboard-identity { min-height: 100px; border-radius: 8px; }
+.dashboard-service .dash-stat { min-height: 100px; padding: 1rem; border-radius: 8px; }
+.dashboard-service .dash-stat-value { font-size: 1.65rem; }
+.dashboard-service .dash-card { border-radius: 8px; }
+
+/* System admin: high-density operations grid inspired by monitoring consoles. */
+.dashboard-system-grid {
+    --dash-accent: #334155;
+    --dash-accent-2: #0f7c87;
+    --dash-soft: #eef2f5;
+    --dash-radius: 0;
+}
+.dashboard-system-grid .dashboard-identity { border-radius: 0; background: linear-gradient(110deg,#111827,#0f6670); }
+.dashboard-system-grid #systemAdministratorMetricCards > div .card { position:relative; overflow:hidden; min-height:112px; border-radius:0; color:#fff; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+1) .card { background:#c04478; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+2) .card { background:#2d9d84; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n+3) .card { background:#7651a0; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4n) .card { background:#dc724c; }
+.dashboard-system-grid #systemAdministratorMetricCards .text-muted { color:rgba(255,255,255,.78) !important; }
+.dashboard-system-grid #systemAdministratorMetricCards .fs-3 { font-size:2.15rem !important; }
+.dashboard-system-grid .card { border-radius:0; box-shadow:0 1px 2px rgba(15,23,42,.14); }
+
+@media (max-width: 767.98px) {
+    .dashboard-identity { grid-template-columns: 1fr; min-height: 0; padding: 1.1rem; }
+    .dashboard-identity-icon { width: 48px; height: 48px; border-radius: 14px; font-size: 1.35rem; }
+    .dashboard-identity-orbit { display: none; }
+    .dashboard-surface > .dash-meta-bar { align-items: stretch !important; }
+    .dashboard-surface .dash-period-bar { width: 100%; overflow-x: auto; }
+    .dashboard-action-strip { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 420px) {
+    .dashboard-action-strip { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-surface *,
+    .dashboard-surface *::before,
+    .dashboard-surface *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+@media print {
+    .dashboard-identity { color:#111; border:1px solid #999; background:#fff !important; box-shadow:none; }
+    .dashboard-identity-orbit,
+    .dashboard-action-strip,
+    .dashboard-surface > .dash-meta-bar,
+    .dashboard-surface .dash-period-bar { display:none !important; }
+    .dashboard-surface .dash-card,
+    .dashboard-surface .dash-stat { break-inside:avoid; box-shadow:none !important; }
+}
+
+/* ==========================================================================
+   FIVE REFERENCE LAYOUTS
+   These rules change composition, not just theme. They intentionally mirror
+   the five supplied dashboard families while retaining live controller IDs.
+   ========================================================================== */
+
+/* 1 — Headteacher: Edu Center asymmetric 8/4 daily command layout. */
+
+
+.dashboard-leadership .dashboard-identity {
+    min-height: 76px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(125deg, #faf9ff 0%, #f0ebff 100%);
+    color: #242052;
+    box-shadow: none;
+}
+.dashboard-leadership .dashboard-identity-icon { border: 0; background: #6d3ce7; color: #fff; }
+.dashboard-leadership .dashboard-identity-orbit { border-color: rgba(109,60,231,.08); }
+.dashboard-leadership .edu-center-kpis .dash-stat {
+    min-height: 106px;
+    padding: 1rem;
+    border: 0;
+    border-radius: 17px;
+    text-align: left;
+    box-shadow: 0 7px 20px rgba(74,47,130,.08);
+}
+.dashboard-leadership .edu-center-kpis .dash-stat-value { font-size: 1.65rem; font-weight: 800; }
+.dashboard-leadership .edu-center-kpis .dash-stat-icon {
+    top: .8rem;
+    right: .8rem;
+    width: 38px;
+    height: 38px;
+    padding: .55rem;
+    border-radius: 50%;
+    background: rgba(255,255,255,.36);
+    font-size: 1.05rem;
+    opacity: 1;
+}
+.dashboard-leadership .dash-card { border: 0; border-radius: 17px; box-shadow: 0 7px 22px rgba(42,38,80,.07); }
+.dashboard-leadership .dash-card .card-header { border: 0; background: transparent; }
+.dashboard-leadership .edu-center-academics .dash-card { min-height: 188px; }
+.dashboard-leadership .edu-center-academics > :first-child .dash-card { min-height: 250px; }
+
+/* 2 — Deputy Academic: compact 4/8 registrar layout. */
+@media (min-width: 1200px) {
+    .dashboard-academic-command {
+        display: grid;
+        grid-template-columns: minmax(285px, 4fr) minmax(0, 8fr);
+        gap: 1rem;
+        align-items: start;
+        grid-auto-flow: dense;
+        background: #f1f2f7;
+    }
+    .dashboard-academic-command > * { grid-column: 1 / -1; margin-bottom: 0 !important; }
+    .dashboard-academic-command > .registrar-kpi-stack {
+        grid-column: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .75rem;
+    }
+    .dashboard-academic-command .registrar-kpi-stack > .row { display: contents; }
+    .dashboard-academic-command > .registrar-analytics-panel {
+        grid-column: 2;
+        grid-row: span 2;
+        height: 100%;
+    }
+    .dashboard-academic-command > .registrar-enrollment-grid { grid-column: 1 / -1; }
+}
+.dashboard-academic-command .dash-greeting-bar,
+.dashboard-academic-command .dashboard-identity {
+    min-height: 70px;
+    border: 0;
+    border-radius: 4px;
+    background: #fff;
+    color: #3b3f50;
+    box-shadow: 0 1px 4px rgba(29,34,48,.09);
+}
+.dashboard-academic-command .dashboard-identity-icon { border: 0; border-radius: 4px; background: #3156c8; color: #fff; }
+.dashboard-academic-command .dashboard-identity-orbit { display: none; }
+.dashboard-academic-command .registrar-kpi-rail > div { width: 100%; }
+.dashboard-academic-command .registrar-kpi-rail .dash-stat {
+    min-height: 104px;
+    padding: .9rem;
+    border: 0;
+    border-radius: 4px;
+    color: #fff !important;
+    box-shadow: none;
+}
+.dashboard-academic-command .registrar-kpi-rail .dash-stat-value { font-size: 1.55rem; color: #fff; }
+.dashboard-academic-command .registrar-kpi-rail .dash-stat-label,
+.dashboard-academic-command .registrar-kpi-rail .dash-stat-sub,
+.dashboard-academic-command .registrar-kpi-rail .dash-compare-up,
+.dashboard-academic-command .registrar-kpi-rail .dash-compare-down { color: rgba(255,255,255,.9) !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-blue { background: #55bf75 !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-green { background: #ff823e !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-teal { background: #23a7dc !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-cyan { background: #ffc31f !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-indigo { background: #ef5579 !important; }
+.dashboard-academic-command .registrar-kpi-rail .dsc-red { background: #b75cd6 !important; }
+.dashboard-academic-command .registrar-kpi-rail .dash-stat-icon { color: #fff; opacity: .3; }
+.dashboard-academic-command .dash-card { border: 0; border-radius: 4px; box-shadow: 0 1px 4px rgba(29,34,48,.10); }
+.dashboard-academic-command .registrar-analytics-panel .card-body { min-height: 230px; }
+
+/* 3 — Deputy Discipline: dense executive wave mosaic. */
+.dashboard-safeguarding {
+    background: #edf1f5;
+}
+.dashboard-safeguarding .dashboard-identity {
+    min-height: 82px;
+    border: 0;
+    border-radius: 5px;
+    background: linear-gradient(110deg, #77258f, #1aa1b4);
+}
+.dashboard-safeguarding .executive-wave-kpis > div { width: 33.333%; }
+.dashboard-safeguarding .executive-wave-kpis .dash-stat {
+    min-height: 112px;
+    border: 0;
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(27,38,52,.14);
+}
+.dashboard-safeguarding .executive-wave-kpis:first-of-type > :nth-child(1) .dash-stat { background: linear-gradient(135deg,#7c218c,#b04ca9) !important; }
+.dashboard-safeguarding .executive-wave-kpis:first-of-type > :nth-child(2) .dash-stat { background: linear-gradient(135deg,#e84424,#f37a59) !important; }
+.dashboard-safeguarding .executive-wave-kpis:first-of-type > :nth-child(3) .dash-stat { background: linear-gradient(135deg,#087e72,#40b4a7) !important; }
+.dashboard-safeguarding .executive-wave-critical .dash-card {
+    border: 0 !important;
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(27,38,52,.12);
+}
+.dashboard-safeguarding .executive-wave-critical .card-header {
+    background: linear-gradient(90deg, rgba(238,82,42,.16), rgba(8,126,114,.12)) !important;
+}
+.dashboard-safeguarding .executive-wave-mosaic {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+}
+.dashboard-safeguarding .executive-wave-mosaic > * { width: 100%; }
+.dashboard-safeguarding .executive-wave-mosaic > :first-child { grid-row: span 2; }
+.dashboard-safeguarding .executive-wave-mosaic > :last-child { grid-column: 2 / -1; }
+.dashboard-safeguarding .dash-card { border: 0; border-radius: 5px; box-shadow: 0 2px 8px rgba(27,38,52,.11); }
+
+/* 4 — Accountant: flat finance workbench and three-column operations row. */
+@media (min-width: 1200px) {
+    .dashboard-finance {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 1rem;
+        align-items: start;
+        grid-auto-flow: dense;
+        background: #f0f3f5;
+    }
+    .dashboard-finance > * { grid-column: 1 / -1; margin-bottom: 0 !important; }
+    .dashboard-finance > .finance-classic-primary { grid-column: 1 / 5; }
+    .dashboard-finance > .dashboard-action-strip { grid-column: 5 / 9; }
+    .dashboard-finance > .finance-classic-ledgers { grid-column: 9 / 13; }
+    .dashboard-finance > .finance-classic-level { grid-column: 1 / 7; }
+    .dashboard-finance > .finance-classic-defaulters { grid-column: 7 / 13; }
+    .dashboard-finance > .finance-classic-analysis { grid-column: 1 / -1; }
+    .dashboard-finance > .dashboard-identity { order: 0; }
+    .dashboard-finance > .dash-meta-bar { order: 1; }
+    .dashboard-finance > .dash-period-bar { order: 2; }
+    .dashboard-finance > #accountantDashboardState { order: 3; }
+    .dashboard-finance > .finance-classic-kpis { order: 4; }
+    .dashboard-finance > .finance-classic-primary,
+    .dashboard-finance > .dashboard-action-strip,
+    .dashboard-finance > .finance-classic-ledgers { order: 5; }
+    .dashboard-finance > .finance-classic-level,
+    .dashboard-finance > .finance-classic-defaulters { order: 6; }
+    .dashboard-finance > .finance-classic-analysis { order: 7; }
+    .dashboard-finance > .finance-classic-operations { order: 8; }
+}
+.dashboard-finance .dashboard-identity {
+    min-height: 70px;
+    border: 0;
+    background: #fff;
+    color: #39444a;
+    box-shadow: 0 1px 3px rgba(20,35,45,.09);
+}
+.dashboard-finance .dashboard-identity-icon { border: 0; border-radius: 2px; background: #eef6f3; color: #087e72; }
+.dashboard-finance .dashboard-identity-orbit { display: none; }
+.dashboard-finance .finance-classic-kpis > div { width: 33.333333%; }
+.dashboard-finance .finance-classic-kpis .dash-stat {
+    min-height: 92px;
+    padding: .9rem .75rem .75rem 3.5rem;
+    border: 0;
+    border-radius: 2px;
+    background: #fff !important;
+    box-shadow: 0 1px 3px rgba(20,35,45,.10);
+}
+.dashboard-finance .finance-classic-kpis .dash-stat-icon {
+    top: 50%; right: auto; left: .9rem; transform: translateY(-50%);
+    color: var(--dash-accent); opacity: 1; font-size: 1.35rem;
+}
+.dashboard-finance .finance-classic-kpis .dash-stat-value { font-size: 1.2rem; color: #344047; }
+.dashboard-finance .dashboard-action-strip {
+    grid-template-columns: 1fr 1fr;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+.dashboard-finance .dashboard-action-strip a { min-height: 94px; border-radius: 2px; color: #fff; }
+.dashboard-finance .dashboard-action-strip a:nth-child(1) { background: #3c599b; }
+.dashboard-finance .dashboard-action-strip a:nth-child(2) { background: #23a6dc; }
+.dashboard-finance .dashboard-action-strip a:nth-child(3) { background: #df4b3e; }
+.dashboard-finance .dashboard-action-strip a:nth-child(4) { background: #167aaa; }
+.dashboard-finance .dashboard-action-strip i { background: rgba(255,255,255,.15); }
+.dashboard-finance .finance-classic-primary > *,
+.dashboard-finance .finance-classic-ledgers > *,
+.dashboard-finance .finance-classic-defaulters > *,
+.dashboard-finance .finance-classic-analysis > *,
+.dashboard-finance .finance-classic-level > * { width: 100%; }
+.dashboard-finance .finance-method-position { order: 1; }
+.dashboard-finance .finance-collection-position { order: 2; }
+.dashboard-finance .dash-card { border: 0; border-radius: 2px; box-shadow: 0 1px 3px rgba(20,35,45,.10); }
+.dashboard-finance .finance-classic-primary .card-body { height: 210px !important; }
+.dashboard-finance .finance-classic-ledgers .table-responsive { max-height: 220px; }
+
+/* 5 — System Administrator: hard-edged operations grid. */
+.dashboard-system-grid { background: #e9eef2; }
+.dashboard-system-grid .dashboard-identity {
+    min-height: 72px;
+    border: 0;
+    background: #fff;
+    color: #35404a;
+    box-shadow: 0 1px 2px rgba(15,23,42,.12);
+}
+.dashboard-system-grid .dashboard-identity-icon { border: 0; border-radius: 0; background: #334155; color: #fff; }
+.dashboard-system-grid .dashboard-identity-orbit { display: none; }
+.dashboard-system-grid #systemAdministratorMetricCards > div { width: 25%; }
+.dashboard-system-grid #systemAdministratorMetricCards > div .card::after {
+    position: absolute;
+    right: .8rem;
+    bottom: -.7rem;
+    color: rgba(255,255,255,.18);
+    font-family: bootstrap-icons;
+    font-size: 4.8rem;
+    line-height: 1;
+    content: '\\f4da';
+}
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(2) .card::after { content: '\\f4d7'; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(3) .card::after { content: '\\f33e'; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(4) .card::after { content: '\\f67a'; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(5) .card::after { content: '\\f52a'; }
+.dashboard-system-grid #systemAdministratorMetricCards > div:nth-child(6) .card::after { content: '\\f338'; }
+.dashboard-system-grid > .row:last-of-type { display: grid; grid-template-columns: 2fr 1fr; }
+.dashboard-system-grid > .row:last-of-type > * { width: 100%; }
+.dashboard-system-grid > .row:last-of-type .card { border: 0; }
+
+@media (max-width: 1199.98px) {
+    .dashboard-academic-command .registrar-kpi-rail > div,
+    .dashboard-safeguarding .executive-wave-kpis > div,
+    .dashboard-system-grid #systemAdministratorMetricCards > div { width: 50%; }
+}
+
+@media (max-width: 767.98px) {
+    .dashboard-academic-command .registrar-kpi-stack { grid-template-columns: 1fr; }
+    .dashboard-academic-command .registrar-kpi-rail > div,
+    .dashboard-safeguarding .executive-wave-kpis > div,
+    .dashboard-finance .finance-classic-kpis > div,
+    .dashboard-system-grid #systemAdministratorMetricCards > div { width: 100%; }
+    .dashboard-safeguarding .executive-wave-mosaic,
+    .dashboard-system-grid > .row:last-of-type { display: flex; }
 }

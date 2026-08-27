@@ -45,9 +45,16 @@
             const methods = Array.isArray(payments.by_method)
                 ? payments.by_method
                 : [];
-            const byLevel = Array.isArray(fees.by_level)
-                ? fees.by_level
+            const recentTransactions = Array.isArray(paymentFeed.recent_transactions)
+                ? paymentFeed.recent_transactions
                 : [];
+            const histogramBands = [
+                { label: 'Below KES 1,000', min: 0, max: 1000 },
+                { label: 'KES 1,000–4,999', min: 1000, max: 5000 },
+                { label: 'KES 5,000–9,999', min: 5000, max: 10000 },
+                { label: 'KES 10,000–19,999', min: 10000, max: 20000 },
+                { label: 'KES 20,000+', min: 20000, max: Infinity }
+            ];
 
             const periodKey = period || 'month';
             const collectedByPeriod = {
@@ -89,21 +96,67 @@
                 charts: {
                     collection_trend: {
                         labels: trends.map((r) => r.month || 'Unknown'),
-                        data: trends.map((r) => Number(r.total_collected || 0))
+                        datasets: [{
+                            label: 'Collections',
+                            data: trends.map((r) => Number(r.total_collected || 0)),
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37, 99, 235, 0.14)',
+                            pointBackgroundColor: '#2563eb',
+                            fill: true,
+                            tension: 0.35
+                        }]
                     },
                     payment_methods: {
                         labels: methods.map((r) => r.payment_method || 'Other'),
-                        data: methods.map((r) => Number(r.total_amount || 0))
+                        datasets: [{
+                            label: 'Payments',
+                            data: methods.map((r) => Number(r.total_amount || 0)),
+                            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444']
+                        }]
                     },
-                    by_level: {
-                        labels: byLevel.map((r) => r.level || r.class_level || 'Unknown'),
-                        data: byLevel.map((r) => Number(r.collected || r.total_collected || 0))
+                    by_period: {
+                        labels: ['Today', 'This week', 'This month', 'Current term', 'Academic year'],
+                        datasets: [{
+                            label: 'Collected',
+                            data: [
+                                Number(collections.today_total || 0),
+                                Number(collections.week_total || 0),
+                                Number(collections.month_total || 0),
+                                Number(fees.term_collected || 0),
+                                Number(fees.total_collected || 0)
+                            ],
+                            backgroundColor: '#7c3aed',
+                            borderRadius: 5
+                        }]
+                    },
+                    fee_status: {
+                        labels: ['Collected', 'Outstanding'],
+                        datasets: [{
+                            label: 'Fee position',
+                            data: [
+                                Number(fees.total_collected || 0),
+                                Number(fees.total_outstanding || 0)
+                            ],
+                            backgroundColor: ['#10b981', '#ef4444']
+                        }]
+                    },
+                    payment_histogram: {
+                        labels: histogramBands.map((band) => band.label),
+                        datasets: [{
+                            label: 'Recent transactions',
+                            data: histogramBands.map((band) => recentTransactions.filter((transaction) => {
+                                const amount = Number(transaction.amount || 0);
+                                return amount >= band.min && amount < band.max;
+                            }).length),
+                            backgroundColor: '#0ea5e9',
+                            borderRadius: 4,
+                            barPercentage: 1,
+                            categoryPercentage: 1
+                        }]
                     }
                 },
                 tables: {
-                    recent_transactions: Array.isArray(paymentFeed.recent_transactions)
-                        ? paymentFeed.recent_transactions
-                        : [],
+                    recent_transactions: recentTransactions,
                     unreconciled: Array.isArray(paymentFeed.unreconciled)
                         ? paymentFeed.unreconciled
                         : [],
@@ -204,8 +257,21 @@
             },
             {
                 id: 'accLevelChart',
-                path: 'charts.by_level',
+                path: 'charts.by_period',
                 label: 'Collected',
+                type: 'bar'
+            },
+            {
+                id: 'accFeeStatusChart',
+                path: 'charts.fee_status',
+                label: 'Fee position',
+                type: 'pie',
+                showLegend: true
+            },
+            {
+                id: 'accPaymentHistogram',
+                path: 'charts.payment_histogram',
+                label: 'Recent transactions',
                 type: 'bar'
             }
         ],

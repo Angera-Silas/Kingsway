@@ -13,6 +13,11 @@ use App\API\Modules\reports\SystemReportManager;
 use App\API\Modules\reports\WorkflowReportManager;
 use App\API\Modules\reports\DisciplineReportManager;
 use App\API\Modules\reports\CommunicationReportManager;
+use App\API\Services\AnalyticsReportRegistryService;
+use App\API\Services\AnalyticsReportScopeService;
+use App\API\Services\GovernedReportExecutor;
+use App\API\Services\GovernedReportResponseBuilder;
+use RuntimeException;
 
 class ReportsAPI extends BaseAPI
 {
@@ -27,6 +32,10 @@ class ReportsAPI extends BaseAPI
     private $workflowReportManager;
     private $disciplineReportManager;
     private $communicationReportManager;
+    private AnalyticsReportRegistryService $analyticsRegistry;
+    private AnalyticsReportScopeService $analyticsScope;
+    private GovernedReportExecutor $governedExecutor;
+    private GovernedReportResponseBuilder $governedResponse;
 
     public function __construct()
     {
@@ -42,6 +51,118 @@ class ReportsAPI extends BaseAPI
         $this->workflowReportManager = new WorkflowReportManager();
         $this->disciplineReportManager = new DisciplineReportManager();
         $this->communicationReportManager = new CommunicationReportManager();
+        $this->analyticsRegistry = new AnalyticsReportRegistryService($this->db);
+        $this->analyticsScope = new AnalyticsReportScopeService($this->db);
+        $this->governedResponse = new GovernedReportResponseBuilder();
+        $this->governedExecutor = new GovernedReportExecutor([
+            'student.total_students' => [$this->studentReportManager, 'getTotalStudents'],
+            'student.enrollment_trends' => [$this->studentReportManager, 'getEnrollmentTrends'],
+            'student.exam_reports' => [$this->studentReportManager, 'getExamReports'],
+            'student.score_distributions' => [$this->studentReportManager, 'getScoreDistributions'],
+            'student.attendance_rates' => [$this->studentReportManager, 'getAttendanceRates'],
+            'admissions.stats' => [$this->admissionsReportManager, 'getAdmissionStats'],
+            'admissions.conversion_rates' => [$this->admissionsReportManager, 'getConversionRates'],
+            'finance.fee_summary' => [$this->financeReportManager, 'getFeeSummary'],
+            'finance.arrears' => [$this->financeReportManager, 'getArrearsStats'],
+            'staff.attendance_rates' => [$this->staffReportManager, 'getStaffAttendanceRates'],
+            'inventory.stock_levels' => [$this->inventoryReportManager, 'getInventoryStockLevels'],
+            'meal.food_consumption_trends' => [$this->mealReportManager, 'getFoodConsumptionTrends'],
+            'discipline.trends' => [$this->disciplineReportManager, 'getDisciplinaryTrends'],
+            'communication.stats' => [$this->communicationReportManager, 'getCommunicationsStats'],
+            'system.audit_trail' => [$this->systemReportManager, 'getAuditTrailSummary'],
+        ]);
+    }
+
+    // --- Governed enterprise analytics ---
+    public function governedCatalogue(array $params, array $user): array
+    {
+        return $this->analyticsRegistry->listCatalogue($user, $params);
+    }
+
+    public function governedDefinition(string $code, array $user): array
+    {
+        $definition = $this->analyticsRegistry->accessibleDefinition($code, $user, 'view');
+        $definition['metrics'] = $this->analyticsRegistry->metricsForReport((int) $definition['id']);
+        return $definition;
+    }
+
+    public function governedMetrics(array $params, array $user): array
+    {
+        $domain = isset($params['domain']) ? (string) $params['domain'] : null;
+        return $this->analyticsRegistry->listMetrics($user, $domain);
+    }
+
+    public function executeGoverned(
+        string $code,
+        array $params,
+        array $user,
+        string $requestId
+    ): array {
+        $started = microtime(true);
+        $definition = $this->analyticsRegistry->accessibleDefinition($code, $user, 'execute');
+        if (!$this->governedExecutor->supports((string) $definition['execution_key'])) {
+            throw new RuntimeException('This report definition has no approved executor.', 409);
+        }
+
+        $scopeResult = $this->analyticsScope->apply($definition, $user, $params);
+        $metrics = $this->analyticsRegistry->metricsForReport((int) $definition['id']);
+        $metricVersions = array_map(static function (array $metric): array {
+            return ['code' => $metric['code'], 'version' => (int) $metric['version']];
+        }, $metrics);
+        $run = $this->analyticsRegistry->startRun(
+            $definition,
+            $user,
+            $scopeResult['parameters'],
+            $scopeResult['scope'],
+            $metricVersions,
+            $requestId
+        );
+
+        try {
+            $payload = $this->governedExecutor->execute(
+                (string) $definition['execution_key'],
+                $scopeResult['parameters']
+            );
+            $response = $this->governedResponse->build(
+                $definition,
+                $run,
+                $scopeResult['parameters'],
+                $scopeResult['scope'],
+                $metrics,
+                $payload,
+                $scopeResult['warnings'] ?? []
+            );
+            $duration = (int) round((microtime(true) - $started) * 1000);
+            $this->analyticsRegistry->completeRun(
+                (int) $run['id'],
+                (int) $response['row_count'],
+                (array) $response['summary'],
+                (array) $response['warnings'],
+                $duration
+            );
+            $response['run']['status'] = 'completed';
+            $response['run']['row_count'] = (int) $response['row_count'];
+            $response['run']['duration_ms'] = $duration;
+            $response['run']['completed_at'] = gmdate('c');
+            return $response;
+        } catch (\Throwable $e) {
+            $duration = (int) round((microtime(true) - $started) * 1000);
+            $failureCode = $e instanceof RuntimeException && $e->getCode() > 0
+                ? 'REPORT_' . (string) $e->getCode()
+                : 'REPORT_EXECUTION_FAILED';
+            $this->analyticsRegistry->failRun(
+                (int) $run['id'],
+                $failureCode,
+                'The report could not be generated.',
+                $duration
+            );
+            throw $e;
+        }
+    }
+
+    public function governedRunStatus(int $runId, array $user): array
+    {
+        return $this->analyticsRegistry->runStatus($runId, $user);
     }
 
     // --- Admissions Reports ---

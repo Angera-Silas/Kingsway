@@ -117,8 +117,8 @@ Thumbs.db
 # --------------------------------------------------------
 database/KingWayDatabase_3nf_4nf_implemented.sql
 database/*.sql
-!database/migrations/*.sql
-!database/migrations/
+database/migrations/*.sql
+database/migrations/
 database/seeds/
 
 # --------------------------------------------------------
@@ -126,14 +126,30 @@ database/seeds/
 # --------------------------------------------------------
 deploy
 scripts
-!scripts/payment_integration_curl_smoke.sh
-!deploy/
-!deploy/systemd/
+scripts/payment_integration_curl_smoke.sh
+!deploy/deploy/systemd/
 !deploy/systemd/kingsway-attendance-register-worker.service
 !deploy/systemd/kingsway-attendance-register-worker.timer
 tests
 audit
 structure.txt
+
+# KCB reconciliation deliverables (narrow exceptions to the local-only rules).
+!database/migrations/
+database/migrations/*
+!database/migrations/186_kcb_disbursement_reconciliation.sql
+!database/migrations/187_seed_kcb_manual_review_exceptions.sql
+!scripts/
+scripts/*
+!scripts/process_kcb_disbursement_reconciliation.php
+!tests/
+tests/*
+!tests/Unit/
+tests/Unit/*
+!tests/Unit/Payments/
+tests/Unit/Payments/*
+!tests/Unit/Payments/KcbFundsTransferServiceTest.php
+!tests/Unit/Payments/KcbReconciliationSafetyTest.php
 
 # Python bytecode caches
 __pycache__/
@@ -174,3 +190,4 @@ kingsway-ngrok.yml
 
 # KCB Buni integration scratch (credentials / collections)
 kcb_buni/
+!database/migrations/188_expand_admissions_leadership_visibility.sql

@@ -25,26 +25,18 @@
 ?>
 
 <div class="container-fluid py-4">
-    <!-- Dashboard Header -->
-    <div class="row mb-4">
-        <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <div>
-                <h2 class="mb-1"><i class="bi bi-briefcase me-2"></i>School Administrator Dashboard</h2>
-                <p class="text-muted mb-0">Operational overview and daily management</p>
-            </div>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                <small class="text-muted me-3">
-                    <i class="bi bi-clock me-1"></i>
-                    Last refresh: <span id="lastRefreshTime">--:--:--</span>
-                </small>
-                <button id="refreshDashboard" class="btn btn-sm btn-primary">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
-                <button id="exportDashboard" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-download"></i> Export
-                </button>
-            </div>
-        </div>
+    <!-- Meta Bar -->
+    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
+        <small class="text-muted">
+            <i class="bi bi-clock me-1"></i>
+            Last refresh: <span id="lastRefreshTime">--:--:--</span>
+        </small>
+        <button id="refreshDashboard" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+        <button id="exportDashboard" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download"></i> Export
+        </button>
     </div>
 
     <!-- Row 1: Operational Status Cards (5 cards) -->

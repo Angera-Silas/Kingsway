@@ -1461,6 +1461,11 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
   "/finance/payment-references": { POST: "finance_create" },
   "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
+  "/finance/kcb-disbursements": {
+    GET: "finance_view",
+    POST: ["finance_reconcile", "finance_approve", "finance_manage"],
+  },
+  "/finance/kcb-oauth-revoke": { POST: "system.payment_integrations.configure" },
 
   // M-Pesa (Daraja) outbound API triggers — all require finance permissions.
   // Client-side gate only; server RBAC is enforced in PaymentsController.
@@ -1683,6 +1688,11 @@ const ENDPOINT_PERMISSIONS = {
   // Reports
   "/reports/index": "reports_view",
   "/reports/academic": "reports_view",
+  "/reports/catalogue": "analytics_catalogue_view",
+  "/reports/definition": "analytics_catalogue_view",
+  "/reports/metrics": "analytics_catalogue_view",
+  "/reports/execute": "analytics_report_execute",
+  "/reports/run-status": "analytics_catalogue_view",
 
   // System
   "/system/index": "system_view",
@@ -3854,7 +3864,7 @@ window.API = {
     index: async () => apiCall("/attendance/index", "GET"),
     getSessions: async (params = {}) =>
       apiCall("/attendance/sessions", "GET", null, params),
-    getSessionConfig: async () => apiCall("/attendance/session-config", "GET", null, {}, { checkPermission: false }),
+    getSessionConfig: async (params = {}) => apiCall("/attendance/session-config", "GET", null, params, { checkPermission: false }),
     updateSessionConfig: async (id, data) => apiCall(`/attendance/session-config/${id}`, "PUT", data, null, { checkPermission: false }),
     getAcademicSummary: async (params = {}) =>
       apiCall("/attendance/academic-summary", "GET", null, params),
@@ -4575,6 +4585,18 @@ window.API = {
       }),
 
     // Payments
+    getKcbDisbursements: async (params) =>
+      apiCall("/finance/kcb-disbursements", "GET", null, params),
+    checkKcbDisbursementStatus: async (id) =>
+      apiCall(`/finance/kcb-disbursements/${id}/status-inquiry`, "POST", {}),
+    pollKcbDisbursements: async (limit = 25) =>
+      apiCall("/finance/kcb-disbursements/poll", "POST", { limit }),
+    retryKcbDisbursement: async (id) =>
+      apiCall(`/finance/kcb-disbursements/${id}/retry`, "POST", {}),
+    resolveKcbDisbursement: async (id, data) =>
+      apiCall(`/finance/kcb-disbursements/${id}/resolve`, "POST", data),
+    revokeKcbAccessToken: async () =>
+      apiCall("/finance/kcb-oauth-revoke", "POST", {}),
     generateReceipt: async (paymentId) =>
       apiCall("/finance/payments-generate-receipt", "POST", {
         payment_id: paymentId,
@@ -5677,6 +5699,18 @@ window.API = {
   // Reports endpoints
   reports: {
     index: async () => apiCall("/reports/index", "GET"),
+
+    // Governed enterprise analytics
+    getCatalogue: async (params = {}) =>
+      apiCall("/reports/catalogue", "GET", null, params),
+    getDefinition: async (code) =>
+      apiCall(`/reports/definition/${encodeURIComponent(code)}`, "GET"),
+    getMetrics: async (params = {}) =>
+      apiCall("/reports/metrics", "GET", null, params),
+    execute: async (code, filters = {}) =>
+      apiCall(`/reports/execute/${encodeURIComponent(code)}`, "POST", { filters }),
+    getRunStatus: async (runId) =>
+      apiCall(`/reports/run-status/${Number(runId)}`, "GET"),
 
     // Admission reports
     getAdmissionStats: async (params) =>

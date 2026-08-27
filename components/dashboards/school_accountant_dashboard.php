@@ -1,34 +1,23 @@
 
-<div class="container-fluid py-4" id="accountantDashboard">
-    <div class="dash-greeting-bar mb-4">
-        <div>
-            <h5 id="accountantGreeting">Good morning!</h5>
-            <p>School Accountant &mdash; <span id="accountantDashboardScope">&mdash;</span></p>
-        </div>
-        <div class="dash-meta">
-            <span class="text-white-50 small">Updated: <span id="accountantDashboardLastUpdated">&mdash;</span></span>
-            <button class="dash-refresh-btn" id="accountantDashboardRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-        </div>
+<?php $rootId = 'accountantDashboard'; ?>
+<div class="container-fluid py-4 role-dashboard dashboard-surface dashboard-finance" id="accountantDashboard" data-dashboard-layout="finance-classic-workbench">
+    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
+        <span class="small text-muted">Updated: <span id="accountantDashboardLastUpdated">&mdash;</span></span>
+        <button class="btn btn-sm btn-outline-success" id="accountantDashboardRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
     </div>
-    <script>
-        (function () {
-            var user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;
-            if (user) {
-                var hr = new Date().getHours();
-                var greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
-                var name = user.first_name || user.name || '';
-                var el = document.getElementById('accountantGreeting');
-                if (el) el.textContent = greet + (name ? ', ' + name : '') + '!';
-            }
-        })();
-    </script>
 
-    <?php $rootId = 'accountantDashboard'; ?>
     <?php require __DIR__ . '/partials/period_selector.php'; ?>
+
+    <nav class="dashboard-action-strip mb-4" aria-label="Finance quick actions">
+        <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=manage_payments"><i class="bi bi-receipt"></i><span>Payment register</span></a>
+        <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=mpesa_reconciliation"><i class="bi bi-arrow-repeat"></i><span>M-Pesa reconciliation</span></a>
+        <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=kcb_disbursement_reconciliation"><i class="bi bi-bank"></i><span>KCB transfer queue</span></a>
+        <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=finance_reports"><i class="bi bi-graph-up-arrow"></i><span>Financial reports</span></a>
+    </nav>
 
     <div id="accountantDashboardState" hidden></div>
 
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 finance-classic-kpis">
         <div class="col-md-4">
             <div class="dash-stat dsc-green">
                 <i class="bi bi-cash-coin dash-stat-icon"></i>
@@ -79,8 +68,8 @@
         </div>
     </div>
 
-    <div class="row g-3 mb-4">
-        <div class="col-lg-6">
+    <div class="row g-3 mb-4 finance-classic-primary">
+        <div class="col-lg-6 finance-collection-position">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
                     <h6 class="mb-0"><i class="bi bi-graph-up me-2 text-primary"></i>Collection Trend</h6>
@@ -90,7 +79,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-lg-6">
+        <div class="col-lg-6 finance-method-position">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
                     <h6 class="mb-0"><i class="bi bi-pie-chart me-2 text-success"></i>Payment Methods</h6>
@@ -101,11 +90,11 @@
             </div>
         </div>
     </div>
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 finance-classic-level">
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                    <h6 class="mb-0"><i class="bi bi-bar-chart me-2 text-info"></i>Collection by Level</h6>
+                    <h6 class="mb-0"><i class="bi bi-bar-chart me-2 text-info"></i>Collections by Period</h6>
                 </div>
                 <div class="card-body" style="position:relative;height:280px;">
                     <canvas id="accLevelChart"></canvas>
@@ -114,7 +103,30 @@
         </div>
     </div>
 
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 finance-classic-analysis">
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100 dash-card">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                    <h6 class="mb-0"><i class="bi bi-pie-chart-fill me-2 text-success"></i>Collected vs Outstanding</h6>
+                </div>
+                <div class="card-body" style="position:relative;height:280px;">
+                    <canvas id="accFeeStatusChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100 dash-card">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                    <h6 class="mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Recent Payment Amount Distribution</h6>
+                </div>
+                <div class="card-body" style="position:relative;height:280px;">
+                    <canvas id="accPaymentHistogram"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4 finance-classic-ledgers">
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
@@ -166,7 +178,7 @@
             </div>
         </div>
     </div>
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 finance-classic-defaulters">
         <div class="col-lg-6">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
@@ -193,7 +205,7 @@
         </div>
     </div>
 
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 finance-classic-operations">
         <div class="col-md-4">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">

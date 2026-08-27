@@ -825,7 +825,7 @@ class FinanceAPI extends BaseAPI
                     return $result;
 
                 case 'retry-failed-payment':
-                    $result = $this->disbursementManager->retryFailedPayment($id);
+                    $result = $this->disbursementManager->retryFailedPayment($id, $this->getCurrentUserId());
                     if ($result['status'] === 'success') {
                         $this->logAction('retry_payment', $id, 'Retried failed payment');
                     }

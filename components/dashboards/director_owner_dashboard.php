@@ -1,31 +1,13 @@
 
 <div class="container-fluid py-4">
-    <!-- Executive Greeting Bar -->
-    <div class="dash-greeting-bar mb-4">
-        <div>
-            <h5 id="directorGreeting">Good morning!</h5>
-            <p>Executive overview — <span id="academic_year">—</span> &bull; <span id="current_term">—</span></p>
-        </div>
-        <div class="dash-meta">
-            <span class="text-white-50 small">Updated: <span id="last_refresh">—</span></span>
-            <button class="dash-refresh-btn" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
-            <button class="dash-refresh-btn" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
-            <button class="dash-refresh-btn" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
-            <button class="dash-refresh-btn" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
-        </div>
+    <!-- Meta Bar -->
+    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
+        <span class="text-muted small">Updated: <span id="last_refresh">—</span></span>
+        <button class="btn btn-sm btn-outline-primary" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
+        <button class="btn btn-sm btn-outline-success" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
+        <button class="btn btn-sm btn-outline-info" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
+        <button class="btn btn-sm btn-outline-secondary" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
     </div>
-    <script>
-        (function () {
-            const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;
-            if (user) {
-                const hr = new Date().getHours();
-                const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
-                const name = user.first_name || user.name || '';
-                const el = document.getElementById('directorGreeting');
-                if (el) el.textContent = greet + (name ? ', ' + name : '') + '!';
-            }
-        })();
-    </script>
 
     <!-- B. EXECUTIVE KPI STRIP (12 Cards) -->
     <div class="row g-3 mb-4" id="kpi_strip">

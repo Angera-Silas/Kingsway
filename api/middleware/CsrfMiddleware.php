@@ -76,6 +76,7 @@ class CsrfMiddleware
         'attendance/gate-event',
         // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
         'attendance/process-register-reminders',
+        'finance/kcb-reconciliation-worker',
     ];
 
     public static function handle(): void
