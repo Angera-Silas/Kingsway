@@ -95,3 +95,5 @@ if (document.readyState === 'loading') {
 } else {
     staffLifecycleController.init().catch(() => {});
 }
+
+window.staffLifecycleController = staffLifecycleController;

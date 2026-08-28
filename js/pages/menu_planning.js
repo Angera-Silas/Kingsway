@@ -291,3 +291,5 @@ const MenuPlanningController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MenuPlanningController.init());
+
+window.MenuPlanningController = MenuPlanningController;

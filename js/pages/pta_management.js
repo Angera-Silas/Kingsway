@@ -106,3 +106,5 @@ const PTAManagementController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
 })();
 document.addEventListener('DOMContentLoaded', () => PTAManagementController.init());
+
+window.PTAManagementController = PTAManagementController;

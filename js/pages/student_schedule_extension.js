@@ -172,3 +172,5 @@ if (document.readyState === 'loading') {
 } else {
     studentScheduleExtensionController.init().catch(() => {});
 }
+
+window.studentScheduleExtensionController = studentScheduleExtensionController;

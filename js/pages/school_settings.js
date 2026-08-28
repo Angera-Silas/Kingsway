@@ -267,6 +267,8 @@
         }
     };
 
+    window.SchoolSettingsController = Controller;
+    window.APIRealtime?.register?.('SchoolSettingsController', Controller);
     document.addEventListener("DOMContentLoaded", function () { Controller.init(); });
 
 })();

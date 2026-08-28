@@ -242,3 +242,5 @@ const UnmatchedPaymentsController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   UnmatchedPaymentsController.init(),
 );
+
+window.UnmatchedPaymentsController = UnmatchedPaymentsController;

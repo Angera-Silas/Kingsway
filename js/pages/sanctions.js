@@ -178,3 +178,5 @@ const sanctionsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => sanctionsController.init());
+
+window.sanctionsController = sanctionsController;

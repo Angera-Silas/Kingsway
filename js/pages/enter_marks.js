@@ -459,3 +459,6 @@ const enterMarksCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', enterMarksCtrl.init);
+
+window.enterMarksCtrl = enterMarksCtrl;
+window.APIRealtime?.register?.(enterMarksCtrl, enterMarksCtrl);

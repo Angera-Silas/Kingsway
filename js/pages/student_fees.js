@@ -1115,3 +1115,5 @@ const StudentFeesController = {
 document.addEventListener("DOMContentLoaded", () =>
   StudentFeesController.init(),
 );
+
+window.StudentFeesController = StudentFeesController;

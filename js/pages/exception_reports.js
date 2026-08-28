@@ -140,3 +140,5 @@ const exceptionReportsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());
+
+window.exceptionReportsController = exceptionReportsController;

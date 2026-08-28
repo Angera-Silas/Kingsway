@@ -478,3 +478,5 @@ const FoodStoreController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => FoodStoreController.init());
+
+window.FoodStoreController = FoodStoreController;

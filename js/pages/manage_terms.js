@@ -239,3 +239,5 @@ const ManageTermsController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
 })();
 document.addEventListener('DOMContentLoaded', () => ManageTermsController.init());
+
+window.ManageTermsController = ManageTermsController;

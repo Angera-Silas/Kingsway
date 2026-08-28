@@ -412,3 +412,5 @@ const ParentMeetingsController = {
 document.addEventListener("DOMContentLoaded", () =>
   ParentMeetingsController.init(),
 );
+
+window.ParentMeetingsController = ParentMeetingsController;

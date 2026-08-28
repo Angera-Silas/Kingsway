@@ -132,6 +132,15 @@ class ControllerRouter
             // Call controller method with id and data
             $result = $controller->$methodName($id, $data, $segments);
 
+            if (is_array($result)) {
+                \App\API\Services\RealtimeMutationPublisher::publish(
+                    $method,
+                    $controllerName,
+                    $resource,
+                    $result
+                );
+            }
+
             // Return result
             if (is_array($result)) {
                 return $result;
@@ -184,13 +193,28 @@ class ControllerRouter
     {
         static $controllerMap = null;
         if ($controllerMap === null) {
-            $controllerMap = [];
-            $controllersDir = dirname(__DIR__) . '/controllers';
-            foreach (glob($controllersDir . '/*Controller.php') as $file) {
-                $base = basename($file, '.php');
-                if (preg_match('/^(.*)Controller$/i', $base, $m)) {
-                    $controllerMap[strtolower($m[1])] = 'App\\API\\Controllers\\' . $base;
+            // Route map is disk-cached: the per-request glob() over the
+            // controllers directory is a real cost at ~1000 concurrent users
+            // (every request globs once). A short TTL (120s) lets newly added
+            // controllers appear within two minutes while removing the scan
+            // from the concurrent hot path almost entirely.
+            $controllerMap = \App\API\Services\FileCache::remember(
+                'router.controller_map',
+                2,
+                function () {
+                    $map = [];
+                    $controllersDir = dirname(__DIR__) . '/controllers';
+                    foreach (glob($controllersDir . '/*Controller.php') as $file) {
+                        $base = basename($file, '.php');
+                        if (preg_match('/^(.*)Controller$/i', $base, $m)) {
+                            $map[strtolower($m[1])] = 'App\\API\\Controllers\\' . $base;
+                        }
+                    }
+                    return $map;
                 }
+            );
+            if (!is_array($controllerMap)) {
+                $controllerMap = [];
             }
         }
         $key = strtolower($controllerName);

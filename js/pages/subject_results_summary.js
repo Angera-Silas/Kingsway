@@ -389,3 +389,5 @@ const subjectResultsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', subjectResultsController.init);
+
+window.subjectResultsController = subjectResultsController;

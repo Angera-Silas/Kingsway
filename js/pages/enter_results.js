@@ -313,3 +313,5 @@ const enterResultsController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   enterResultsController.init(),
 );
+
+window.enterResultsController = enterResultsController;

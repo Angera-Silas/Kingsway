@@ -467,3 +467,6 @@ const subjectGradeEntryCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', subjectGradeEntryCtrl.init);
+
+window.subjectGradeEntryCtrl = subjectGradeEntryCtrl;
+window.APIRealtime?.register?.(subjectGradeEntryCtrl, subjectGradeEntryCtrl);

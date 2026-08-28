@@ -712,3 +712,5 @@ const activitiesController = {
 document.addEventListener('DOMContentLoaded', () => {
   activitiesController.init().then(() => activitiesController._bindFilterEvents());
 });
+
+window.activitiesController = activitiesController;

@@ -714,3 +714,5 @@ const ManageUsersController = {
 document.addEventListener("DOMContentLoaded", () =>
   ManageUsersController.init(),
 );
+
+window.ManageUsersController = ManageUsersController;

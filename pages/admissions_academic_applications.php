@@ -85,7 +85,7 @@
             <div>
                 <p class="text-muted text-uppercase fw-semibold small mb-1">Admissions Workflow</p>
                 <h4 class="mb-1">Academic Applications</h4>
-                <p class="mb-0 text-muted">Review approved applications and assign class placements</p>
+                <p class="mb-0 text-muted">Monitor every application and its current workflow stage; authorized staff can continue placement work.</p>
             </div>
             <button class="btn btn-light btn-lg" onclick="academicApplicationsController.refreshData()">
                 <i class="bi bi-arrow-clockwise me-2"></i>Refresh
@@ -154,13 +154,9 @@
         <!-- Filters -->
         <div class="row g-3 mb-4">
             <div class="col-md-4">
-                <label class="form-label small fw-semibold">Placement Status</label>
+                <label class="form-label small fw-semibold">Workflow Stage</label>
                 <select id="filterPlacementStatus" class="form-select">
-                    <option value="">All Statuses</option>
-                    <option value="pending">Pending Placement</option>
-                    <option value="recommended">Recommended</option>
-                    <option value="approved">Approved</option>
-                    <option value="assigned">Assigned</option>
+                    <option value="">All Workflow Stages</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -186,7 +182,7 @@
                                 <th scope="col">Applicant Name</th>
                                 <th scope="col">Applied Grade</th>
                                 <th scope="col">Interview Score</th>
-                                <th scope="col">Placement Status</th>
+                                <th scope="col">Current Stage</th>
                                 <th scope="col">Recommended Class</th>
                                 <th scope="col">Actions</th>
                             </tr>

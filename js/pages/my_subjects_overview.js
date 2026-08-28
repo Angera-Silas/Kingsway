@@ -267,3 +267,5 @@ const MySubjectsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MySubjectsController.init());
+
+window.MySubjectsController = MySubjectsController;

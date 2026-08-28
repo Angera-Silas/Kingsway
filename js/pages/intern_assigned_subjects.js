@@ -235,3 +235,5 @@ const InternAssignedSubjectsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => InternAssignedSubjectsController.init());
+
+window.InternAssignedSubjectsController = InternAssignedSubjectsController;

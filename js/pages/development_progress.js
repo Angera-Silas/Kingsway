@@ -111,3 +111,5 @@ const developmentProgressController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => developmentProgressController.init());
+
+window.developmentProgressController = developmentProgressController;

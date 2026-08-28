@@ -573,3 +573,5 @@ const PortfolioController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => PortfolioController.init());
+
+window.PortfolioController = PortfolioController;

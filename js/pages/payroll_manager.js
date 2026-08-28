@@ -1990,3 +1990,5 @@ const PayrollManagerController = {
 document.addEventListener("DOMContentLoaded", () => {
   PayrollManagerController.init();
 });
+
+window.PayrollManagerController = PayrollManagerController;

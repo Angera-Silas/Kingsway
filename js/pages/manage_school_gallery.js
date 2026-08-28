@@ -112,3 +112,5 @@ if (document.readyState === 'loading') {
 } else {
   manageSchoolGalleryController.init().catch(() => {});
 }
+
+window.manageSchoolGalleryController = manageSchoolGalleryController;

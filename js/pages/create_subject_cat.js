@@ -230,3 +230,6 @@ const createSubjectCatCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', createSubjectCatCtrl.init);
+
+window.createSubjectCatCtrl = createSubjectCatCtrl;
+window.APIRealtime?.register?.(createSubjectCatCtrl, createSubjectCatCtrl);

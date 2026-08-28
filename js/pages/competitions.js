@@ -225,3 +225,5 @@ const CompetitionsController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
 })();
 document.addEventListener('DOMContentLoaded', () => CompetitionsController.init());
+
+window.CompetitionsController = CompetitionsController;

@@ -26,6 +26,88 @@ class ReportsController extends BaseController
     {
         return $this->success(['message' => 'Reports API is running']);
     }
+
+    // --- Governed enterprise analytics ---
+    public function getCatalogue($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        try {
+            return $this->success(
+                $this->api->governedCatalogue(array_merge($_GET, $data ?? []), $this->user),
+                'Governed report catalogue loaded'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    public function getDefinition($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        $code = $id ?? ($data['code'] ?? null);
+        if (!$code) return $this->badRequest('Report code is required');
+        try {
+            return $this->success(
+                $this->api->governedDefinition((string) $code, $this->user),
+                'Governed report definition loaded'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    public function getMetrics($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        try {
+            return $this->success(
+                $this->api->governedMetrics(array_merge($_GET, $data ?? []), $this->user),
+                'Governed metric definitions loaded'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    public function postExecute($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_report_execute')) return $guard;
+        $code = $id ?? ($data['report_code'] ?? null);
+        if (!$code) return $this->badRequest('Report code is required');
+        $params = isset($data['filters']) && is_array($data['filters'])
+            ? $data['filters']
+            : $data;
+        unset($params['report_code']);
+        try {
+            return $this->success(
+                $this->api->executeGoverned(
+                    (string) $code,
+                    $params,
+                    $this->user,
+                    (string) ($_SERVER['REQUEST_ID'] ?? $this->requestId)
+                ),
+                'Governed report generated'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
+
+    public function getRunStatus($id = null, $data = [], $segments = [])
+    {
+        if ($guard = $this->guardAnalytics('analytics_catalogue_view')) return $guard;
+        if (!$id || !is_numeric($id) || (int) $id < 1) {
+            return $this->badRequest('Valid report run ID is required');
+        }
+        try {
+            return $this->success(
+                $this->api->governedRunStatus((int) $id, $this->user),
+                'Report run status loaded'
+            );
+        } catch (\Throwable $e) {
+            return $this->analyticsError($e);
+        }
+    }
     // --- Enrollment Summary (alias for Director dashboard) ---
     public function getEnrollmentSummary($id = null, $data = [], $segments = [])
     {
@@ -284,6 +366,29 @@ class ReportsController extends BaseController
         }
 
         return $this->success($result);
+    }
+
+    private function guardAnalytics(string $permission): ?array
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if (!$this->userHasAny([$permission])) {
+            return $this->forbidden('You do not have permission to perform this reporting action');
+        }
+        return null;
+    }
+
+    private function analyticsError(\Throwable $e): array
+    {
+        $code = (int) $e->getCode();
+        error_log('[ReportsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        if ($code === 401) return $this->unauthorized($e->getMessage());
+        if ($code === 403) return $this->forbidden($e->getMessage());
+        if ($code === 404) return $this->notFound($e->getMessage());
+        if ($code === 409) return $this->conflict($e->getMessage());
+        if ($code === 422) return $this->unprocessable($e->getMessage());
+        return $this->serverError('The report could not be generated.');
     }
 
 }

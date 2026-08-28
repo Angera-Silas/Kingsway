@@ -256,13 +256,26 @@
     }[char]));
   }
 
+  const activeInstances = [];
+
   function initAll() {
     document.querySelectorAll(".student-context-page").forEach((root) => {
       if (root.dataset.initialized === "1") return;
       root.dataset.initialized = "1";
-      Object.create(controller).init(root);
+      const instance = Object.create(controller);
+      activeInstances.push(instance);
+      instance.init(root);
     });
   }
+
+  window.StudentContextRealtimeController = {
+    async load() {
+      for (const instance of activeInstances) {
+        await instance.load();
+      }
+    },
+  };
+  window.APIRealtime?.register?.('StudentContextRealtimeController', window.StudentContextRealtimeController, ['students']);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initAll);

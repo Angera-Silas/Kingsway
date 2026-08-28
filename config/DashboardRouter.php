@@ -62,6 +62,7 @@ private const ROUTE_ROLES = [
     'academic_reports' => [3, 4, 5, 6],  // 4 role(s)
     'academic_students' => [6],  // 1 role(s)
     'academic_years' => [3, 4, 5, 6],  // 4 role(s)
+    'analytics_catalogue' => [2, 3, 4, 5, 6, 7, 10, 14, 16, 32, 63],  // 11 role(s)
     'account_status' => [2],  // 1 role(s)
     'active_sessions' => [2],  // 1 role(s)
     'activity_achievements' => [21],  // 1 role(s)
@@ -70,7 +71,7 @@ private const ROUTE_ROLES = [
     'activity_reports' => [21],  // 1 role(s)
     'adjustments' => [10],  // 1 role(s)
     'admission_interviews' => [5],  // 1 role(s)
-    'admissions_academic_applications' => [6],  // 1 role(s)
+    'admissions_academic_applications' => [5, 6, 63],  // 3 role(s)
     'admissions_admission_decisions' => [5],  // 1 role(s)
     'admissions_class_placement' => [4, 6],  // 2 role(s)
     'admissions_headteacher_applications' => [5],  // 1 role(s)
@@ -337,6 +338,7 @@ private const ROUTE_ROLES = [
     'parent_refunds' => [3, 4, 10],  // approved parent overpayment refunds
     'student_fund_transfers' => [3, 4, 10],  // controlled fee/transport credit movements
     'payment_reconciliation' => [3, 4, 10],  // unresolved incoming payment cases
+    'kcb_disbursement_reconciliation' => [3, 4, 10],  // outgoing KCB callback/status exception queue
     'payment_integration_settings' => [2],  // system-domain configuration only
     'stock_reports' => [14],  // 1 role(s)
     'store_manager_dashboard' => [14],  // 1 role(s)
@@ -410,10 +412,10 @@ private const ROUTE_ROLES = [
     'year_rollover' => [2, 4],  // 2 role(s)
 ];
 
-// Total: 347 unique routes
+// Total: 348 unique routes
 // Routes in 1 role only: 221
-// Routes shared by 2+ roles: 126
-// Routes shared by 5+ roles: 19
+// Routes shared by 2+ roles: 127
+// Routes shared by 5+ roles: 20
 
     // role name → role_id for string-based lookups
     private const ROLE_NAME_MAP = [

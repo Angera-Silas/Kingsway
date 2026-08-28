@@ -80,3 +80,5 @@ const improvementAreasController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => improvementAreasController.init());
+
+window.improvementAreasController = improvementAreasController;

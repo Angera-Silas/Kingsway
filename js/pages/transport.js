@@ -522,3 +522,5 @@ document.addEventListener('DOMContentLoaded', () => {
         transportController.init();
     }
 });
+
+window.transportController = transportController;

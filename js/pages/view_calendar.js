@@ -256,3 +256,5 @@ const ViewCalendarController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => ViewCalendarController.init());
+
+window.ViewCalendarController = ViewCalendarController;

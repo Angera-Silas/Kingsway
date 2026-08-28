@@ -543,3 +543,5 @@ const MySchemesOfWorkController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MySchemesOfWorkController.init());
+
+window.MySchemesOfWorkController = MySchemesOfWorkController;

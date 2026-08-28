@@ -681,3 +681,5 @@ window.detailedPayslipController = DetailedPayslipController;
 document.addEventListener("DOMContentLoaded", () =>
   DetailedPayslipController.init()
 );
+
+window.DetailedPayslipController = DetailedPayslipController;

@@ -153,3 +153,5 @@ const depreciationController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => depreciationController.init());
+
+window.depreciationController = depreciationController;

@@ -54,8 +54,8 @@
         <div class="card border-0 border-start border-4 border-warning shadow-sm mb-4 d-none" id="attendanceSessionConfigCard">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div><h5 class="mb-1"><i class="bi bi-sliders me-2 text-warning"></i>Attendance Session Configuration</h5><small class="text-muted">Choose which classes use academic sessions and which learners are included in boarding roll calls.</small></div>
-                    <button class="btn btn-sm btn-outline-primary" id="refreshSessionConfigBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+                    <div><h5 class="mb-1"><i class="bi bi-sliders me-2 text-warning"></i>Term Attendance Session Configuration</h5><small class="text-muted">Configure the current academic term. Sessions without a term override continue using the school defaults.</small></div>
+                    <div class="d-flex gap-2 align-items-center"><label for="attendanceConfigTermSelect" class="visually-hidden">Academic term</label><select id="attendanceConfigTermSelect" class="form-select form-select-sm" style="min-width:220px"><option value="">Loading academic terms…</option></select><button class="btn btn-sm btn-outline-primary" id="refreshSessionConfigBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div>
                 </div>
                 <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Session</th><th>Type</th><th>Audience</th><th>Days</th><th>Time</th><th>Class scope</th><th></th></tr></thead><tbody id="attendanceSessionConfigBody"><tr><td colspan="7" class="text-muted">Loading configuration…</td></tr></tbody></table></div>
             </div>

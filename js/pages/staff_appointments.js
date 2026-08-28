@@ -619,3 +619,6 @@ const StaffAppointmentsPage = {
 document.addEventListener("DOMContentLoaded", function () {
   StaffAppointmentsPage.init();
 });
+
+window.StaffAppointmentsPage = StaffAppointmentsPage;
+window.APIRealtime?.register?.(StaffAppointmentsPage, StaffAppointmentsPage);

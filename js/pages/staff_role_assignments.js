@@ -132,3 +132,4 @@ const StaffRoleAssignmentsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => StaffRoleAssignmentsController.init());
+window.StaffRoleAssignmentsController = StaffRoleAssignmentsController;

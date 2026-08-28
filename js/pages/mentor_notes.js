@@ -105,3 +105,5 @@ const mentorNotesController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => mentorNotesController.init());
+
+window.mentorNotesController = mentorNotesController;

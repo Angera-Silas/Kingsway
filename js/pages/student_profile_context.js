@@ -116,6 +116,15 @@
       }
     },
 
+    async refresh() {
+      if (this.studentId) {
+        await this.loadProfile(this.studentId);
+        return;
+      }
+      const term = this.root?.querySelector("#studentProfileSearchInput")?.value?.trim() || "";
+      await this.search(term);
+    },
+
     renderProfile() {
       this.hideState();
       this.root.querySelector("#studentProfileView").classList.remove("d-none");
@@ -205,6 +214,9 @@
       "'": "&#039;",
     }[char]));
   }
+
+  window.StudentProfileContextController = state;
+  window.APIRealtime?.register?.('StudentProfileContextController', state, ['students']);
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => state.init());

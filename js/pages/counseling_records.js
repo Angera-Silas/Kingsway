@@ -249,3 +249,5 @@ const CounselingRecordsController = {
 document.addEventListener("DOMContentLoaded", () =>
   CounselingRecordsController.init(),
 );
+
+window.CounselingRecordsController = CounselingRecordsController;

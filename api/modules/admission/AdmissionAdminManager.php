@@ -253,8 +253,14 @@ class AdmissionAdminManager extends BaseAPI
                 $this->ctxRoleIds($ctx),
                 $this->ctxPermissionCodes($ctx)
             );
-            $hasAdmissionOversight = $this->hasAdmissionRouteAccess($ctx)
-                && $this->ctxHasRole([3, 5, 6], ['Director', 'Headteacher', 'Deputy Head - Academic'], $ctx);
+            // School leadership must be able to monitor the complete intake
+            // pipeline even where a stage belongs operationally to another
+            // role. Stage-action permissions below still decide who may act.
+            $hasAdmissionOversight = $this->ctxHasRole(
+                [3, 4, 5, 6, 63],
+                ['Director', 'School Administrator', 'Headteacher', 'Deputy Head - Academic', 'Deputy Head - Discipline'],
+                $ctx
+            );
             $canViewStage = static function (array $stages) use ($stageMatrix, $hasAdmissionOversight): bool {
                 foreach ($stages as $stage) {
                     if (!empty($stageMatrix[$stage]['can_view']) || $hasAdmissionOversight) {
@@ -306,6 +312,7 @@ class AdmissionAdminManager extends BaseAPI
                 'final_enrollment_pending' => [],
                 'enrollment_pending' => [],
                 'completed' => [],
+                'all_applications' => [],
             ];
 
             $baseSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
@@ -335,7 +342,9 @@ class AdmissionAdminManager extends BaseAPI
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN persons pp ON pp.id = p.person_id
-                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                                   WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)";
 
             $compactSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.gender, aa.date_of_birth, aa.grade_applying_for,
                            aa.status, aa.created_at,
@@ -350,9 +359,21 @@ class AdmissionAdminManager extends BaseAPI
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN persons pp ON pp.id = p.person_id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                      AND wi.id = (SELECT MAX(wi2.id) FROM workflow_instances wi2
+                                   WHERE wi2.reference_type = 'admission_application' AND wi2.reference_id = aa.id)
                     LEFT JOIN admission_interviews ai ON ai.application_id = aa.id AND ai.status <> 'cancelled'
                     LEFT JOIN staff ist ON ist.id=ai.interviewer_id
                     LEFT JOIN persons ipt ON ipt.id=ist.person_id";
+
+            if ($hasAdmissionOversight || $this->hasAnyAdmissionPermission('view_all', $ctx)) {
+                $stmt = $this->db->query(
+                    "{$baseSelect}
+                     WHERE 1 = 1
+                     {$scopeFilter}
+                     ORDER BY aa.created_at DESC"
+                );
+                $queues['all_applications'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC), $ctx);
+            }
 
             if ($canViewReview || $canReview) {
                 $stmt = $this->db->query(
@@ -565,6 +586,7 @@ class AdmissionAdminManager extends BaseAPI
                 'final_enrollment_pending' => count($queues['final_enrollment_pending']),
                 'enrollment_pending' => count($queues['enrollment_pending']),
                 'completed' => count($queues['completed']),
+                'all_applications' => count($queues['all_applications']),
                 'total_pending' => count($queues['review_pending']) + count($queues['documents_pending'])
                     + count($queues['space_check_pending']) + count($queues['interview_pending'])
                     + count($queues['decision_pending']) + count($queues['placement_pending'])

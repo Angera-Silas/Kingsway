@@ -502,3 +502,6 @@ const termReportsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', termReportsCtrl.init);
+
+window.termReportsCtrl = termReportsCtrl;
+window.APIRealtime?.register?.(termReportsCtrl, termReportsCtrl);

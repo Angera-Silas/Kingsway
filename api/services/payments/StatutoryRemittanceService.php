@@ -64,8 +64,9 @@ class StatutoryRemittanceService
         $accepted = in_array($result['status'] ?? '', ['success', 'pending'], true);
         $this->db->prepare("UPDATE statutory_remittance_attempts SET status = ?, provider_reference = ?, request_payload = ?, response_payload = ? WHERE id = ?")
             ->execute([$accepted ? 'pending' : 'failed', $result['transaction_ref'] ?? $reference, json_encode($data), json_encode($result), $attemptId]);
-        $this->db->prepare("UPDATE disbursement_transactions SET request_id = ?, transaction_ref = ?, status = ?, callback_data = ? WHERE id = ?")
-            ->execute([$result['request_id'] ?? null, $result['transaction_ref'] ?? $reference, $accepted ? 'pending' : 'failed', json_encode($result), $disbursementId]);
+        $this->db->prepare("UPDATE disbursement_transactions SET request_id = ?, transaction_ref = ?, status = ?, reconciliation_status = ?, next_status_inquiry_at = IF(? = 'pending', DATE_ADD(NOW(), INTERVAL 2 MINUTE), NULL), callback_data = ? WHERE id = ?")
+            ->execute([$result['request_id'] ?? null, $result['transaction_ref'] ?? $reference, $accepted ? 'pending' : 'failed', $accepted ? 'awaiting_callback' : 'manual_review', $accepted ? 'pending' : 'failed', json_encode($result), $disbursementId]);
+        if (!$accepted) (new KcbTransferReconciliationService($this->db, $this->kcb))->flagSubmissionException($disbursementId, (string) ($result['message'] ?? 'Submission failed.'));
 
         return ['status' => $accepted ? 'pending' : 'failed', 'attempt_id' => $attemptId, 'transaction_ref' => $result['transaction_ref'] ?? $reference];
     }

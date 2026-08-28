@@ -951,3 +951,5 @@ const manageTeachersController = {
 document.addEventListener("DOMContentLoaded", () => {
   manageTeachersController.init();
 });
+
+window.manageTeachersController = manageTeachersController;

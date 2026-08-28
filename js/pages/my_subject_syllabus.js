@@ -288,3 +288,5 @@ const MySyllabusController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MySyllabusController.init());
+
+window.MySyllabusController = MySyllabusController;

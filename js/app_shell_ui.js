@@ -118,6 +118,11 @@
       user.username || displayName || "User";
     const initials = initialsFor(displayName);
 
+    const hr = new Date().getHours();
+    const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+    const firstName = user.first_name || displayName.split(' ')[0] || 'User';
+    setText("#header-greeting", greet + ', ' + firstName + '!');
+
     setText("#header-user-role", role);
     setText("#header-role-short", role);
     setText("#header-username", username);

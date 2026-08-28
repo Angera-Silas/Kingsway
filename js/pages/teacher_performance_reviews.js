@@ -241,3 +241,4 @@ const TeacherPerformanceReviewsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => TeacherPerformanceReviewsController.init());
+window.TeacherPerformanceReviewsController = TeacherPerformanceReviewsController;

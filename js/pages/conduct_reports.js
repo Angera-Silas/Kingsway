@@ -362,3 +362,5 @@ const ConductReportsController = {
 document.addEventListener("DOMContentLoaded", () =>
   ConductReportsController.init(),
 );
+
+window.ConductReportsController = ConductReportsController;
