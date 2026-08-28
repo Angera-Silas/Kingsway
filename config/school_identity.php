@@ -54,6 +54,10 @@ function loadSchoolIdentity(?\PDO $db): void
     define('SCHOOL_PRINCIPAL_NAME', $principalName);
     define('SCHOOL_PRINCIPAL_TITLE', $principalTitle ?: 'Headteacher');
     define('SCHOOL_MOTTO', trim((string) ($profile['motto'] ?? '')));
-    define('SCHOOL_WEBSITE', trim((string) ($profile['website'] ?? '')));
-    define('SCHOOL_LOGO_PATH', trim((string) ($profile['logo_url'] ?? '')));
+    if (!defined('SCHOOL_WEBSITE')) {
+        define('SCHOOL_WEBSITE', trim((string) ($profile['website'] ?? '')));
+    }
+    if (!defined('SCHOOL_LOGO_PATH')) {
+        define('SCHOOL_LOGO_PATH', trim((string) ($profile['logo_url'] ?? '')));
+    }
 }
