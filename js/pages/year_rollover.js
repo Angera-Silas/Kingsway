@@ -543,3 +543,5 @@ const yearRolloverController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => yearRolloverController.init());
+
+window.yearRolloverController = yearRolloverController;

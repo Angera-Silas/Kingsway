@@ -1299,3 +1299,5 @@ if (document.readyState === 'loading') {
 } else {
   manageWebsiteController.init().catch(() => {});
 }
+
+window.manageWebsiteController = manageWebsiteController;

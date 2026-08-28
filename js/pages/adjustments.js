@@ -214,3 +214,5 @@ const adjustmentsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => adjustmentsController.init());
+
+window.adjustmentsController = adjustmentsController;

@@ -117,8 +117,8 @@ Thumbs.db
 # --------------------------------------------------------
 database/KingWayDatabase_3nf_4nf_implemented.sql
 database/*.sql
-!database/migrations/*.sql
-!database/migrations/
+database/migrations/*.sql
+database/migrations/
 database/seeds/
 
 # --------------------------------------------------------
@@ -126,11 +126,9 @@ database/seeds/
 # --------------------------------------------------------
 deploy
 scripts
-!scripts/payment_integration_curl_smoke.sh
-!deploy/
-!deploy/systemd/
-!deploy/systemd/kingsway-attendance-register-worker.service
-!deploy/systemd/kingsway-attendance-register-worker.timer
+scripts/payment_integration_curl_smoke.sh
+!/.github/scripts/
+!/.github/scripts/public-ui-smoke.js
 tests
 audit
 structure.txt
@@ -150,6 +148,9 @@ ADMISSION_SUBMISSION_PROCESS.md
 Kingsway.code-workspace
 KEELCODE.md
 docs
+/buffers/*
+!/buffers/.htaccess
+!/config/.htaccess
 
 # --------------------------------------------------------
 # Binaries and OS-specific files
@@ -174,3 +175,4 @@ kingsway-ngrok.yml
 
 # KCB Buni integration scratch (credentials / collections)
 kcb_buni/
+!database/migrations/188_expand_admissions_leadership_visibility.sql

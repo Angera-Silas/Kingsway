@@ -233,3 +233,5 @@ const ComparativeReportsController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => ComparativeReportsController.init());
+
+window.ComparativeReportsController = ComparativeReportsController;

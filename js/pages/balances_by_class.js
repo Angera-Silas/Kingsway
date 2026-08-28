@@ -609,3 +609,5 @@ BalancesByClassController.printBillingStatement = async function printBillingSta
 };
 
 document.addEventListener('DOMContentLoaded', () => BalancesByClassController.init());
+
+window.BalancesByClassController = BalancesByClassController;

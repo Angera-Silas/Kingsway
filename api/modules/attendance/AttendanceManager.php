@@ -279,6 +279,39 @@ class AttendanceManager extends BaseAPI
         ];
     }
 
+    private function configurationTermId(array $data): ?int
+    {
+        $requested = $data['academic_year_term_id'] ?? $data['term_id'] ?? $_GET['academic_year_term_id'] ?? $_GET['term_id'] ?? null;
+        if ($requested !== null && $requested !== '') {
+            if (!is_numeric($requested) || (int) $requested < 1) return null;
+            $stmt = $this->db->prepare('SELECT id FROM academic_year_terms WHERE id = ? LIMIT 1');
+            $stmt->execute([(int) $requested]);
+            return $stmt->fetchColumn() ? (int) $requested : null;
+        }
+        $term = $this->resolveTermForDate((string) ($data['date'] ?? $_GET['date'] ?? date('Y-m-d')));
+        return !empty($term['term_id']) ? (int) $term['term_id'] : null;
+    }
+
+    private function sessionAppliesToClassForTerm(int $sessionId, int $classId, ?int $termId): bool
+    {
+        if ($termId) {
+            $termRules = $this->db->prepare(
+                'SELECT class_id, enabled FROM attendance_session_term_class_rules WHERE academic_year_term_id = ? AND session_id = ?'
+            );
+            $termRules->execute([$termId, $sessionId]);
+            $rules = $termRules->fetchAll(PDO::FETCH_ASSOC);
+            if ($rules !== []) {
+                foreach ($rules as $rule) {
+                    if ((int) $rule['class_id'] === $classId) return (int) $rule['enabled'] === 1;
+                }
+                return false;
+            }
+        }
+        $default = $this->db->prepare('SELECT enabled FROM attendance_session_class_rules WHERE session_id = ? AND class_id = ? LIMIT 1');
+        $default->execute([$sessionId, $classId]);
+        return (int) $default->fetchColumn() === 1;
+    }
+
     /**
      * Stream scope expressed as an `en.student_id IN (subquery)` clause, used
      * where the query has no enrollments table in FROM (views, permission list).
@@ -609,11 +642,12 @@ class AttendanceManager extends BaseAPI
             }
 
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
+            $sessionId = $data['session_id'] ?? $_GET['session_id'] ?? null;
 
             $sql = "SELECT s.id, s.admission_no, p.first_name, p.last_name,
                            st.name AS student_type, st.code AS student_type_code,
                            sa.id AS attendance_id, sa.status AS stored_status,
-                           sa.absence_reason,
+                           sa.absence_reason, sa.notes,
                            CASE
                                WHEN sa.absence_reason = 'permission' THEN 'permission'
                                ELSE sa.status
@@ -628,6 +662,7 @@ class AttendanceManager extends BaseAPI
                     LEFT JOIN student_types st ON st.id = s.student_type_id
                     LEFT JOIN student_attendance sa ON sa.student_academic_enrollment_id = en.id
                         AND sa.date = ? AND sa.register_type = 'class'
+                        AND sa.session_id <=> ?
                     LEFT JOIN student_permissions sp ON sp.student_id = s.id
                         AND ? BETWEEN sp.start_date AND sp.end_date
                         AND sp.status = 'approved'
@@ -636,7 +671,7 @@ class AttendanceManager extends BaseAPI
                       AND en.enrollment_status = 'active'
                     ORDER BY p.last_name, p.first_name";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$date, $date, (int) $streamId]);
+            $stmt->execute([$date, $sessionId ? (int) $sessionId : null, $date, (int) $streamId]);
 
             return $this->successResponse($stmt->fetchAll(PDO::FETCH_ASSOC), 'Students retrieved successfully');
         } catch (Exception $e) {
@@ -696,26 +731,31 @@ class AttendanceManager extends BaseAPI
             $classId = $classRow['class_id'] ?? null;
 
             if ($sessionId) {
-                $sessStmt = $this->db->prepare("SELECT type FROM attendance_sessions WHERE id = ? LIMIT 1");
-                $sessStmt->execute([(int) $sessionId]);
-                $sessType = $sessStmt->fetchColumn();
-                if ($sessType) {
-                    $registerType = $sessType === 'boarding' ? 'boarding' : ($sessType === 'activity' ? 'activity' : 'class');
+                $sessionStmt = $this->db->prepare(
+                    "SELECT ass.type,
+                            COALESCE(cfg.status, ass.status) AS effective_status,
+                            COALESCE(cfg.applicable_days, ass.applicable_days) AS effective_days
+                     FROM attendance_sessions ass
+                     LEFT JOIN attendance_session_term_configs cfg
+                       ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
+                     WHERE ass.id = ?
+                     LIMIT 1"
+                );
+                $dayName = date('l', strtotime((string) $date));
+                $sessionStmt->execute([(int) $termId, (int) $sessionId]);
+                $effectiveSession = $sessionStmt->fetch(PDO::FETCH_ASSOC);
+                $effectiveDays = json_decode((string) ($effectiveSession['effective_days'] ?? '[]'), true) ?: [];
+                if (!$effectiveSession
+                    || ($effectiveSession['effective_status'] ?? 'inactive') !== 'active'
+                    || !in_array($dayName, $effectiveDays, true)
+                    || !$this->sessionAppliesToClassForTerm((int) $sessionId, (int) $classId, $termId ? (int) $termId : null)) {
+                    return $this->errorResponse('This attendance session is not configured for the selected class and date.', 422);
                 }
-            }
-
-            $className = strtolower((string) ($classRow['class_name'] ?? ''));
-            $wholeDayClass = (bool) preg_match('/playgroup|pp1|pp2|pre.?primary|grade\s*[1-3]\b/', $className);
-            if ($wholeDayClass) {
-                $sessionName = '';
-                if ($sessionId) {
-                    $nameStmt = $this->db->prepare("SELECT name FROM attendance_sessions WHERE id = ? LIMIT 1");
-                    $nameStmt->execute([(int) $sessionId]);
-                    $sessionName = strtolower((string) $nameStmt->fetchColumn());
+                $sessionType = $effectiveSession['type'];
+                if ($registerType === 'class' && $sessionType !== 'academic') {
+                    return $this->errorResponse('Class attendance requires an academic attendance session.', 422);
                 }
-                if (strpos($sessionName, 'morning') === false) {
-                    return $this->errorResponse('ECD to Grade 3 attendance must use the Morning Classes register.', 422);
-                }
+                $registerType = $sessionType === 'boarding' ? 'boarding' : ($sessionType === 'activity' ? 'activity' : 'class');
             }
 
             $markedBy = $this->currentUserId();
@@ -723,13 +763,25 @@ class AttendanceManager extends BaseAPI
             $updated = 0;
 
             foreach ($attendance as $record) {
+                $status = strtolower(trim((string) ($record['status'] ?? 'not_marked')));
+                if (!in_array($status, ['not_marked', 'present', 'absent', 'late'], true)) {
+                    return $this->errorResponse('Invalid learner attendance status.', 422);
+                }
+            }
+
+            foreach ($attendance as $record) {
                 $studentId = $record['student_id'] ?? null;
                 if (!$studentId) {
                     continue;
                 }
-                $status = in_array($record['status'] ?? '', ['present', 'absent', 'late'], true)
-                    ? $record['status']
-                    : 'present';
+                $status = strtolower(trim((string) ($record['status'] ?? 'not_marked')));
+                // Not marked is intentionally represented by the absence of a
+                // learner attendance row. It must never be persisted as Present.
+                if ($status === 'not_marked') {
+                    continue;
+                }
+                $notes = trim((string) ($record['note'] ?? $record['notes'] ?? ''));
+                $notes = $notes === '' ? null : substr($notes, 0, 1000);
 
                 $enrollStmt = $this->db->prepare(
                     "SELECT id FROM student_academic_enrollments
@@ -751,16 +803,16 @@ class AttendanceManager extends BaseAPI
                 $existing = $existStmt->fetchColumn();
 
                 if ($existing) {
-                    $upd = $this->db->prepare("UPDATE student_attendance SET status = ?, marked_by = ? WHERE id = ?");
-                    $upd->execute([$status, $markedBy, (int) $existing]);
+                    $upd = $this->db->prepare("UPDATE student_attendance SET status = ?, notes = ?, marked_by = ? WHERE id = ?");
+                    $upd->execute([$status, $notes, $markedBy, (int) $existing]);
                     $updated++;
                 } else {
                     $ins = $this->db->prepare(
                         "INSERT INTO student_attendance
-                         (student_academic_enrollment_id, date, status, session_id, register_type, marked_by, created_at)
-                         VALUES (?, ?, ?, ?, ?, ?, NOW())"
+                         (student_academic_enrollment_id, date, status, session_id, register_type, notes, marked_by, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"
                     );
-                    $ins->execute([(int) $enrollmentId, $date, $status, $sessionId ? (int) $sessionId : null, $registerType, $markedBy]);
+                    $ins->execute([(int) $enrollmentId, $date, $status, $sessionId ? (int) $sessionId : null, $registerType, $notes, $markedBy]);
                     $created++;
                 }
             }
@@ -788,26 +840,67 @@ class AttendanceManager extends BaseAPI
     {
         try {
             $type = $data['type'] ?? $_GET['type'] ?? null;
-            $dayOfWeek = $data['day'] ?? $_GET['day'] ?? date('l');
+            $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
+            $dayOfWeek = date('l', strtotime((string) $date));
+            $term = $this->resolveTermForDate((string) $date);
+            $termId = isset($term['term_id']) ? (int) $term['term_id'] : null;
+            $classId = null;
 
-            $sql = "SELECT * FROM attendance_sessions WHERE status = 'active'";
-            $params = [];
-
-            if ($type) {
-                $sql .= " AND type = ?";
-                $params[] = $type;
+            if ($streamId && $type === 'academic') {
+                $scope = $this->getAccessibleClassScope();
+                if ($scope['restricted'] && !in_array((int) $streamId, $scope['stream_ids'], true)) {
+                    return $this->errorResponse('You are not allowed to access sessions for this class', 403);
+                }
+                $classStmt = $this->db->prepare(
+                    "SELECT ayc.class_id
+                     FROM academic_year_class_streams aycs
+                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                     WHERE aycs.id = ? LIMIT 1"
+                );
+                $classStmt->execute([(int) $streamId]);
+                $classId = $classStmt->fetchColumn();
+                if (!$classId) {
+                    return $this->errorResponse('Class stream was not found', 404);
+                }
             }
 
-            if ($dayOfWeek) {
-                $sql .= " AND JSON_CONTAINS(applicable_days, ?)";
-                $params[] = json_encode($dayOfWeek);
-            }
-
-            $sql .= " ORDER BY display_order";
+            $join = $termId
+                ? 'LEFT JOIN attendance_session_term_configs cfg ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?'
+                : 'LEFT JOIN attendance_session_term_configs cfg ON 1 = 0';
+            $sql = "SELECT ass.*,
+                           cfg.name AS term_name,
+                           cfg.description AS term_description,
+                           cfg.start_time AS term_start_time,
+                           cfg.end_time AS term_end_time,
+                           cfg.applicable_days AS term_applicable_days,
+                           cfg.applies_to AS term_applies_to,
+                           cfg.is_mandatory AS term_is_mandatory,
+                           cfg.display_order AS term_display_order,
+                           cfg.status AS term_status
+                    FROM attendance_sessions ass
+                    {$join}
+                    ORDER BY COALESCE(cfg.display_order, ass.display_order), ass.id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
+            $stmt->execute($termId ? [$termId] : []);
+            $sessions = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $session) {
+                foreach (['name','description','start_time','end_time','applicable_days','applies_to','is_mandatory','display_order','status'] as $field) {
+                    if ($session['term_' . $field] !== null) {
+                        $session[$field] = $session['term_' . $field];
+                    }
+                    unset($session['term_' . $field]);
+                }
+                if (($session['status'] ?? 'inactive') !== 'active') continue;
+                if ($type && ($session['type'] ?? null) !== $type) continue;
+                $days = json_decode((string) ($session['applicable_days'] ?? '[]'), true) ?: [];
+                if (!in_array($dayOfWeek, $days, true)) continue;
+                if ($classId && !$this->sessionAppliesToClassForTerm((int) $session['id'], (int) $classId, $termId)) continue;
+                $session['academic_year_term_id'] = $termId;
+                $sessions[] = $session;
+            }
 
-            return $this->successResponse($stmt->fetchAll(PDO::FETCH_ASSOC), 'Attendance sessions retrieved');
+            return $this->successResponse($sessions, 'Attendance sessions retrieved');
         } catch (Exception $e) {
             $this->logError($e, 'getSessions');
             return $this->errorResponse('An internal error occurred.', 500);
@@ -818,12 +911,55 @@ class AttendanceManager extends BaseAPI
     {
         try {
             if (!$this->userCanManageAllAttendance()) return $this->errorResponse('Only school leadership may configure attendance sessions', 403);
-            $stmt = $this->db->query("SELECT ass.*, GROUP_CONCAT(CASE WHEN r.enabled=1 THEN r.class_id END ORDER BY r.class_id) AS class_ids
-                FROM attendance_sessions ass LEFT JOIN attendance_session_class_rules r ON r.session_id=ass.id
-                GROUP BY ass.id ORDER BY ass.type, ass.display_order, ass.id");
+            $termId = $this->configurationTermId($data);
+            if (!$termId) return $this->errorResponse('An academic year term is required for session configuration', 422);
+            $stmt = $this->db->prepare(
+                "SELECT ass.*, cfg.id AS term_config_id,
+                        cfg.name AS term_name, cfg.description AS term_description,
+                        cfg.start_time AS term_start_time, cfg.end_time AS term_end_time,
+                        cfg.applicable_days AS term_applicable_days,
+                        cfg.applies_to AS term_applies_to,
+                        cfg.is_mandatory AS term_is_mandatory,
+                        cfg.display_order AS term_display_order,
+                        cfg.status AS term_status
+                 FROM attendance_sessions ass
+                 LEFT JOIN attendance_session_term_configs cfg
+                   ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
+                 ORDER BY ass.type, COALESCE(cfg.display_order, ass.display_order), ass.id"
+            );
+            $stmt->execute([$termId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($rows as &$row) $row['class_ids'] = $row['class_ids'] ? array_map('intval', explode(',', $row['class_ids'])) : [];
-            return $this->successResponse($rows, 'Attendance session configuration retrieved');
+            $termRules = $this->db->prepare(
+                "SELECT class_id, enabled
+                 FROM attendance_session_term_class_rules
+                 WHERE academic_year_term_id = ? AND session_id = ?
+                 ORDER BY class_id"
+            );
+            $defaultRules = $this->db->prepare(
+                "SELECT class_id FROM attendance_session_class_rules
+                 WHERE session_id = ? AND enabled = 1 ORDER BY class_id"
+            );
+            foreach ($rows as &$row) {
+                foreach (['name','description','start_time','end_time','applicable_days','applies_to','is_mandatory','display_order','status'] as $field) {
+                    if ($row['term_' . $field] !== null) $row[$field] = $row['term_' . $field];
+                    unset($row['term_' . $field]);
+                }
+                $termRules->execute([$termId, (int) $row['id']]);
+                $rules = $termRules->fetchAll(PDO::FETCH_ASSOC);
+                if ($rules !== []) {
+                    $row['class_ids'] = array_values(array_map('intval', array_column(array_filter($rules, static function (array $rule): bool {
+                        return (int) $rule['enabled'] === 1;
+                    }), 'class_id')));
+                    $row['configuration_source'] = 'term_override';
+                } else {
+                    $defaultRules->execute([(int) $row['id']]);
+                    $row['class_ids'] = array_map('intval', $defaultRules->fetchAll(PDO::FETCH_COLUMN));
+                    $row['configuration_source'] = $row['term_config_id'] ? 'term_override' : 'school_default';
+                }
+                $row['academic_year_term_id'] = $termId;
+                unset($row['term_config_id']);
+            }
+            return $this->successResponse(['academic_year_term_id' => $termId, 'sessions' => $rows], 'Attendance session configuration retrieved');
         } catch (Exception $e) { $this->logError($e, 'getSessionConfig'); return $this->errorResponse('An internal error occurred.', 500); }
     }
 
@@ -832,26 +968,43 @@ class AttendanceManager extends BaseAPI
         try {
             if (!$this->userCanManageAllAttendance()) return $this->errorResponse('Only school leadership may configure attendance sessions', 403);
             if ($sessionId < 1) return $this->errorResponse('Session ID is required', 400);
-            $allowedTypes = ['academic', 'boarding', 'activity'];
-            $type = $data['type'] ?? null;
+            $termId = $this->configurationTermId($data);
+            if (!$termId) return $this->errorResponse('An academic year term is required for session configuration', 422);
             $appliesTo = $data['applies_to'] ?? null;
             $days = array_values(array_intersect((array) ($data['applicable_days'] ?? []), ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']));
-            if ($type !== null && !in_array($type, $allowedTypes, true)) return $this->errorResponse('Invalid session type', 422);
             if ($appliesTo !== null && !in_array($appliesTo, ['all','day_only','boarders_only'], true)) return $this->errorResponse('Invalid audience', 422);
             $existing = $this->db->prepare('SELECT type FROM attendance_sessions WHERE id=?'); $existing->execute([$sessionId]);
             $currentType = $existing->fetchColumn(); if (!$currentType) return $this->errorResponse('Attendance session not found', 404);
-            $fields=[]; $params=[];
-            foreach (['name','description','start_time','end_time','type','applies_to','is_mandatory','display_order','status'] as $field) if (array_key_exists($field,$data)) { $fields[]="$field=?"; $params[]=$data[$field]; }
-            if (array_key_exists('applicable_days',$data)) { $fields[]='applicable_days=?'; $params[]=json_encode($days); }
-            if (!$fields) return $this->errorResponse('No changes supplied', 400);
-            $params[]=$sessionId; $this->db->beginTransaction();
-            $stmt=$this->db->prepare('UPDATE attendance_sessions SET '.implode(',', $fields).' WHERE id=?'); $stmt->execute($params);
-            if (($type ?: $currentType) === 'academic' && array_key_exists('class_ids',$data)) {
-                $this->db->prepare('DELETE FROM attendance_session_class_rules WHERE session_id=?')->execute([$sessionId]);
-                $insert=$this->db->prepare('INSERT INTO attendance_session_class_rules(session_id,class_id,enabled) VALUES(?,?,1)');
-                foreach (array_unique(array_map('intval',(array)$data['class_ids'])) as $classId) if ($classId>0) $insert->execute([$sessionId,$classId]);
+            if (isset($data['type']) && $data['type'] !== $currentType) return $this->errorResponse('Session type is a school definition and cannot change within one term', 422);
+
+            $columns = ['academic_year_term_id', 'session_id', 'configured_by'];
+            $values = [$termId, $sessionId, $this->currentUserId()];
+            foreach (['name','description','start_time','end_time','applies_to','is_mandatory','display_order','status'] as $field) {
+                if (array_key_exists($field, $data)) { $columns[] = $field; $values[] = $data[$field]; }
             }
-            $this->db->commit(); return $this->successResponse(['id'=>$sessionId], 'Attendance session configuration saved');
+            if (array_key_exists('applicable_days', $data)) { $columns[] = 'applicable_days'; $values[] = json_encode($days); }
+            if (count($columns) === 3 && !array_key_exists('class_ids', $data)) return $this->errorResponse('No changes supplied', 400);
+
+            $this->db->beginTransaction();
+            if (count($columns) > 3) {
+                $updates = array_map(static function (string $column): string {
+                    return $column . '=VALUES(' . $column . ')';
+                }, array_slice($columns, 3));
+                $updates[] = 'configured_by=VALUES(configured_by)';
+                $sql = 'INSERT INTO attendance_session_term_configs (' . implode(',', $columns) . ') VALUES ('
+                    . implode(',', array_fill(0, count($columns), '?')) . ') ON DUPLICATE KEY UPDATE ' . implode(',', $updates);
+                $this->db->prepare($sql)->execute($values);
+            }
+            if ($currentType === 'academic' && array_key_exists('class_ids', $data)) {
+                $selected = array_values(array_unique(array_filter(array_map('intval', (array) $data['class_ids']))));
+                $this->db->prepare('DELETE FROM attendance_session_term_class_rules WHERE academic_year_term_id=? AND session_id=?')->execute([$termId, $sessionId]);
+                $insert = $this->db->prepare('INSERT INTO attendance_session_term_class_rules(academic_year_term_id,session_id,class_id,enabled,configured_by) VALUES(?,?,?,?,?)');
+                $classIds = $this->db->query('SELECT id FROM classes ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($classIds as $classId) {
+                    $insert->execute([$termId, $sessionId, (int) $classId, in_array((int) $classId, $selected, true) ? 1 : 0, $this->currentUserId()]);
+                }
+            }
+            $this->db->commit(); return $this->successResponse(['id'=>$sessionId, 'academic_year_term_id'=>$termId], 'Term attendance session configuration saved');
         } catch (Exception $e) { if ($this->db->inTransaction()) $this->db->rollBack(); $this->logError($e, 'putSessionConfig'); return $this->errorResponse('Unable to save attendance session configuration', 500); }
     }
 
@@ -1257,10 +1410,32 @@ class AttendanceManager extends BaseAPI
                 return $this->successResponse([], 'Daily register retrieved');
             }
 
+            $attendanceJoin = "LEFT JOIN student_attendance sa
+                                  ON sa.student_academic_enrollment_id = en.id
+                                 AND sa.date = ?
+                                 AND sa.register_type = 'class'";
+            $params = [$date];
+            if ($sessionId) {
+                $attendanceJoin .= " AND sa.session_id = ?";
+                $params[] = (int) $sessionId;
+            } else {
+                // The class-history page normally supplies a session. The
+                // fallback still returns one learner row, using the latest
+                // class register entry for that day when one exists.
+                $attendanceJoin .= " AND sa.id = (
+                    SELECT MAX(sa_latest.id)
+                    FROM student_attendance sa_latest
+                    WHERE sa_latest.student_academic_enrollment_id = en.id
+                      AND sa_latest.date = ?
+                      AND sa_latest.register_type = 'class'
+                )";
+                $params[] = $date;
+            }
+
             $sql = "SELECT
                         sa.id,
                         en.student_id,
-                        sa.date,
+                        ? AS date,
                         s.admission_no,
                         p.first_name,
                         p.last_name,
@@ -1271,14 +1446,16 @@ class AttendanceManager extends BaseAPI
                         ass.name AS session_name,
                         CASE
                             WHEN sa.absence_reason = 'permission' THEN 'permission'
-                            ELSE sa.status
+                            ELSE COALESCE(sa.status, 'not_marked')
                         END AS status,
                         sa.status AS stored_status,
                         sa.absence_reason,
-                        sa.check_in_time AS marked_at,
+                        CASE
+                            WHEN sa.id IS NULL THEN NULL
+                            ELSE COALESCE(sa.updated_at, sa.created_at)
+                        END AS marked_at,
                         sa.notes
-                    FROM student_attendance sa
-                    JOIN student_academic_enrollments en ON en.id = sa.student_academic_enrollment_id
+                    FROM student_academic_enrollments en
                     JOIN students s ON s.id = en.student_id
                     JOIN persons p ON p.id = s.person_id
                     JOIN academic_year_class_streams aycs ON aycs.id = en.academic_year_class_stream_id
@@ -1286,17 +1463,16 @@ class AttendanceManager extends BaseAPI
                     JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                     JOIN classes c ON c.id = ayc.class_id
                     LEFT JOIN student_types st ON st.id = s.student_type_id
+                    {$attendanceJoin}
                     LEFT JOIN attendance_sessions ass ON ass.id = sa.session_id
-                    WHERE sa.date = ? AND sa.session_id IS NOT NULL";
-            $params = [$date];
+                    WHERE s.status = 'active'
+                      AND en.enrollment_status IN ('active','completed','transferred','graduated')
+                      AND (en.enrolled_on IS NULL OR en.enrolled_on <= ?)";
+            array_unshift($params, $date);
+            $params[] = $date;
 
             $sql .= $streamScope['sql'];
             $params = array_merge($params, $streamScope['params']);
-
-            if ($sessionId) {
-                $sql .= " AND sa.session_id = ?";
-                $params[] = (int) $sessionId;
-            }
 
             $sql .= " ORDER BY c.id, stm.name, p.last_name, p.first_name";
             $stmt = $this->db->prepare($sql);
@@ -2637,13 +2813,24 @@ class AttendanceManager extends BaseAPI
                 }
             }
 
+            $termRow = $this->resolveTermForDate($date);
+            $termId = !empty($termRow['term_id']) ? (int) $termRow['term_id'] : null;
+
             $sessionsStmt = $this->db->prepare(
-                "SELECT id, code, name, type, applies_to, start_time, end_time, applicable_days
-                 FROM attendance_sessions
-                 WHERE status = 'active'
-                 ORDER BY display_order"
+                "SELECT ass.id, ass.code, ass.type,
+                        COALESCE(cfg.name, ass.name) AS name,
+                        COALESCE(cfg.applies_to, ass.applies_to) AS applies_to,
+                        COALESCE(cfg.start_time, ass.start_time) AS start_time,
+                        COALESCE(cfg.end_time, ass.end_time) AS end_time,
+                        COALESCE(cfg.applicable_days, ass.applicable_days) AS applicable_days,
+                        COALESCE(cfg.status, ass.status) AS status
+                 FROM attendance_sessions ass
+                 LEFT JOIN attendance_session_term_configs cfg
+                   ON cfg.session_id=ass.id AND cfg.academic_year_term_id=?
+                 WHERE COALESCE(cfg.status, ass.status)='active'
+                 ORDER BY COALESCE(cfg.display_order, ass.display_order), ass.id"
             );
-            $sessionsStmt->execute();
+            $sessionsStmt->execute([$termId ?: 0]);
             $sessions = $sessionsStmt->fetchAll(PDO::FETCH_ASSOC);
 
             $streamClassId = null;
@@ -2658,7 +2845,7 @@ class AttendanceManager extends BaseAPI
                 $streamClassId = $classStmt->fetchColumn();
             }
 
-            $applicableSessions = array_values(array_filter($sessions, function ($s) use ($dayName, $isClassDay, $isBoardingDay, $streamClassId) {
+            $applicableSessions = array_values(array_filter($sessions, function ($s) use ($dayName, $isClassDay, $isBoardingDay, $streamClassId, $termId) {
                 $days = json_decode($s['applicable_days'] ?? '[]', true) ?: [];
                 if (!in_array($dayName, $days, true)) {
                     return false;
@@ -2670,14 +2857,10 @@ class AttendanceManager extends BaseAPI
                     return false;
                 }
                 if ($s['type'] === 'academic' && $streamClassId) {
-                    $rule = $this->db->prepare("SELECT enabled FROM attendance_session_class_rules WHERE session_id=? AND class_id=? LIMIT 1");
-                    $rule->execute([(int) $s['id'], (int) $streamClassId]);
-                    if ((int) $rule->fetchColumn() !== 1) return false;
+                    if (!$this->sessionAppliesToClassForTerm((int) $s['id'], (int) $streamClassId, $termId)) return false;
                 }
                 return true;
             }));
-
-            $termRow = $this->resolveTermForDate($date);
 
             $existingCounts = ['class' => 0, 'boarding' => 0, 'activity' => 0];
             if ($streamId) {

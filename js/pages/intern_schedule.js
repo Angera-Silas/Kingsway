@@ -189,3 +189,5 @@ const internScheduleController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => internScheduleController.init());
+
+window.internScheduleController = internScheduleController;

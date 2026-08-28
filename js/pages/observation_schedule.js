@@ -151,3 +151,5 @@ const observationScheduleController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => observationScheduleController.init());
+
+window.observationScheduleController = observationScheduleController;

@@ -160,3 +160,5 @@ const transactionApprovalsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => transactionApprovalsController.init());
+
+window.transactionApprovalsController = transactionApprovalsController;

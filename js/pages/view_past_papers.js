@@ -216,3 +216,5 @@ const ViewPastPapersController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => ViewPastPapersController.init());
+
+window.ViewPastPapersController = ViewPastPapersController;

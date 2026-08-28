@@ -278,3 +278,5 @@ const staffScheduleController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => staffScheduleController.init());
+
+window.staffScheduleController = staffScheduleController;

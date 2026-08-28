@@ -124,3 +124,5 @@ const auditLogsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => auditLogsController.init());
+
+window.auditLogsController = auditLogsController;

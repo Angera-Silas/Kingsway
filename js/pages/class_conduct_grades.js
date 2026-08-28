@@ -91,3 +91,5 @@ const classConductGradesController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => classConductGradesController.init());
+
+window.classConductGradesController = classConductGradesController;

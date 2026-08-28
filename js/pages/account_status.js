@@ -630,3 +630,5 @@ const AccountStatusController = {
 document.addEventListener("DOMContentLoaded", () =>
   AccountStatusController.init(),
 );
+
+window.AccountStatusController = AccountStatusController;

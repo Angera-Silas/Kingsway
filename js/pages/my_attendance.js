@@ -57,3 +57,5 @@ if (document.readyState === 'loading') {
 } else {
     MyAttendanceController.init().catch(() => {});
 }
+
+window.MyAttendanceController = MyAttendanceController;

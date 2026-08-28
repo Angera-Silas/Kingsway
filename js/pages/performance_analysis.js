@@ -264,3 +264,5 @@ const PerformanceAnalysisController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => PerformanceAnalysisController.init());
+
+window.PerformanceAnalysisController = PerformanceAnalysisController;

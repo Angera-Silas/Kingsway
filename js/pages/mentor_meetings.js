@@ -177,3 +177,5 @@ const mentorMeetingsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => mentorMeetingsController.init());
+
+window.mentorMeetingsController = mentorMeetingsController;

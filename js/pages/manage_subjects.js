@@ -567,3 +567,5 @@ const ManageSubjectsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => ManageSubjectsController.init());
+
+window.ManageSubjectsController = ManageSubjectsController;

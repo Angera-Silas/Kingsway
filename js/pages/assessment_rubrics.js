@@ -228,3 +228,5 @@ const RubricsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => RubricsController.init());
+
+window.RubricsController = RubricsController;

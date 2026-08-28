@@ -133,6 +133,11 @@ class AuthMiddleware
             'attendance/gate-event',
             // Protected by ATTENDANCE_WORKER_SECRET rather than staff JWT.
             'attendance/process-register-reminders',
+            // Protected by KCB_RECONCILIATION_WORKER_SECRET rather than staff JWT.
+            'finance/kcb-reconciliation-worker',
+            // Protected by COMMUNICATION_WORKER_SECRET rather than staff JWT.
+            'realtime/worker',
+            'realtime/cleanup',
         ];
 
         // Check if current request is to a public endpoint

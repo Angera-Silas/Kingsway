@@ -617,3 +617,5 @@ const boardingController = {
     return Math.floor(hrs / 24) + 'd ago';
   },
 };
+
+window.boardingController = boardingController;

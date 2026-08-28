@@ -27,29 +27,19 @@ $escape = static function ($value): string {
 ?>
 
 <div class="container-fluid py-4 role-dashboard" id="<?= $escape($rootId) ?>">
-    <div class="dash-greeting-bar">
-        <div>
-            <h5>
-                <i class="bi <?= $escape($icon) ?> me-2"></i>
-                <?= $escape($title) ?>
-            </h5>
-            <p><?= $escape($subtitle) ?></p>
-        </div>
-
-        <div class="dash-meta">
-            <span class="dash-badge" id="<?= $escape($rootId) ?>Scope"></span>
-            <span class="small opacity-75">
-                Updated <span id="<?= $escape($rootId) ?>LastUpdated">—</span>
-            </span>
-            <button
-                type="button"
-                class="dash-refresh-btn"
-                id="<?= $escape($rootId) ?>Refresh"
-            >
-                <i class="bi bi-arrow-clockwise me-1"></i>
-                Refresh
-            </button>
-        </div>
+    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
+        <span class="dash-badge" id="<?= $escape($rootId) ?>Scope"></span>
+        <span class="small text-muted">
+            Updated <span id="<?= $escape($rootId) ?>LastUpdated">—</span>
+        </span>
+        <button
+            type="button"
+            class="btn btn-sm btn-outline-success"
+            id="<?= $escape($rootId) ?>Refresh"
+        >
+            <i class="bi bi-arrow-clockwise me-1"></i>
+            Refresh
+        </button>
     </div>
 
     <?php if ($cards): ?>

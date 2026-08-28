@@ -6,6 +6,7 @@ const academicApplicationsController = {
     applications: [],
     filteredApplications: [],
     classes: [],
+    placementTests: [],
     initialized: false,
 
     init: async function() {
@@ -27,12 +28,23 @@ const academicApplicationsController = {
             }
 
             this.setupEventListeners();
-            await this.loadClasses();
+            await Promise.all([this.loadClasses(), this.loadPlacementTests()]);
             await this.loadApplications();
 
         } catch (error) {
             console.error("Failed to initialize Academic Applications Controller:", error);
             this.showError(error.message || "Failed to initialize academic applications page.");
+        }
+    },
+
+    loadPlacementTests: async function() {
+        try {
+            const response = await API.callAPI('/admission/placement-tests', 'GET');
+            const payload = response?.data || response || {};
+            this.placementTests = payload.tests || payload.placement_tests || [];
+        } catch (error) {
+            console.error('Failed to load placement tests:', error);
+            this.placementTests = [];
         }
     },
 
@@ -91,20 +103,16 @@ const academicApplicationsController = {
         try {
             const response = await API.callAPI('/admission/queues', 'GET');
             const payload = response?.data || response || {};
-            const placementApplications = [];
             const queues = payload.queues || {};
+            const allApplications = Array.isArray(queues.all_applications)
+                ? queues.all_applications
+                : this.combineQueues(queues);
 
-            if (Array.isArray(queues.space_check_pending)) {
-                queues.space_check_pending.forEach(app => {
-                    placementApplications.push({
-                        ...app,
-                        queue_name: 'space_check_pending',
-                        placement_status: 'pending'
-                    });
-                });
-            }
-
-            this.applications = placementApplications;
+            this.applications = allApplications.map(app => ({
+                ...app,
+                placement_status: app.current_stage || app.status || 'unknown'
+            }));
+            this.populateStageFilter();
             this.applyFilters();
             this.updateSummaryCards(payload.summary || {});
         } catch (error) {
@@ -112,12 +120,50 @@ const academicApplicationsController = {
             this.showError('Failed to load applications');
         }
     },
+
+    combineQueues: function(queues) {
+        const rows = new Map();
+        Object.entries(queues).forEach(([queueName, queueRows]) => {
+            if (!Array.isArray(queueRows)) return;
+            queueRows.forEach(app => rows.set(String(app.id), { ...app, queue_name: queueName }));
+        });
+        return [...rows.values()];
+    },
+
+    populateStageFilter: function() {
+        const select = document.getElementById('filterPlacementStatus');
+        if (!select) return;
+        const selected = select.value;
+        const stages = [...new Set(this.applications.map(app => app.current_stage || app.status).filter(Boolean))];
+        stages.sort((a, b) => this.stageOrder(a) - this.stageOrder(b));
+        select.innerHTML = '<option value="">All Workflow Stages</option>' + stages
+            .map(stage => `<option value="${this.escapeHtml(stage)}">${this.escapeHtml(this.stageLabel(stage))}</option>`)
+            .join('');
+        if (stages.includes(selected)) select.value = selected;
+    },
     
     updateSummaryCards: function(summary) {
+        const placedStages = ['fees_payment', 'student_id_generation', 'final_enrollment', 'enrolled'];
+        const placed = this.applications.filter(app => app.assigned_class_name || placedStages.includes(app.current_stage)).length;
+        const testedApplicationIds = new Set(this.placementTests.map(test => String(test.application_id)));
+        const testsRequired = this.applications.filter(app => {
+            const match = String(app.grade_applying_for || '').match(/Grade\s*(\d+)/i);
+            const requiresTest = match && Number(match[1]) >= 4 && Number(match[1]) <= 9;
+            return requiresTest && !['enrolled', 'rejected'].includes(app.current_stage) && !testedApplicationIds.has(String(app.id));
+        }).length;
+        const uniqueStreams = new Map();
+        this.classes.forEach(row => {
+            const key = String(row.academic_year_class_stream_id || `${row.id}-${row.stream_id || ''}`);
+            if (!uniqueStreams.has(key)) uniqueStreams.set(key, row);
+        });
+        const capacity = [...uniqueStreams.values()].reduce((total, row) => total + Number(row.capacity || 0), 0);
+        const students = [...uniqueStreams.values()].reduce((total, row) => total + Number(row.student_count || 0), 0);
+        const capacityPercentage = capacity > 0 ? Math.round((students / capacity) * 100) : 0;
+
         document.getElementById('statPendingPlacement').textContent = summary.placement_pending || 0;
-        document.getElementById('statPlaced').textContent = '0'; // Would need to track placed applications
-        document.getElementById('statPlacementTests').textContent = '0'; // Would need placement test data
-        document.getElementById('statCapacity').textContent = '85%'; // Would calculate from actual class data
+        document.getElementById('statPlaced').textContent = placed;
+        document.getElementById('statPlacementTests').textContent = testsRequired;
+        document.getElementById('statCapacity').textContent = `${capacityPercentage}%`;
     },
     
     applyFilters: function() {
@@ -160,25 +206,24 @@ const academicApplicationsController = {
         
         tbody.innerHTML = this.filteredApplications.map(app => {
             const interviewScore = this.extractInterviewScore(app);
-            const placementStatusBadge = this.getPlacementStatusBadge(app.placement_status);
+            const placementStatusBadge = this.getPlacementStatusBadge(app.current_stage || app.status);
             const recommendedClass = this.extractRecommendedClass(app);
+            const canOpenPlacement = (app.current_stage === 'class_placement') && this.canManagePlacement();
             
             return `
                 <tr>
-                    <td><strong>${app.application_no || '—'}</strong></td>
-                    <td>${app.applicant_name || 'Unknown'}</td>
-                    <td>${app.grade_applying_for || '—'}</td>
+                    <td><strong>${this.escapeHtml(app.application_no || '—')}</strong></td>
+                    <td>${this.escapeHtml(app.applicant_name || 'Unknown')}</td>
+                    <td>${this.escapeHtml(app.grade_applying_for || '—')}</td>
                     <td>${interviewScore || '—'}</td>
                     <td>${placementStatusBadge}</td>
-                    <td>${recommendedClass || '—'}</td>
+                    <td>${this.escapeHtml(recommendedClass || '—')}</td>
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-primary" onclick="academicApplicationsController.viewApplication(${app.id})" title="View">
                                 <i class="bi bi-eye"></i>
                             </button>
-                            <button class="btn btn-outline-warning" onclick="academicApplicationsController.makePlacement(${app.id})" title="Make Placement">
-                                <i class="bi bi-award"></i>
-                            </button>
+                            ${canOpenPlacement ? `<button class="btn btn-outline-warning" onclick="academicApplicationsController.openPlacementWorkspace()" title="Open class placement workspace"><i class="bi bi-award"></i></button>` : ''}
                         </div>
                     </td>
                 </tr>
@@ -214,12 +259,53 @@ const academicApplicationsController = {
     
     getPlacementStatusBadge: function(status) {
         const badges = {
-            'pending': '<span class="badge bg-warning">Pending</span>',
-            'recommended': '<span class="badge bg-info">Recommended</span>',
-            'approved': '<span class="badge bg-primary">Approved</span>',
-            'assigned': '<span class="badge bg-success">Assigned</span>'
+            'application_applied': 'secondary',
+            'application_received': 'info',
+            'application_review': 'info',
+            'interview_scheduling': 'warning',
+            'interview_results': 'warning',
+            'student_admission_number': 'primary',
+            'class_placement': 'primary',
+            'fees_payment': 'warning',
+            'student_id_generation': 'info',
+            'final_enrollment': 'primary',
+            'enrolled': 'success',
+            'rejected': 'danger',
+            'cancelled': 'dark'
         };
-        return badges[status] || '<span class="badge bg-secondary">' + status + '</span>';
+        return `<span class="badge bg-${badges[status] || 'secondary'}">${this.escapeHtml(this.stageLabel(status))}</span>`;
+    },
+
+    stageLabel: function(stage) {
+        const labels = {
+            application_applied: 'Applied', application_received: 'Received', application_review: 'Under Review',
+            interview_scheduling: 'Interview Scheduling', interview_results: 'Interview Results',
+            student_admission_number: 'Admission Number', class_placement: 'Class Placement',
+            fees_payment: 'Fees / Transport / Uniform', student_id_generation: 'ID Generation',
+            final_enrollment: 'Final Enrollment', enrolled: 'Enrolled', rejected: 'Rejected', cancelled: 'Cancelled'
+        };
+        return labels[stage] || String(stage || 'Unknown').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    },
+
+    stageOrder: function(stage) {
+        return ['application_applied', 'application_received', 'application_review', 'interview_scheduling',
+            'interview_results', 'student_admission_number', 'class_placement', 'fees_payment',
+            'student_id_generation', 'final_enrollment', 'enrolled', 'rejected', 'cancelled'].indexOf(stage);
+    },
+
+    canManagePlacement: function() {
+        return window.AuthContext?.hasRole?.('Deputy Head - Academic')
+            || window.AuthContext?.hasRole?.('School Administrator');
+    },
+
+    openPlacementWorkspace: function() {
+        window.location.href = `${window.APP_BASE || ''}/home.php?route=admissions_class_placement`;
+    },
+
+    escapeHtml: function(value) {
+        const node = document.createElement('div');
+        node.textContent = String(value ?? '');
+        return node.innerHTML;
     },
     
     setupEventListeners: function() {

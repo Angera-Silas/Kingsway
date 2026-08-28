@@ -331,3 +331,5 @@ const MpesaReconciliationController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MpesaReconciliationController.init());
+
+window.MpesaReconciliationController = MpesaReconciliationController;

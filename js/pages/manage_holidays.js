@@ -211,3 +211,5 @@ const ManageHolidaysController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, saveAndApply, deleteRecord, applyToCalendar };
 })();
 document.addEventListener('DOMContentLoaded', () => ManageHolidaysController.init());
+
+window.ManageHolidaysController = ManageHolidaysController;

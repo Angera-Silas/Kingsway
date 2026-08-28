@@ -286,3 +286,5 @@ const addResultsController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   addResultsController.init(),
 );
+
+window.addResultsController = addResultsController;

@@ -14,6 +14,8 @@ use App\API\Services\payments\SupplierDisbursementService;
 use App\API\Services\payments\ParentRefundService;
 use App\API\Services\payments\StudentFundTransferService;
 use App\API\Services\payments\PaymentRoutingService;
+use App\API\Services\payments\KcbFundsTransferService;
+use App\API\Services\payments\KcbTransferReconciliationService;
 use App\API\Services\FinancialReconciliationService;
 
 /**
@@ -185,6 +187,133 @@ class FinanceController extends BaseController
             $result = (new FinancialReconciliationService($this->db))->resolve((int)$id, (string)($data['matching_status'] ?? ''), (int)$this->getUserId(), (string)($data['reason'] ?? ''), $data['matched_reference'] ?? null);
             return $this->success($result, 'Statement line resolution recorded.');
         } catch (\Throwable $e) { error_log('[FinanceController] statement resolve: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
+    }
+
+    /** GET /api/finance/kcb-disbursements — callback/status reconciliation queue. */
+    public function getKcbDisbursements($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.view', 'finance_view', 'finance.reconcile', 'finance_reconcile'], [3, 4, 10])) {
+            return $this->forbidden('Finance reconciliation permission required');
+        }
+        try {
+            $filters = array_merge($data, [
+                'status' => $_GET['status'] ?? ($data['status'] ?? ''),
+                'exceptions_only' => $_GET['exceptions_only'] ?? ($data['exceptions_only'] ?? false),
+                'limit' => $_GET['limit'] ?? ($data['limit'] ?? 100),
+            ]);
+            return $this->success(['disbursements' => (new KcbTransferReconciliationService($this->db->getConnection()))->list($filters)]);
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB reconciliation list: ' . $e->getMessage());
+            return $this->badRequest('KCB reconciliation queue is not available. Apply the latest database migrations.');
+        }
+    }
+
+    /** POST /api/finance/kcb-disbursements/{id}/status-inquiry */
+    public function postKcbDisbursementsStatusInquiry($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Finance reconciliation permission required');
+        }
+        try {
+            return $this->success(
+                (new KcbTransferReconciliationService($this->db->getConnection()))->inquire((int) $id, (int) $this->getUserId(), 'manual'),
+                'KCB transfer status checked and reconciled.'
+            );
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB status inquiry: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/finance/kcb-disbursements/poll — authorized staff batch action. */
+    public function postKcbDisbursementsPoll($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile'], [3, 4, 10])) {
+            return $this->forbidden('Finance reconciliation permission required');
+        }
+        try {
+            return $this->success(
+                (new KcbTransferReconciliationService($this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
+                'Due KCB transfers checked.'
+            );
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB status poll: ' . $e->getMessage());
+            return $this->badRequest('KCB status polling failed.');
+        }
+    }
+
+    /** POST /api/finance/kcb-reconciliation-worker — cron/systemd worker. */
+    public function postKcbReconciliationWorker($id = null, $data = [], $segments = [])
+    {
+        $expected = defined('KCB_RECONCILIATION_WORKER_SECRET') ? (string) KCB_RECONCILIATION_WORKER_SECRET : '';
+        $provided = $_SERVER['HTTP_X_KINGSWAY_WORKER_SECRET'] ?? '';
+        if ($expected === '' || !is_string($provided) || !hash_equals($expected, $provided)) {
+            return $this->forbidden('Invalid worker credential');
+        }
+        try {
+            return $this->success(
+                (new KcbTransferReconciliationService($this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
+                'KCB reconciliation worker completed.'
+            );
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB reconciliation worker: ' . $e->getMessage());
+            return $this->serverError('KCB reconciliation worker failed.');
+        }
+    }
+
+    /** POST /api/finance/kcb-disbursements/{id}/retry */
+    public function postKcbDisbursementsRetry($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.approve', 'finance_approve', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Finance payment permission required');
+        }
+        try {
+            return $this->accepted(
+                (new KcbTransferReconciliationService($this->db->getConnection()))->retry((int) $id, (int) $this->getUserId()),
+                'A linked, idempotent KCB retry was submitted.'
+            );
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB safe retry: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/finance/kcb-disbursements/{id}/resolve */
+    public function postKcbDisbursementsResolve($id = null, $data = [], $segments = [])
+    {
+        if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile'], [3, 4])) {
+            return $this->forbidden('Senior finance reconciliation permission required');
+        }
+        try {
+            return $this->success((new KcbTransferReconciliationService($this->db->getConnection()))->resolveManually(
+                (int) $id,
+                (string) ($data['outcome'] ?? ''),
+                (string) ($data['evidence'] ?? ''),
+                (int) $this->getUserId()
+            ), 'Manual reconciliation recorded with evidence.');
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB manual reconciliation: ' . $e->getMessage());
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** POST /api/finance/kcb-oauth-revoke — security incident/key rotation only. */
+    public function postKcbOauthRevoke($id = null, $data = [], $segments = [])
+    {
+        if (!$this->canConfigurePaymentIntegrations()) {
+            return $this->forbidden('Payment integration configuration access required');
+        }
+        try {
+            $result = (new KcbFundsTransferService())->revokeAccessToken();
+            \App\API\Includes\FileLogger::write('payments', [
+                'type' => 'security', 'source' => 'kcb_oauth', 'user_id' => (int) $this->getUserId(),
+                'action' => 'access_token_revoked', 'status' => 'success',
+            ]);
+            return $this->success($result, 'The current KCB access token was revoked.');
+        } catch (\Throwable $e) {
+            error_log('[FinanceController] KCB token revocation: ' . $e->getMessage());
+            return $this->badRequest('KCB token revocation failed.');
+        }
     }
 
     /** GET /api/finance/accounting/report?type=income|balance|cashflow */

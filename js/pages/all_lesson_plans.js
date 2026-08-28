@@ -363,3 +363,5 @@ const AllLessonPlansController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   AllLessonPlansController.init(),
 );
+
+window.AllLessonPlansController = AllLessonPlansController;

@@ -122,3 +122,5 @@ if (document.readyState === 'loading') {
 } else {
   StaffLeaveController.init().catch(() => {});
 }
+
+window.StaffLeaveController = StaffLeaveController;

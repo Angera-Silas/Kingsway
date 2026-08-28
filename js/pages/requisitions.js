@@ -175,3 +175,5 @@ const requisitionsController = {
   _esc: s=>{ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; },
 };
 document.addEventListener('DOMContentLoaded', ()=>requisitionsController.init());
+
+window.requisitionsController = requisitionsController;

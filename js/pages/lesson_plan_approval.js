@@ -308,3 +308,5 @@ const LessonPlanApprovalController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   LessonPlanApprovalController.init(),
 );
+
+window.LessonPlanApprovalController = LessonPlanApprovalController;

@@ -1041,3 +1041,5 @@ const StaffAttendanceController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => StaffAttendanceController.init());
+
+window.StaffAttendanceController = StaffAttendanceController;

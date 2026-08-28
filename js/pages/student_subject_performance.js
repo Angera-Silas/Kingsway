@@ -386,3 +386,6 @@ const studentSubjectPerformanceCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', studentSubjectPerformanceCtrl.init);
+
+window.studentSubjectPerformanceCtrl = studentSubjectPerformanceCtrl;
+window.APIRealtime?.register?.(studentSubjectPerformanceCtrl, studentSubjectPerformanceCtrl);

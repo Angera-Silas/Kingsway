@@ -211,3 +211,5 @@ const EnrollmentTrendsController = {
 document.addEventListener("DOMContentLoaded", () =>
   EnrollmentTrendsController.init(),
 );
+
+window.EnrollmentTrendsController = EnrollmentTrendsController;

@@ -840,3 +840,5 @@ window.staffChildrenController = StaffChildrenController;
 document.addEventListener("DOMContentLoaded", () =>
   StaffChildrenController.init()
 );
+
+window.StaffChildrenController = StaffChildrenController;

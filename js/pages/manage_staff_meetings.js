@@ -334,3 +334,5 @@ const StaffMeetingsController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editMeeting, saveRecord, respond, remind, deleteMeeting, viewMeeting, getMeetingDetails };
 })();
 document.addEventListener('DOMContentLoaded', () => StaffMeetingsController.init());
+
+window.StaffMeetingsController = StaffMeetingsController;

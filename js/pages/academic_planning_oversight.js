@@ -137,3 +137,6 @@ const academicPlanningOversight = {
 };
 window.academicPlanningOversight = academicPlanningOversight;
 document.addEventListener('DOMContentLoaded', () => academicPlanningOversight.init().catch(e=>window.showNotification?.(e.message||'Unable to load academic planning oversight','danger')));
+
+window.academicPlanningOversight = academicPlanningOversight;
+window.APIRealtime?.register?.(academicPlanningOversight, academicPlanningOversight);

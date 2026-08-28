@@ -1422,3 +1422,5 @@ const examSetupController = (() => {
 
 /* Boot on DOM ready */
 document.addEventListener('DOMContentLoaded', () => examSetupController.init());
+
+window.examSetupController = examSetupController;

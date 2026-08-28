@@ -234,3 +234,5 @@ const InternAssignedClassesController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => InternAssignedClassesController.init());
+
+window.InternAssignedClassesController = InternAssignedClassesController;

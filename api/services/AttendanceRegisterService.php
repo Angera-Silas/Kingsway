@@ -41,14 +41,14 @@ class AttendanceRegisterService
         }
 
         $streams = $this->streams((int) $context['year_id']);
-        $sessions = $this->sessions($context['day_name'], (bool) $context['saturday_classes']);
+        $sessions = $this->sessions($context['day_name'], (bool) $context['saturday_classes'], (int) $context['term_id']);
         // A session-class rule can be changed by administration. Existing
         // scheduled/open rows that no longer apply must not remain actionable.
-        $this->retireNotApplicable($date);
+        $this->retireNotApplicable($date, (int) $context['term_id']);
         $registers = 0;
         foreach ($streams as $stream) {
             foreach ($sessions as $session) {
-                if ($session['type'] === 'academic' && !$this->sessionAppliesToClass((int) $session['id'], (int) $stream['class_id'])) continue;
+                if ($session['type'] === 'academic' && !$this->sessionAppliesToClass((int) $session['id'], (int) $stream['class_id'], (int) $context['term_id'])) continue;
                 $expected = $this->expectedCount((int) $stream['id'], $session['applies_to']);
                 if ($expected < 1) continue;
                 $registerId = $this->upsertRegister($context, $stream, $session, $date, $session['type'] === 'boarding' ? 'boarding' : 'class');
@@ -63,11 +63,13 @@ class AttendanceRegisterService
     public function list(array $filters = []): array
     {
         $date = $filters['date'] ?? date('Y-m-d');
-        $sql = "SELECT ar.*, ass.code AS session_code, ass.name AS session_name,
+        $sql = "SELECT ar.*, ass.code AS session_code, COALESCE(cfg.name, ass.name) AS session_name,
                        CONCAT(COALESCE(c.name,''),' - ',COALESCE(st.name,'')) AS stream_name,
                        CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) AS teacher_name
                   FROM attendance_registers ar
                   JOIN attendance_sessions ass ON ass.id=ar.session_id
+                  LEFT JOIN attendance_session_term_configs cfg
+                    ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
                   JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id
                   JOIN academic_year_classes ayc ON ayc.id=aycs.academic_year_class_id
                   JOIN classes c ON c.id=ayc.class_id LEFT JOIN streams st ON st.id=aycs.stream_id
@@ -96,9 +98,11 @@ class AttendanceRegisterService
     public function reconcileForMarking(int $streamId, int $sessionId, string $date): void
     {
         $stmt = $this->db->prepare(
-            "SELECT ar.id, ass.applies_to
+            "SELECT ar.id, COALESCE(cfg.applies_to, ass.applies_to) AS applies_to
              FROM attendance_registers ar
              JOIN attendance_sessions ass ON ass.id = ar.session_id
+             LEFT JOIN attendance_session_term_configs cfg
+               ON cfg.session_id=ar.session_id AND cfg.academic_year_term_id=ar.academic_year_term_id
              WHERE ar.stream_id = ? AND ar.session_id = ? AND ar.register_date = ?
              LIMIT 1"
         );
@@ -184,11 +188,31 @@ class AttendanceRegisterService
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    private function sessions(string $dayName, bool $saturdayClasses): array
+    private function sessions(string $dayName, bool $saturdayClasses, int $termId): array
     {
-        $stmt = $this->db->query("SELECT * FROM attendance_sessions WHERE status = 'active' AND type IN ('academic','boarding') ORDER BY display_order, id");
+        $stmt = $this->db->prepare(
+            "SELECT ass.*,
+                    cfg.name AS term_name, cfg.description AS term_description,
+                    cfg.start_time AS term_start_time, cfg.end_time AS term_end_time,
+                    cfg.applicable_days AS term_applicable_days,
+                    cfg.applies_to AS term_applies_to,
+                    cfg.is_mandatory AS term_is_mandatory,
+                    cfg.display_order AS term_display_order,
+                    cfg.status AS term_status
+             FROM attendance_sessions ass
+             LEFT JOIN attendance_session_term_configs cfg
+               ON cfg.session_id = ass.id AND cfg.academic_year_term_id = ?
+             WHERE ass.type IN ('academic','boarding')
+             ORDER BY COALESCE(cfg.display_order, ass.display_order), ass.id"
+        );
+        $stmt->execute([$termId]);
         $result = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            foreach (['name','description','start_time','end_time','applicable_days','applies_to','is_mandatory','display_order','status'] as $field) {
+                if ($row['term_' . $field] !== null) $row[$field] = $row['term_' . $field];
+                unset($row['term_' . $field]);
+            }
+            if (($row['status'] ?? 'inactive') !== 'active') continue;
             $days = json_decode((string) ($row['applicable_days'] ?? '[]'), true) ?: [];
             if (!in_array($dayName, $days, true)) continue;
             if ($row['type'] === 'academic' && $dayName === 'Saturday' && !$saturdayClasses) continue;
@@ -209,15 +233,24 @@ class AttendanceRegisterService
         return (int) $stmt->fetchColumn();
     }
 
-    private function sessionAppliesToClass(int $sessionId, int $classId): bool
+    private function sessionAppliesToClass(int $sessionId, int $classId, int $termId): bool
     {
+        $term = $this->db->prepare("SELECT class_id, enabled FROM attendance_session_term_class_rules WHERE academic_year_term_id=? AND session_id=?");
+        $term->execute([$termId, $sessionId]);
+        $rules = $term->fetchAll(PDO::FETCH_ASSOC);
+        if ($rules !== []) {
+            foreach ($rules as $rule) {
+                if ((int) $rule['class_id'] === $classId) return (int) $rule['enabled'] === 1;
+            }
+            return false;
+        }
         $stmt = $this->db->prepare("SELECT enabled FROM attendance_session_class_rules WHERE session_id=? AND class_id=? LIMIT 1");
         $stmt->execute([$sessionId, $classId]);
         $enabled = $stmt->fetchColumn();
         return $enabled !== false && (int) $enabled === 1;
     }
 
-    private function retireNotApplicable(string $date): void
+    private function retireNotApplicable(string $date, int $termId): void
     {
         $this->db->prepare("UPDATE attendance_registers ar
               JOIN academic_year_class_streams aycs ON aycs.id=ar.stream_id
@@ -226,9 +259,18 @@ class AttendanceRegisterService
              WHERE ar.register_date=? AND (ar.status IN ('scheduled','open','overdue')
                     OR (ar.status='not_marked' AND ar.register_date=CURDATE()))
                AND ar.register_type='class'
-               AND NOT EXISTS (SELECT 1 FROM attendance_session_class_rules r
-                                WHERE r.session_id=ar.session_id AND r.class_id=ayc.class_id AND r.enabled=1)")
-            ->execute([$date]);
+               AND NOT (
+                    EXISTS (SELECT 1 FROM attendance_session_term_class_rules tr
+                            WHERE tr.academic_year_term_id=? AND tr.session_id=ar.session_id
+                              AND tr.class_id=ayc.class_id AND tr.enabled=1)
+                    OR (
+                        NOT EXISTS (SELECT 1 FROM attendance_session_term_class_rules tx
+                                    WHERE tx.academic_year_term_id=? AND tx.session_id=ar.session_id)
+                        AND EXISTS (SELECT 1 FROM attendance_session_class_rules r
+                                    WHERE r.session_id=ar.session_id AND r.class_id=ayc.class_id AND r.enabled=1)
+                    )
+               )")
+            ->execute([$date, $termId, $termId]);
     }
 
     private function upsertRegister(array $context, array $stream, array $session, string $date, string $registerType): int

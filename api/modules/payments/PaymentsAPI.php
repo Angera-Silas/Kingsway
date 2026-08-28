@@ -930,6 +930,14 @@ class PaymentsAPI extends BaseAPI
     public function processKcbTransferCallback(array $callbackData, array $headers)
     {
         $logFile = $this->logDir . '/kcb_transfer_callbacks.log';
+        if (($headers['__source'] ?? '') !== 'status_inquiry') {
+            $rawBody = (string) ($headers['__raw_body'] ?? json_encode($callbackData));
+            $verifier = new KcbWebhookVerifier();
+            if ($verifier->shouldEnforce() && !$verifier->verify($headers, $rawBody)) {
+                error_log('[PaymentsAPI] Rejected KCB transfer callback with invalid RSA signature.');
+                return ['statusCode' => '1', 'statusMessage' => 'Invalid callback signature'];
+            }
+        }
         $logEntry = "[{$this->timestamp}] RAW KCB TRANSFER CALLBACK:\nHeaders: " . json_encode($headers) . "\nBody: " . json_encode($callbackData) . "\n\n";
         (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
         try {
@@ -970,6 +978,14 @@ class PaymentsAPI extends BaseAPI
                     'statusMessage' => 'Received but transaction not found'
                 ];
             }
+            if (abs((float) $amount - (float) $disbursement['amount']) > 0.01) {
+                (new \App\API\Services\UploadService())->writeFile(
+                    $logFile,
+                    "[{$this->timestamp}] REJECTED KCB TRANSFER CALLBACK: amount mismatch for disbursement {$disbursement['id']}\n",
+                    FILE_APPEND
+                );
+                return ['statusCode' => '1', 'statusMessage' => 'Transfer amount does not match the submitted disbursement'];
+            }
             if (in_array($disbursement['status'], ['completed', 'failed'], true)) {
                 return [
                     'statusCode' => '0',
@@ -978,12 +994,31 @@ class PaymentsAPI extends BaseAPI
             }
             $this->db->beginTransaction();
             $normalizedStatus = strtoupper((string) $status);
-            $transferSucceeded = in_array($normalizedStatus, ['SUCCESS', 'COMPLETED', 'ACCEPTED', '0'], true);
+            $transferSucceeded = in_array($normalizedStatus, ['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'PROCESSED', '0'], true);
+            $transferPending = in_array($normalizedStatus, ['ACCEPTED', 'PENDING', 'PROCESSING', 'QUEUED', 'INITIATED', 'IN_PROGRESS'], true);
+            $transferFailed = in_array($normalizedStatus, ['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'CANCELED', 'REVERSED', '1'], true);
+            if ($transferPending) {
+                $this->db->prepare("UPDATE disbursement_transactions SET provider_status=?,callback_data=?,result_description=?,next_status_inquiry_at=COALESCE(next_status_inquiry_at,DATE_ADD(NOW(),INTERVAL 2 MINUTE)) WHERE id=?")
+                    ->execute([$normalizedStatus, json_encode($callbackData), $statusDesc, $disbursement['id']]);
+                $this->db->prepare("INSERT INTO kcb_disbursement_audit_events (disbursement_id,event_type,previous_status,new_status,details) VALUES (?,'provider_callback_pending',?,'awaiting_callback',?)")
+                    ->execute([$disbursement['id'], $disbursement['status'], json_encode(['provider_status' => $normalizedStatus, 'transaction_reference' => $transactionRef])]);
+                $this->db->commit();
+                return ['transactionID' => $disbursement['id'], 'statusCode' => '0', 'statusMessage' => 'Pending transfer notification acknowledged'];
+            }
+            if (!$transferSucceeded && !$transferFailed) {
+                $this->db->prepare("UPDATE disbursement_transactions SET provider_status=?,reconciliation_status='manual_review',callback_data=?,result_description=?,next_status_inquiry_at=NOW() WHERE id=?")
+                    ->execute([$normalizedStatus, json_encode($callbackData), $statusDesc, $disbursement['id']]);
+                $this->db->prepare("INSERT INTO kcb_disbursement_exceptions (disbursement_id,exception_code,reason,status,first_detected_at,last_detected_at) VALUES (?,'unknown_callback_status',?,'open',NOW(),NOW()) ON DUPLICATE KEY UPDATE reason=VALUES(reason),status='open',last_detected_at=NOW()")
+                    ->execute([$disbursement['id'], substr('Unknown KCB callback status: ' . $normalizedStatus . '. ' . $statusDesc, 0, 500)]);
+                $this->db->commit();
+                return ['transactionID' => $disbursement['id'], 'statusCode' => '0', 'statusMessage' => 'Unknown transfer state queued for reconciliation'];
+            }
             if ($transferSucceeded) {
-                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'completed', transaction_ref = ?, transaction_id = ?, completed_at = NOW(), result_description = ?, callback_data = ?, bank_charges = ? WHERE id = ?");
+                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'completed', provider_status = ?, reconciliation_status = 'confirmed_success', transaction_ref = ?, transaction_id = ?, completed_at = NOW(), result_description = ?, callback_data = ?, bank_charges = ?, next_status_inquiry_at = NULL, reconciliation_lock_until = NULL WHERE id = ?");
                 $stmt->execute([
+                    $normalizedStatus,
                     $transactionRef,
-                    $transactionRef,
+                    $callbackData['ftReference'] ?? $transactionRef,
                     $statusDesc,
                     json_encode($callbackData),
                     $charges,
@@ -1025,8 +1060,9 @@ class PaymentsAPI extends BaseAPI
                 $this->sendTransferNotification($disbursement, $transactionRef, 'completed', $charges);
                 (new FinancialPostingCoordinator($this->db))->postDisbursement('disbursement', (int)$disbursement['id'], (int)$disbursement['source_financial_account_id'], (string)($disbursement['payment_purpose'] ?: $disbursement['disbursement_type']), (string)$disbursement['amount']);
             } else {
-                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
+                $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', provider_status = ?, reconciliation_status = 'confirmed_failure', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW(), next_status_inquiry_at = NULL, reconciliation_lock_until = NULL WHERE id = ?");
                 $stmt->execute([
+                    $normalizedStatus,
                     $transactionRef,
                     $statusDesc,
                     json_encode($callbackData),
@@ -1055,6 +1091,10 @@ class PaymentsAPI extends BaseAPI
                 (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 $this->sendTransferNotification($disbursement, $transactionRef, 'failed', 0, $statusDesc);
             }
+            $this->db->prepare("UPDATE kcb_disbursement_exceptions SET status='resolved', resolved_at=NOW(), resolution_notes='Resolved by KCB transfer callback' WHERE disbursement_id=? AND status='open'")
+                ->execute([$disbursement['id']]);
+            $this->db->prepare("INSERT INTO kcb_disbursement_audit_events (disbursement_id,event_type,previous_status,new_status,details) VALUES (?,'provider_callback',?,?,?)")
+                ->execute([$disbursement['id'], $disbursement['status'], $transferSucceeded ? 'confirmed_success' : 'confirmed_failure', json_encode(['provider_status' => $normalizedStatus, 'transaction_reference' => $transactionRef])]);
             $this->db->commit();
             if ($transferSucceeded && !empty($disbursement['payslip_id']) && ($disbursement['disbursement_type'] ?? '') === 'salary') {
                 (new \App\API\Services\PayrollChildFeeTransferService($this->db))->postForPayslip((int) $disbursement['payslip_id']);

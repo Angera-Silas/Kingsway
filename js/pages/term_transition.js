@@ -343,3 +343,5 @@ const termTransitionController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => termTransitionController.init());
+
+window.termTransitionController = termTransitionController;

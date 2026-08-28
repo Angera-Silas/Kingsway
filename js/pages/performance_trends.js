@@ -235,3 +235,5 @@ const PerformanceTrendsController = {
 document.addEventListener("DOMContentLoaded", () =>
   PerformanceTrendsController.init(),
 );
+
+window.PerformanceTrendsController = PerformanceTrendsController;

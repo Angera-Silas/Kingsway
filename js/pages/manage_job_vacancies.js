@@ -134,3 +134,5 @@ if (document.readyState === 'loading') {
 } else {
   manageJobVacanciesController.init().catch(() => {});
 }
+
+window.manageJobVacanciesController = manageJobVacanciesController;

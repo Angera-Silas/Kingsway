@@ -274,5 +274,7 @@
         }
     };
 
+    window.MyRoutesController = Controller;
+    window.APIRealtime?.register?.('MyRoutesController', Controller);
     document.addEventListener('DOMContentLoaded', () => Controller.init());
 })();

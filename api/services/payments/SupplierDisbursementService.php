@@ -114,13 +114,22 @@ class SupplierDisbursementService
         $accepted = in_array($result['status'] ?? '', ['success', 'pending'], true);
         $this->db->prepare(
             "UPDATE disbursement_transactions
-             SET request_id = ?, transaction_ref = ?, status = ?, result_description = ?, callback_data = ?
+             SET request_id = ?, transaction_ref = ?, status = ?, reconciliation_status = ?,
+                 next_status_inquiry_at = IF(? = 'pending', DATE_ADD(NOW(), INTERVAL 2 MINUTE), NULL),
+                 result_description = ?, callback_data = ?
              WHERE id = ?"
         )->execute([
             $result['request_id'] ?? null, $result['transaction_ref'] ?? $reference,
-            $accepted ? 'pending' : 'failed', $result['message'] ?? null,
+            $accepted ? 'pending' : 'failed',
+            $accepted ? 'awaiting_callback' : 'manual_review',
+            $accepted ? 'pending' : 'failed',
+            $result['message'] ?? null,
             json_encode($result), $disbursementId
         ]);
+        if (!$accepted) {
+            (new KcbTransferReconciliationService($this->db, $this->kcb))
+                ->flagSubmissionException($disbursementId, (string) ($result['message'] ?? 'Submission failed.'));
+        }
         $this->db->prepare("UPDATE supplier_payment_requests SET status = ?, provider_reference = ? WHERE id = ?")
             ->execute([$accepted ? 'payment_pending' : 'failed', $result['transaction_ref'] ?? null, $supplierPaymentId]);
         $this->db->prepare("UPDATE expenses SET status = ?, payment_method = 'bank_transfer', reference_number = ?, paid_by = ? WHERE id = ?")

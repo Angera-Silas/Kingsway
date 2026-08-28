@@ -235,3 +235,5 @@ const DormitoryManagementController = {
 document.addEventListener("DOMContentLoaded", () =>
   DormitoryManagementController.init(),
 );
+
+window.DormitoryManagementController = DormitoryManagementController;

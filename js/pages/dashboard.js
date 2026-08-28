@@ -37,3 +37,5 @@ if (document.readyState === "loading") {
 } else {
   dashboardPageController.init();
 }
+
+window.dashboardPageController = dashboardPageController;

@@ -146,3 +146,5 @@ const YearHistoryController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => YearHistoryController.init());
+
+window.YearHistoryController = YearHistoryController;

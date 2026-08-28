@@ -395,3 +395,6 @@ const studentProgressReportsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', studentProgressReportsCtrl.init);
+
+window.studentProgressReportsCtrl = studentProgressReportsCtrl;
+window.APIRealtime?.register?.(studentProgressReportsCtrl, studentProgressReportsCtrl);

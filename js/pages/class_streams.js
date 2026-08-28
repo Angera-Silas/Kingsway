@@ -347,3 +347,5 @@ const ClassStreamsController = (() => {
 document.addEventListener("DOMContentLoaded", () => {
   ClassStreamsController.init();
 });
+
+window.ClassStreamsController = ClassStreamsController;

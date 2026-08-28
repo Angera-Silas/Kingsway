@@ -16,6 +16,8 @@ const viewAttendanceController = {
   isTeacherView: false,
   isAttendanceConfigurator: false,
   sessionConfig: [],
+  sessionConfigTermId: null,
+  sessionTerms: [],
   charts: {
     trend: null,
     status: null,
@@ -53,7 +55,10 @@ const viewAttendanceController = {
     const tasks = [this.configureSharedActions(), this.loadClasses()];
     if (!this.isTeacherView) tasks.push(this.loadSessions(), this.loadDormitories(), this.loadExpectedRegisters());
     await Promise.all(tasks);
-    if (this.isAttendanceConfigurator) await this.loadSessionConfiguration();
+    if (this.isAttendanceConfigurator) {
+      await this.loadSessionTerms();
+      await this.loadSessionConfiguration();
+    }
 
     this.handleAttendanceTypeChange();
     if (this.isTeacherView) {
@@ -133,12 +138,43 @@ const viewAttendanceController = {
     if (!card || !body || !this.isAttendanceConfigurator) return;
     card.classList.remove('d-none');
     try {
-      const response = await window.API.attendance.getSessionConfig();
-      const payload = response?.data ?? response ?? {};
-      this.sessionConfig = Array.isArray(payload) ? payload : (Array.isArray(payload.data) ? payload.data : []);
-      body.innerHTML = this.sessionConfig.map(session => `<tr><td><strong>${this.escapeHtml(session.name)}</strong><div class="small text-muted">${this.escapeHtml(session.code)}</div></td><td>${this.escapeHtml(session.type)}</td><td>${this.escapeHtml(session.applies_to)}</td><td>${this.escapeHtml((JSON.parse(session.applicable_days || '[]') || []).join(', '))}</td><td>${this.escapeHtml(session.start_time)}–${this.escapeHtml(session.end_time)}</td><td>${session.type === 'academic' ? (session.class_ids?.length || 0) + ' classes' : 'Audience based'}</td><td><button class="btn btn-sm btn-outline-primary" data-edit-attendance-session="${Number(session.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="7" class="text-muted">No attendance sessions configured.</td></tr>';
+      const selectedTermId = document.getElementById('attendanceConfigTermSelect')?.value || this.sessionConfigTermId;
+      const response = await window.API.attendance.getSessionConfig(selectedTermId ? { academic_year_term_id: selectedTermId } : {});
+      const payload = response?.data?.data ?? response?.data ?? response ?? {};
+      this.sessionConfig = Array.isArray(payload) ? payload : (Array.isArray(payload.sessions) ? payload.sessions : []);
+      this.sessionConfigTermId = payload.academic_year_term_id || this.sessionConfig[0]?.academic_year_term_id || null;
+      const termSelect = document.getElementById('attendanceConfigTermSelect');
+      if (termSelect && this.sessionConfigTermId) termSelect.value = String(this.sessionConfigTermId);
+      body.innerHTML = this.sessionConfig.map(session => `<tr><td><strong>${this.escapeHtml(session.name)}</strong><div class="small text-muted">${this.escapeHtml(session.code)} · ${session.configuration_source === 'term_override' ? 'Term override' : 'School default'}</div></td><td>${this.escapeHtml(session.type)}</td><td>${this.escapeHtml(session.applies_to)}</td><td>${this.escapeHtml((JSON.parse(session.applicable_days || '[]') || []).join(', '))}</td><td>${this.escapeHtml(session.start_time)}–${this.escapeHtml(session.end_time)}</td><td>${session.type === 'academic' ? (session.class_ids?.length || 0) + ' classes' : 'Audience based'}</td><td><button class="btn btn-sm btn-outline-primary" data-edit-attendance-session="${Number(session.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="7" class="text-muted">No attendance sessions configured.</td></tr>';
       body.querySelectorAll('[data-edit-attendance-session]').forEach(button => button.addEventListener('click', () => this.openSessionConfig(Number(button.dataset.editAttendanceSession))));
     } catch (error) { body.innerHTML = '<tr><td colspan="7" class="text-danger">Session configuration could not be loaded.</td></tr>'; console.error(error); }
+  },
+
+  loadSessionTerms: async function () {
+    const select = document.getElementById('attendanceConfigTermSelect');
+    if (!select) return;
+    try {
+      const response = await window.API.academic.listTerms();
+      const payload = response?.data?.data ?? response?.data ?? response ?? [];
+      this.sessionTerms = Array.isArray(payload) ? payload : (payload.terms || payload.rows || []);
+      select.innerHTML = this.sessionTerms.map(term => {
+        const id = Number(term.id || term.academic_year_term_id);
+        const label = [term.year_name || term.year_code || term.academic_year, term.term_name || term.name].filter(Boolean).join(' · ') || `Term ${id}`;
+        const current = term.status === 'current' || term.is_current == 1;
+        return `<option value="${id}" ${current ? 'selected' : ''}>${this.escapeHtml(label)}${current ? ' (Current)' : ''}</option>`;
+      }).join('');
+      this.sessionConfigTermId = Number(select.value) || null;
+      if (!select.dataset.bound) {
+        select.addEventListener('change', async () => {
+          this.sessionConfigTermId = Number(select.value) || null;
+          await this.loadSessionConfiguration();
+        });
+        select.dataset.bound = '1';
+      }
+    } catch (error) {
+      select.innerHTML = '<option value="">Current term</option>';
+      console.error('Academic terms could not be loaded for attendance configuration', error);
+    }
   },
 
   openSessionConfig: function (id) {
@@ -146,6 +182,7 @@ const viewAttendanceController = {
     document.getElementById('attendanceConfigId').value = session.id;
     document.getElementById('attendanceConfigName').value = session.name || '';
     document.getElementById('attendanceConfigType').value = session.type || 'academic';
+    document.getElementById('attendanceConfigType').disabled = true;
     document.getElementById('attendanceConfigAudience').value = session.applies_to || 'all';
     document.getElementById('attendanceConfigStart').value = String(session.start_time || '').slice(0, 5);
     document.getElementById('attendanceConfigEnd').value = String(session.end_time || '').slice(0, 5);
@@ -159,7 +196,7 @@ const viewAttendanceController = {
 
   saveSessionConfiguration: async function () {
     const id = Number(document.getElementById('attendanceConfigId').value);
-    const data = { name: document.getElementById('attendanceConfigName').value, type: document.getElementById('attendanceConfigType').value, applies_to: document.getElementById('attendanceConfigAudience').value, start_time: document.getElementById('attendanceConfigStart').value, end_time: document.getElementById('attendanceConfigEnd').value, status: document.getElementById('attendanceConfigStatus').value, applicable_days: [...document.querySelectorAll('.attendance-config-day:checked')].map(input => input.value), class_ids: [...document.querySelectorAll('.attendance-config-class:checked')].map(input => Number(input.value)) };
+    const data = { academic_year_term_id: this.sessionConfigTermId, name: document.getElementById('attendanceConfigName').value, type: document.getElementById('attendanceConfigType').value, applies_to: document.getElementById('attendanceConfigAudience').value, start_time: document.getElementById('attendanceConfigStart').value, end_time: document.getElementById('attendanceConfigEnd').value, status: document.getElementById('attendanceConfigStatus').value, applicable_days: [...document.querySelectorAll('.attendance-config-day:checked')].map(input => input.value), class_ids: [...document.querySelectorAll('.attendance-config-class:checked')].map(input => Number(input.value)) };
     try { await window.API.attendance.updateSessionConfig(id, data); bootstrap.Modal.getInstance(document.getElementById('attendanceSessionConfigModal'))?.hide(); await this.loadSessionConfiguration(); await this.loadExpectedRegisters(); this.notify('Attendance session configuration saved', 'success'); } catch (error) { this.notify(error.message || 'Unable to save attendance session configuration', 'error'); }
   },
 
@@ -1478,3 +1515,5 @@ if (document.readyState === "loading") {
 } else {
   viewAttendanceController.init();
 }
+
+window.viewAttendanceController = viewAttendanceController;

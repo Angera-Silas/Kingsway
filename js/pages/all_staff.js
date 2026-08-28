@@ -503,3 +503,5 @@ const StaffController = (() => {
     exportReport,
   };
 })();
+
+window.StaffController = StaffController;

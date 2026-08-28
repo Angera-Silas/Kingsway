@@ -245,3 +245,6 @@ const generateClassReportCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', generateClassReportCtrl.init);
+
+window.generateClassReportCtrl = generateClassReportCtrl;
+window.APIRealtime?.register?.(generateClassReportCtrl, generateClassReportCtrl);

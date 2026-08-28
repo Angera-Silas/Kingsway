@@ -541,3 +541,5 @@ const communicationsController = {
     boot();
   }
 })();
+
+window.communicationsController = communicationsController;
