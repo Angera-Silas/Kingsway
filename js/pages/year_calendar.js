@@ -284,3 +284,5 @@ const YearCalendarController = (() => {
     return { init, refresh: loadData, exportCSV, openEditDay, saveDay, addEvent, deleteEvent, markExamWeek };
 })();
 document.addEventListener('DOMContentLoaded', () => YearCalendarController.init());
+
+window.YearCalendarController = YearCalendarController;

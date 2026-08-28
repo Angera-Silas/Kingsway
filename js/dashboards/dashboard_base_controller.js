@@ -13,6 +13,11 @@ const DashboardBaseController = {
             eventsBound: false,
             charts: {},
             period: definition.defaultPeriod || 'month',
+            // Realtime invalidations refresh immediately. Five minutes is only
+            // a repair/safety poll for missed cron or third-party changes.
+            liveRefreshMs: Number(definition.liveRefreshMs || 300000),
+            liveRefreshTimer: null,
+            liveSyncBound: false,
             state: {
                 data: null,
                 loading: false,
@@ -68,6 +73,7 @@ const DashboardBaseController = {
 
                 this.setupEventListeners();
                 await this.loadDashboard({ throwOnError: true });
+                this.startLiveSync();
                 this.initialized = true;
 
                 console.log(`[${this.controllerName}] Initialized successfully`);
@@ -134,17 +140,66 @@ const DashboardBaseController = {
                 }
             },
 
+            startLiveSync() {
+                if (this.liveSyncBound || this.liveRefreshMs < 5000) {
+                    return;
+                }
+
+                this.liveSyncBound = true;
+                const refreshVisibleDashboard = () => {
+                    if (!document.getElementById(this.rootId)) {
+                        this.stopLiveSync();
+                        return;
+                    }
+                    if (document.visibilityState !== 'visible' || this.state.loading) {
+                        return;
+                    }
+                    void this.loadDashboard({ force: true, silent: true });
+                };
+
+                this._liveVisibilityHandler = () => {
+                    if (document.visibilityState === 'visible') {
+                        refreshVisibleDashboard();
+                    }
+                };
+                this._liveOnlineHandler = () => refreshVisibleDashboard();
+
+                document.addEventListener('visibilitychange', this._liveVisibilityHandler);
+                window.addEventListener('online', this._liveOnlineHandler);
+                this.liveRefreshTimer = window.setInterval(
+                    refreshVisibleDashboard,
+                    this.liveRefreshMs
+                );
+            },
+
+            stopLiveSync() {
+                if (this.liveRefreshTimer) {
+                    window.clearInterval(this.liveRefreshTimer);
+                    this.liveRefreshTimer = null;
+                }
+                if (this._liveVisibilityHandler) {
+                    document.removeEventListener('visibilitychange', this._liveVisibilityHandler);
+                }
+                if (this._liveOnlineHandler) {
+                    window.removeEventListener('online', this._liveOnlineHandler);
+                }
+                this.liveSyncBound = false;
+            },
+
             async loadDashboard(options = {}) {
                 if (this.state.loading && options.force !== true) {
                     return this.state.data;
                 }
 
                 const throwOnError = options.throwOnError === true;
+                const silent = options.silent === true;
 
                 this.state.loading = true;
                 this.state.error = null;
-                this.renderLoadingState();
-                this.setRefreshBusy(true);
+                if (!silent) {
+                    this.renderLoadingState();
+                    this.setRefreshBusy(true);
+                }
 
                 try {
                     const response = await this.apiMethod({ period: this.period });
@@ -159,14 +214,18 @@ const DashboardBaseController = {
                     this.state.data = data;
                     this.state.lastLoadedAt = new Date();
                     this.renderDashboard(data);
-                    this.renderSuccessState();
+                    if (!silent) {
+                        this.renderSuccessState();
+                    }
                     return data;
                 } catch (error) {
                     console.error(`[${this.controllerName}] Load failed:`, error);
                     this.state.error = error;
-                    this.renderErrorState(
-                        error?.message || 'Unable to load dashboard data.'
-                    );
+                    if (!silent) {
+                        this.renderErrorState(
+                            error?.message || 'Unable to load dashboard data.'
+                        );
+                    }
 
                     if (throwOnError) {
                         throw error;
@@ -175,7 +234,9 @@ const DashboardBaseController = {
                     return null;
                 } finally {
                     this.state.loading = false;
-                    this.setRefreshBusy(false);
+                    if (!silent) {
+                        this.setRefreshBusy(false);
+                    }
                 }
             },
 
@@ -235,6 +296,7 @@ const DashboardBaseController = {
 
                 if (this.charts[definition.id]) {
                     this.charts[definition.id].destroy();
+                    delete this.charts[definition.id];
                 }
 
                 const labels = Array.isArray(payload.labels)
@@ -253,6 +315,27 @@ const DashboardBaseController = {
                         fill: definition.fill === true
                     }];
                 }
+
+                const hasChartData = labels.length > 0
+                    && datasets.some((dataset) => Array.isArray(dataset.data)
+                        && dataset.data.length > 0);
+                let emptyState = canvas.parentElement?.querySelector(
+                    `[data-chart-empty-for="${definition.id}"]`
+                );
+                if (!hasChartData) {
+                    canvas.hidden = true;
+                    if (!emptyState && canvas.parentElement) {
+                        emptyState = document.createElement('div');
+                        emptyState.dataset.chartEmptyFor = definition.id;
+                        emptyState.className = 'h-100 d-flex align-items-center justify-content-center text-muted text-center px-3';
+                        emptyState.textContent = definition.emptyText
+                            || 'No chart data is recorded for this period.';
+                        canvas.parentElement.appendChild(emptyState);
+                    }
+                    return;
+                }
+                canvas.hidden = false;
+                emptyState?.remove();
 
                 this.charts[definition.id] = new window.Chart(canvas, {
                     type: definition.type || 'line',

@@ -167,3 +167,5 @@ const uploadResourceController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => uploadResourceController.init());
+
+window.uploadResourceController = uploadResourceController;

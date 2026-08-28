@@ -25,29 +25,40 @@
         lastUpdatedId: 'accountantDashboardLastUpdated',
 
         async apiMethod({ period }) {
-            const [financialResponse, paymentsResponse] = await Promise.all([
+            const [financialResponse, paymentsResponse, defaultersResponse, unmatchedResponse] = await Promise.all([
                 window.API.dashboard.getAccountantFinancial({ period }),
-                window.API.dashboard.getAccountantPayments({ period, limit: 15 })
+                window.API.dashboard.getAccountantPayments({ period, limit: 15 }),
+                window.API.dashboard.getAccountantFinancial({ pivot: 'top-defaulters', limit: 10 }),
+                window.API.dashboard.getAccountantUnmatchedPayments({ limit: 20 })
             ]);
 
             const financial = unwrap(financialResponse) || {};
             const paymentFeed = unwrap(paymentsResponse) || {};
+            const defaulterFeed = unwrap(defaultersResponse) || {};
+            const unmatchedFeed = unwrap(unmatchedResponse) || {};
             const fees = financial.fees || {};
             const collections = financial.collections || {};
             const payments = financial.payments || {};
             const budget = financial.budget || {};
             const expenses = financial.expenses || {};
-            const payroll = financial.payroll || {};
-            const approvals = financial.approvals || {};
             const trends = Array.isArray(paymentFeed.trends)
                 ? paymentFeed.trends
                 : [];
             const methods = Array.isArray(payments.by_method)
                 ? payments.by_method
                 : [];
-            const recentTransactions = Array.isArray(paymentFeed.recent_transactions)
+            const methodTotal = (names) => methods
+                .filter((row) => names.includes(String(row.payment_method || row.method || '').toLowerCase()))
+                .reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+            const methodCount = (names) => methods
+                .filter((row) => names.includes(String(row.payment_method || row.method || '').toLowerCase()))
+                .reduce((sum, row) => sum + Number(row.transaction_count || 0), 0);
+            const recentTransactions = (Array.isArray(paymentFeed.recent_transactions)
                 ? paymentFeed.recent_transactions
-                : [];
+                : []).map((row) => ({
+                    ...row,
+                    payment_method: row.payment_method || row.method || '—'
+                }));
             const histogramBands = [
                 { label: 'Below KES 1,000', min: 0, max: 1000 },
                 { label: 'KES 1,000–4,999', min: 1000, max: 5000 },
@@ -80,18 +91,19 @@
                             : 'Finance')
                 },
                 cards: {
-                    current_term_collected: collectedByPeriod[periodKey] || collectedByPeriod.month,
+                    current_term_collected: collectedByPeriod[periodKey] ?? collectedByPeriod.month,
                     total_outstanding: Number(fees.total_outstanding || 0),
-                    mpesa_total: Number(payments.mpesa_total || 0),
-                    bank_total: Number(payments.bank_total || 0),
-                    cash_total: Number(payments.cash_total || 0),
-                    unreconciled_count: Number(payments.unreconciled_count || 0),
-                    month_count: countByPeriod[periodKey] || countByPeriod.month,
+                    mpesa_total: methodTotal(['mpesa', 'm-pesa']),
+                    bank_total: methodTotal(['bank', 'bank_transfer', 'bank transfer']),
+                    cash_total: methodTotal(['cash']),
+                    unreconciled_count: Array.isArray(unmatchedFeed.transactions)
+                        ? unmatchedFeed.transactions.length
+                        : Number(payments.unreconciled_count || 0),
+                    month_count: countByPeriod[periodKey] ?? countByPeriod.month,
                     defaulters_count: Number(fees.defaulters_count || 0),
-                    mpesa_count: Number(payments.mpesa_count || 0),
-                    bank_count: Number(payments.bank_count || 0),
-                    cash_count: Number(payments.cash_count || 0),
-                    defaulters_amount: Number(fees.defaulters_amount || 0)
+                    mpesa_count: methodCount(['mpesa', 'm-pesa']),
+                    bank_count: methodCount(['bank', 'bank_transfer', 'bank transfer']),
+                    cash_count: methodCount(['cash'])
                 },
                 charts: {
                     collection_trend: {
@@ -157,12 +169,15 @@
                 },
                 tables: {
                     recent_transactions: recentTransactions,
-                    unreconciled: Array.isArray(paymentFeed.unreconciled)
-                        ? paymentFeed.unreconciled
+                    unreconciled: Array.isArray(unmatchedFeed.transactions)
+                        ? unmatchedFeed.transactions
                         : [],
-                    defaulters: Array.isArray(fees.defaulters)
-                        ? fees.defaulters
-                        : []
+                    defaulters: (Array.isArray(defaulterFeed.top_defaulters)
+                        ? defaulterFeed.top_defaulters
+                        : []).map((row) => ({
+                            ...row,
+                            amount_owed: Number(row.balance || 0)
+                        }))
                 },
                 widgets: {
                     budget: {
@@ -170,16 +185,15 @@
                         spent: Number(budget.total_spent || 0),
                         rate: Number(budget.utilization_rate || 0)
                     },
-                    payroll: {
-                        staff_count: Number(payroll.staff_count || 0),
-                        processed: Number(payroll.processed_count || 0),
-                        pending: Number(payroll.pending_count || 0),
-                        total_amount: Number(payroll.total_amount || 0)
+                    expenses: {
+                        count: Number(expenses.total_count || 0),
+                        pending: Number(expenses.pending_count || 0),
+                        amount: Number(expenses.total_amount || 0)
                     },
-                    approvals: {
-                        pending_count: Number(approvals.pending_count || 0),
-                        urgent_count: Number(approvals.urgent_count || 0),
-                        items: Array.isArray(approvals.items) ? approvals.items : []
+                    reconciliation: {
+                        rate: Number(payments.reconciliation_rate || 0),
+                        unmatched: Number(payments.unreconciled_count || 0),
+                        amount: Number(payments.unreconciled_total || 0)
                     }
                 }
             };
@@ -230,13 +244,7 @@
                     const count = Number(d.cards?.unreconciled_count || 0);
                     return count > 0 ? `${count} require attention` : 'All reconciled';
                 },
-                value: (d, instance) => {
-                    const count = Number(d.cards?.unreconciled_count || 0);
-                    if (count > 0) {
-                        return `${instance.formatValue(count, 'number')} <span class="badge bg-danger ms-1" style="font-size:0.55em">!</span>`;
-                    }
-                    return instance.formatValue(count, 'number');
-                }
+                value: (d) => Number(d.cards?.unreconciled_count || 0)
             }
         ],
 
@@ -324,8 +332,8 @@
         afterRender(data) {
             const widgets = data.widgets || {};
             const budget = widgets.budget || {};
-            const payroll = widgets.payroll || {};
-            const approvals = widgets.approvals || {};
+            const expenses = widgets.expenses || {};
+            const reconciliation = widgets.reconciliation || {};
 
             const budgetUtil = document.getElementById('accBudgetUtil');
             if (budgetUtil) {
@@ -343,49 +351,25 @@
                     </div>`;
             }
 
-            const payrollEl = document.getElementById('accPayroll');
-            if (payrollEl) {
-                const pending = Number(payroll.pending || 0);
-                const processed = Number(payroll.processed || 0);
-                const total = Number(payroll.staff_count || 0);
-                const totalAmt = Number(payroll.total_amount || 0);
-                payrollEl.innerHTML = `
+            const expensesEl = document.getElementById('accExpenses');
+            if (expensesEl) {
+                expensesEl.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-bold fs-5">${processed} / ${total}</span>
-                        <span class="text-muted small">staff paid</span>
+                        <span class="fw-bold fs-5">${this.formatValue(expenses.amount, 'currency')}</span>
+                        <span class="text-muted small">${Number(expenses.count || 0)} expenses</span>
                     </div>
-                    <div class="progress mb-2" style="height:8px;">
-                        <div class="progress-bar bg-success" role="progressbar" style="width:${total ? ((processed / total) * 100) : 0}%"></div>
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <span class="small text-muted">Total: ${this.formatValue(totalAmt, 'currency')}</span>
-                        <span class="small ${pending > 0 ? 'text-warning' : 'text-success'}">${pending > 0 ? `${pending} pending` : 'All processed'}</span>
-                    </div>`;
+                    <span class="badge bg-${Number(expenses.pending || 0) > 0 ? 'warning text-dark' : 'success'}">${Number(expenses.pending || 0)} pending approval</span>`;
             }
 
-            const approvalsEl = document.getElementById('accApprovals');
-            if (approvalsEl) {
-                const pending = Number(approvals.pending_count || 0);
-                const urgent = Number(approvals.urgent_count || 0);
-                const items = approvals.items || [];
-                let html = `
+            const reconciliationEl = document.getElementById('accReconciliation');
+            if (reconciliationEl) {
+                const rate = Number(reconciliation.rate || 0);
+                reconciliationEl.innerHTML = `
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-bold fs-5">${pending}</span>
-                        <span class="text-muted small">pending</span>
-                    </div>`;
-                if (urgent > 0) {
-                    html += `<div class="mb-2"><span class="badge bg-danger">${urgent} urgent</span></div>`;
-                }
-                if (items.length > 0) {
-                    html += '<ul class="list-unstyled mb-0">';
-                    items.slice(0, 4).forEach((item) => {
-                        html += `<li class="small mb-1"><i class="bi bi-circle-fill text-warning me-1" style="font-size:0.4em;vertical-align:middle;"></i>${this.escapeHtml(item.description || item.label || 'Item')}</li>`;
-                    });
-                    html += '</ul>';
-                } else if (pending === 0) {
-                    html += '<p class="text-success small mb-0"><i class="bi bi-check-circle me-1"></i>Nothing pending</p>';
-                }
-                approvalsEl.innerHTML = html;
+                        <span class="fw-bold fs-5">${this.formatValue(rate, 'percent')}</span>
+                        <span class="text-muted small">reconciled</span>
+                    </div>
+                    <div class="small text-muted">${Number(reconciliation.unmatched || 0)} unmatched · ${this.formatValue(reconciliation.amount, 'currency')}</div>`;
             }
         }
     });

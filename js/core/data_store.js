@@ -42,11 +42,10 @@ const DataStore = (() => {
   // account row in the DB — this is purely a cache-scope identity.
   const GUEST_USER_ID = -1;
 
-  // Freshness-first defaults for an always-online school administration:
-  // reference lists are re-read from the server on every page load
-  // (network-first), and the TTLs below only bound how long a snapshot may be
-  // reused as an OFFLINE FALLBACK when the network request fails. Values are
-  // short so no view can keep serving day- or week-old data to daily users.
+  // Realtime-first defaults for an always-online school administration:
+  // bounded snapshots are reused until their TTL or a mutation invalidation.
+  // This prevents each page load from reopening PHP/MySQL while keeping a
+  // short repair window for changes made outside the application event path.
   const DEFAULT_TTL = Object.freeze({
     REFERENCE: 300000,   // 5 minutes — live lists (classes, subjects, streams, terms)
     LONG: 3600000,       // 1 hour — slowly changing structures (departments, academic years)
@@ -54,17 +53,20 @@ const DataStore = (() => {
   });
 
   const policies = Object.freeze({
-    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
-    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
-    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
-    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'network-first' },
-    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
-    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
-    students: { ttl: DEFAULT_TTL.DIRECTORY, strategy: 'network-first' },
-    staff: { ttl: 1800000, strategy: 'network-first' },
-    attendance: { ttl: 60000, strategy: 'network-first' },
-    admissions: { ttl: 60000, strategy: 'network-first' },
-    school_profile: { ttl: DEFAULT_TTL.LONG, strategy: 'network-first' },
+    // Realtime mutation events invalidate these keys immediately. Cache-first
+    // therefore removes repetitive PHP/MySQL reads while retaining bounded TTL
+    // recovery when an external/cron change does not emit an event.
+    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'cache-first' },
+    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'cache-first' },
+    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'cache-first' },
+    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'cache-first' },
+    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'cache-first' },
+    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'cache-first' },
+    students: { ttl: DEFAULT_TTL.DIRECTORY, strategy: 'cache-first' },
+    staff: { ttl: 1800000, strategy: 'cache-first' },
+    attendance: { ttl: 60000, strategy: 'cache-first' },
+    admissions: { ttl: 60000, strategy: 'cache-first' },
+    school_profile: { ttl: DEFAULT_TTL.LONG, strategy: 'cache-first' },
   });
 
   function normalizeOptions(key, options) {
@@ -450,6 +452,9 @@ const DataStore = (() => {
         channel.onmessage = (event) => {
           if (event.data?.type === 'CACHE_INVALIDATED' && Array.isArray(event.data?.keys)) {
             event.data.keys.forEach((key) => invalidate(key));
+            window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
+              detail: { source: 'cross-tab', targets: event.data.keys }
+            }));
           }
         };
       } catch (_) {}
@@ -461,6 +466,9 @@ const DataStore = (() => {
           const message = JSON.parse(event.newValue);
           if (message?.type === 'CACHE_INVALIDATED' && Array.isArray(message?.keys)) {
             message.keys.filter((k) => typeof k === 'string').forEach((key) => invalidate(key));
+            window.dispatchEvent(new CustomEvent('kingsway:data-mutated', {
+              detail: { source: 'cross-tab', targets: message.keys }
+            }));
           }
         } catch (_) {}
       }

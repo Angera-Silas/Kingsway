@@ -244,3 +244,5 @@ const AttendanceTrendsController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => AttendanceTrendsController.init());
+
+window.AttendanceTrendsController = AttendanceTrendsController;

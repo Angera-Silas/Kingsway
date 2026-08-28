@@ -581,3 +581,5 @@ const financeReportsController = (() => {
 })();
 
 document.addEventListener("DOMContentLoaded", financeReportsController.init);
+
+window.financeReportsController = financeReportsController;

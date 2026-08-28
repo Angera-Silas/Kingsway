@@ -160,3 +160,15 @@ async function performBackup() {
         await window.infoDialog('Notice', 'Backup failed. Check console for details.');
     }
 }
+
+window.SettingsRealtimeController = {
+    async refreshData() {
+        await Promise.all([
+            loadSettingsStatistics(),
+            usersTable?.refresh?.(),
+            rolesTable?.refresh?.(),
+            permissionsTable?.refresh?.(),
+        ]);
+    },
+};
+window.APIRealtime?.register?.('SettingsRealtimeController', window.SettingsRealtimeController, ['system']);

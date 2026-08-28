@@ -1920,3 +1920,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     initWhenReady();
 });
+
+window.academicsManager = academicsManager;
+window.APIRealtime?.register?.(academicsManager, academicsManager);

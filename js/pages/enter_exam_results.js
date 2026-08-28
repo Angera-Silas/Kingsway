@@ -232,3 +232,5 @@ const ExamResultsController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => ExamResultsController.init());
+
+window.ExamResultsController = ExamResultsController;

@@ -107,3 +107,5 @@ const ClassMarkAttendanceController = {
   esc(value) { const d = document.createElement('div'); d.textContent = value == null ? '' : String(value); return d.innerHTML; }
 };
 document.addEventListener('DOMContentLoaded', () => ClassMarkAttendanceController.init());
+
+window.ClassMarkAttendanceController = ClassMarkAttendanceController;

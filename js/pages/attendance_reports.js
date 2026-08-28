@@ -243,3 +243,5 @@ const attendanceReportsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => attendanceReportsController.init());
+
+window.attendanceReportsController = attendanceReportsController;

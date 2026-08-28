@@ -180,3 +180,5 @@ const ParentFeedbackController = (() => {
     return { init, refresh: loadData, exportCSV, viewFeedback };
 })();
 document.addEventListener('DOMContentLoaded', () => ParentFeedbackController.init());
+
+window.ParentFeedbackController = ParentFeedbackController;

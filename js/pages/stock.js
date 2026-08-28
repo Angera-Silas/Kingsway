@@ -140,3 +140,5 @@ const stockController = {
   _esc: s=>{ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; },
 };
 document.addEventListener('DOMContentLoaded', ()=>stockController.init());
+
+window.stockController = stockController;

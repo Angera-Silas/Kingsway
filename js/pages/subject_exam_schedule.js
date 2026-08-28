@@ -272,3 +272,6 @@ const subjectExamScheduleCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', subjectExamScheduleCtrl.init);
+
+window.subjectExamScheduleCtrl = subjectExamScheduleCtrl;
+window.APIRealtime?.register?.(subjectExamScheduleCtrl, subjectExamScheduleCtrl);

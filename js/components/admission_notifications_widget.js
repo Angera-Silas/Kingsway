@@ -254,7 +254,16 @@ const AdmissionNotificationsWidget = {
       );
     }
   },
+
+  async refreshData() {
+    const tasks = [this.updateNavbarBadge()];
+    if (this._lastContainerId) {
+      tasks.push(this.load(this._lastContainerId, this._lastOptions || {}));
+    }
+    await Promise.all(tasks);
+  },
 };
 
 // Export for global use
 window.AdmissionNotificationsWidget = AdmissionNotificationsWidget;
+window.APIRealtime?.register?.('AdmissionNotificationsWidget', AdmissionNotificationsWidget, ['admission', 'admissions']);

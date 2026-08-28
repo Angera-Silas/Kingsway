@@ -327,3 +327,5 @@ const AcademicYearsController = {
 document.addEventListener("DOMContentLoaded", () =>
   AcademicYearsController.init(),
 );
+
+window.AcademicYearsController = AcademicYearsController;

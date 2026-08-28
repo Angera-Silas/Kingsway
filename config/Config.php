@@ -80,7 +80,16 @@ class Config
             return;
         }
 
+        if (!is_readable($envFile)) {
+            throw new \RuntimeException(
+                'Environment configuration exists but is not readable by the PHP process.'
+            );
+        }
+
         $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if ($lines === false) {
+            throw new \RuntimeException('Environment configuration could not be loaded.');
+        }
         
         foreach ($lines as $line) {
             if (strpos(trim($line), '#') === 0) {

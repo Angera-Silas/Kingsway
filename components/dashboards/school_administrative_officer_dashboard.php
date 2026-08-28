@@ -25,20 +25,14 @@
 ?>
 
 <div class="container-fluid py-4">
-    <!-- Meta Bar -->
+     <!-- Meta Bar -->
     <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-        <small class="text-muted">
-            <i class="bi bi-clock me-1"></i>
-            Last refresh: <span id="lastRefreshTime">--:--:--</span>
-        </small>
-        <button id="refreshDashboard" class="btn btn-sm btn-outline-success">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
-        </button>
-        <button id="exportDashboard" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-download"></i> Export
-        </button>
+        <span class="text-muted small">Updated: <span id="last_refresh">—</span></span>
+        <button class="btn btn-sm btn-outline-primary" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
+        <button class="btn btn-sm btn-outline-success" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
+        <button class="btn btn-sm btn-outline-info" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
+        <button class="btn btn-sm btn-outline-secondary" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
     </div>
-
     <!-- Row 1: Operational Status Cards (5 cards) -->
     <div class="row g-3 mb-3">
         <!-- 1. Active Students -->

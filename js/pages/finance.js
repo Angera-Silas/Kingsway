@@ -1621,3 +1621,5 @@ document.addEventListener('DOMContentLoaded', () => {
     window.bulkExport = () => FinanceController.bulkExport();
     window.bulkDelete = () => FinanceController.bulkDelete();
 })();
+
+window.financeController = financeController;

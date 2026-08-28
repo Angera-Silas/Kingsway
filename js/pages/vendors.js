@@ -285,3 +285,5 @@ const VendorsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => VendorsController.init());
+
+window.VendorsController = VendorsController;

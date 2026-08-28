@@ -1066,3 +1066,5 @@ if (document.readyState === 'loading') {
 } else {
     parentPortalController.init().catch(function () {});
 }
+
+window.parentPortalController = parentPortalController;

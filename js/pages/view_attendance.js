@@ -1515,3 +1515,5 @@ if (document.readyState === "loading") {
 } else {
   viewAttendanceController.init();
 }
+
+window.viewAttendanceController = viewAttendanceController;

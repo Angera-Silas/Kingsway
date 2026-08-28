@@ -184,3 +184,5 @@ const atRiskController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => atRiskController.init());
+
+window.atRiskController = atRiskController;

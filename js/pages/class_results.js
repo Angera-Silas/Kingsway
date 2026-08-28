@@ -392,3 +392,5 @@ const classResultsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', classResultsController.init);
+
+window.classResultsController = classResultsController;

@@ -448,3 +448,5 @@ const admissionInterviewsController = {
     if (target) target.textContent = overall === '—' ? overall : `${overall}/100`;
   });
 });
+
+window.admissionInterviewsController = admissionInterviewsController;

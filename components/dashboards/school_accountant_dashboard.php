@@ -1,10 +1,6 @@
 
 <?php $rootId = 'accountantDashboard'; ?>
 <div class="container-fluid py-4 role-dashboard dashboard-surface dashboard-finance" id="accountantDashboard" data-dashboard-layout="finance-classic-workbench">
-    <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-        <span class="small text-muted">Updated: <span id="accountantDashboardLastUpdated">&mdash;</span></span>
-        <button class="btn btn-sm btn-outline-success" id="accountantDashboardRefresh"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-    </div>
 
     <?php require __DIR__ . '/partials/period_selector.php'; ?>
 
@@ -221,11 +217,11 @@
         <div class="col-md-4">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                    <h6 class="mb-0"><i class="bi bi-people me-2 text-success"></i>Payroll Status</h6>
+                    <h6 class="mb-0"><i class="bi bi-receipt-cutoff me-2 text-success"></i>Expense Position</h6>
                 </div>
                 <div class="card-body">
-                    <div id="accPayroll">
-                        <p class="text-muted small mb-0">No payroll data available.</p>
+                    <div id="accExpenses">
+                        <p class="text-muted small mb-0">Loading expense position&hellip;</p>
                     </div>
                 </div>
             </div>
@@ -233,11 +229,11 @@
         <div class="col-md-4">
             <div class="card border-0 shadow-sm h-100 dash-card">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                    <h6 class="mb-0"><i class="bi bi-hourglass-split me-2 text-warning"></i>Pending Approvals</h6>
+                    <h6 class="mb-0"><i class="bi bi-check2-circle me-2 text-warning"></i>Reconciliation Position</h6>
                 </div>
                 <div class="card-body">
-                    <div id="accApprovals">
-                        <p class="text-muted small mb-0">No pending approvals.</p>
+                    <div id="accReconciliation">
+                        <p class="text-muted small mb-0">Loading reconciliation position&hellip;</p>
                     </div>
                 </div>
             </div>

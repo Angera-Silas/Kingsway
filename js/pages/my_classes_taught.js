@@ -239,3 +239,5 @@ const MyClassesController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => MyClassesController.init());
+
+window.MyClassesController = MyClassesController;

@@ -145,3 +145,5 @@ const ClassAttendanceHistoryController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => ClassAttendanceHistoryController.init());
+
+window.ClassAttendanceHistoryController = ClassAttendanceHistoryController;

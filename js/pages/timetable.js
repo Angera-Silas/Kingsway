@@ -482,3 +482,5 @@ const TimetableController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => TimetableController.init());
+
+window.TimetableController = TimetableController;

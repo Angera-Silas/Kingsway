@@ -279,3 +279,5 @@ const assetPurchasesController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => assetPurchasesController.init());
+
+window.assetPurchasesController = assetPurchasesController;

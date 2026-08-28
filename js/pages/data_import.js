@@ -396,3 +396,5 @@ dataImportController.goStep = function (step) {
 };
 
 document.addEventListener('DOMContentLoaded', () => dataImportController.init());
+
+window.dataImportController = dataImportController;

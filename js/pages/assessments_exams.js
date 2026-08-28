@@ -1035,3 +1035,6 @@ const assessExamsCtrl = (() => {
     viewWorkflowLogs,
   };
 })();
+
+window.assessExamsCtrl = assessExamsCtrl;
+window.APIRealtime?.register?.(assessExamsCtrl, assessExamsCtrl);

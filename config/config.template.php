@@ -41,6 +41,7 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
+require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -48,14 +49,7 @@ require_once __DIR__ . '/upload_paths.php';
 |--------------------------------------------------------------------------
 */
 
-define('SCHOOL_NAME', 'Kingsway Preparatory School');
-define('SCHOOL_CODE', 'KWPS');
-define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
-define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
-define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
-define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
-define('SCHOOL_MOTTO', 'In God We Soar');
+// SCHOOL_* compatibility constants are populated from the database below.
 
 /*
 |--------------------------------------------------------------------------
@@ -92,10 +86,12 @@ try {
           LIMIT 1"
     )->fetch();
     define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity($_db);
     $_db = null;
 } catch (\Exception $_e) {
     define('CURRENT_YEAR', (int) date('Y'));
     define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity(null);
 }
 
 /*
@@ -125,6 +121,7 @@ define(
 );
 define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? JWT_SECRET);
 define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'localhost');
+define('REALTIME_BUFFER_SECRET', $_ENV['REALTIME_BUFFER_SECRET'] ?? JWT_SECRET);
 
 
 $authIdleTimeoutSeconds = max(

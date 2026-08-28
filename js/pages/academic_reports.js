@@ -552,3 +552,6 @@ const academicReportsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', academicReportsCtrl.init);
+
+window.academicReportsCtrl = academicReportsCtrl;
+window.APIRealtime?.register?.(academicReportsCtrl, academicReportsCtrl);

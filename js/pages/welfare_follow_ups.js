@@ -229,3 +229,5 @@ const welfareFUController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => welfareFUController.init());
+
+window.welfareFUController = welfareFUController;

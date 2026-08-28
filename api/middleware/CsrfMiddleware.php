@@ -77,6 +77,9 @@ class CsrfMiddleware
         // Internal scheduler callback authenticates with ATTENDANCE_WORKER_SECRET.
         'attendance/process-register-reminders',
         'finance/kcb-reconciliation-worker',
+        // Internal cron callbacks authenticate with COMMUNICATION_WORKER_SECRET.
+        'realtime/worker',
+        'realtime/cleanup',
     ];
 
     public static function handle(): void

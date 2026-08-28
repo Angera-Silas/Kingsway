@@ -185,3 +185,5 @@ const LessonPlansByTeacherController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   LessonPlansByTeacherController.init(),
 );
+
+window.LessonPlansByTeacherController = LessonPlansByTeacherController;

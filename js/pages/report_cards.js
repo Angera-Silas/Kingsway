@@ -730,3 +730,6 @@ const reportCardsCtrl = (() => {
         printCards, printSelected
     };
 })();
+
+window.reportCardsCtrl = reportCardsCtrl;
+window.APIRealtime?.register?.(reportCardsCtrl, reportCardsCtrl);

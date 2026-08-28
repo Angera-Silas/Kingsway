@@ -177,3 +177,5 @@ const announcementsController = {
   _esc: s=>{ const d=document.createElement('div'); d.textContent=String(s??''); return d.innerHTML; },
 };
 document.addEventListener('DOMContentLoaded', ()=>announcementsController.init());
+
+window.announcementsController = announcementsController;

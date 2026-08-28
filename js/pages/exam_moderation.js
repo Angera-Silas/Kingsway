@@ -186,3 +186,5 @@ const ModerationController = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => await ModerationController.init());
+
+window.ModerationController = ModerationController;

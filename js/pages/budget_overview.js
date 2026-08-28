@@ -314,5 +314,7 @@
         }
     };
 
+    window.BudgetOverviewController = Controller;
+    window.APIRealtime?.register?.('BudgetOverviewController', Controller);
     document.addEventListener('DOMContentLoaded', () => Controller.init());
 })();

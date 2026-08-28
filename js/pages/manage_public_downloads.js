@@ -116,3 +116,5 @@ if (document.readyState === 'loading') {
 } else {
   managePublicDownloadsController.init().catch(() => {});
 }
+
+window.managePublicDownloadsController = managePublicDownloadsController;

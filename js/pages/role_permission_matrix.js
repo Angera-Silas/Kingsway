@@ -617,3 +617,5 @@ const RolePermissionMatrixController = {
 document.addEventListener("DOMContentLoaded", () =>
   RolePermissionMatrixController.init(),
 );
+
+window.RolePermissionMatrixController = RolePermissionMatrixController;

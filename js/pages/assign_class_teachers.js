@@ -400,3 +400,5 @@ const AssignClassTeachersController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => AssignClassTeachersController.init());
+
+window.AssignClassTeachersController = AssignClassTeachersController;

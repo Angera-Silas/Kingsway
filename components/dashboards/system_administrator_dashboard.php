@@ -16,18 +16,6 @@ $rootId = 'systemAdministratorDashboardPage';
     <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=api_metrics"><i class="bi bi-activity"></i><span>API metrics</span></a>
     <a href="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/home.php?route=error_logs"><i class="bi bi-terminal"></i><span>Error logs</span></a>
   </nav>
-  <div class="dash-meta-bar mb-4 d-flex align-items-center justify-content-end gap-3 flex-wrap">
-    <small class="text-muted" id="systemAdministratorGeneratedAt"></small>
-    <button
-      class="btn btn-sm btn-outline-success"
-      id="refreshSystemAdministratorDashboardBtn"
-      type="button"
-    >
-      <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>
-      Refresh
-    </button>
-  </div>
-
   <div
     class="alert alert-info"
     id="systemAdministratorDashboardState"

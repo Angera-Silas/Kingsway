@@ -198,3 +198,5 @@ const interventionPlansController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => interventionPlansController.init());
+
+window.interventionPlansController = interventionPlansController;

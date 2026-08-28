@@ -306,3 +306,4 @@ const TeacherWorkloadController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => TeacherWorkloadController.init());
+window.TeacherWorkloadController = TeacherWorkloadController;

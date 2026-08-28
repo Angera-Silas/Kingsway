@@ -144,3 +144,5 @@ const reflectionJournalController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => reflectionJournalController.init());
+
+window.reflectionJournalController = reflectionJournalController;

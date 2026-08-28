@@ -468,3 +468,5 @@ const payslipsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => payslipsController.init());
+
+window.payslipsController = payslipsController;

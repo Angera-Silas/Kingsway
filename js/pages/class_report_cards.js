@@ -388,3 +388,6 @@ const classReportCardsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', classReportCardsCtrl.init);
+
+window.classReportCardsCtrl = classReportCardsCtrl;
+window.APIRealtime?.register?.(classReportCardsCtrl, classReportCardsCtrl);

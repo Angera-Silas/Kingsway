@@ -402,3 +402,6 @@ const performanceReportsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', performanceReportsCtrl.init);
+
+window.performanceReportsCtrl = performanceReportsCtrl;
+window.APIRealtime?.register?.(performanceReportsCtrl, performanceReportsCtrl);

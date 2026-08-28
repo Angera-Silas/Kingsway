@@ -170,3 +170,5 @@ const competencyChecklistController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => competencyChecklistController.init());
+
+window.competencyChecklistController = competencyChecklistController;
