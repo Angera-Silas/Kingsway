@@ -91,6 +91,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-heartbeat',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'System Health', 'url' => 'system_health'],
                 ['label' => 'Error Logs', 'url' => 'error_logs'],
                 ['label' => 'Background Jobs', 'url' => 'background_jobs'],
@@ -303,6 +304,7 @@ return [
                 ['label' => 'Parent Refunds', 'url' => 'parent_refunds'],
                 ['label' => 'Student Fund Transfers', 'url' => 'student_fund_transfers'],
                 ['label' => 'Payment Reconciliation', 'url' => 'payment_reconciliation'],
+                ['label' => 'KCB Disbursement Reconciliation', 'url' => 'kcb_disbursement_reconciliation'],
                 ['label' => 'Vendors', 'url' => 'vendors'],
                 ['label' => 'Purchase Orders', 'url' => 'purchase_orders'],
             ]
@@ -364,6 +366,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Academic', 'url' => 'academic_reports'],
                 ['label' => 'Performance', 'url' => 'performance_reports'],
                 ['label' => 'Comparative', 'url' => 'comparative_reports'],
@@ -436,7 +439,6 @@ return [
                 ['label' => 'Applications Workspace', 'url' => 'manage_students_admissions'], // tabbed workspace
                 ['label' => 'Class Placement', 'url' => 'admissions_class_placement'], // place student in class
                 ['label' => 'Placement Tests', 'url' => 'placement_tests'],          // manage placement tests
-                ['label' => 'Enrollment Reports', 'url' => 'enrollment_reports'],        // comprehensive reports
             ]
         ],
 
@@ -504,6 +506,7 @@ return [
                 ['label' => 'Parent Refunds', 'url' => 'parent_refunds'],
                 ['label' => 'Student Fund Transfers', 'url' => 'student_fund_transfers'],
                 ['label' => 'Payment Reconciliation', 'url' => 'payment_reconciliation'],
+                ['label' => 'KCB Disbursement Reconciliation', 'url' => 'kcb_disbursement_reconciliation'],
                 ['label' => 'Unmatched Payments', 'url' => 'unmatched_payments'],
                 ['label' => 'Students with Balance', 'url' => 'students_with_balance'],
                 ['label' => 'Uniform Sales', 'url' => 'manage_uniform_sales'],
@@ -578,7 +581,6 @@ return [
             'icon' => 'fas fa-clipboard-check',
             'subitems' => [
                 ['label' => 'View Attendance', 'url' => 'view_attendance'],
-                ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
             ]
         ],
 
@@ -645,7 +647,10 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Academic Reports', 'url' => 'academic_reports'],
+                ['label' => 'Enrollment Reports', 'url' => 'enrollment_reports'],
+                ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
                 ['label' => 'Financial Summary', 'url' => 'finance_reports'],
             ]
         ],
@@ -696,6 +701,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-user-plus',
             'subitems' => [
+                ['label' => 'All Applications & Stages', 'url' => 'admissions_academic_applications'],
                 ['label' => 'Applications Review', 'url' => 'admissions_headteacher_applications'],
                 ['label' => 'Interview Queue', 'url' => 'admission_interviews'],
                 ['label' => 'Admission Decisions', 'url' => 'admissions_admission_decisions'],
@@ -831,6 +837,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Academic Reports', 'url' => 'academic_reports'],
                 ['label' => 'Performance Analysis', 'url' => 'performance_analysis'],
                 ['label' => 'Term Reports', 'url' => 'term_reports'],
@@ -1006,6 +1013,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Academic Reports', 'url' => 'academic_reports'],
                 ['label' => 'Performance Analysis', 'url' => 'performance_analysis'],
                 ['label' => 'Term Reports', 'url' => 'term_reports'],
@@ -1162,6 +1170,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Class Report', 'url' => 'generate_class_report'],
                 ['label' => 'Progress Reports', 'url' => 'student_progress_reports'],
                 ['label' => 'Report Cards', 'url' => 'class_report_cards'],
@@ -1514,6 +1523,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Financial Reports', 'url' => 'finance_reports'],
                 ['label' => 'Payment Reports', 'url' => 'payment_reports'],
                 ['label' => 'Enrollment Finance', 'url' => 'enrollment_reports'],
@@ -1526,6 +1536,7 @@ return [
             'icon' => 'fas fa-shield-alt',
             'subitems' => [
                 ['label' => 'Transaction Approvals', 'url' => 'transaction_approvals'],
+                ['label' => 'KCB Disbursement Reconciliation', 'url' => 'kcb_disbursement_reconciliation'],
                 ['label' => 'Audit Logs', 'url' => 'audit_logs'],
                 ['label' => 'Adjustments', 'url' => 'adjustments'],
                 ['label' => 'Exception Reports', 'url' => 'exception_reports'],
@@ -1625,6 +1636,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Inventory Reports', 'url' => 'inventory_reports'],
                 ['label' => 'Purchase Reports', 'url' => 'purchase_reports'],
             ]
@@ -1697,6 +1709,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Meal Statistics', 'url' => 'meal_statistics'],
                 ['label' => 'Food Consumption', 'url' => 'food_consumption'],
             ]
@@ -2034,6 +2047,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-utensils',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Meal Planning', 'url' => 'catering_boarding_students'],
                 ['label' => 'Food Store', 'url' => 'food_store'],
             ]
@@ -2092,6 +2106,15 @@ return [
     63 => [
         ['label' => 'Dashboard', 'url' => 'deputy_head_discipline_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
         ['label' => 'QR Scanner', 'url' => 'qr-scanner', 'icon' => 'fas fa-qrcode', 'subitems' => []],
+
+        [
+            'label' => 'Admissions',
+            'url' => null,
+            'icon' => 'fas fa-user-plus',
+            'subitems' => [
+                ['label' => 'All Applications & Stages', 'url' => 'admissions_academic_applications'],
+            ],
+        ],
 
         // ── MY TEACHING (daily teacher tasks) ────────────────────────────────
         [
@@ -2230,6 +2253,7 @@ return [
             'url' => null,
             'icon' => 'fas fa-chart-bar',
             'subitems' => [
+                ['label' => 'Analytics Catalogue', 'url' => 'analytics_catalogue'],
                 ['label' => 'Discipline Reports', 'url' => 'discipline_reports'],
                 ['label' => 'Conduct Reports', 'url' => 'conduct_reports'],
                 ['label' => 'Term Summary', 'url' => 'term_reports'],

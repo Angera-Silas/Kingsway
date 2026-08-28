@@ -442,3 +442,5 @@ const ResultsAnalysisController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   ResultsAnalysisController.init(),
 );
+
+window.ResultsAnalysisController = ResultsAnalysisController;

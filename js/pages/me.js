@@ -181,3 +181,5 @@ const ProfileController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => ProfileController.init());
+
+window.ProfileController = ProfileController;

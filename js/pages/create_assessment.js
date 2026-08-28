@@ -323,3 +323,6 @@ const createAssessmentCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', createAssessmentCtrl.init);
+
+window.createAssessmentCtrl = createAssessmentCtrl;
+window.APIRealtime?.register?.(createAssessmentCtrl, createAssessmentCtrl);

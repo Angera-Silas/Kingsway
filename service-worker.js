@@ -63,6 +63,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Real-time event buffers are strictly network-first and never cached. The
+  // buffers are already governed by no-store headers; this guards the fetch
+  // path on the client too so a poll can never be answered from a stale cache.
+  if (/\/buffers\/.+\.json$/i.test(url.pathname)) {
+    event.respondWith(fetch(request, { cache: 'no-store' }).catch(
+      () => new Response('{}', { status: 503, headers: { 'Content-Type': 'application/json' } })
+    ));
+    return;
+  }
+
   // Cache-first only for immutable visual/font assets.
   if (/\.(?:png|jpe?g|gif|svg|ico|webp|woff2?|ttf|eot)$/i.test(url.pathname)) {
     event.respondWith((async () => {
@@ -99,7 +109,68 @@ self.addEventListener('message', (event) => {
       event.ports[0].postMessage({ type: 'CACHE_STATS', data: stats });
     })());
   }
+
+  // Role-scoped real-time buffers to start polling (from realtime_manager).
+  // Payloads never arrive here — only signed static-buffer URLs. The service
+  // worker re-polls them on a jittered 12–18s cycle WITHOUT touching PHP and forwards only
+  // actual changes to controlled clients.
+  if (type === 'REGISTER_BUFFERS' && Array.isArray(event.data?.urls)) {
+    self.__kingswayBuffers = event.data.urls
+      .filter((u) => typeof u === 'string' && u.startsWith('http'))
+      .map((u) => new URL(u, self.location.origin).href);
+    self.__kingswayBufferState = {};
+    if (self.__kingswayBuffers.length && !self.__kingswayPollTimer) {
+      const schedulePoll = async () => {
+        await pollRealTimeBuffers();
+        // Jitter spreads clients across the interval instead of producing a
+        // synchronized static-file spike after login or page refresh. Fifteen
+        // seconds is responsive enough for dashboards without turning 1,000
+        // browsers into a shared-hosting denial of service.
+        const delay = 12000 + Math.floor(Math.random() * 6001);
+        self.__kingswayPollTimer = setTimeout(schedulePoll, delay);
+      };
+      schedulePoll();
+    }
+  }
 });
+
+// Poll role-scoped static buffers and forward only diffs to clients. Uses
+// fetch(no-store) plus the no-store server headers, so each poll returns the
+// freshest buffer the web server has written (zero PHP). Clients receive a
+// change-detected event with the current scope's payloads.
+async function pollRealTimeBuffers() {
+  const buffers = self.__kingswayBuffers || [];
+  if (!buffers.length) return;
+  const results = [];
+  await Promise.all(buffers.map(async (href) => {
+    try {
+      const res = await fetch(href, { cache: 'no-store' });
+      if (!res.ok) return;
+      const body = await res.text();
+      let payload;
+      try { payload = JSON.parse(body); } catch { return; }
+      const key = href;
+      const previous = self.__kingswayBufferState?.[key];
+      const signature = body; // raw text diff, not a security boundary
+      if (previous !== signature) {
+        self.__kingswayBufferState = self.__kingswayBufferState || {};
+        self.__kingswayBufferState[key] = signature;
+        results.push({ url: href, type: 'UPDATE', payload });
+      } else {
+        results.push({ url: href, type: 'NO_CHANGE' });
+      }
+    } catch (ignored) {
+      /* transient network error: skip this tick */
+    }
+  }));
+
+  if (results.length) {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      client.postMessage({ type: 'BUFFER_POLL', data: results });
+    }
+  }
+}
 
 self.addEventListener('push', (event) => {
   const data = (() => { try { return event.data?.json() || {}; } catch { return { body: event.data?.text() }; } })();

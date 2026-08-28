@@ -656,6 +656,9 @@ const PrintManager = (() => {
           `${config.title || "report"}_${new Date().toISOString().slice(0, 10)}`,
           "report",
         ),
+      analytics_run_id: config.analyticsRunId || null,
+      analytics_report_code: config.analyticsReportCode || null,
+      analytics_report_version: config.analyticsReportVersion || null,
     };
   }
 
@@ -1449,6 +1452,31 @@ const PrintManager = (() => {
     );
   }
 
+  async function exportToServerCSV(options = {}) {
+    const config = normalizeConfig(options);
+    if (!Array.isArray(config.rows) || config.rows.length === 0) {
+      notify("warning", "No records are available to export.");
+      return null;
+    }
+    const columns = (config.columns || []).map((column, index) => ({
+      ...normalizeColumn(column, index),
+      __source: typeof column === "string" ? { key: column } : column,
+    }));
+    const common = normalizeReportCommon(config);
+    const payload = {
+      ...common,
+      data: normalizeRowsForServer(config.rows, columns),
+      columns: columns.map(({ __source, ...column }) => column),
+    };
+    try {
+      const response = await request("/api/print/export-csv", payload, config);
+      return handleGeneratedFiles(response, config);
+    } catch (error) {
+      notify("error", error.message || "Unable to export the report CSV.");
+      throw error;
+    }
+  }
+
   /* ==========================================================================
      Dedicated template printing methods
      ========================================================================== */
@@ -1660,6 +1688,7 @@ const PrintManager = (() => {
     printTimetable,
     printMasterTimetable,
     exportToCSV,
+    exportToServerCSV,
 
     handleGeneratedFiles,
     showGeneratedFilesDialog,

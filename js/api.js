@@ -1022,6 +1022,149 @@ const APIState = (() => {
   };
 })();
 
+// Central realtime coordinator for page controllers. apiCall records the GET
+// domains used by the active page; a matching static-buffer event then invokes
+// the page controller's normal loader once (debounced), so controllers do not
+// each implement their own polling loop.
+const APIRealtime = (() => {
+  const dependencies = new Set();
+  const registered = new Map();
+  let refreshTimer = null;
+  let refreshRunning = false;
+  let refreshAgain = false;
+
+  function normalize(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/^\/+api\//, "")
+      .replace(/^\/+/, "")
+      .replace(/[^a-z0-9/_-]/g, "");
+  }
+
+  function track(endpoint) {
+    const clean = normalize(endpoint).split("?")[0];
+    if (!clean || clean.startsWith("auth/") || clean.startsWith("realtime/")) return;
+    const parts = clean.split("/").filter(Boolean);
+    if (!parts.length) return;
+    dependencies.add(parts[0]);
+    if (parts.length > 1) dependencies.add(parts.slice(0, 2).join("/"));
+  }
+
+  function register(name, controller, targets = []) {
+    if (!controller || typeof controller !== "object") return () => {};
+    registered.set(name, { controller, targets: new Set(targets.map(normalize)) });
+    return () => registered.delete(name);
+  }
+
+  function discoverControllers() {
+    const found = [];
+    const seen = new Set();
+    for (const name of Object.getOwnPropertyNames(window)) {
+      if (!/controller$/i.test(name)) continue;
+      let controller;
+      try { controller = window[name]; } catch (_) { continue; }
+      if (!controller || typeof controller !== "object" || seen.has(controller)) continue;
+      seen.add(controller);
+      found.push({ name, controller, targets: new Set() });
+    }
+    return found;
+  }
+
+  function loaderFor(controller) {
+    const methods = [
+      "refreshData", "loadData", "loadDashboardData", "fetchData",
+      "refresh", "load", "reload",
+    ];
+    const loaders = [];
+    for (const method of methods) {
+      const fn = controller?.[method];
+      if (typeof fn === "function" && fn.length === 0) {
+        loaders.push(() => fn.call(controller));
+        break;
+      }
+    }
+    // Reusable tables/widgets are often stored on the page controller rather
+    // than exported globally. Refresh those direct child instances as part of
+    // the same page update.
+    for (const value of Object.values(controller || {})) {
+      if (!value || typeof value !== "object" || value === controller) continue;
+      for (const method of ["refreshData", "loadData", "refresh", "load", "reload"]) {
+        const fn = value?.[method];
+        if (typeof fn === "function" && fn.length === 0) {
+          loaders.push(() => fn.call(value));
+          break;
+        }
+      }
+    }
+    if (!loaders.length) return null;
+    return async () => {
+      for (const load of loaders) await load();
+    };
+  }
+
+  function targetMatches(targets, explicitTargets) {
+    if (!targets.length) return false;
+    const known = new Set([...dependencies, ...explicitTargets]);
+    return targets.some((target) => {
+      const normalized = normalize(target);
+      if (!normalized) return false;
+      const domain = normalized.split("/")[0];
+      return known.has(normalized) || known.has(domain)
+        || [...known].some((dependency) => dependency.startsWith(`${domain}/`));
+    });
+  }
+
+  async function runRefresh(targets) {
+    if (document.visibilityState !== "visible") {
+      refreshAgain = true;
+      return;
+    }
+    if (refreshRunning) {
+      refreshAgain = true;
+      return;
+    }
+    refreshRunning = true;
+    try {
+      const entries = [...registered.values(), ...discoverControllers()];
+      const invoked = new Set();
+      for (const entry of entries) {
+        if (invoked.has(entry.controller) || !targetMatches(targets, entry.targets)) continue;
+        const loader = loaderFor(entry.controller);
+        if (!loader) continue;
+        invoked.add(entry.controller);
+        try { await loader(); }
+        catch (error) { console.warn("[APIRealtime] Page refresh failed:", error); }
+      }
+    } finally {
+      refreshRunning = false;
+      if (refreshAgain) {
+        refreshAgain = false;
+        schedule(targets);
+      }
+    }
+  }
+
+  function schedule(targets = []) {
+    const normalizedTargets = [...new Set(targets.map(normalize).filter(Boolean))];
+    window.clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(() => runRefresh(normalizedTargets), 500);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && refreshAgain) {
+      refreshAgain = false;
+      schedule([...dependencies]);
+    }
+  });
+
+  return { track, register, schedule, dependencies: () => [...dependencies] };
+})();
+
+window.APIRealtime = APIRealtime;
+window.addEventListener("kingsway:data-mutated", (event) => {
+  window.APIRealtime?.schedule?.(Array.isArray(event?.detail?.targets) ? event.detail.targets : []);
+});
+
 // Infer primary resource from endpoint for automatic invalidation
 function inferResourceKey(endpoint = "") {
   const clean = endpoint.split("?")[0].replace(/^\/+/, "");
@@ -1461,6 +1604,11 @@ const ENDPOINT_PERMISSIONS = {
   "/finance/payment-routing-cases-resolve": { POST: "finance_reconcile" },
   "/finance/payment-references": { POST: "finance_create" },
   "/finance/payment-collection-routes": { GET: "finance_view", POST: "finance_create" },
+  "/finance/kcb-disbursements": {
+    GET: "finance_view",
+    POST: ["finance_reconcile", "finance_approve", "finance_manage"],
+  },
+  "/finance/kcb-oauth-revoke": { POST: "system.payment_integrations.configure" },
 
   // M-Pesa (Daraja) outbound API triggers — all require finance permissions.
   // Client-side gate only; server RBAC is enforced in PaymentsController.
@@ -1683,6 +1831,11 @@ const ENDPOINT_PERMISSIONS = {
   // Reports
   "/reports/index": "reports_view",
   "/reports/academic": "reports_view",
+  "/reports/catalogue": "analytics_catalogue_view",
+  "/reports/definition": "analytics_catalogue_view",
+  "/reports/metrics": "analytics_catalogue_view",
+  "/reports/execute": "analytics_report_execute",
+  "/reports/run-status": "analytics_catalogue_view",
 
   // System
   "/system/index": "system_view",
@@ -2259,7 +2412,56 @@ function startSessionActivityTracking() {
 }
 
 // Generic API call function using fetch
-async function apiCall(
+const _apiGetInFlight = new Map();
+const _apiGetQueue = [];
+let _apiActiveGets = 0;
+const API_MAX_CONCURRENT_GETS = 6;
+
+function runBoundedGet(task) {
+  return new Promise((resolve, reject) => {
+    _apiGetQueue.push({ task, resolve, reject });
+    drainBoundedGets();
+  });
+}
+
+function drainBoundedGets() {
+  while (_apiActiveGets < API_MAX_CONCURRENT_GETS && _apiGetQueue.length) {
+    const item = _apiGetQueue.shift();
+    _apiActiveGets++;
+    Promise.resolve()
+      .then(item.task)
+      .then(item.resolve, item.reject)
+      .finally(() => {
+        _apiActiveGets--;
+        drainBoundedGets();
+      });
+  }
+}
+
+async function apiCall(endpoint, method = "GET", data = null, params = {}, options = {}) {
+  const upperMethod = String(method || "GET").toUpperCase();
+  if (upperMethod !== "GET" || options.coalesce === false || options.isDownload) {
+    return apiCallDirect(endpoint, method, data, params, options);
+  }
+
+  const sortedParams = Object.keys(params || {}).sort().reduce((result, key) => {
+    result[key] = params[key];
+    return result;
+  }, {});
+  const userId = AuthContext.getUser?.()?.id ?? 'guest';
+  const key = `${userId}:${String(endpoint)}:${JSON.stringify(sortedParams)}`;
+  if (_apiGetInFlight.has(key)) return _apiGetInFlight.get(key);
+
+  const request = runBoundedGet(() => apiCallDirect(endpoint, method, data, params, options));
+  _apiGetInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    _apiGetInFlight.delete(key);
+  }
+}
+
+async function apiCallDirect(
   endpoint,
   method = "GET",
   data = null,
@@ -2506,6 +2708,10 @@ async function apiCall(
     const result = await readJsonSafely(response, `API ${method} ${endpoint}`);
     const handled = handleApiResponse(result, options.showSuccess !== false);
 
+    if (upperMethod === "GET") {
+      APIRealtime.track(normalizedEndpoint);
+    }
+
     // Auto-invalidate cached data on mutations
     if (MUTATION_METHODS.has(String(method).toUpperCase())) {
       const routeTargets = (options.invalidate || [inferResourceKey(endpoint)])
@@ -2528,6 +2734,12 @@ async function apiCall(
       APIState.invalidateMany(targets.filter(Boolean)).catch((err) => {
         console.warn("Auto-refresh failed for targets:", targets, err);
       });
+
+      // Notify visible dashboard controllers in this tab. They re-fetch and
+      // patch their own cards/charts/tables without reloading the page.
+      window.dispatchEvent(new CustomEvent("kingsway:data-mutated", {
+        detail: { endpoint, method, targets: targets.filter(Boolean) },
+      }));
 
       // Propagate the invalidation to OTHER tabs so they don't keep stale
       // IndexedDB snapshots. Server stays authoritative; this only drops the
@@ -3854,7 +4066,7 @@ window.API = {
     index: async () => apiCall("/attendance/index", "GET"),
     getSessions: async (params = {}) =>
       apiCall("/attendance/sessions", "GET", null, params),
-    getSessionConfig: async () => apiCall("/attendance/session-config", "GET", null, {}, { checkPermission: false }),
+    getSessionConfig: async (params = {}) => apiCall("/attendance/session-config", "GET", null, params, { checkPermission: false }),
     updateSessionConfig: async (id, data) => apiCall(`/attendance/session-config/${id}`, "PUT", data, null, { checkPermission: false }),
     getAcademicSummary: async (params = {}) =>
       apiCall("/attendance/academic-summary", "GET", null, params),
@@ -4575,6 +4787,18 @@ window.API = {
       }),
 
     // Payments
+    getKcbDisbursements: async (params) =>
+      apiCall("/finance/kcb-disbursements", "GET", null, params),
+    checkKcbDisbursementStatus: async (id) =>
+      apiCall(`/finance/kcb-disbursements/${id}/status-inquiry`, "POST", {}),
+    pollKcbDisbursements: async (limit = 25) =>
+      apiCall("/finance/kcb-disbursements/poll", "POST", { limit }),
+    retryKcbDisbursement: async (id) =>
+      apiCall(`/finance/kcb-disbursements/${id}/retry`, "POST", {}),
+    resolveKcbDisbursement: async (id, data) =>
+      apiCall(`/finance/kcb-disbursements/${id}/resolve`, "POST", data),
+    revokeKcbAccessToken: async () =>
+      apiCall("/finance/kcb-oauth-revoke", "POST", {}),
     generateReceipt: async (paymentId) =>
       apiCall("/finance/payments-generate-receipt", "POST", {
         payment_id: paymentId,
@@ -5677,6 +5901,18 @@ window.API = {
   // Reports endpoints
   reports: {
     index: async () => apiCall("/reports/index", "GET"),
+
+    // Governed enterprise analytics
+    getCatalogue: async (params = {}) =>
+      apiCall("/reports/catalogue", "GET", null, params),
+    getDefinition: async (code) =>
+      apiCall(`/reports/definition/${encodeURIComponent(code)}`, "GET"),
+    getMetrics: async (params = {}) =>
+      apiCall("/reports/metrics", "GET", null, params),
+    execute: async (code, filters = {}) =>
+      apiCall(`/reports/execute/${encodeURIComponent(code)}`, "POST", { filters }),
+    getRunStatus: async (runId) =>
+      apiCall(`/reports/run-status/${Number(runId)}`, "GET"),
 
     // Admission reports
     getAdmissionStats: async (params) =>

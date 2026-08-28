@@ -498,3 +498,5 @@ const CBCController = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => await CBCController.init());
+
+window.CBCController = CBCController;

@@ -403,3 +403,5 @@ const expensesController = {
   _set: (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; },
   _esc: s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; },
 };
+
+window.expensesController = expensesController;

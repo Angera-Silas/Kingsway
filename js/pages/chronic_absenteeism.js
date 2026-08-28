@@ -99,3 +99,5 @@ const chronicAbsenteeismController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => chronicAbsenteeismController.init());
+
+window.chronicAbsenteeismController = chronicAbsenteeismController;

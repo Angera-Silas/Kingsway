@@ -478,7 +478,8 @@
         });
     }
 
-    window.extraCharges = { edit: editCharge, submit: submitCharge, approve: approveCharge, reject: rejectCharge, remove: deleteCharge };
+    window.extraCharges = { edit: editCharge, submit: submitCharge, approve: approveCharge, reject: rejectCharge, remove: deleteCharge, load: loadCharges };
+    window.APIRealtime?.register?.('extraCharges', window.extraCharges);
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);

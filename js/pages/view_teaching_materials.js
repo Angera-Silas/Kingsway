@@ -242,3 +242,5 @@ const ViewTeachingMaterialsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => ViewTeachingMaterialsController.init());
+
+window.ViewTeachingMaterialsController = ViewTeachingMaterialsController;

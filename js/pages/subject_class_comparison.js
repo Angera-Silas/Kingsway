@@ -359,3 +359,6 @@ const subjectClassComparisonCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', subjectClassComparisonCtrl.init);
+
+window.subjectClassComparisonCtrl = subjectClassComparisonCtrl;
+window.APIRealtime?.register?.(subjectClassComparisonCtrl, subjectClassComparisonCtrl);

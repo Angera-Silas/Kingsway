@@ -176,6 +176,100 @@ class KcbFundsTransferService
         }
     }
 
+    /**
+     * Query Buni for the final state of a previously accepted transfer.
+     *
+     * The status-inquiry product is a separately subscribed wildcard API. KCB
+     * may return different envelopes by subscription, so normalization is
+     * deliberately conservative: an unfamiliar response is never treated as
+     * a failure and therefore can never unlock an unsafe retry.
+     */
+    public function getTransferStatus(array $data): array
+    {
+        $transactionReference = trim((string) ($data['transaction_reference'] ?? $data['transactionReference'] ?? ''));
+        $merchantId = trim((string) ($data['merchant_id'] ?? $data['merchantId'] ?? ''));
+        if ($transactionReference === '' && $merchantId === '') {
+            throw new Exception('A KCB transaction reference or merchant ID is required for status inquiry.');
+        }
+
+        $payload = ['transactionReference' => $transactionReference];
+        if ($merchantId !== '') {
+            $payload['merchantId'] = $merchantId;
+        }
+        if ($this->companyCode !== '') {
+            $payload['companyCode'] = $this->companyCode;
+        }
+
+        $path = defined('KCB_TRANSFER_STATUS_PATH')
+            ? (string) KCB_TRANSFER_STATUS_PATH
+            : '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0';
+        $response = $this->requestJson($path, $payload);
+        $normalized = $this->normalizeTransferStatusResponse($response);
+        $normalized['request_payload'] = $payload;
+        $normalized['response'] = $response;
+        return $normalized;
+    }
+
+    /** @return array{normalized_status:string,provider_status:string,message:string,transaction_reference:?string,transaction_id:?string,charges:float} */
+    public function normalizeTransferStatusResponse(array $response): array
+    {
+        $flat = $this->flattenResponse($response);
+        $providerStatus = strtoupper(trim((string) (
+            $flat['transactionStatus']
+            ?? $flat['transactionstatus']
+            ?? $flat['statusDescription']
+            ?? $flat['statusdescription']
+            ?? $flat['statusMessage']
+            ?? $flat['statusmessage']
+            ?? $flat['status']
+            ?? ''
+        )));
+        // Do not interpret a generic envelope statusCode/resultCode as the
+        // transfer result; it may only mean that the inquiry itself succeeded.
+        $statusCode = strtoupper(trim((string) ($flat['transactionStatusCode'] ?? '')));
+
+        $successValues = ['SUCCESS', 'SUCCESSFUL', 'COMPLETED', 'COMPLETE', 'PAID', 'PROCESSED'];
+        $failureValues = ['FAILED', 'FAILURE', 'REJECTED', 'DECLINED', 'CANCELLED', 'CANCELED', 'REVERSED'];
+        $pendingValues = ['PENDING', 'PROCESSING', 'IN PROGRESS', 'IN_PROGRESS', 'QUEUED', 'ACCEPTED', 'INITIATED'];
+        if (in_array($providerStatus, $successValues, true) || $statusCode === '0') {
+            $normalized = 'successful';
+        } elseif (in_array($providerStatus, $failureValues, true)) {
+            $normalized = 'failed';
+        } elseif (in_array($providerStatus, $pendingValues, true)) {
+            $normalized = 'pending';
+        } else {
+            $normalized = 'unknown';
+        }
+
+        return [
+            'normalized_status' => $normalized,
+            'provider_status' => $providerStatus,
+            'message' => (string) ($flat['transactionMessage'] ?? $flat['statusDescription'] ?? $flat['statusMessage'] ?? ''),
+            'transaction_reference' => isset($flat['transactionReference']) ? (string) $flat['transactionReference'] : null,
+            'transaction_id' => isset($flat['ftReference']) ? (string) $flat['ftReference'] : (isset($flat['transactionId']) ? (string) $flat['transactionId'] : null),
+            'charges' => (float) ($flat['charges'] ?? 0),
+        ];
+    }
+
+    /**
+     * Revoke the currently cached client-credentials token. This is intended
+     * for credential rotation/security incidents, not after every API call.
+     */
+    public function revokeAccessToken(): array
+    {
+        $token = $this->getAccessToken();
+        $this->requestAbsoluteAllowEmpty($this->revokeEndpoint, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query(['token' => $token, 'token_type_hint' => 'access_token']),
+            CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
+            CURLOPT_USERPWD => $this->consumerKey . ':' . $this->consumerSecret,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'Content-Type: application/x-www-form-urlencoded'],
+        ]);
+        $cacheKey = hash('sha256', $this->baseUrl . '|' . $this->consumerKey);
+        unset(self::$tokenCache[$cacheKey]);
+        return ['revoked' => true, 'revoked_at' => gmdate('c')];
+    }
+
     private function request(string $path, array $options): array
     {
         $url = $this->baseUrl . '/' . ltrim($path, '/');
@@ -238,6 +332,45 @@ class KcbFundsTransferService
             throw new Exception('KCB returned HTTP ' . $httpCode . '.');
         }
         return $decoded;
+    }
+
+    private function requestAbsoluteAllowEmpty(string $url, array $options): void
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, $options + [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ]);
+        $body = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($body === false) {
+            throw new Exception('KCB token revocation failed: ' . $error);
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            throw new Exception('KCB token revocation returned HTTP ' . $httpCode . '.');
+        }
+    }
+
+    /** Flatten provider envelopes while preserving the first occurrence of a key. */
+    private function flattenResponse(array $value): array
+    {
+        $flat = [];
+        $walk = function (array $node) use (&$walk, &$flat): void {
+            foreach ($node as $key => $item) {
+                if (is_array($item)) {
+                    $walk($item);
+                } elseif (!array_key_exists((string) $key, $flat)) {
+                    $flat[(string) $key] = $item;
+                }
+            }
+        };
+        $walk($value);
+        return $flat;
     }
 
     private function jsonHeaders(string $token): array

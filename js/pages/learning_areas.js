@@ -474,3 +474,5 @@ const LearningAreasController = {
 document.addEventListener("DOMContentLoaded", () =>
   LearningAreasController.init(),
 );
+
+window.LearningAreasController = LearningAreasController;

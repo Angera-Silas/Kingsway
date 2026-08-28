@@ -33,7 +33,7 @@
 
 const headteacherDashboardController = {
   runtimeConfig: window.headteacherDashboardConfig || {},
-  period: 'month',
+  period: 'today',
   state: {
     summaryCards: {},
     chartData: {},
@@ -46,7 +46,7 @@ const headteacherDashboardController = {
   charts: {},
 
   config: {
-    refreshInterval: 1800000, // 30 minutes
+    refreshInterval: 300000,
   },
 
   init: async function () {
@@ -449,15 +449,20 @@ const headteacherDashboardController = {
     const attendanceCtx = document.getElementById("attendanceChart");
     if (attendanceCtx && this.state.chartData.attendance_trend) {
       const chartData = this.state.chartData.attendance_trend;
+      const attendanceLabels = chartData.labels || chartData.days || [];
+      const attendanceValues = chartData.data || [];
+      if (!attendanceLabels.length || !attendanceValues.length) {
+        this.showChartEmpty(attendanceCtx);
+      } else {
+      this.clearChartEmpty(attendanceCtx);
       this.charts.attendance = new Chart(attendanceCtx, {
         type: "line",
         data: {
-          labels: chartData.labels ||
-            chartData.days || ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          labels: attendanceLabels,
           datasets: [
             {
               label: "Attendance %",
-              data: chartData.data || [87, 89, 91, 88, 90],
+              data: attendanceValues,
               borderColor: "#0d6efd",
               backgroundColor: "rgba(13, 110, 253, 0.1)",
               fill: true,
@@ -476,20 +481,27 @@ const headteacherDashboardController = {
           },
         },
       });
+      }
     }
 
     // Performance Chart
     const performanceCtx = document.getElementById("performanceChart");
     if (performanceCtx && this.state.chartData.class_performance) {
       const chartData = this.state.chartData.class_performance;
+      const performanceLabels = chartData.labels || [];
+      const performanceValues = chartData.data || [];
+      if (!performanceLabels.length || !performanceValues.length) {
+        this.showChartEmpty(performanceCtx);
+      } else {
+      this.clearChartEmpty(performanceCtx);
       this.charts.performance = new Chart(performanceCtx, {
         type: "bar",
         data: {
-          labels: chartData.labels || ["Form 1", "Form 2", "Form 3", "Form 4"],
+          labels: performanceLabels,
           datasets: [
             {
               label: "Average Score",
-              data: chartData.data || [72, 75, 78, 81],
+              data: performanceValues,
               backgroundColor: "#198754",
               borderColor: "#198754",
               borderWidth: 1,
@@ -505,7 +517,24 @@ const headteacherDashboardController = {
           },
         },
       });
+      }
     }
+  },
+
+  showChartEmpty: function (canvas) {
+    canvas.hidden = true;
+    if (!canvas.parentElement?.querySelector('[data-headteacher-chart-empty]')) {
+      const empty = document.createElement('div');
+      empty.dataset.headteacherChartEmpty = 'true';
+      empty.className = 'h-100 d-flex align-items-center justify-content-center text-muted text-center';
+      empty.textContent = 'No chart data is recorded for this period.';
+      canvas.parentElement?.appendChild(empty);
+    }
+  },
+
+  clearChartEmpty: function (canvas) {
+    canvas.hidden = false;
+    canvas.parentElement?.querySelector('[data-headteacher-chart-empty]')?.remove();
   },
 
   renderTables: function () {
@@ -525,8 +554,8 @@ const headteacherDashboardController = {
           .map(
             (row) => `
                     <tr>
-                        <td>${row.student_name || row.name || "-"}</td>
-                        <td>${row.class_applied || row.form || "-"}</td>
+                        <td>${this.escapeHtml(row.student_name || row.name || "-")}</td>
+                        <td>${this.escapeHtml(row.class_applied || row.form || "-")}</td>
                         <td><small>${this.formatDate(
                           row.submitted_at || row.applied
                         )}</small></td>
@@ -556,10 +585,10 @@ const headteacherDashboardController = {
           .map(
             (row) => `
                     <tr>
-                        <td>${row.student_name || row.student || "-"}</td>
-                        <td>${row.class_name || row.form || "-"}</td>
+                        <td>${this.escapeHtml(row.student_name || row.student || "-")}</td>
+                        <td>${this.escapeHtml(row.class_name || row.form || "-")}</td>
                         <td><small>${
-                          row.violation || row.description || row.offense || "-"
+                          this.escapeHtml(row.violation || row.description || row.offense || "-")
                         }</small></td>
                         <td>
                             <span class="badge bg-${
@@ -568,7 +597,7 @@ const headteacherDashboardController = {
                                 ? "danger"
                                 : "warning"
                             }">
-                                ${row.severity || "Pending"}
+                                ${this.escapeHtml(row.severity || "Pending")}
                             </span>
                         </td>
                     </tr>
@@ -600,13 +629,13 @@ const headteacherDashboardController = {
             (event) => `
                     <li class="list-group-item d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>${event.title || event.name || "-"}</strong>
+                            <strong>${this.escapeHtml(event.title || event.name || "-")}</strong>
                             <br><small class="text-muted">${this.formatDate(
                               event.event_date || event.date
                             )}</small>
                         </div>
                         <span class="badge bg-info">${
-                          event.type || "Event"
+                          this.escapeHtml(event.type || "Event")
                         }</span>
                     </li>
                 `
@@ -646,7 +675,7 @@ const headteacherDashboardController = {
     const errorMsg = document.getElementById("dashboardErrorMessage");
 
     if (errorDiv) {
-      errorDiv.style.display = "block";
+      errorDiv.hidden = false;
       if (errorMsg)
         errorMsg.textContent = message || "Failed to load dashboard data";
     }
@@ -654,7 +683,7 @@ const headteacherDashboardController = {
 
   hideErrorState: function () {
     const errorDiv = document.getElementById("dashboardError");
-    if (errorDiv) errorDiv.style.display = "none";
+    if (errorDiv) errorDiv.hidden = true;
   },
 
   setupEventListeners: function () {
@@ -701,10 +730,18 @@ const headteacherDashboardController = {
   },
 
   setupAutoRefresh: function () {
-    setInterval(() => {
-      console.log("🔄 Auto-refreshing headteacher dashboard...");
-      this.loadDashboardData();
-    }, this.config.refreshInterval);
+    const refresh = () => {
+      if (!document.getElementById("headteacherDashboard")) {
+        clearInterval(this.autoRefreshTimer);
+        return;
+      }
+      if (document.visibilityState === "visible" && !this.state.isLoading) {
+        this.loadDashboardData();
+      }
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("online", refresh);
+    this.autoRefreshTimer = setInterval(refresh, this.config.refreshInterval);
   },
 
   // Utility methods
@@ -731,6 +768,15 @@ const headteacherDashboardController = {
     } catch (e) {
       return date;
     }
+  },
+
+  escapeHtml: function (value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   },
 
   formatTitle: function (key) {

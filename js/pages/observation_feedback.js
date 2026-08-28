@@ -142,3 +142,5 @@ const observationFeedbackController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => observationFeedbackController.init());
+
+window.observationFeedbackController = observationFeedbackController;

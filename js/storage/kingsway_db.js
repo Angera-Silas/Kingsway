@@ -9,7 +9,7 @@ const KingswayDB = (function() {
   ("use strict");
 
   const DB_NAME = "KingswayDB";
-  const DB_VERSION = 10.1; // Increment this when schema changes
+  const DB_VERSION = 10.2; // Increment this when schema changes
 
   let db = null;
 
@@ -84,6 +84,14 @@ const KingswayDB = (function() {
       ],
     },
     reference_activity_types: {
+      keyPath: "id",
+      indexes: [
+        { name: "name", keyPath: "name", unique: false },
+        { name: "cached_at", keyPath: "cached_at", unique: false },
+        { name: "expires_at", keyPath: "expires_at", unique: false },
+      ],
+    },
+    reference_teachers: {
       keyPath: "id",
       indexes: [
         { name: "name", keyPath: "name", unique: false },

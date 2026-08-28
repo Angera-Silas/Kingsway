@@ -319,3 +319,6 @@ const viewResultsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', viewResultsCtrl.init);
+
+window.viewResultsCtrl = viewResultsCtrl;
+window.APIRealtime?.register?.(viewResultsCtrl, viewResultsCtrl);

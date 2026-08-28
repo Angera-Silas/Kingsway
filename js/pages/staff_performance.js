@@ -380,3 +380,4 @@ const StaffPerformanceController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => StaffPerformanceController.init());
+window.StaffPerformanceController = StaffPerformanceController;

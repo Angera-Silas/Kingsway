@@ -917,3 +917,5 @@ const ResourceBasedPermissionsController = {
 document.addEventListener("DOMContentLoaded", () =>
   ResourceBasedPermissionsController.init(),
 );
+
+window.ResourceBasedPermissionsController = ResourceBasedPermissionsController;

@@ -163,3 +163,5 @@ const ImportExistingStudentsController = {
 document.addEventListener("DOMContentLoaded", () =>
   ImportExistingStudentsController.init()
 );
+
+window.ImportExistingStudentsController = ImportExistingStudentsController;

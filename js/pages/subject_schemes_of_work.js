@@ -305,3 +305,5 @@ const SubjectSchemesOfWorkController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => SubjectSchemesOfWorkController.init());
+
+window.SubjectSchemesOfWorkController = SubjectSchemesOfWorkController;

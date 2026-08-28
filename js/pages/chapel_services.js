@@ -364,3 +364,5 @@ const ChapelServicesController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => ChapelServicesController.init());
+
+window.ChapelServicesController = ChapelServicesController;

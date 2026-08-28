@@ -86,7 +86,12 @@
         $('connectSerialScanner').onclick = connectSerialScanner;
         $('operatorScanInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const raw = e.currentTarget.value.trim(); e.currentTarget.value = ''; submitScan(raw); } });
         window.addEventListener('online', () => { setConnectivity(); syncQueue(); loadManifest(); }); window.addEventListener('offline', setConnectivity);
-        setConnectivity(); updateQueueCount(); loadManifest(); setInterval(loadManifest, 10000); setInterval(syncQueue, 15000);
+        setConnectivity(); updateQueueCount(); loadManifest();
+        // Static realtime events refresh the manifest immediately. Keep only a
+        // five-minute repair poll; offline scan synchronization remains local.
+        setInterval(loadManifest, 300000); setInterval(syncQueue, 15000);
     }
+    window.TransportOperatorController = { load: loadManifest };
+    window.APIRealtime?.register?.('TransportOperatorController', window.TransportOperatorController, ['transport']);
     document.addEventListener('DOMContentLoaded', bind);
 })();

@@ -511,3 +511,6 @@ const gradeEntryCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', gradeEntryCtrl.init);
+
+window.gradeEntryCtrl = gradeEntryCtrl;
+window.APIRealtime?.register?.(gradeEntryCtrl, gradeEntryCtrl);

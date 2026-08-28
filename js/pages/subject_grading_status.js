@@ -286,3 +286,6 @@ const subjectGradingStatusCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', subjectGradingStatusCtrl.init);
+
+window.subjectGradingStatusCtrl = subjectGradingStatusCtrl;
+window.APIRealtime?.register?.(subjectGradingStatusCtrl, subjectGradingStatusCtrl);

@@ -190,6 +190,14 @@ if (Config::isDebug()) {
 - `KCB_API_KEY` - API key
 - `KCB_ORGANIZATION_REFERENCE` - Organization reference
 - `KCB_CREDIT_ACCOUNT` - Account number
+- `KCB_TRANSFER_STATUS_PATH` - KCB status-inquiry product path enabled for the application
+- `KCB_STATUS_POLL_MAX_ATTEMPTS` - Bounded automatic inquiries before exception escalation
+- `KCB_STATUS_EXCEPTION_AFTER_MINUTES` - Maximum unresolved age before staff escalation
+- `KCB_RECONCILIATION_WORKER_SECRET` - Dedicated secret for the cron/Apache worker bridge
+
+Run `scripts/process_kcb_disbursement_reconciliation.php` every two minutes from
+cron/systemd. It checks only due pending transfers; callback-completed transfers
+are skipped and unfamiliar provider responses are escalated instead of retried.
 
 ### File Uploads
 - `UPLOAD_PATH` - Base upload directory path

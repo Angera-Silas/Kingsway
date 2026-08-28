@@ -180,3 +180,5 @@ if (document.readyState === 'loading') {
 } else {
   manageArticlesController.init().catch(() => {});
 }
+
+window.manageArticlesController = manageArticlesController;

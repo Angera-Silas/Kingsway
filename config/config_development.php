@@ -41,6 +41,7 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
+require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -48,14 +49,7 @@ require_once __DIR__ . '/upload_paths.php';
 |--------------------------------------------------------------------------
 */
 
-define('SCHOOL_NAME', 'Kingsway Preparatory School');
-define('SCHOOL_CODE', 'KWPS');
-define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
-define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
-define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
-define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
-define('SCHOOL_MOTTO', 'In God We Soar');
+// SCHOOL_* compatibility constants are populated from the database below.
 
 /*
 |--------------------------------------------------------------------------
@@ -99,10 +93,12 @@ try {
           LIMIT 1"
     )->fetch();
     define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity($_db);
     $_db = null;
 } catch (\Exception $_e) {
     define('CURRENT_YEAR', (int) date('Y'));
     define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity(null);
 }
 
 /*
@@ -133,6 +129,11 @@ define(
 );
 define('TFA_ENCRYPTION_KEY', $_ENV['TFA_ENCRYPTION_KEY'] ?? JWT_SECRET);
 define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'localhost');
+
+// Backs the unguessable slugs that secure role-scoped real-time buffer files.
+// Must differ between environments and never be committed; falls back to
+// JWT_SECRET when unset so the feature works out of the box.
+define('REALTIME_BUFFER_SECRET', $_ENV['REALTIME_BUFFER_SECRET'] ?? JWT_SECRET);
 
 
 $authIdleTimeoutSeconds = max(
@@ -394,6 +395,10 @@ define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/req
 define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
 define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
 define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+define('KCB_STATUS_POLL_INITIAL_DELAY_SECONDS', max(60, (int) ($_ENV['KCB_STATUS_POLL_INITIAL_DELAY_SECONDS'] ?? 120)));
+define('KCB_STATUS_POLL_MAX_ATTEMPTS', max(1, (int) ($_ENV['KCB_STATUS_POLL_MAX_ATTEMPTS'] ?? 5)));
+define('KCB_STATUS_EXCEPTION_AFTER_MINUTES', max(5, (int) ($_ENV['KCB_STATUS_EXCEPTION_AFTER_MINUTES'] ?? 60)));
+define('KCB_RECONCILIATION_WORKER_SECRET', $_ENV['KCB_RECONCILIATION_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
 
 define(
     'KCB_PUBLIC_KEY_PATH',

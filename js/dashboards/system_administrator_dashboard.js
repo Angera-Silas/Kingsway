@@ -18,6 +18,8 @@ const SystemAdministratorDashboardController = {
       apiLoad: null,
     },
     failures: [],
+    liveRefreshTimer: null,
+    liveSyncBound: false,
   },
 
   elements: {},
@@ -59,6 +61,7 @@ const SystemAdministratorDashboardController = {
       this.bindEvents();
       this.state.initialized = true;
       await this.loadData();
+      this.startLiveSync();
     } catch (error) {
       console.error(
         "[SystemAdministratorDashboardController] Initialization failed:",
@@ -77,12 +80,6 @@ const SystemAdministratorDashboardController = {
     this.elements = {
       root: document.getElementById("systemAdministratorDashboardPage"),
       state: document.getElementById("systemAdministratorDashboardState"),
-      refreshButton: document.getElementById(
-        "refreshSystemAdministratorDashboardBtn",
-      ),
-      generatedAt: document.getElementById(
-        "systemAdministratorGeneratedAt",
-      ),
       metricCards: document.getElementById(
         "systemAdministratorMetricCards",
       ),
@@ -117,8 +114,6 @@ const SystemAdministratorDashboardController = {
     const required = [
       "root",
       "state",
-      "refreshButton",
-      "generatedAt",
       "metricCards",
       "enabledUsers",
       "enabledUsersNote",
@@ -148,12 +143,26 @@ const SystemAdministratorDashboardController = {
 
   bindEvents() {
     if (this.state.eventsBound) return;
-
-    this.elements.refreshButton.addEventListener("click", () => {
-      void this.loadData();
-    });
-
     this.state.eventsBound = true;
+  },
+
+  startLiveSync() {
+    if (this.state.liveSyncBound) return;
+    this.state.liveSyncBound = true;
+
+    const refresh = () => {
+      if (!document.getElementById("systemAdministratorDashboardPage")) {
+        window.clearInterval(this.state.liveRefreshTimer);
+        return;
+      }
+      if (document.visibilityState === "visible" && !this.state.loading) {
+        void this.loadData({ silent: true });
+      }
+    };
+
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("online", refresh);
+    this.state.liveRefreshTimer = window.setInterval(refresh, 300000);
   },
 
   hasSystemAdministratorAccess() {
@@ -174,14 +183,16 @@ const SystemAdministratorDashboardController = {
     );
   },
 
-  async loadData() {
+  async loadData(options = {}) {
     if (this.state.loading) return;
 
     this.state.loading = true;
     this.state.failures = [];
-    this.setBusy(true);
-    this.showState("Loading live system metrics...", "info");
-    this.renderLoading();
+    if (!options.silent) {
+      this.setBusy(true);
+      this.showState("Loading live system metrics...", "info");
+      this.renderLoading();
+    }
 
     const requests = [
       {
@@ -275,7 +286,7 @@ const SystemAdministratorDashboardController = {
       this.renderUnavailable("System metrics could not be loaded.");
     } finally {
       this.state.loading = false;
-      this.setBusy(false);
+      if (!options.silent) this.setBusy(false);
     }
   },
 
@@ -284,7 +295,6 @@ const SystemAdministratorDashboardController = {
     this.renderActivity();
     this.renderTechnicalChecks();
     this.renderAlerts();
-    this.renderGeneratedAt();
   },
 
   renderMetrics() {
@@ -631,16 +641,6 @@ const SystemAdministratorDashboardController = {
       .join("");
   },
 
-  renderGeneratedAt() {
-    const generatedAt = Object.values(this.state.data)
-      .map((value) => value?.generated_at)
-      .find(Boolean);
-
-    this.elements.generatedAt.textContent = generatedAt
-      ? `Updated ${this.formatDateTime(generatedAt)}`
-      : "";
-  },
-
   renderLoading() {
     [
       this.elements.enabledUsers,
@@ -664,7 +664,6 @@ const SystemAdministratorDashboardController = {
       element.textContent = "Loading...";
     });
 
-    this.elements.generatedAt.textContent = "";
     this.elements.activityCount.textContent = "";
     this.showActivityMessage("Loading authentication activity...");
     this.elements.technicalChecks.innerHTML =
@@ -710,9 +709,6 @@ const SystemAdministratorDashboardController = {
       "warning",
     );
     this.renderUnavailable("System Administrator access is required.");
-    if (this.elements.refreshButton) {
-      this.elements.refreshButton.disabled = true;
-    }
     this.setBusy(false);
   },
 
@@ -741,11 +737,6 @@ const SystemAdministratorDashboardController = {
   setBusy(isBusy) {
     if (this.elements.root) {
       this.elements.root.setAttribute("aria-busy", String(isBusy));
-    }
-    if (this.elements.refreshButton) {
-      this.elements.refreshButton.disabled = isBusy;
-      const icon = this.elements.refreshButton.querySelector("i");
-      icon?.classList.toggle("fa-spin", isBusy);
     }
   },
 

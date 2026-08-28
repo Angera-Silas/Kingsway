@@ -331,3 +331,5 @@ const AlumniController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => AlumniController.init());
+
+window.AlumniController = AlumniController;

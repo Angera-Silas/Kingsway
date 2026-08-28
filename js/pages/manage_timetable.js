@@ -1124,3 +1124,5 @@ const timetableController = (() => {
 })();
 
 document.addEventListener("DOMContentLoaded", () => timetableController.init());
+
+window.timetableController = timetableController;

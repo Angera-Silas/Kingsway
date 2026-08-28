@@ -166,3 +166,5 @@ const ClassCapacityController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => ClassCapacityController.init());
+
+window.ClassCapacityController = ClassCapacityController;

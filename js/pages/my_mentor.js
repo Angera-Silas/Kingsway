@@ -114,3 +114,5 @@ const myMentorController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => myMentorController.init());
+
+window.myMentorController = myMentorController;

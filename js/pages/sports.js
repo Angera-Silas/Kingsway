@@ -460,3 +460,5 @@ const SportsController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => SportsController.init());
+
+window.SportsController = SportsController;

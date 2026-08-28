@@ -46,6 +46,7 @@ define(
 );
 
 require_once __DIR__ . '/upload_paths.php';
+require_once __DIR__ . '/school_identity.php';
 
 /*
 |--------------------------------------------------------------------------
@@ -53,14 +54,7 @@ require_once __DIR__ . '/upload_paths.php';
 |--------------------------------------------------------------------------
 */
 
-define('SCHOOL_NAME', 'Kingsway Preparatory School');
-define('SCHOOL_CODE', 'KWPS');
-define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
-define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
-define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
-define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
-define('SCHOOL_MOTTO', 'In God We Soar');
+// SCHOOL_* compatibility constants are populated from the database below.
 
 /*
 |--------------------------------------------------------------------------
@@ -69,11 +63,14 @@ define('SCHOOL_MOTTO', 'In God We Soar');
 */
 
 define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
-define('DB_USER', $_ENV['DB_USER'] ?? 'kingswa4_root');
-define('DB_NAME', $_ENV['DB_NAME'] ?? 'kingswa4_kingswayacademy');
+define('DB_USER', trim((string) ($_ENV['DB_USER'] ?? '')));
+define('DB_NAME', trim((string) ($_ENV['DB_NAME'] ?? '')));
 define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
-// WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? '');
+
+if (DB_USER === '' || DB_NAME === '' || DB_PASS === '') {
+    throw new \RuntimeException('DB_USER, DB_NAME and DB_PASS must be configured in production.');
+}
 
 try {
     $_db = new \PDO(
@@ -92,10 +89,12 @@ try {
           LIMIT 1"
     )->fetch();
     define('CURRENT_TERM', $_row2 ? (int) $_row2['id'] : (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity($_db);
     $_db = null;
 } catch (\Exception $_e) {
     define('CURRENT_YEAR', (int) date('Y'));
     define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+    loadSchoolIdentity(null);
 }
 
 /*
@@ -140,6 +139,14 @@ define('PASSKEY_RP_ID', $_ENV['PASSKEY_RP_ID'] ?? 'kingswaypreparatoryschool.sc.
 if (strlen((string) TFA_ENCRYPTION_KEY) < 64) {
     throw new \RuntimeException('TFA_ENCRYPTION_KEY must be a 64-character hex key in production.');
 }
+
+// Backs the unguessable slugs that secure role-scoped real-time buffer files.
+// Must be set per environment via .env (recommend: openssl rand -hex 32).
+$realtimeBufferSecret = trim((string) ($_ENV['REALTIME_BUFFER_SECRET'] ?? ''));
+if (strlen($realtimeBufferSecret) < 64) {
+    throw new \RuntimeException('REALTIME_BUFFER_SECRET must be a 64-character random value in production.');
+}
+define('REALTIME_BUFFER_SECRET', $realtimeBufferSecret);
 
 
 $authIdleTimeoutSeconds = max(
@@ -400,6 +407,10 @@ define('KCB_MPESA_EXPRESS_PATH', $_ENV['KCB_MPESA_EXPRESS_PATH'] ?? '/mm/api/req
 define('KCB_MPESA_ROUTE_CODE', $_ENV['KCB_MPESA_ROUTE_CODE'] ?? '207');
 define('KCB_MPESA_OPERATION', $_ENV['KCB_MPESA_OPERATION'] ?? 'STKPush');
 define('KCB_TRANSFER_STATUS_PATH', $_ENV['KCB_TRANSFER_STATUS_PATH'] ?? '/kcb/bi/ips/p2p/transfer/status/inquiry/1.0.0');
+define('KCB_STATUS_POLL_INITIAL_DELAY_SECONDS', max(60, (int) ($_ENV['KCB_STATUS_POLL_INITIAL_DELAY_SECONDS'] ?? 120)));
+define('KCB_STATUS_POLL_MAX_ATTEMPTS', max(1, (int) ($_ENV['KCB_STATUS_POLL_MAX_ATTEMPTS'] ?? 5)));
+define('KCB_STATUS_EXCEPTION_AFTER_MINUTES', max(5, (int) ($_ENV['KCB_STATUS_EXCEPTION_AFTER_MINUTES'] ?? 60)));
+define('KCB_RECONCILIATION_WORKER_SECRET', $_ENV['KCB_RECONCILIATION_WORKER_SECRET'] ?? ($_ENV['COMMUNICATION_WORKER_SECRET'] ?? ''));
 
 define(
     'KCB_PUBLIC_KEY_PATH',

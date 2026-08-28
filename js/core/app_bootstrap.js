@@ -65,6 +65,10 @@ const KingswayBootstrap = (() => {
 
       await safe('service worker', () => window.ServiceWorkerManager?.initialize?.());
 
+      // Static-first role-scoped real-time: hand the Service Worker the signed
+      // buffer URLs the user's roles authorize, so it polls them with zero PHP.
+      await safe('realtime manager', () => window.RealtimeManager?.initialize?.());
+
       window.__APP_BOOTED__ = true;
       const detail = { route, user: window.AuthContext?.getUser?.() || null };
       window.dispatchEvent(new CustomEvent('kingsway:ready', { detail }));

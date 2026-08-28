@@ -181,6 +181,7 @@ $files = [
     'js/core/grading_scale.js',
     'js/core/session_manager.js',
     'js/core/service_worker_manager.js',
+    'js/core/realtime_manager.js',
     'js/core/connectivity_manager.js',
     'js/core/data_store.js',
     'js/core/storage_monitor.js',

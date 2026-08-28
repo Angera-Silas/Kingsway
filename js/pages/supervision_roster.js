@@ -303,3 +303,5 @@ const SupervisionRosterController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => SupervisionRosterController.init());
+
+window.SupervisionRosterController = SupervisionRosterController;

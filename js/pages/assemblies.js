@@ -222,3 +222,5 @@ const AssembliesController = (() => {
     return { init, refresh: loadData, exportCSV, showAddModal, editRecord, saveRecord, deleteRecord };
 })();
 document.addEventListener('DOMContentLoaded', () => AssembliesController.init());
+
+window.AssembliesController = AssembliesController;

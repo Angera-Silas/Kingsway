@@ -364,3 +364,6 @@ const myCatsCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', myCatsCtrl.init);
+
+window.myCatsCtrl = myCatsCtrl;
+window.APIRealtime?.register?.(myCatsCtrl, myCatsCtrl);

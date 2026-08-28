@@ -103,3 +103,5 @@ const AcademicCalendarController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => AcademicCalendarController.init());
+
+window.AcademicCalendarController = AcademicCalendarController;

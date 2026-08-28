@@ -246,3 +246,6 @@ const generateSubjectReportCtrl = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', generateSubjectReportCtrl.init);
+
+window.generateSubjectReportCtrl = generateSubjectReportCtrl;
+window.APIRealtime?.register?.(generateSubjectReportCtrl, generateSubjectReportCtrl);

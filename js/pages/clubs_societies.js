@@ -288,3 +288,5 @@ const ClubsSocietiesController = {
 document.addEventListener("DOMContentLoaded", () =>
   ClubsSocietiesController.init(),
 );
+
+window.ClubsSocietiesController = ClubsSocietiesController;

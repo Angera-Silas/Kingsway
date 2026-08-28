@@ -270,3 +270,5 @@ const payrollController = {
 };
 
 document.addEventListener("DOMContentLoaded", () => payrollController.init());
+
+window.payrollController = payrollController;

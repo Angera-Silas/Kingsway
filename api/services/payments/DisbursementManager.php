@@ -356,6 +356,7 @@ class DisbursementManager
         $this->db->prepare(
             "UPDATE disbursement_transactions
              SET request_id = ?, transaction_ref = ?, status = ?,
+                 reconciliation_status = ?, next_status_inquiry_at = IF(? = 'pending', DATE_ADD(NOW(), INTERVAL 2 MINUTE), NULL),
                  result_description = ?, callback_data = ?,
                  failed_at = IF(? = 'failed', NOW(), failed_at)
              WHERE id = ?"
@@ -363,11 +364,17 @@ class DisbursementManager
             $result['request_id'] ?? null,
             $result['transaction_ref'] ?? null,
             $status === 'processing' ? 'pending' : 'failed',
+            $status === 'processing' ? 'awaiting_callback' : 'manual_review',
+            $status === 'processing' ? 'pending' : 'failed',
             $result['message'] ?? null,
             json_encode($result),
             $status,
             $disbursementId,
         ]);
+        if ($status === 'failed') {
+            (new KcbTransferReconciliationService($this->db, $this->kcbTransfer))
+                ->flagSubmissionException($disbursementId, (string) ($result['message'] ?? 'Submission failed.'));
+        }
         $this->db->prepare(
             "UPDATE payslips
              SET payment_status = ?, payment_reference = ?, paid_at = paid_at,
@@ -403,8 +410,15 @@ class DisbursementManager
     /**
      * Retry a failed payment.
      */
-    public function retryFailedPayment($staffPaymentId)
+    public function retryFailedPayment($staffPaymentId, int $actorUserId = 0)
     {
+        $kcb = $this->db->prepare("SELECT id FROM disbursement_transactions WHERE payslip_id=? AND channel='kcb_bank' ORDER BY id DESC LIMIT 1");
+        $kcb->execute([$staffPaymentId]);
+        $kcbDisbursementId = (int) ($kcb->fetchColumn() ?: 0);
+        if ($kcbDisbursementId > 0) {
+            if ($actorUserId <= 0) throw new Exception('An authorized finance user is required for a KCB retry.');
+            return (new KcbTransferReconciliationService($this->db, $this->kcbTransfer))->retry($kcbDisbursementId, $actorUserId);
+        }
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, p.phone AS phone_number,
                     spp.bank_account AS bank_account_number, spp.bank_name, ps.payment_method

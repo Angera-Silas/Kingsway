@@ -129,3 +129,5 @@ const classParentContactsController = {
 };
 
 document.addEventListener('DOMContentLoaded', () => classParentContactsController.init());
+
+window.classParentContactsController = classParentContactsController;

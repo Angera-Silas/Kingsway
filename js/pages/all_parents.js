@@ -325,3 +325,5 @@ const AllParentsController = {
 document.addEventListener("DOMContentLoaded", () =>
   AllParentsController.init(),
 );
+
+window.AllParentsController = AllParentsController;

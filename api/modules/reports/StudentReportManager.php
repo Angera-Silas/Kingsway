@@ -63,25 +63,53 @@ class StudentReportManager extends BaseAPI
         // per (student, term, class) for class and boarding registers; we roll it up
         // per class/term here.
         try {
+            $where = ["atsa.register_type = 'class'"];
+            $params = [];
+            if (!empty($filters['term_id'])) {
+                $where[] = 'atsa.term_id = ?';
+                $params[] = (int) $filters['term_id'];
+            }
+            if (!empty($filters['class_id'])) {
+                $where[] = 'atsa.class_id = ?';
+                $params[] = (int) $filters['class_id'];
+            }
+            if (!empty($filters['stream_id'])) {
+                $where[] = "EXISTS (
+                    SELECT 1
+                    FROM student_academic_enrollments sae
+                    JOIN academic_year_class_streams aycs
+                      ON aycs.id = sae.academic_year_class_stream_id
+                    JOIN academic_year_classes ayc
+                      ON ayc.id = aycs.academic_year_class_id
+                    WHERE sae.student_id = atsa.student_id
+                      AND sae.academic_year_id = atsa.academic_year_id
+                      AND ayc.class_id = atsa.class_id
+                      AND aycs.stream_id = ?
+                      AND sae.status IN ('active','completed','transferred','graduated')
+                )";
+                $params[] = (int) $filters['stream_id'];
+            }
             $sql = "SELECT
-                        class_id,
-                        class_name,
-                        term_id,
-                        term_number,
-                        term_name,
-                        SUM(class_days_marked) AS total_records,
-                        SUM(class_days_present) AS present_days,
+                        atsa.class_id,
+                        atsa.class_name,
+                        atsa.term_id,
+                        atsa.term_number,
+                        atsa.term_name,
+                        SUM(atsa.class_days_marked) AS total_records,
+                        SUM(atsa.class_days_present) AS present_days,
                         ROUND(
-                            SUM(class_days_present) * 100.0 / NULLIF(SUM(class_days_marked), 0),
+                            SUM(atsa.class_days_present) * 100.0 / NULLIF(SUM(atsa.class_days_marked), 0),
                             2
                         ) AS attendance_rate
-                    FROM vw_student_term_attendance_summary
-                    WHERE register_type = 'class'
-                    GROUP BY class_id, class_name, term_id, term_number, term_name
-                    ORDER BY class_name, term_number";
-            $stmt = $this->db->query($sql);
+                    FROM vw_student_term_attendance_summary atsa
+                    WHERE " . implode(' AND ', $where) . "
+                    GROUP BY atsa.class_id, atsa.class_name, atsa.term_id, atsa.term_number, atsa.term_name
+                    ORDER BY atsa.class_name, atsa.term_number";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
+            error_log('[StudentReportManager::getAttendanceRates] ' . $e->getMessage());
             return [];
         }
     }
@@ -140,6 +168,21 @@ class StudentReportManager extends BaseAPI
         // CBC grade (EE/ME/AE/BE) distribution from percentage-normalized results
         // via vw_assessment_results_detail (marks/max_marks -> percentage -> band).
         try {
+            $where = [];
+            $params = [];
+            if (!empty($filters['term_id'])) {
+                $where[] = 'term_id = ?';
+                $params[] = (int) $filters['term_id'];
+            }
+            if (!empty($filters['class_id'])) {
+                $where[] = 'class_id = ?';
+                $params[] = (int) $filters['class_id'];
+            }
+            if (!empty($filters['stream_id'])) {
+                $where[] = 'stream_id = ?';
+                $params[] = (int) $filters['stream_id'];
+            }
+            $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
             $sql = "SELECT
                         year_code AS academic_year,
                         term_number,
@@ -147,11 +190,14 @@ class StudentReportManager extends BaseAPI
                         COUNT(*) AS student_count,
                         ROUND(AVG(percentage), 2) AS avg_score
                     FROM vw_assessment_results_detail
+                    {$whereSql}
                     GROUP BY year_code, term_number, grade_band
                     ORDER BY year_code DESC, term_number, grade_band";
-            $stmt = $this->db->query($sql);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
+            error_log('[StudentReportManager::getScoreDistributions] ' . $e->getMessage());
             return [];
         }
     }
@@ -183,6 +229,7 @@ class StudentReportManager extends BaseAPI
         try {
             $termId  = $filters['term_id']  ?? null;
             $classId = $filters['class_id'] ?? null;
+            $streamId = $filters['stream_id'] ?? null;
             $where   = [];
             $params  = [];
             if ($termId) {
@@ -191,26 +238,32 @@ class StudentReportManager extends BaseAPI
             }
             if ($classId) {
                 $where[] = 'class_id = ?';
-                $params[] = $classId;
+                $params[] = (int) $classId;
+            }
+            if ($streamId) {
+                $where[] = 'stream_id = ?';
+                $params[] = (int) $streamId;
             }
             $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
             $sql = "SELECT
                         year_code AS academic_year,
                         term_number,
                         class_name,
+                        stream_name,
                         COUNT(DISTINCT student_academic_enrollment_id) AS student_count,
                         ROUND(AVG(percentage), 2) AS avg_score,
                         ROUND(MAX(percentage), 2) AS max_score,
                         ROUND(MIN(percentage), 2) AS min_score,
-                        SUM(CASE WHEN percentage >= 50 THEN 1 ELSE 0 END) AS passing_count
+                        SUM(CASE WHEN grade_band IN ('ME','EE') THEN 1 ELSE 0 END) AS meeting_or_exceeding_count
                     FROM vw_assessment_results_detail
                     {$whereSql}
-                    GROUP BY year_code, term_number, class_id, class_name
-                    ORDER BY year_code DESC, term_number, class_name";
+                    GROUP BY year_code, term_number, class_id, class_name, stream_id, stream_name
+                    ORDER BY year_code DESC, term_number, class_name, stream_name";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } catch (\Exception $e) {
+            error_log('[StudentReportManager::getExamReports] ' . $e->getMessage());
             return [];
         }
     }

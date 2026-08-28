@@ -241,3 +241,5 @@ const AssignSubjectsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => AssignSubjectsController.init());
+
+window.AssignSubjectsController = AssignSubjectsController;

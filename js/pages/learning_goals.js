@@ -181,3 +181,5 @@ const learningGoalsController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => learningGoalsController.init());
+
+window.learningGoalsController = learningGoalsController;

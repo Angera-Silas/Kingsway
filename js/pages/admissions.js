@@ -2947,3 +2947,5 @@ if (document.readyState === "loading") {
 } else {
   bootstrapAdmissionsController();
 }
+
+window.bootstrapAdmissionsController = bootstrapAdmissionsController;

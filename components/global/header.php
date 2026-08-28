@@ -14,7 +14,7 @@
         </button>
 
         <div class="app-header-copy">
-            <span class="app-header-kicker">Welcome back</span>
+            <span class="app-header-kicker" id="header-greeting">Welcome back</span>
             <strong id="header-user-role">User</strong>
         </div>
     </div>

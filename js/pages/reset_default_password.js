@@ -33,3 +33,5 @@ if (document.readyState === 'loading') {
 } else {
     resetDefaultPasswordController.init().catch(() => {});
 }
+
+window.resetDefaultPasswordController = resetDefaultPasswordController;

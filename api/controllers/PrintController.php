@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\API\Controllers\BaseController;
 use App\API\Modules\students\PortfolioManager;
+use App\API\Services\AnalyticsExportAuditService;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -22,11 +23,13 @@ use function App\API\Includes\formatResponse;
 class PrintController extends BaseController
 {
     private $portfolioManager;
+    private AnalyticsExportAuditService $analyticsExports;
 
     public function __construct()
     {
         parent::__construct();
         $this->portfolioManager = new PortfolioManager($this->db->getConnection());
+        $this->analyticsExports = new AnalyticsExportAuditService($this->db->getConnection());
     }
 
     private function guardPrint(): ?array
@@ -70,8 +73,19 @@ class PrintController extends BaseController
             if (empty($data['columns'])) {
                 return formatResponse(false, null, 'No columns provided');
             }
+
+            $analyticsAuthorization = $this->authorizeGovernedExport($data, 'pdf');
             
             $pdfPath = $this->prints()->printTable($data['rows'], $data);
+            $analyticsAudit = $analyticsAuthorization
+                ? $this->analyticsExports->record(
+                    $analyticsAuthorization,
+                    $this->user,
+                    $pdfPath,
+                    'pdf',
+                    'application/pdf'
+                )
+                : null;
             
             // Convert to relative URL
             $pdfUrl = $this->getPrintUrl($pdfPath);
@@ -92,10 +106,15 @@ class PrintController extends BaseController
                 'pdf_url' => $pdfUrl,
                 'download_url' => $pdfUrl,
                 'filename' => basename($pdfPath),
+                'analytics_audit' => $analyticsAudit,
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
             error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ((int) $e->getCode() === 401) return $this->unauthorized($e->getMessage());
+            if ((int) $e->getCode() === 403) return $this->forbidden($e->getMessage());
+            if ((int) $e->getCode() === 409) return $this->conflict($e->getMessage());
+            if ((int) $e->getCode() === 422) return $this->unprocessable($e->getMessage());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -703,9 +722,20 @@ return formatResponse(false, null, 'An internal error occurred.');
             if (empty($data['data'])) {
                 return formatResponse(false, null, 'No data provided');
             }
+
+            $analyticsAuthorization = $this->authorizeGovernedExport($data, 'csv');
             
             $filename = $data['filename'] ?? 'export';
             $csvPath = $this->prints()->exportCSV($data['data'], $filename);
+            $analyticsAudit = $analyticsAuthorization
+                ? $this->analyticsExports->record(
+                    $analyticsAuthorization,
+                    $this->user,
+                    $csvPath,
+                    'csv',
+                    'text/csv'
+                )
+                : null;
             
             // Convert to relative URL
             $csvUrl = $this->getGeneratedDownloadUrl($csvPath);
@@ -726,10 +756,15 @@ return formatResponse(false, null, 'An internal error occurred.');
                 'csv_url' => $csvUrl,
                 'download_url' => $csvUrl,
                 'filename' => basename($csvPath),
+                'analytics_audit' => $analyticsAudit,
             ], 'CSV exported successfully');
             
         } catch (\Exception $e) {
             error_log('[PrintController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            if ((int) $e->getCode() === 401) return $this->unauthorized($e->getMessage());
+            if ((int) $e->getCode() === 403) return $this->forbidden($e->getMessage());
+            if ((int) $e->getCode() === 409) return $this->conflict($e->getMessage());
+            if ((int) $e->getCode() === 422) return $this->unprocessable($e->getMessage());
 return formatResponse(false, null, 'An internal error occurred.');
         }
     }
@@ -758,6 +793,21 @@ return formatResponse(false, null, 'An internal error occurred.');
         return $this->downloads()->generatedDownloadUrlForAbsolutePath(
             $path,
             1800
+        );
+    }
+
+    private function authorizeGovernedExport(array $data, string $format): ?array
+    {
+        if (empty($data['analytics_run_id'])) {
+            return null;
+        }
+        if (!is_numeric($data['analytics_run_id']) || (int) $data['analytics_run_id'] < 1) {
+            throw new \RuntimeException('Valid governed report run ID is required.', 422);
+        }
+        return $this->analyticsExports->authorize(
+            (int) $data['analytics_run_id'],
+            $this->user,
+            $format
         );
     }
 }

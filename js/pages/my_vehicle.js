@@ -293,5 +293,7 @@
         }
     };
 
+    window.MyVehicleController = Controller;
+    window.APIRealtime?.register?.('MyVehicleController', Controller);
     document.addEventListener('DOMContentLoaded', () => Controller.init());
 })();

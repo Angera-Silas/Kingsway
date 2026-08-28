@@ -454,3 +454,6 @@ const accountSettings = {
 
 // Auto-init after DOM is ready
 document.addEventListener('DOMContentLoaded', () => accountSettings.init());
+
+window.accountSettings = accountSettings;
+window.APIRealtime?.register?.(accountSettings, accountSettings);

@@ -222,3 +222,5 @@ const LessonPlansByClassController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   LessonPlansByClassController.init(),
 );
+
+window.LessonPlansByClassController = LessonPlansByClassController;

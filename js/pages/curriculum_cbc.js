@@ -323,3 +323,5 @@ const CurriculumCBCController = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', async () => await CurriculumCBCController.init());
+
+window.CurriculumCBCController = CurriculumCBCController;

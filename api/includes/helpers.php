@@ -551,3 +551,17 @@ function sql_coalesce_existing_columns(string $table, array $candidates = ['amou
     $cache[$key] = ['expr' => $expr, 'ts' => time()];
     return $expr;
 }
+
+/**
+ * Render a Blade-like view with data.
+ *
+ * Convenience wrapper around View::make($path, $data)->render().
+ *
+ * @param string $path Template path (resolved from views/ at repo root, or absolute).
+ * @param array  $data Data exposed to the template.
+ * @return string Rendered HTML.
+ */
+function view(string $path, array $data = []): string
+{
+    return \App\API\Services\View::make($path, $data)->render();
+}

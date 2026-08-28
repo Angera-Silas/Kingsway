@@ -1076,3 +1076,5 @@ const UniformSalesController = {
 document.addEventListener('DOMContentLoaded', () => {
     UniformSalesController.init();
 });
+
+window.UniformSalesController = UniformSalesController;

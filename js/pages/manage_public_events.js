@@ -141,3 +141,5 @@ if (document.readyState === 'loading') {
 } else {
   managePublicEventsController.init().catch(() => {});
 }
+
+window.managePublicEventsController = managePublicEventsController;

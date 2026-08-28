@@ -937,3 +937,6 @@ document.addEventListener("DOMContentLoaded", () => {
   window.boardingRollCall = BoardingRollCall;
   BoardingRollCall.init();
 });
+
+window.BoardingRollCall = BoardingRollCall;
+window.APIRealtime?.register?.(BoardingRollCall, BoardingRollCall);
