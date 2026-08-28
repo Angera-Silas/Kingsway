@@ -148,9 +148,9 @@ ADMISSION_SUBMISSION_PROCESS.md
 Kingsway.code-workspace
 KEELCODE.md
 docs
-buffers/
-!buffers/.htaccess
-!config/.htaccess
+/buffers/*
+!/buffers/.htaccess
+!/config/.htaccess
 
 # --------------------------------------------------------
 # Binaries and OS-specific files
